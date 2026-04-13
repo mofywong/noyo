@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 654 696" width="100%" height="100%">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600&amp;display=swap');
+    </style>
+    <linearGradient id="iconGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#013D9A" />
+      <stop offset="100%" stop-color="#0672C0" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Transparent background is default, no rect needed -->
+  
+  <!-- Group to center everything -->
+  <g transform="translate(0, 72.5)">
+    <!-- Logo Path -->
+    <path d="M 167.99 19.40 Q 156.00 19.00, 155.74 31.00 L 148.26 372.00 Q 148.00 384.00, 159.55 387.24 L 193.45 396.76 Q 205.00 400.00, 213.10 391.15 L 239.90 361.85 Q 248.00 353.00, 247.89 341.00 L 247.11 256.00 Q 247.00 244.00, 241.30 233.44 L 191.70 141.56 Q 186.00 131.00, 193.84 140.09 L 398.16 376.91 Q 406.00 386.00, 418.00 386.13 L 484.00 386.87 Q 496.00 387.00, 496.30 375.00 L 504.70 40.00 Q 505.00 28.00, 493.76 23.81 L 457.24 10.19 Q 446.00 6.00, 437.70 14.66 L 408.30 45.34 Q 400.00 54.00, 400.22 66.00 L 401.78 152.00 Q 402.00 164.00, 407.90 174.45 L 461.10 268.55 Q 467.00 279.00, 459.18 269.90 L 253.82 31.10 Q 246.00 22.00, 234.01 21.60 Z" fill="url(#iconGrad)" />
+    
+    <!-- Text Noyo -->
+    <text x="327" y="510" font-family="Montserrat, Arial, sans-serif" font-size="140" font-weight="600" fill="#444444" text-anchor="middle" letter-spacing="2">Noyo</text>
+  </g>
+</svg>

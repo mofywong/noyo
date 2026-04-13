@@ -1,0 +1,17 @@
+<svg width="204" height="200" viewBox="0 0 204 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="204" height="200" fill="#ffffff" rx="12"/>
+  
+  <!-- IOT Text -->
+  <text x="102" y="110" font-family="Arial, sans-serif" font-size="52" font-weight="300" text-anchor="middle" fill="#2c3e50">IOT</text>
+  
+  <!-- Simple connection dots -->
+  <circle cx="102" cy="50" r="4" fill="#3498db"/>
+  <circle cx="60" cy="150" r="4" fill="#e74c3c"/>
+  <circle cx="144" cy="150" r="4" fill="#2ecc71"/>
+  
+  <!-- Minimal connection lines -->
+  <line x1="102" y1="50" x2="102" y2="80" stroke="#bdc3c7" stroke-width="2"/>
+  <line x1="102" y1="130" x2="60" y2="150" stroke="#bdc3c7" stroke-width="2"/>
+  <line x1="102" y1="130" x2="144" y2="150" stroke="#bdc3c7" stroke-width="2"/>
+</svg>
