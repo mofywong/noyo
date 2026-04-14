@@ -40,18 +40,27 @@ func (s *Server) SetUI(uiFS fs.FS) {
 }
 
 // NewServer creates a new server instance
-func NewServer() *Server {
-	// Load Config first to initialize logger
-	cfg, err := config.LoadConfig("config.yaml")
+func NewServer() (*Server, error) {
+	// 0. Init Database
+	// Default to sqlite with file noyo.db
+	if err := store.InitDB("./data/db/noyo.db"); err != nil {
+		return nil, err
+	}
+
+	// 1. Load Config from Database
+	cfg, err := store.LoadGlobalConfig()
 	if err != nil {
-		// Can't log using new logger yet, but we can print or use default config
+		// If not found or error, use default and save it
 		cfg = config.DefaultConfig()
+		if saveErr := store.SaveGlobalConfig(cfg); saveErr != nil {
+			// ignore save error, just use default
+		}
 	}
 
 	logger := InitLogger(cfg.Log)
 
-	if err != nil {
-		logger.Warn("Failed to load config.yaml, using defaults", zap.Error(err))
+	if err != nil && err.Error() != "record not found" {
+		logger.Warn("Failed to load global config from db, using defaults", zap.Error(err))
 	}
 
 	s := &Server{
@@ -64,7 +73,7 @@ func NewServer() *Server {
 	s.TSDB = tsdb.NewManager(cfg.TSDB, logger)
 	s.DeviceManager.TSDB = s.TSDB // Inject TSDB into DeviceManager
 
-	return s
+	return s, nil
 }
 
 // Run starts the server and blocks until an interrupt signal is received
@@ -97,6 +106,8 @@ func (s *Server) Run() error {
 	})
 
 	// System Settings / Logs
+	s.WebServer.BindHandler("GET:/api/system/config", s.handleGetSystemConfig)
+	s.WebServer.BindHandler("POST:/api/system/config", s.handleUpdateSystemConfig)
 	s.WebServer.BindHandler("GET:/api/system/log/config", s.handleGetLogConfig)
 	s.WebServer.BindHandler("POST:/api/system/log/config", s.handleUpdateLogConfig)
 	s.WebServer.BindHandler("GET:/api/system/log/files", s.handleListLogFiles)
@@ -143,12 +154,6 @@ func (s *Server) Run() error {
 		})
 	}
 
-	// 0. Init Database
-	// Default to sqlite with file noyo.db
-	if err := store.InitDB("./data/db/noyo.db"); err != nil {
-		s.Logger.Error("Failed to init database", zap.Error(err))
-		return err
-	}
 	defer store.CloseDB()
 
 	// 1. Init Plugins
@@ -227,58 +232,68 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 		Icon                    string              `json:"icon"` // Base64 encoded icon
 		Schema                  *PluginConfigSchema `json:"schema"`
 		ProtocolMappingRequired *bool               `json:"protocolMappingRequired,omitempty"` // 协议映射是否需要
+		IsPro                   bool                `json:"isPro"`
+		IsUnauthorized          bool                `json:"isUnauthorized"`
 	}
 
 	summary := make([]PluginSummary, 0)
-	for _, p := range s.Manager.GetPlugins() {
-		meta := p.GetMeta()
+	
+	for _, meta := range pluginMetas {
 		if meta.Name == "license_auth" {
 			continue // Hide license_auth plugin from the marketplace
 		}
 
-		// Filter out plugins using the registered PluginFilters (e.g. for professional edition)
-		if !s.Manager.IsAllowed(*meta) {
-			continue
-		}
-
-		schema := GetPluginConfigSchema(p)
-
-		status := "stopped"
-		if p.IsEnabled() {
-			status = "running"
-		}
+		isPro := meta.Name == "ai_predict" || meta.Name == "ai_copilot" || strings.EqualFold(meta.Name, "script")
+		isAllowed := s.Manager.IsAllowed(meta)
+		isUnauthorized := isPro && !isAllowed
 
 		// Prepare icon string
 		iconStr := ""
 		if len(meta.Icon) > 0 {
-			// Check if it's SVG (simple check)
-			// Or just assume it's data URI compatible
-			// Let's assume the plugin provides valid image data.
-			// We wrap it in data URI.
-			// Since we used .svg files, let's default to svg+xml
-			// If we wanted to support png, we might need file extension in meta or magic number detection
-			// For now, let's try to detect if it starts with <svg
 			mimeType := "image/svg+xml"
-			// Simple magic bytes check could be added here if needed
-
 			base64Icon := base64.StdEncoding.EncodeToString(meta.Icon)
 			iconStr = "data:" + mimeType + ";base64," + base64Icon
 		}
 
-		ps := PluginSummary{
-			Name:        meta.Name,
-			Title:       meta.Title,
-			Description: meta.Description,
-			Status:      status,
-			Category:    meta.Category,
-			Icon:        iconStr,
-			Schema:      schema,
-		}
+		var ps PluginSummary
+		p := s.Manager.GetPlugin(meta.Name)
+		
+		if p != nil {
+			schema := GetPluginConfigSchema(p)
+			status := "stopped"
+			if p.IsEnabled() {
+				status = "running"
+			}
 
-		// 如果是协议插件，添加 protocolMappingRequired 标志
-		if pp, ok := p.(protocol.IProtocolPlugin); ok {
-			v := pp.ProtocolMappingRequired()
-			ps.ProtocolMappingRequired = &v
+			ps = PluginSummary{
+				Name:           meta.Name,
+				Title:          meta.Title,
+				Description:    meta.Description,
+				Status:         status,
+				Category:       meta.Category,
+				Icon:           iconStr,
+				Schema:         schema,
+				IsPro:          isPro,
+				IsUnauthorized: isUnauthorized,
+			}
+
+			if pp, ok := p.(protocol.IProtocolPlugin); ok {
+				v := pp.ProtocolMappingRequired()
+				ps.ProtocolMappingRequired = &v
+			}
+		} else {
+			// Plugin is not instantiated (could be unauthorized pro plugin)
+			ps = PluginSummary{
+				Name:           meta.Name,
+				Title:          meta.Title,
+				Description:    meta.Description,
+				Status:         "stopped",
+				Category:       meta.Category,
+				Icon:           iconStr,
+				Schema:         nil,
+				IsPro:          isPro,
+				IsUnauthorized: isUnauthorized,
+			}
 		}
 
 		summary = append(summary, ps)

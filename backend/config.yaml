@@ -1,9 +1,0 @@
-server:
-  port: 8989
-
-tsdb:
-  enabled: true
-  dir: "./data/db/history"
-  retention_days: 90
-  batch_size: 100
-  flush_interval_ms: 1000

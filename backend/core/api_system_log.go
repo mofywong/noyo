@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"noyo/core/config"
+	"noyo/core/store"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,8 +34,8 @@ func (s *Server) handleUpdateLogConfig(r *ghttp.Request) {
 	// Update config in memory
 	s.Config.Log = req
 
-	// Save to config.yaml
-	if err := config.SaveConfig("config.yaml", s.Config); err != nil {
+	// Save to database
+	if err := store.SaveGlobalConfig(s.Config); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to save config: " + err.Error()})
 		return
 	}
