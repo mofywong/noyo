@@ -50,6 +50,9 @@
       <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Settings' }" @click.prevent="navigate('/settings')">
         <i class="bi bi-gear"></i> <span>{{ $t('sidebar_settings') }}</span>
       </a>
+      <a v-if="isPro" href="#" class="nav-link" :class="{ active: currentRouteName === 'License' }" @click.prevent="navigate('/license')">
+        <i class="bi bi-shield-check"></i> <span>{{ $t('license_info', '授权信息') }}</span>
+      </a>
       <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Logs' }" @click.prevent="navigate('/logs')">
         <i class="bi bi-journal-text"></i> <span>{{ $t('sidebar_logs') }}</span>
       </a>
@@ -58,9 +61,10 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter, useRoute } from 'vue-router';
+import axios from 'axios';
 
 const props = defineProps({
   isOpen: Boolean,
@@ -73,6 +77,19 @@ const emit = defineEmits(['navigate']);
 const { t, locale } = useI18n();
 const router = useRouter();
 const route = useRoute();
+
+const isPro = ref(false);
+
+onMounted(async () => {
+  try {
+    const res = await axios.get('/api/extension/license/status');
+    if (res.data && res.data.code === 200) {
+      isPro.value = true;
+    }
+  } catch (e) {
+    isPro.value = false;
+  }
+});
 
 const currentRouteName = computed(() => route.name);
 const currentRouteParams = computed(() => route.params);

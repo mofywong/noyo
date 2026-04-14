@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"net/http"
 	"noyo/core/config"
 	"noyo/core/protocol"
 	"noyo/core/store"
 	"noyo/core/system"
 	"noyo/core/tsdb"
 	"noyo/core/types"
-	"net/http"
+
 	"os"
 	"os/signal"
 	"strings"
@@ -231,6 +232,15 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 	summary := make([]PluginSummary, 0)
 	for _, p := range s.Manager.GetPlugins() {
 		meta := p.GetMeta()
+		if meta.Name == "license_auth" {
+			continue // Hide license_auth plugin from the marketplace
+		}
+
+		// Filter out plugins using the registered PluginFilters (e.g. for professional edition)
+		if !s.Manager.IsAllowed(*meta) {
+			continue
+		}
+
 		schema := GetPluginConfigSchema(p)
 
 		status := "stopped"

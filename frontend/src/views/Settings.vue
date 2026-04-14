@@ -2,6 +2,7 @@
   <div class="settings-container">
     <h4 class="mb-4">{{ $t('sidebar_settings') }}</h4>
 
+    <!-- Log Config Card -->
     <div class="card border-0 shadow-sm mb-4">
       <div class="card-header bg-transparent border-bottom-0 pt-4 pb-0">
         <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>{{ $t('log_config') }}</h5>

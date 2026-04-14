@@ -37,7 +37,8 @@ coverage.*
 profile.cov
 go.work
 go.work.sum
-
+*.lic
+*.noyo_machine_id
 # Custom NOYO files
 /backend/noyo-*-pro*
 /backend/data/db/
@@ -45,7 +46,9 @@ go.work.sum
 /backend/dist/
 /frontend/dist/
 /backend/gobacnet.log
-
+/backend/plugins/pro/
+/frontend/src/plugins/pro/
+/backend/noyo-*
 # Environments
 .env
 .env.local

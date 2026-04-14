@@ -163,6 +163,10 @@ func (c *PlatformContextImpl) GetConfig() map[string]interface{} {
 	return c.config
 }
 
+func (c *PlatformContextImpl) GetCoreServer() interface{} {
+	return c.server
+}
+
 func (c *PlatformContextImpl) LogInfo(msg string, fields ...interface{}) {
 	c.logger.Sugar().Infow(msg, fields...)
 }
