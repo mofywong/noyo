@@ -2,6 +2,8 @@ package store
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -14,6 +16,13 @@ var DB *gorm.DB
 // InitDB initializes the database
 func InitDB(dsn string) error {
 	var err error
+
+	// Ensure the directory for the database file exists
+	dbDir := filepath.Dir(dsn)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
+	}
+
 	// Use pure go sqlite
 	DB, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -30,7 +39,7 @@ func InitDB(dsn string) error {
 	sqlDB.SetConnMaxLifetime(time.Hour) // Connection max lifetime
 
 	// AutoMigrate can be added here if we have models
-	err = DB.AutoMigrate(&PluginModel{}, &Product{}, &Device{})
+	err = DB.AutoMigrate(&PluginModel{}, &Product{}, &Device{}, &SystemConfig{})
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}

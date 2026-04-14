@@ -37,12 +37,17 @@ type IManagedPlugin interface {
 	Stop() error
 }
 
+// PluginFilter is a function that decides if a plugin should be loaded or exposed.
+// Returns true to allow the plugin, false to block/hide it.
+type PluginFilter func(meta PluginMeta) bool
+
 // PluginManager manages the lifecycle of plugins
 type PluginManager struct {
 	Server          *Server
 	ProtocolPlugins map[string]protocol.IProtocolPlugin
 	PlatformPlugins map[string]platform.IPlatformPlugin
 	mu              sync.RWMutex
+	filters         []PluginFilter
 }
 
 func NewPluginManager(s *Server) *PluginManager {
@@ -50,7 +55,27 @@ func NewPluginManager(s *Server) *PluginManager {
 		Server:          s,
 		ProtocolPlugins: make(map[string]protocol.IProtocolPlugin),
 		PlatformPlugins: make(map[string]platform.IPlatformPlugin),
+		filters:         make([]PluginFilter, 0),
 	}
+}
+
+// AddFilter registers a new plugin filter
+func (pm *PluginManager) AddFilter(f PluginFilter) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.filters = append(pm.filters, f)
+}
+
+// IsAllowed checks if a plugin is allowed to be loaded/exposed
+func (pm *PluginManager) IsAllowed(meta PluginMeta) bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	for _, f := range pm.filters {
+		if !f(meta) {
+			return false
+		}
+	}
+	return true
 }
 
 // createInstance creates and initializes a plugin instance
@@ -171,10 +196,56 @@ func (pm *PluginManager) mapConfigToStruct(pluginVal reflect.Value, cfgMap map[s
 
 // InitPlugins initializes all registered plugins
 func (pm *PluginManager) InitPlugins() error {
+	// First pass: initialize license_auth WITHOUT holding the lock
+	// so that it can register itself and check status safely
+	var licenseAuthMeta PluginMeta
+	hasLicenseAuth := false
+	for _, meta := range pluginMetas {
+		if meta.Name == "license_auth" {
+			licenseAuthMeta = meta
+			hasLicenseAuth = true
+			break
+		}
+	}
+
+	if hasLicenseAuth {
+		pm.Server.Logger.Info("Initializing license_auth plugin", zap.String("name", licenseAuthMeta.Name))
+		// We need to temporarily hold the lock just to add it to the map
+		instance, err := pm.createInstance(licenseAuthMeta)
+		if err != nil {
+			pm.Server.Logger.Error("Failed to create license_auth plugin instance", zap.Error(err))
+		} else {
+			pm.mu.Lock()
+			if p, ok := instance.(platform.IPlatformPlugin); ok {
+				pm.PlatformPlugins[licenseAuthMeta.Name] = p
+			}
+			pm.mu.Unlock()
+		}
+	}
+
+	// Now check authorization status safely
+	// We no longer check IsAuthorized directly here. Instead, we use IsAllowed
+	// which will query the registered PluginFilters (e.g. from license_auth).
+
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	for _, meta := range pluginMetas {
+		if meta.Name == "license_auth" {
+			continue // Already initialized
+		}
+
+		// Unlock temporarily while checking filter to avoid deadlocks
+		// if the filter needs to read state.
+		pm.mu.Unlock()
+		allowed := pm.IsAllowed(meta)
+		pm.mu.Lock()
+
+		if !allowed {
+			pm.Server.Logger.Info("Skipping plugin initialization due to filter", zap.String("plugin", meta.Name))
+			continue
+		}
+
 		pm.Server.Logger.Info("Initializing plugin", zap.String("name", meta.Name))
 
 		instance, err := pm.createInstance(meta)
@@ -191,6 +262,102 @@ func (pm *PluginManager) InitPlugins() error {
 			pm.Server.Logger.Error("Plugin does not implement known interface", zap.String("name", meta.Name))
 		}
 	}
+	return nil
+}
+
+// LoadPlugin loads a specific plugin by name
+func (pm *PluginManager) LoadPlugin(name string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	// Check if already loaded
+	if _, ok := pm.ProtocolPlugins[name]; ok {
+		return nil
+	}
+	if _, ok := pm.PlatformPlugins[name]; ok {
+		return nil
+	}
+
+	pm.Server.Logger.Info("Loading plugin", zap.String("name", name))
+
+	// Find registered meta
+	var registeredMeta PluginMeta
+	found := false
+	for _, m := range pluginMetas {
+		if m.Name == name {
+			registeredMeta = m
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("plugin %s is not registered", name)
+	}
+
+	pm.mu.Unlock()
+	allowed := pm.IsAllowed(registeredMeta)
+	pm.mu.Lock()
+
+	if !allowed {
+		return fmt.Errorf("plugin %s is blocked by filter", name)
+	}
+
+	newInstance, err := pm.createInstance(registeredMeta)
+	if err != nil {
+		return fmt.Errorf("failed to create new instance for plugin %s: %w", name, err)
+	}
+
+	var newManaged IManagedPlugin
+	if p, ok := newInstance.(protocol.IProtocolPlugin); ok {
+		pm.ProtocolPlugins[name] = p
+		newManaged = p
+	} else if p, ok := newInstance.(platform.IPlatformPlugin); ok {
+		pm.PlatformPlugins[name] = p
+		newManaged = p
+	} else {
+		return fmt.Errorf("loaded plugin %s is not valid type", name)
+	}
+
+	if newManaged.IsEnabled() {
+		if err := newManaged.Start(); err != nil {
+			return fmt.Errorf("failed to start loaded plugin %s: %w", name, err)
+		}
+	}
+
+	pm.Server.Logger.Info("Plugin loaded successfully", zap.String("name", name))
+	return nil
+}
+
+// UnloadPlugin unloads a specific plugin by name
+func (pm *PluginManager) UnloadPlugin(name string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	var oldInstance IManagedPlugin
+	isProtocol := false
+
+	if p, ok := pm.ProtocolPlugins[name]; ok {
+		oldInstance = p
+		isProtocol = true
+	} else if p, ok := pm.PlatformPlugins[name]; ok {
+		oldInstance = p
+	} else {
+		return nil // Already unloaded
+	}
+
+	pm.Server.Logger.Info("Unloading plugin", zap.String("name", name))
+
+	if err := oldInstance.Stop(); err != nil {
+		pm.Server.Logger.Error("Failed to stop plugin during unload", zap.String("plugin", name), zap.Error(err))
+	}
+
+	if isProtocol {
+		delete(pm.ProtocolPlugins, name)
+	} else {
+		delete(pm.PlatformPlugins, name)
+	}
+
 	return nil
 }
 
@@ -225,6 +392,14 @@ func (pm *PluginManager) ReloadPlugin(name string) error {
 
 	if !found {
 		return fmt.Errorf("plugin %s is not registered", name)
+	}
+
+	pm.mu.Unlock()
+	allowed := pm.IsAllowed(registeredMeta)
+	pm.mu.Lock()
+
+	if !allowed {
+		return fmt.Errorf("plugin %s is blocked by filter, cannot reload", name)
 	}
 
 	// Stop old instance
@@ -305,8 +480,16 @@ func (pm *PluginManager) GetPlugin(name string) IManagedPlugin {
 
 // StartPlugins starts all plugins
 func (pm *PluginManager) StartPlugins() {
+	// Gather plugins to start
 	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+	var pluginsToStart []IManagedPlugin
+	for _, p := range pm.ProtocolPlugins {
+		pluginsToStart = append(pluginsToStart, p)
+	}
+	for _, p := range pm.PlatformPlugins {
+		pluginsToStart = append(pluginsToStart, p)
+	}
+	pm.mu.RUnlock()
 
 	var wg sync.WaitGroup
 
@@ -316,16 +499,18 @@ func (pm *PluginManager) StartPlugins() {
 			pm.Server.Logger.Info("Plugin disabled, skipping start", zap.String("plugin", p.GetMeta().Name))
 			return
 		}
+
+		if !pm.IsAllowed(*p.GetMeta()) {
+			pm.Server.Logger.Info("Plugin disabled due to filter", zap.String("plugin", p.GetMeta().Name))
+			return
+		}
+
 		if err := p.Start(); err != nil {
 			pm.Server.Logger.Error("Plugin start failed", zap.String("plugin", p.GetMeta().Name), zap.Error(err))
 		}
 	}
 
-	for _, p := range pm.ProtocolPlugins {
-		wg.Add(1)
-		go start(p)
-	}
-	for _, p := range pm.PlatformPlugins {
+	for _, p := range pluginsToStart {
 		wg.Add(1)
 		go start(p)
 	}
@@ -335,8 +520,16 @@ func (pm *PluginManager) StartPlugins() {
 
 // StopPlugins stops all plugins
 func (pm *PluginManager) StopPlugins() {
+	// Gather plugins to stop
 	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+	var pluginsToStop []IManagedPlugin
+	for _, p := range pm.ProtocolPlugins {
+		pluginsToStop = append(pluginsToStop, p)
+	}
+	for _, p := range pm.PlatformPlugins {
+		pluginsToStop = append(pluginsToStop, p)
+	}
+	pm.mu.RUnlock()
 
 	stop := func(p IManagedPlugin) {
 		if err := p.Stop(); err != nil {
@@ -344,10 +537,7 @@ func (pm *PluginManager) StopPlugins() {
 		}
 	}
 
-	for _, p := range pm.ProtocolPlugins {
-		stop(p)
-	}
-	for _, p := range pm.PlatformPlugins {
+	for _, p := range pluginsToStop {
 		stop(p)
 	}
 }

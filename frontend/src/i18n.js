@@ -75,6 +75,7 @@ const messages = {
         expand: 'Expand',
         collapse: 'Collapse',
         // Plugins
+        pro_feature_locked: 'Pro Feature (Unauthorized)',
         plugin_desc_default: '{category} - IoT Gateway Plugin for {name}',
         plugin_update_hint: 'Update settings for {name}',
         plugin_no_config: 'No configuration options available for this plugin.',
@@ -549,6 +550,15 @@ const messages = {
         selected_logs: 'Selected Logs:',
         ai_analyzing: 'AI is analyzing the logs, please wait...',
         ai_analyze: 'AI Analysis',
+        server_config: 'Server Configuration',
+        server_port: 'Port',
+        server_port_hint: 'Requires restart to take effect.',
+        tsdb_config: 'TSDB Configuration',
+        tsdb_enabled: 'Enable TSDB',
+        tsdb_dir: 'Directory',
+        tsdb_retention_days: 'Retention Days',
+        tsdb_batch_size: 'Batch Size',
+        tsdb_flush_interval: 'Flush Interval (ms)',
     },
     zh: {
         all: '全部',
@@ -637,6 +647,7 @@ const messages = {
         expand: '展开',
         collapse: '收起',
         // Plugins
+        pro_feature_locked: '专业版功能',
         plugin_desc_default: '{category} - {name} 的 IoT 网关插件',
         plugin_update_hint: '更新 {name} 的设置',
         plugin_no_config: '该插件没有可用的配置选项。',
@@ -1141,6 +1152,15 @@ const messages = {
         selected_logs: '选中的日志：',
         ai_analyzing: 'AI 正在分析日志，请稍候...',
         ai_analyze: 'AI 分析',
+        server_config: '服务配置',
+        server_port: '端口',
+        server_port_hint: '修改后需重启服务生效。',
+        tsdb_config: '时序数据库配置',
+        tsdb_enabled: '启用时序数据库',
+        tsdb_dir: '数据存储目录',
+        tsdb_retention_days: '数据保留天数',
+        tsdb_batch_size: '批处理大小',
+        tsdb_flush_interval: '刷新间隔 (ms)',
     }
 }
 

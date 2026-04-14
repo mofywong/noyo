@@ -60,6 +60,17 @@ const loadingPlugins = ref(false);
 const currentTheme = ref(localStorage.getItem('theme') || 'dark');
 const systemTheme = ref(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 
+const licenseData = ref(null);
+
+const copyToClipboard = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('success', t('copied_to_clipboard', '已复制到剪贴板'));
+  } catch (err) {
+    showToast('danger', t('copy_failed', '复制失败'));
+  }
+};
+
 // Computed
 const currentPluginName = computed(() => route.params.name);
 
@@ -70,6 +81,9 @@ const pageTitle = computed(() => {
   if (name === 'Products') return t('sidebar_products');
   if (name === 'Devices') return t('sidebar_devices');
   if (name === 'PluginConfig') return `${currentPluginName.value} ${t('page_configure')}`;
+  if (name === 'Settings') return t('sidebar_settings');
+  if (name === 'License') return t('license_info', '授权信息');
+  if (name === 'Logs') return t('sidebar_logs');
   return '';
 });
 
@@ -145,6 +159,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e =
 });
 
 onMounted(() => {
+  checkLicense();
   fetchPlugins();
   // Restore language
   const savedLang = localStorage.getItem('lang');
@@ -152,4 +167,24 @@ onMounted(() => {
     locale.value = savedLang;
   }
 });
+
+const checkLicense = async () => {
+  try {
+    const res = await axios.get('/api/extension/license/status');
+    if (res.data && res.data.code === 200) {
+      licenseData.value = res.data.data;
+      if (licenseData.value.status === 'authorized' && licenseData.value.expire_time && licenseData.value.type !== 'permanent') {
+        const expireDate = new Date(licenseData.value.expire_time);
+        const now = new Date();
+        const diffDays = Math.ceil((expireDate - now) / (1000 * 60 * 60 * 24));
+        if (diffDays <= 7 && diffDays >= 0) {
+          showToast('warning', t('license_expiring_soon', `您的许可证将在 ${diffDays} 天后过期，请尽快更新！`));
+        }
+      }
+    }
+  } catch (e) {
+    // API not found (e.g. open source version)
+  }
+};
+
 </script>

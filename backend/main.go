@@ -14,7 +14,10 @@ var distFS embed.FS
 func main() {
 	fmt.Println("STARTING BACKEND...")
 	// Create Server
-	server := core.NewServer()
+	server, err := core.NewServer()
+	if err != nil {
+		log.Fatalf("Failed to create server: %v", err)
+	}
 
 	// Setup UI
 	uiFS, err := fs.Sub(distFS, "dist")
