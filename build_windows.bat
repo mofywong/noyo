@@ -77,7 +77,7 @@ echo [3/3] Building Backend...
 cd backend
 set CGO_ENABLED=0
 set GOARCH=amd64
-set LDFLAGS=-X "noyo/core/system.Version=%VERSION%"
+set LDFLAGS=-w -s -X "noyo/core/system.Version=%VERSION%"
 
 if /I "%TARGET%"=="windows" goto build_windows
 if /I "%TARGET%"=="linux" goto build_linux
