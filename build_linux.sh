@@ -45,7 +45,7 @@ build_edition() {
     export GOOS=linux
     export GOARCH=amd64
 
-    go build -ldflags "-X 'noyo/core/system.Version=$VERSION'" -o "noyo-linux-amd64$bin_suffix" .
+    go build -ldflags "-w -s -X 'noyo/core/system.Version=$VERSION'" -o "noyo-linux-amd64$bin_suffix" .
     cd ..
     
     echo "Finished building $edition_name edition -> backend/noyo-linux-amd64$bin_suffix"
