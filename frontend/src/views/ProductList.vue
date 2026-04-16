@@ -179,7 +179,7 @@
         <div class="modal-content h-100">
           <div class="modal-header">
             <h5 class="modal-title">{{ $t('prod_edit_tsl') }}: {{ editingProduct.name }}</h5>
-            <button type="button" class="btn-close" @click="showTSLModal = false"></button>
+            <button type="button" class="btn-close" @click="closeTSLModal"></button>
           </div>
           <div class="modal-body d-flex flex-column" style="height: 80vh;">
             <TSLEditor 
@@ -499,14 +499,15 @@ const openTSLEditModal = async (product) => {
 
   // Extract TSL
   if (configObj.tsl) {
-    currentTSL.value = configObj.tsl;
+    // Deep clone to prevent mutating original config and avoid immediate watch triggers on mount
+    currentTSL.value = JSON.parse(JSON.stringify(configObj.tsl));
   } else {
     currentTSL.value = { properties: [], events: [], services: [] };
   }
 
   // Extract Mapping (Points)
   if (configObj.points) {
-    currentMapping.value = { points: configObj.points };
+    currentMapping.value = JSON.parse(JSON.stringify({ points: configObj.points }));
   } else {
     currentMapping.value = { points: [] };
   }
@@ -517,7 +518,26 @@ const openTSLEditModal = async (product) => {
   }
 
   showTSLModal.value = true;
+  setTimeout(() => { tslDirty.value = false; }, 0);
 };
+
+const closeTSLModal = () => {
+  if (tslDirty.value) {
+    if (!confirm('您有未保存的修改，确定要关闭吗？')) {
+      return;
+    }
+  }
+  showTSLModal.value = false;
+  tslDirty.value = false;
+};
+
+// 监听 TSL 变化以标记未保存状态
+const tslDirty = ref(false);
+watch([currentTSL, currentMapping], () => {
+  if (showTSLModal.value) {
+    tslDirty.value = true;
+  }
+}, { deep: true });
 
 const updateMapping = (newMapping) => {
   currentMapping.value = newMapping;
@@ -546,6 +566,7 @@ const saveTSL = async () => {
 
     const res = await axios.put(`/api/products/${editingProduct.value.code}`, payload);
     if (res.data.code === 0) {
+      tslDirty.value = false;
       showTSLModal.value = false;
       fetchProducts(); // Refresh list
     } else {

@@ -246,9 +246,18 @@ const openModal = (prop, index = -1) => {
   editingIndex.value = index;
   if (prop) {
     currentProp.value = JSON.parse(JSON.stringify(prop));
-    if (!currentProp.value.dataType.specs) {
+    if (!currentProp.value.dataType) {
+      currentProp.value.dataType = { type: 'int', specs: {} };
+    } else if (!currentProp.value.dataType.specs) {
       currentProp.value.dataType.specs = {};
     }
+
+    // Normalize backend data types to TSL abstract types for echoing
+    const t = currentProp.value.dataType.type;
+    if (['string'].includes(t)) currentProp.value.dataType.type = 'text';
+    if (['integer', 'int32', 'int16', 'uint32', 'uint16'].includes(t)) currentProp.value.dataType.type = 'int';
+    if (['number', 'float32', 'float64'].includes(t)) currentProp.value.dataType.type = 'float';
+    if (['boolean'].includes(t)) currentProp.value.dataType.type = 'bool';
     
     if (currentProp.value.dataType.type === 'enum') {
        parseEnumSpecs();

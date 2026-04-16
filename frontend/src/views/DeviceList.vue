@@ -901,6 +901,7 @@
                             <option value="">-- 请选择 --</option>
                             <option v-for="(val, k) in param.dataType.specs" :key="k" :value="k">{{ val }}</option>
                           </select>
+                          <input v-else-if="param.dataType?.type === 'date'" type="datetime-local" class="form-control form-control-sm" v-model="serviceParams[key][param.identifier]">
                           <input v-else type="text" class="form-control form-control-sm" v-model="serviceParams[key][param.identifier]">
                         </div>
                       </div>
