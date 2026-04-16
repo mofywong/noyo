@@ -48,7 +48,16 @@ type BacnetPlugin struct {
 func init() {
 	core.InstallPlugin[BacnetPlugin](core.PluginMeta{
 		Name:     "BACnet",
+		Title: map[string]string{
+			"en": "BACnet/IP",
+			"zh": "BACnet/IP协议",
+		},
+		Description: map[string]string{
+			"en": "BACnet/IP Protocol Support",
+			"zh": "BACnet/IP 协议支持",
+		},
 		Category: types.PluginCategoryProtocol,
+		Icon:     icon,
 	})
 }
 

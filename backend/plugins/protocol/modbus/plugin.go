@@ -63,7 +63,16 @@ type DeviceRuntimeState struct {
 func init() {
 	core.InstallPlugin[ModbusPlugin](core.PluginMeta{
 		Name:     "Modbus",
+		Title: map[string]string{
+			"en": "Modbus TCP Protocol",
+			"zh": "Modbus TCP 协议",
+		},
+		Description: map[string]string{
+			"en": "Standard Modbus TCP and Modbus RTU over TCP protocol support",
+			"zh": "标准 Modbus TCP 和 Modbus RTU over TCP 协议支持",
+		},
 		Category: types.PluginCategoryProtocol,
+		Icon:     icon,
 	})
 }
 
