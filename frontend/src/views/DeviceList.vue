@@ -891,11 +891,15 @@
                       <div v-if="!srv.inputData || srv.inputData.length === 0" class="text-muted small mb-3">无输入参数</div>
                       <div class="row g-2 mb-3" v-else>
                         <div class="col-md-6 col-lg-4" v-for="param in srv.inputData" :key="param.identifier">
-                          <label class="form-label small mb-1">{{ param.name }} <span class="badge border text-secondary ms-1 p-1">{{ param.identifier }}</span> <span class="text-muted ms-1">({{ param.dataType?.type }})</span><span v-if="param.required" class="text-danger ms-1">*</span></label>
+                          <label class="form-label small mb-1">{{ param.name }}<span v-if="param.required" class="text-danger ms-1">*</span> <span class="badge border text-secondary ms-1 p-1">{{ param.identifier }}</span> <span class="text-muted ms-1">({{ param.dataType?.type }})</span></label>
                           <select v-if="param.dataType?.type === 'bool'" class="form-select form-select-sm" v-model="serviceParams[key][param.identifier]">
                             <option value="">-- 请选择 --</option>
                             <option value="true">True</option>
                             <option value="false">False</option>
+                          </select>
+                          <select v-else-if="param.dataType?.type === 'enum'" class="form-select form-select-sm" v-model="serviceParams[key][param.identifier]">
+                            <option value="">-- 请选择 --</option>
+                            <option v-for="(val, k) in param.dataType.specs" :key="k" :value="k">{{ val }}</option>
                           </select>
                           <input v-else type="text" class="form-control form-control-sm" v-model="serviceParams[key][param.identifier]">
                         </div>
@@ -919,8 +923,8 @@
                            <!-- UI Mode -->
                            <div v-if="invokeServiceResultMode[key] === 'ui' && srv.outputData && srv.outputData.length > 0" class="row g-2 border rounded p-2 bg-white">
                              <div class="col-md-6 col-lg-4" v-for="outParam in srv.outputData" :key="outParam.identifier">
-                               <label class="form-label small mb-1 text-muted">{{ outParam.name }} <span class="badge border text-secondary ms-1 p-1">{{ outParam.identifier }}</span></label>
-                               <div class="form-control form-control-sm bg-light text-break overflow-auto" style="min-height:30px;">{{ getOutputValue(invokeServiceResult[key].data, outParam.identifier) }}</div>
+                               <label class="form-label small mb-1 text-muted">{{ outParam.name }}<span v-if="outParam.required" class="text-danger ms-1">*</span> <span class="badge border text-secondary ms-1 p-1">{{ outParam.identifier }}</span></label>
+                               <div class="form-control form-control-sm bg-light text-break overflow-auto" style="min-height:30px;">{{ getOutputValue(invokeServiceResult[key].data, outParam) }}</div>
                              </div>
                            </div>
                            <!-- JSON Mode -->
@@ -2714,10 +2718,23 @@ const submitBatchWrite = async () => {
   }
 };
 
-const getOutputValue = (data, identifier) => {
+const getOutputValue = (data, outParam) => {
+  const identifier = outParam.identifier;
   if (data === null || data === undefined) return '-';
-  if (typeof data !== 'object') return data;
-  return data[identifier] !== undefined ? data[identifier] : '-';
+  let val = '-';
+  if (typeof data !== 'object') {
+    val = data;
+  } else {
+    val = data[identifier] !== undefined ? data[identifier] : '-';
+  }
+  
+  if (outParam.dataType?.type === 'enum' && outParam.dataType?.specs && val !== '-') {
+    const enumName = outParam.dataType.specs[val];
+    if (enumName !== undefined) {
+      return `${enumName} (${val})`;
+    }
+  }
+  return val;
 };
 
 const copyToClipboard = async (text) => {

@@ -14,6 +14,9 @@ type Context interface {
 	// GetConfig returns the plugin configuration
 	GetConfig() map[string]interface{}
 
+	// GetCoreServer returns the core server instance
+	GetCoreServer() interface{}
+
 	// LogInfo logs an info message
 	LogInfo(msg string, fields ...interface{})
 	// LogError logs an error message

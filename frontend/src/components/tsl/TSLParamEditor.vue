@@ -52,10 +52,10 @@
           <label class="form-label small">{{ $t('tsl_identifier') }}</label>
           <input v-model="currentParam.identifier" type="text" class="form-control form-control-sm">
         </div>
-        <div class="col-md-2 d-flex align-items-end mb-1">
-          <div class="form-check form-switch mt-1 w-100 ps-4">
+        <div class="col-md-2 d-flex align-items-center mb-1">
+          <div class="form-check form-switch mt-4">
              <input class="form-check-input" type="checkbox" v-model="currentParam.required" id="paramRequiredSwitch">
-             <label class="form-check-label small" for="paramRequiredSwitch">必填</label>
+             <label class="form-check-label small text-nowrap" for="paramRequiredSwitch">必填</label>
           </div>
         </div>
         <div class="col-md-12">

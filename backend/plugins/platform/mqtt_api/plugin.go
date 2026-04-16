@@ -26,13 +26,13 @@ type PublishJob struct {
 
 // Config defines the configuration for MQTTAPI Plugin
 type Config struct {
-	EnableTLS          bool   `yaml:"enable_tls" title_en:"Enable TLS" title_zh:"开启TLS" desc_en:"Enable TLS encryption for MQTT connection" desc_zh:"开启MQTT连接的TLS加密"`
-	InsecureSkipVerify bool   `yaml:"insecure_skip_verify" title_en:"Skip Verify" title_zh:"跳过证书验证" desc_en:"Skip TLS certificate verification (insecure)" desc_zh:"跳过TLS证书验证（不安全）"`
-	Broker             string `yaml:"broker" title_en:"Broker Address" title_zh:"Broker地址" desc_en:"MQTT Broker Address (e.g., localhost:1883)" desc_zh:"MQTT代理地址 (例如: localhost:1883)"`
-	Username           string `yaml:"username" title_en:"Username" title_zh:"用户名" desc_en:"MQTT Username" desc_zh:"MQTT连接用户名"`
-	Password           string `yaml:"password" title_en:"Password" title_zh:"密码" desc_en:"MQTT Password" desc_zh:"MQTT连接密码"`
-	ClientID           string `yaml:"client_id" title_en:"Client ID" title_zh:"客户端ID" desc_en:"MQTT Client ID (Leave empty to auto-generate)" desc_zh:"MQTT客户端ID (留空则自动生成)"`
-	GatewayCode        string `yaml:"gateway_code" title_en:"Gateway Code" title_zh:"网关编码" desc_en:"Unique identifier for this gateway" desc_zh:"本网关的唯一标识编码"`
+	EnableTLS          bool   `yaml:"enable_tls" json:"enable_tls" title_en:"Enable TLS" title_zh:"开启TLS" desc_en:"Enable TLS encryption for MQTT connection" desc_zh:"开启MQTT连接的TLS加密"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify" json:"insecure_skip_verify" title_en:"Skip Verify" title_zh:"跳过证书验证" desc_en:"Skip TLS certificate verification (insecure)" desc_zh:"跳过TLS证书验证（不安全）"`
+	Broker             string `yaml:"broker" json:"broker" title_en:"Broker Address" title_zh:"Broker地址" desc_en:"MQTT Broker Address (e.g., localhost:1883)" desc_zh:"MQTT代理地址 (例如: localhost:1883)"`
+	Username           string `yaml:"username" json:"username" title_en:"Username" title_zh:"用户名" desc_en:"MQTT Username" desc_zh:"MQTT连接用户名"`
+	Password           string `yaml:"password" json:"password" title_en:"Password" title_zh:"密码" desc_en:"MQTT Password" desc_zh:"MQTT连接密码"`
+	ClientID           string `yaml:"client_id" json:"client_id" title_en:"Client ID" title_zh:"客户端ID" desc_en:"MQTT Client ID (Leave empty to auto-generate)" desc_zh:"MQTT客户端ID (留空则自动生成)"`
+	GatewayCode        string `yaml:"gateway_code" json:"gateway_code" title_en:"Gateway Code" title_zh:"网关编码" desc_en:"Unique identifier for this gateway" desc_zh:"本网关的唯一标识编码"`
 }
 
 // MQTTAPIPlugin implements the IPlugin interface for MQTT API Platform
@@ -92,16 +92,27 @@ func (p *MQTTAPIPlugin) Init(ctx platform.Context) error {
 
 // API_Status implements a test API: GET /api/extension/mqtt_api/status
 func (p *MQTTAPIPlugin) API_Status(r *ghttp.Request) {
+	// Fetch the latest active plugin instance to avoid stale reference after hot-reload
+	server := p.Ctx.GetCoreServer().(*core.Server)
+	activePlugin, ok := server.Manager.GetPlugin("MQTT_API").(*MQTTAPIPlugin)
+	if !ok || activePlugin == nil {
+		r.Response.WriteJson(map[string]interface{}{
+			"plugin": "mqtt_api",
+			"status": "disconnected",
+		})
+		return
+	}
+
 	status := "disconnected"
-	if p.client != nil && p.client.IsConnected() {
+	if activePlugin.client != nil && activePlugin.client.IsConnected() {
 		status = "connected"
 	}
 
 	r.Response.WriteJson(map[string]interface{}{
 		"plugin":       "mqtt_api",
 		"status":       status,
-		"broker":       p.Config.Broker,
-		"gateway_code": p.Config.GatewayCode,
+		"broker":       activePlugin.Config.Broker,
+		"gateway_code": activePlugin.Config.GatewayCode,
 		"ts":           time.Now(),
 	})
 }
