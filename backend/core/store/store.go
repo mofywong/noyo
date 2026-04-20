@@ -59,7 +59,11 @@ func CloseDB() {
 // --- Product CRUD Helper ---
 
 func UpdateProduct(p *Product) error {
-	return DB.Model(&Product{}).Where("code = ?", p.Code).Updates(p).Error
+	var existing Product
+	if err := DB.Where("code = ?", p.Code).First(&existing).Error; err != nil {
+		return err
+	}
+	return DB.Model(&existing).Updates(p).Error
 }
 
 func DeleteProduct(code string) error {
@@ -85,5 +89,9 @@ func DeleteProduct(code string) error {
 
 // UpdateDevice updates non-zero fields of a device
 func UpdateDevice(d *Device) error {
-	return DB.Model(&Device{}).Where("code = ?", d.Code).Updates(d).Error
+	var existing Device
+	if err := DB.Where("code = ?", d.Code).First(&existing).Error; err != nil {
+		return err
+	}
+	return DB.Model(&existing).Updates(d).Error
 }
