@@ -63,7 +63,9 @@ func UpdateProduct(p *Product) error {
 	if err := DB.Where("code = ?", p.Code).First(&existing).Error; err != nil {
 		return err
 	}
-	return DB.Model(&existing).Updates(p).Error
+	p.ID = existing.ID
+	p.CreatedAt = existing.CreatedAt
+	return DB.Save(p).Error
 }
 
 func DeleteProduct(code string) error {
@@ -93,5 +95,7 @@ func UpdateDevice(d *Device) error {
 	if err := DB.Where("code = ?", d.Code).First(&existing).Error; err != nil {
 		return err
 	}
-	return DB.Model(&existing).Updates(d).Error
+	d.ID = existing.ID
+	d.CreatedAt = existing.CreatedAt
+	return DB.Save(d).Error
 }
