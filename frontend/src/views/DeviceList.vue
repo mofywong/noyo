@@ -405,7 +405,7 @@
                :tslEvents="currentMappingEvents"
                :pollingGroups="currentMappingPollingGroups"
                :protocolName="currentMappingProtocol"
-               :isSubDevice="!!currentMappingDevice.parent_code"
+               :isSubDevice="!!currentMappingDevice.parent_code && !isParentCascade"
                :productCode="currentMappingDevice?.product_code"
                :parentCode="currentMappingDevice?.parent_code"
                @update:deviceConfig="updateDeviceMappingConfig"
@@ -2820,6 +2820,7 @@ const currentMappingProperties = ref([]);
 const currentMappingEvents = ref([]);
 const currentMappingPollingGroups = ref([]);
 const currentMappingProtocol = ref('');
+const isParentCascade = ref(false);
 
 const fetchDevices = async (silent = false) => {
   if (!silent) loading.value = true;
@@ -3242,6 +3243,7 @@ const openMappingModal = async (device) => {
     currentMappingProtocol.value = '';
   }
 
+  isParentCascade.value = false;
   // Fetch Parent Config for Polling Groups if parent_code exists
   currentMappingPollingGroups.value = [];
   if (device.parent_code) {
@@ -3249,6 +3251,10 @@ const openMappingModal = async (device) => {
           const res = await axios.get(`/api/devices/${device.parent_code}`);
           if (res.data.code === 0 && res.data.data) {
               const parentDev = res.data.data;
+              const parentProduct = products.value.find(p => p.code === parentDev.product_code);
+              if (parentProduct && parentProduct.protocol_name === 'cascade') {
+                  isParentCascade.value = true;
+              }
               if (parentDev.config) {
                   let parentConfig = {};
                   try {

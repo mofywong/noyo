@@ -426,9 +426,24 @@ func (dm *DeviceManager) SetDeviceProperties(deviceCode string, properties map[s
 	}
 
 	// 4. Call SetProperty
-	if protocolPlugin, ok := plugin.(protocol.IProtocolPlugin); ok {
+	// Define lightweight interfaces to support both WriteProperty and WritePoint
+	type propertyWriter interface {
+		WriteProperty(device types.DeviceMeta, propName string, value interface{}) error
+	}
+	type pointWriter interface {
+		WritePoint(device types.DeviceMeta, pointCode string, value interface{}) error
+	}
+
+	if writer, ok := plugin.(propertyWriter); ok {
 		for k, v := range properties {
-			if err := protocolPlugin.WriteProperty(*meta, k, v); err != nil {
+			if err := writer.WriteProperty(*meta, k, v); err != nil {
+				return err
+			}
+		}
+		return nil
+	} else if writer, ok := plugin.(pointWriter); ok {
+		for k, v := range properties {
+			if err := writer.WritePoint(*meta, k, v); err != nil {
 				return err
 			}
 		}
@@ -463,8 +478,14 @@ func (dm *DeviceManager) CallDeviceService(deviceCode string, serviceId string, 
 	}
 
 	// 4. Call CallService
-	if protocolPlugin, ok := plugin.(protocol.IProtocolPlugin); ok {
-		return protocolPlugin.CallService(*meta, serviceId, params)
+	// Define a lightweight interface to check if the plugin supports CallService.
+	// This allows both Protocol Plugins and specific Platform Plugins (like Cascade) to intercept commands.
+	type serviceCaller interface {
+		CallService(device types.DeviceMeta, serviceCode string, params map[string]interface{}) (interface{}, error)
+	}
+
+	if caller, ok := plugin.(serviceCaller); ok {
+		return caller.CallService(*meta, serviceId, params)
 	}
 	return nil, fmt.Errorf("%w: plugin %s does not support CallService", types.ErrNotImplemented, effectiveProtocol)
 }

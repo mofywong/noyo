@@ -237,13 +237,13 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 	}
 
 	summary := make([]PluginSummary, 0)
-	
+
 	for _, meta := range pluginMetas {
 		if meta.Name == "license_auth" {
 			continue // Hide license_auth plugin from the marketplace
 		}
 
-		isPro := meta.Name == "ai_predict" || meta.Name == "ai_copilot" || strings.EqualFold(meta.Name, "script")
+		isPro := meta.Name == "ai_predict" || meta.Name == "ai_copilot" || strings.EqualFold(meta.Name, "script") || meta.Name == "cascade"
 		isAllowed := s.Manager.IsAllowed(meta)
 		isUnauthorized := isPro && !isAllowed
 
@@ -257,7 +257,7 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 
 		var ps PluginSummary
 		p := s.Manager.GetPlugin(meta.Name)
-		
+
 		if p != nil {
 			schema := GetPluginConfigSchema(p)
 			status := "stopped"

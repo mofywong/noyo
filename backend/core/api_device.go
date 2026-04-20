@@ -610,16 +610,27 @@ func (s *Server) handleWritePoint(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Protocol plugin not found"})
 		return
 	}
-	protocolPlugin, ok := plugin.(protocol.IProtocolPlugin)
-	if !ok {
-		r.Response.WriteJson(g.Map{"code": 500, "message": "Plugin is not a protocol plugin"})
-		return
-	}
 
 	// 4. Execute Write
-	// Use WriteProperty instead of WritePoint
-	if err := protocolPlugin.WriteProperty(deviceMeta, req.PointID, req.Value); err != nil {
-		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+	type propertyWriter interface {
+		WriteProperty(device DeviceMeta, propName string, value interface{}) error
+	}
+	type pointWriter interface {
+		WritePoint(device DeviceMeta, pointCode string, value interface{}) error
+	}
+
+	if writer, ok := plugin.(propertyWriter); ok {
+		if err := writer.WriteProperty(deviceMeta, req.PointID, req.Value); err != nil {
+			r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+			return
+		}
+	} else if writer, ok := plugin.(pointWriter); ok {
+		if err := writer.WritePoint(deviceMeta, req.PointID, req.Value); err != nil {
+			r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+			return
+		}
+	} else {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Plugin does not support WriteProperty/WritePoint"})
 		return
 	}
 
@@ -850,29 +861,21 @@ func (s *Server) handleGetDeviceConfigSchema(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 404, "message": "父设备的产品不存在"})
 			return
 		}
-		if parentProduct.ProtocolName == "" {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品没有绑定协议"})
-			return
-		}
-		protocolName = parentProduct.ProtocolName
-		isSubDevice = true
 
-		// 尝试从父产品配置获取 sub_device_config_schema
-		var customSchema []byte
-		if parentProduct.Config != "" {
-			var prodConfig map[string]interface{}
-			if json.Unmarshal([]byte(parentProduct.Config), &prodConfig) == nil {
-				if subSchema, ok := prodConfig["sub_device_config_schema"]; ok {
-					customSchema, _ = json.Marshal(subSchema)
-				}
+		// 如果父设备是级联网关，则子设备在配置时完全视作直连设备，使用其自身产品的协议配置
+		if parentProduct.ProtocolName == "cascade" {
+			product, err := store.GetProduct(productCode)
+			if err != nil {
+				r.Response.WriteJson(g.Map{"code": 404, "message": "Product not found"})
+				return
 			}
-		}
+			if product.ProtocolName == "" {
+				r.Response.WriteJson(g.Map{"code": 400, "message": "网关子设备（视作直连设备）的产品必须绑定协议"})
+				return
+			}
+			protocolName = product.ProtocolName
+			isSubDevice = false // 强制作为直连设备返回 schema
 
-		if len(customSchema) > 0 {
-			// 使用父产品自定义的子设备配置 Schema
-			schema = customSchema
-		} else {
-			// 回退到协议插件的 Schema
 			plugin := s.Manager.GetPlugin(protocolName)
 			if plugin == nil {
 				r.Response.WriteJson(g.Map{"code": 500, "message": "Protocol plugin not found: " + protocolName})
@@ -887,13 +890,60 @@ func (s *Server) handleGetDeviceConfigSchema(r *ghttp.Request) {
 			if schemaType == "point" {
 				schema, err = protocolPlugin.GetPointConfigSchema()
 			} else {
-				meta := DeviceMeta{ParentCode: parentCode, ProductCode: productCode}
+				meta := DeviceMeta{ParentCode: "", ProductCode: productCode}
 				schema, err = protocolPlugin.GetDeviceConfigSchema(meta)
 			}
 
 			if err != nil {
 				r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 				return
+			}
+		} else {
+			if parentProduct.ProtocolName == "" {
+				r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品没有绑定协议"})
+				return
+			}
+			protocolName = parentProduct.ProtocolName
+			isSubDevice = true
+
+			// 尝试从父产品配置获取 sub_device_config_schema
+			var customSchema []byte
+			if parentProduct.Config != "" {
+				var prodConfig map[string]interface{}
+				if json.Unmarshal([]byte(parentProduct.Config), &prodConfig) == nil {
+					if subSchema, ok := prodConfig["sub_device_config_schema"]; ok {
+						customSchema, _ = json.Marshal(subSchema)
+					}
+				}
+			}
+
+			if len(customSchema) > 0 {
+				// 使用父产品自定义的子设备配置 Schema
+				schema = customSchema
+			} else {
+				// 回退到协议插件的 Schema
+				plugin := s.Manager.GetPlugin(protocolName)
+				if plugin == nil {
+					r.Response.WriteJson(g.Map{"code": 500, "message": "Protocol plugin not found: " + protocolName})
+					return
+				}
+				protocolPlugin, ok := plugin.(protocol.IProtocolPlugin)
+				if !ok {
+					r.Response.WriteJson(g.Map{"code": 500, "message": "Plugin is not a protocol plugin"})
+					return
+				}
+
+				if schemaType == "point" {
+					schema, err = protocolPlugin.GetPointConfigSchema()
+				} else {
+					meta := DeviceMeta{ParentCode: parentCode, ProductCode: productCode}
+					schema, err = protocolPlugin.GetDeviceConfigSchema(meta)
+				}
+
+				if err != nil {
+					r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+					return
+				}
 			}
 		}
 	}

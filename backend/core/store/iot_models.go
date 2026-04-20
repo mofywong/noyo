@@ -61,14 +61,13 @@ func ListProducts(page, pageSize int) ([]Product, int64, error) {
 }
 
 func SaveProduct(p *Product) error {
-	// Upsert based on Code? Or just Save for ID?
-	// If ID is 0, Create. If ID > 0, Update.
-	// But often we want to update by Code.
 	var existing Product
-	err := DB.Where("code = ?", p.Code).First(&existing).Error
+	err := DB.Unscoped().Where("code = ?", p.Code).First(&existing).Error
 	if err == nil {
 		p.ID = existing.ID
-		return DB.Save(p).Error
+		p.CreatedAt = existing.CreatedAt // Preserve original CreatedAt
+		p.DeletedAt = gorm.DeletedAt{}   // Restore if it was soft-deleted
+		return DB.Unscoped().Save(p).Error
 	}
 	return DB.Create(p).Error
 }
@@ -114,10 +113,12 @@ func ListDevicesByProduct(productCode string) ([]Device, error) {
 
 func SaveDevice(d *Device) error {
 	var existing Device
-	err := DB.Where("code = ?", d.Code).First(&existing).Error
+	err := DB.Unscoped().Where("code = ?", d.Code).First(&existing).Error
 	if err == nil {
 		d.ID = existing.ID
-		return DB.Save(d).Error
+		d.CreatedAt = existing.CreatedAt // Preserve original CreatedAt
+		d.DeletedAt = gorm.DeletedAt{}   // Restore if it was soft-deleted
+		return DB.Unscoped().Save(d).Error
 	}
 	return DB.Create(d).Error
 }
