@@ -51,7 +51,7 @@
        <div v-else class="small">
           <div v-for="item in tooltipDataList" :key="item.key" class="d-flex justify-content-between mb-1">
              <span class="text-truncate me-3" :title="item.key">{{ item.name }}</span>
-             <span class="fw-bold text-nowrap">
+             <span class="fw-bold text-nowrap" :class="hoveredDevice?.online ? '' : 'text-warning'">
                 {{ item.value }} 
                 <span class="text-muted fw-normal" v-if="item.unit">{{ item.unit }}</span>
              </span>

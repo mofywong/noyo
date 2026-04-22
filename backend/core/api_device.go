@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"noyo/core/protocol"
 	"noyo/core/store"
+	"noyo/core/tsdb"
 	"time"
 
 	"github.com/gogf/gf/v2/frame/g"
@@ -567,6 +568,30 @@ func (s *Server) handleStopDevice(r *ghttp.Request) {
 func (s *Server) handleGetDeviceData(r *ghttp.Request) {
 	code := r.Get("code").String()
 	data := s.DeviceManager.GetLatestData(code)
+
+	// If no runtime data (e.g., offline or just restarted), try to fetch the last reported data from TSDB
+	if (data == nil || len(data) == 0) && s.DeviceManager.TSDB != nil {
+		req := tsdb.QueryRequest{
+			DeviceCode: code,
+			StartTime:  0,
+			EndTime:    time.Now().UnixMilli(),
+			Type:       tsdb.TypeTelemetry,
+			Page:       1,
+			PageSize:   1,
+		}
+		res, err := s.DeviceManager.TSDB.Query(req)
+		if err == nil && len(res.List) > 0 {
+			if latestRec, ok := res.List[0].(map[string]interface{}); ok {
+				data = make(map[string]interface{})
+				for k, v := range latestRec {
+					if k != "ts" && k != "_type" && k != "raw" && k != "error" {
+						data[k] = v
+					}
+				}
+			}
+		}
+	}
+
 	if data == nil {
 		data = make(map[string]interface{})
 	}

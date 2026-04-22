@@ -279,7 +279,7 @@
                <td style="width: 30%">
                   <Sparkline :data="item.trend" :width="80" :height="20" color="#6c757d" />
                </td>
-               <td class="text-end fw-bold" style="width: 40%">
+               <td class="text-end fw-bold" style="width: 40%" :class="hoveredDevice.online ? '' : 'text-warning'">
                  {{ item.value }} <span v-if="item.unit" class="text-muted fw-normal small">{{ item.unit }}</span>
                </td>
              </tr>
@@ -709,7 +709,7 @@
                     <td>{{ item.name || '-' }}</td>
                     <td>{{ item.key }}</td>
                     <td>{{ item.unit || '-' }}</td>
-                    <td>{{ item.value }}</td>
+                    <td :class="currentDataDevice?.online ? '' : 'text-warning'">{{ item.value }}</td>
                     <td>
                       <Sparkline :data="item.trend" :width="100" :height="30" />
                     </td>
