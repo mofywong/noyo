@@ -390,6 +390,9 @@ func (e *platformEngineImpl) subscribeTopics(c mqtt.Client) {
 }
 
 func (e *platformEngineImpl) handleCommandReply(client mqtt.Client, msg mqtt.Message) {
+	if msg.Retained() {
+		return
+	}
 	var reply map[string]interface{}
 	if err := json.Unmarshal(msg.Payload(), &reply); err != nil {
 		return
@@ -444,6 +447,9 @@ func parseTopicGwSn(topic, pattern string) (bool, string) {
 }
 
 func (e *platformEngineImpl) handleProvisionRequest(client mqtt.Client, msg mqtt.Message) {
+	if msg.Retained() {
+		return
+	}
 	var req struct {
 		GwSn        string `json:"gw_sn"`
 		PreAuthCode string `json:"pre_auth_code"`
@@ -484,6 +490,11 @@ func (e *platformEngineImpl) handleProvisionRequest(client mqtt.Client, msg mqtt
 }
 
 func (e *platformEngineImpl) handleTelemetryUp(client mqtt.Client, msg mqtt.Message) {
+	if msg.Retained() {
+		// Ignore retained telemetry messages to prevent processing stale events (e.g., from old broker state)
+		return
+	}
+
 	var event types.Event
 	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
 		e.logger.Error("Failed to parse telemetry event", zap.Error(err))
@@ -538,6 +549,9 @@ func (e *platformEngineImpl) handleTelemetryUp(client mqtt.Client, msg mqtt.Mess
 }
 
 func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.Message) {
+	if msg.Retained() {
+		return
+	}
 	topic := msg.Topic()
 	match, gwSn := parseTopicGwSn(topic, "noyo/cascade/gw/%s/register/request")
 	if !match {
@@ -589,6 +603,9 @@ func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.
 }
 
 func (e *platformEngineImpl) handleSyncRequest(client mqtt.Client, msg mqtt.Message) {
+	if msg.Retained() {
+		return
+	}
 	topic := msg.Topic()
 	match, gwSn := parseTopicGwSn(topic, "noyo/cascade/gw/%s/sync/request")
 	if !match {

@@ -58,7 +58,7 @@ func (e *gatewayEngineImpl) Start() error {
 	opts.SetUsername(e.config.Username)
 	opts.SetPassword(e.config.Password)
 	opts.SetAutoReconnect(true)
-	opts.SetKeepAlive(60 * time.Second)  // 增加到 60s，避免系统负载高时 PING 超时触发 LWT
+	opts.SetKeepAlive(60 * time.Second)   // 增加到 60s，避免系统负载高时 PING 超时触发 LWT
 	opts.SetPingTimeout(20 * time.Second) // 增加 PING 超时容忍度
 
 	// Set Last Will and Testament (LWT) for Gateway offline status
@@ -195,6 +195,9 @@ func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
 
 	fileMetaTopic := fmt.Sprintf("noyo/cascade/gw/%s/file/meta", e.config.GatewaySn)
 	c.Subscribe(fileMetaTopic, 1, func(client mqtt.Client, msg mqtt.Message) {
+		if msg.Retained() {
+			return
+		}
 		var info FileTransferInfo
 		if err := json.Unmarshal(msg.Payload(), &info); err == nil {
 			e.logger.Info("Received file metadata", zap.String("file_id", info.FileID), zap.String("name", info.FileName))
@@ -218,6 +221,9 @@ func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
 
 	fileChunkTopic := fmt.Sprintf("noyo/cascade/gw/%s/file/chunk", e.config.GatewaySn)
 	c.Subscribe(fileChunkTopic, 1, func(client mqtt.Client, msg mqtt.Message) {
+		if msg.Retained() {
+			return
+		}
 		var chunk FileChunk
 		if err := json.Unmarshal(msg.Payload(), &chunk); err == nil {
 			e.receiversMux.Lock()
@@ -276,7 +282,7 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 	// 1. Sync Products
 	for _, p := range syncData.Products {
 		p.ID = 0 // Clear Platform ID to avoid local SQLite primary key conflicts
-		
+
 		// 检查产品信息是否有变化，避免无变化时触发插件重载
 		productChanged := true
 		if existingP, err := store.GetProduct(p.Code); err == nil && existingP != nil {
@@ -382,6 +388,9 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 }
 
 func (e *gatewayEngineImpl) handleConfigChanged(client mqtt.Client, msg mqtt.Message) {
+	if msg.Retained() {
+		return
+	}
 	e.logger.Info("Received config_changed broadcast")
 	// Always verify registration to handle case where gateway was disabled
 	e.sendRegisterRequest()
@@ -415,7 +424,8 @@ func (e *gatewayEngineImpl) handlePlatformStatus(client mqtt.Client, msg mqtt.Me
 				Timestamp: time.Now().UnixMilli(),
 			}
 			onlineBytes, _ := json.Marshal(onlineEvent)
-			e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.config.GatewaySn), 1, true, onlineBytes)
+			// 使用 retained=false，避免 broker 缓存网关旧的在线状态导致与遗嘱消息冲突
+			e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.config.GatewaySn), 1, false, onlineBytes)
 
 			// Also publish statuses of all sub-devices
 			if coreServer, ok := e.ctx.GetCoreServer().(*core.Server); ok {
@@ -465,6 +475,9 @@ func (e *gatewayEngineImpl) sendRegisterRequest() {
 }
 
 func (e *gatewayEngineImpl) handleRegisterResponse(client mqtt.Client, msg mqtt.Message) {
+	if msg.Retained() {
+		return
+	}
 	var resp struct {
 		Status  string `json:"status"`
 		Message string `json:"message"`
@@ -542,6 +555,9 @@ func (e *gatewayEngineImpl) sendSyncRequest() {
 }
 
 func (e *gatewayEngineImpl) handleCommand(client mqtt.Client, msg mqtt.Message) {
+	if msg.Retained() {
+		return
+	}
 	e.logger.Info("Received command", zap.Int("len", len(msg.Payload())))
 
 	var cmd struct {
