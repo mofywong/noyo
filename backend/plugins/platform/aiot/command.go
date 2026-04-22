@@ -32,7 +32,7 @@ func (p *AiotPlugin) subscribeToCommands() {
 	// zap.String("gateway_code", p.Config.GatewayCode),
 	// )
 
-	token := p.client.Subscribe(topic, 0, p.handleCommand)
+	token := p.client.Subscribe(topic, 1, p.handleCommand)
 	if token.Wait() && token.Error() != nil {
 		// p.Logger.Error("Failed to subscribe to commands",
 		// zap.String("topic", topic),
@@ -140,7 +140,7 @@ func (p *AiotPlugin) handleCommand(client mqtt.Client, msg mqtt.Message) {
 
 	replyData, _ := json.Marshal(reply)
 
-	token := p.client.Publish(replyTopic, 0, false, replyData)
+	token := p.client.Publish(replyTopic, 1, false, replyData)
 	if token.Wait() && token.Error() != nil {
 		// p.Logger.Error("Failed to send command reply", zap.Error(token.Error()))
 	} else {

@@ -201,7 +201,7 @@
                         {{ device.enabled ? $t('stop') : $t('start') }}
                       </a>
                     </li>
-                    <li v-if="!device.parent_code">
+                    <li v-if="!device.parent_code || isChildOfCascade(device)">
                       <a class="dropdown-item" href="#" @click="openCreateSubDeviceModal(device)">
                         <i class="bi bi-plus-square me-2 text-primary"></i> {{ $t('dev_create_sub') }}
                       </a>
@@ -343,7 +343,7 @@
                     <option value="" disabled>{{ $t('dev_select_prod_hint') }}</option>
                     <option v-for="p in products" :key="p.code" :value="p.code">{{ p.name }} ({{ p.code }})</option>
                   </select>
-                  <div v-if="selectedProductNoProtocol && !newDevice.parent_code" class="form-text text-warning">
+                  <div v-if="selectedProductNoProtocol && (!newDevice.parent_code || isChildOfCascade(newDevice))" class="form-text text-warning">
                     <i class="bi bi-exclamation-triangle me-1"></i>
                     {{ $t('prod_no_protocol_hint') }}
                   </div>
@@ -360,7 +360,7 @@
                   <label class="form-label">{{ $t('dev_parent') }} ({{ $t('optional') }})</label>
                   <select v-model="newDevice.parent_code" class="form-select">
                     <option value="">{{ $t('none') }}</option>
-                    <option v-for="d in devices.filter(d => !d.parent_code && d.code !== newDevice.code)" :key="d.code" :value="d.code">{{ d.name || d.code }}</option>
+                    <option v-for="d in devices.filter(d => (!d.parent_code || isChildOfCascade(d)) && d.code !== newDevice.code)" :key="d.code" :value="d.code">{{ d.name || d.code }}</option>
                   </select>
                   <div class="form-text small text-muted">{{ $t('dev_parent_hint') }}</div>
                 </div>
@@ -2888,6 +2888,14 @@ const needsProtocolMapping = (device) => {
 const getProtocol = (productCode) => {
     const p = products.value.find(prod => prod.code === productCode);
     return p ? p.protocol_name : '';
+};
+
+const isChildOfCascade = (device) => {
+  if (!device.parent_code) return false;
+  const parent = devices.value.find(d => d.code === device.parent_code);
+  if (!parent) return false;
+  const parentProduct = products.value.find(p => p.code === parent.product_code);
+  return parentProduct && parentProduct.protocol_name === 'cascade';
 };
 
 const fetchProtocolSchema = async (productCode, parentCode) => {

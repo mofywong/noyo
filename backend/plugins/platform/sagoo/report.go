@@ -40,7 +40,7 @@ func (p *SagooPlugin) publish(topic string, method string, params interface{}) e
 	select {
 	case p.msgChan <- PublishJob{
 		Topic:    topic,
-		QoS:      0,
+		QoS:      1,
 		Retained: false,
 		Payload:  data,
 	}:

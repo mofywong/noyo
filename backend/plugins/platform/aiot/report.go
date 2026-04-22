@@ -42,7 +42,7 @@ func (p *AiotPlugin) publish(topic string, method string, params interface{}) er
 		return nil
 	}
 
-	token := p.client.Publish(topic, 0, false, data)
+	token := p.client.Publish(topic, 1, false, data)
 	if token.Wait() && token.Error() != nil {
 		return fmt.Errorf("failed to publish to %s: %w", topic, token.Error())
 	}

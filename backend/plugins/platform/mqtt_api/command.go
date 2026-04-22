@@ -18,7 +18,7 @@ type CommandReply struct {
 func (p *MQTTAPIPlugin) subscribeToCommands() {
 	// All commands (API): /sys/{GatewayCode}/api/#
 	topicGateway := fmt.Sprintf("/sys/%s/api/+", p.Config.GatewayCode)
-	p.client.Subscribe(topicGateway, 0, p.handleGatewayCommand)
+	p.client.Subscribe(topicGateway, 1, p.handleGatewayCommand)
 }
 
 // Note: IPlugin.SetProperty and CallService are Downstream methods (Core -> Plugin).

@@ -357,6 +357,6 @@ func (p *MQTTAPIPlugin) handleGatewayCommand(client mqtt.Client, msg mqtt.Messag
 	replyTopic := topic + "_reply"
 	if p.client != nil && p.client.IsConnected() {
 		replyData, _ := json.Marshal(reply)
-		p.client.Publish(replyTopic, 0, false, replyData)
+		p.client.Publish(replyTopic, 1, false, replyData)
 	}
 }

@@ -117,6 +117,16 @@ func (dr *DeviceRegistry) GetDeviceMeta(deviceCode string) (*DeviceMeta, error) 
 		parentDevice = dr.devices[devCopy.ParentCode]
 	}
 
+	// 忽略 cascade 网关这一层：如果父设备的产品是 cascade，则本设备视作顶级直连设备
+	if parentDevice != nil {
+		if parentProduct, ok := dr.products[parentDevice.ProductCode]; ok {
+			if parentProduct.ProtocolName == "cascade" {
+				parentDevice = nil
+				devCopy.ParentCode = "" // 抹去 ParentCode，使其在 Meta 中表现为顶级设备
+			}
+		}
+	}
+
 	var childDevices []*store.Device
 	if childrenCodes, hasChildren := dr.childrenIndex[devCopy.Code]; hasChildren {
 		for _, code := range childrenCodes {
@@ -215,6 +225,20 @@ func (dr *DeviceRegistry) GetEffectiveProtocol(deviceCode string) (string, error
 			return "", fmt.Errorf("直连设备的产品必须绑定协议")
 		}
 		return product.ProtocolName, nil
+	}
+
+	// 检查是否属于级联网关下的子设备，如果是，则其协议强制为 cascade
+	current := device
+	for current.ParentCode != "" {
+		parentDevice, ok := dr.devices[current.ParentCode]
+		if !ok {
+			break
+		}
+		parentProduct, ok := dr.products[parentDevice.ProductCode]
+		if ok && parentProduct.ProtocolName == "cascade" {
+			return "cascade", nil
+		}
+		current = parentDevice
 	}
 
 	// 子设备：使用父设备产品的协议

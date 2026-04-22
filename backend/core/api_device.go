@@ -334,6 +334,12 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品没有绑定协议"})
 			return
 		}
+
+		// 如果父设备是级联网关，则该设备视作直连设备，其自身产品必须绑定协议
+		if parentProduct.ProtocolName == "cascade" && product.ProtocolName == "" {
+			r.Response.WriteJson(g.Map{"code": 400, "message": "级联网关下的设备（视作直连设备）必须绑定协议"})
+			return
+		}
 	}
 
 	if err := store.SaveDevice(&d); err != nil {
@@ -381,6 +387,38 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 	if err := validatePollingGroupsPreserved(oldDevice.Config, d.Config); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 		return
+	}
+
+	// 验证协议配置 (与 Create 逻辑保持一致)
+	product, err := store.GetProduct(d.ProductCode)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Product not found"})
+		return
+	}
+	if d.ParentCode == "" {
+		if product.ProtocolName == "" {
+			r.Response.WriteJson(g.Map{"code": 400, "message": "该产品没有绑定协议，只能作为子设备使用"})
+			return
+		}
+	} else {
+		parentDevice, err := store.GetDevice(d.ParentCode)
+		if err != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备不存在"})
+			return
+		}
+		parentProduct, err := store.GetProduct(parentDevice.ProductCode)
+		if err != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品不存在"})
+			return
+		}
+		if parentProduct.ProtocolName == "" {
+			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品没有绑定协议"})
+			return
+		}
+		if parentProduct.ProtocolName == "cascade" && product.ProtocolName == "" {
+			r.Response.WriteJson(g.Map{"code": 400, "message": "级联网关下的设备（视作直连设备）必须绑定协议"})
+			return
+		}
 	}
 
 	if err := store.UpdateDevice(&d); err != nil {
