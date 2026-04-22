@@ -21,15 +21,6 @@
       <div v-else class="d-flex justify-content-between align-items-center">
         <h5 class="mb-0">{{ $t('sidebar_devices') }}</h5>
         <div class="d-flex gap-2">
-          <select class="form-select form-select-sm" style="width: auto" v-model="refreshInterval">
-             <option :value="0">{{ $t('dev_auto_refresh') }}: {{ $t('dev_refresh_off') }}</option>
-             <option :value="5000">5s</option>
-             <option :value="10000">10s</option>
-             <option :value="30000">30s</option>
-          </select>
-          <button class="btn btn-outline-secondary btn-sm" @click="fetchDevices(false)" :title="$t('refresh')">
-            <i class="bi bi-arrow-clockwise"></i>
-          </button>
           <button class="btn btn-outline-primary btn-sm" @click="downloadTemplate">
             <i class="bi bi-download me-1"></i> {{ $t('download_template') }}
           </button>
@@ -239,6 +230,9 @@
         </select>
         <nav>
           <ul class="pagination pagination-sm mb-0">
+            <li class="page-item disabled me-2 d-flex align-items-center">
+              <span class="text-muted small border-0 bg-transparent">共 {{ total }} 条</span>
+            </li>
             <li class="page-item" :class="{ disabled: page === 1 }">
               <button class="page-link" @click="changePage(page - 1)">
                 <i class="bi bi-chevron-left"></i>
@@ -1150,8 +1144,8 @@ const filterProduct = ref('');
 const filterParent = ref('');
 const filterEnabled = ref('');
 const filterOnline = ref('');
-const refreshInterval = ref(0);
-let autoRefreshTimer = null;
+
+let eventSource = null;
 
 // 分页状态
 const page = ref(1);
@@ -1176,20 +1170,6 @@ const changePageSize = () => {
 // 过滤器变更时重置页码
 watch([filterProduct, filterParent, filterEnabled, filterOnline], () => {
     page.value = 1;
-});
-
-watch(refreshInterval, (val) => {
-  if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer);
-    autoRefreshTimer = null;
-  }
-  if (val > 0) {
-    autoRefreshTimer = setInterval(() => {
-        // Silent refresh (no loading spinner if possible, or just standard fetch)
-        // If we want silent, we might need a separate param for fetchDevices to suppress loading=true
-        fetchDevices(true); 
-    }, val);
-  }
 });
 
 const uniqueParents = computed(() => {
@@ -2802,14 +2782,15 @@ onUnmounted(() => {
   if (trendTimer) {
     clearInterval(trendTimer);
   }
-  if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer);
-  }
   if (hoverTimer) clearInterval(hoverTimer);
   if (hoverTrendTimer) clearInterval(hoverTrendTimer);
   if (hideDebounceTimer) clearTimeout(hideDebounceTimer);
   if (healthTooltipTimer) clearTimeout(healthTooltipTimer);
   window.removeEventListener('noyo-data-updated', fetchDevices);
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
 });
 
 // Mapping State
@@ -2976,6 +2957,18 @@ onMounted(() => {
   fetchPluginsInfo();
   fetchConfiguredTasks();
   window.addEventListener('noyo-data-updated', fetchDevices);
+
+  eventSource = new EventSource('/api/devices/stream');
+  const handleSSE = (e) => {
+    try {
+      fetchDevices(true);
+    } catch (err) {
+      console.error('Failed to handle SSE message', err);
+    }
+  };
+
+  eventSource.addEventListener('device.list.changed', handleSSE);
+  eventSource.addEventListener('device.status.changed', handleSSE);
 });
 
 const openCreateModal = () => {

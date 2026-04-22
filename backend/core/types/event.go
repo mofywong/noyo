@@ -7,6 +7,7 @@ const (
 	EventDeviceStatusChanged EventType = "device.status.changed"
 	EventPropertyReported    EventType = "property.reported"
 	EventEventReported       EventType = "event.reported"
+	EventDeviceListChanged   EventType = "device.list.changed"
 )
 
 // Event represents a generic event in the system

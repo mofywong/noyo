@@ -6,6 +6,7 @@ import (
 	"noyo/core/protocol"
 	"noyo/core/store"
 	"noyo/core/tsdb"
+	"noyo/core/types"
 	"time"
 
 	"github.com/gogf/gf/v2/frame/g"
@@ -21,6 +22,7 @@ func (s *Server) RegisterDeviceRoutes(group *ghttp.RouterGroup) {
 	group.DELETE("/products/:code", s.handleDeleteProduct)
 
 	group.GET("/devices", s.handleListDevices)
+	group.GET("/devices/stream", s.handleDeviceStream)
 	group.GET("/devices/import/template", s.handleDownloadTemplate)
 	group.POST("/devices/import", s.handleImportDevices)
 	group.POST("/devices", s.handleCreateDevice)
@@ -367,6 +369,11 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 		s.restartParent(d.ParentCode)
 	}
 
+	s.DeviceManager.EventBus.Publish(types.Event{
+		Type:      types.EventDeviceListChanged,
+		Timestamp: time.Now().UnixMilli(),
+	})
+
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Device created"})
 }
 
@@ -455,6 +462,11 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 		s.restartParent(updatedDevice.ParentCode)
 	}
 
+	s.DeviceManager.EventBus.Publish(types.Event{
+		Type:      types.EventDeviceListChanged,
+		Timestamp: time.Now().UnixMilli(),
+	})
+
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Device updated"})
 }
 
@@ -480,6 +492,11 @@ func (s *Server) handleDeleteDevice(r *ghttp.Request) {
 	if parentCode != "" {
 		s.restartParent(parentCode)
 	}
+
+	s.DeviceManager.EventBus.Publish(types.Event{
+		Type:      types.EventDeviceListChanged,
+		Timestamp: time.Now().UnixMilli(),
+	})
 
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Device deleted"})
 }
@@ -510,6 +527,11 @@ func (s *Server) handleStartDevice(r *ghttp.Request) {
 	if device.ParentCode != "" {
 		s.restartParent(device.ParentCode)
 	}
+
+	s.DeviceManager.EventBus.Publish(types.Event{
+		Type:      types.EventDeviceListChanged,
+		Timestamp: time.Now().UnixMilli(),
+	})
 
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Device started"})
 }
@@ -562,6 +584,11 @@ func (s *Server) handleStopDevice(r *ghttp.Request) {
 		s.restartParent(device.ParentCode)
 	}
 
+	s.DeviceManager.EventBus.Publish(types.Event{
+		Type:      types.EventDeviceListChanged,
+		Timestamp: time.Now().UnixMilli(),
+	})
+
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Device stopped"})
 }
 
@@ -596,6 +623,41 @@ func (s *Server) handleGetDeviceData(r *ghttp.Request) {
 		data = make(map[string]interface{})
 	}
 	r.Response.WriteJson(g.Map{"code": 0, "data": data})
+}
+
+func (s *Server) handleDeviceStream(r *ghttp.Request) {
+	r.Response.Header().Set("Content-Type", "text/event-stream")
+	r.Response.Header().Set("Cache-Control", "no-cache")
+	r.Response.Header().Set("Connection", "keep-alive")
+	r.Response.Header().Set("Access-Control-Allow-Origin", "*")
+
+	r.Response.Flush()
+
+	eventChan := make(chan types.Event, 100)
+	handler := func(e types.Event) {
+		select {
+		case eventChan <- e:
+		default:
+			s.Logger.Warn("SSE client event buffer full, dropping event", zap.String("type", string(e.Type)))
+		}
+	}
+
+	s.DeviceManager.EventBus.Subscribe(types.EventDeviceStatusChanged, handler)
+	s.DeviceManager.EventBus.Subscribe(types.EventDeviceListChanged, handler)
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-eventChan:
+			data, err := json.Marshal(e)
+			if err == nil {
+				fmt.Fprintf(r.Response.Writer, "event: %s\ndata: %s\n\n", e.Type, string(data))
+				r.Response.Flush()
+			}
+		}
+	}
 }
 
 func (s *Server) handleWritePoint(r *ghttp.Request) {
