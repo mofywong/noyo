@@ -243,7 +243,7 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 			continue // Hide license_auth plugin from the marketplace
 		}
 
-		isPro := meta.Name == "ai_predict" || meta.Name == "ai_copilot" || strings.EqualFold(meta.Name, "script") || meta.Name == "cascade"
+		isPro := meta.Name == "ai_predict" || meta.Name == "ai_copilot" || strings.EqualFold(meta.Name, "script")
 		isAllowed := s.Manager.IsAllowed(meta)
 		isUnauthorized := isPro && !isAllowed
 

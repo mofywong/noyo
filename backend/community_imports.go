@@ -3,6 +3,7 @@ package main
 
 import (
 	_ "noyo/plugins/platform/aiot"
+	_ "noyo/plugins/platform/cascade"
 	_ "noyo/plugins/platform/mqtt_api"
 	_ "noyo/plugins/platform/sagoo"
 	_ "noyo/plugins/protocol/bacnet"

@@ -1,0 +1,18 @@
+<svg width="204" height="200" viewBox="0 0 204 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="204" height="200" fill="#ffffff" rx="12"/>
+  
+  <!-- CASCADE Text -->
+  <text x="102" y="110" font-family="Arial, sans-serif" font-size="42" font-weight="300" text-anchor="middle" fill="#2c3e50">CASC</text>
+  
+  <!-- Cloud node -->
+  <circle cx="102" cy="50" r="10" fill="#3498db"/>
+  <!-- Edge node 1 -->
+  <circle cx="60" cy="150" r="8" fill="#e74c3c"/>
+  <!-- Edge node 2 -->
+  <circle cx="144" cy="150" r="8" fill="#2ecc71"/>
+  
+  <!-- Cascade connection lines -->
+  <line x1="102" y1="60" x2="60" y2="142" stroke="#bdc3c7" stroke-width="3" stroke-dasharray="4,4"/>
+  <line x1="102" y1="60" x2="144" y2="142" stroke="#bdc3c7" stroke-width="3" stroke-dasharray="4,4"/>
+</svg>

@@ -4,7 +4,6 @@ package main
 import (
 	_ "noyo/plugins/pro/platform/ai_copilot"
 	_ "noyo/plugins/pro/platform/ai_predict"
-	_ "noyo/plugins/pro/platform/cascade"
 	_ "noyo/plugins/pro/platform/license_auth"
 	_ "noyo/plugins/pro/protocol/script"
 )
