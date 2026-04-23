@@ -4,6 +4,7 @@ import (
 	"context"
 	"noyo/core/types"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -17,10 +18,17 @@ type job struct {
 	event   types.Event
 }
 
+// subscription holds a handler with its unique ID
+type subscription struct {
+	id      uint64
+	handler EventHandler
+}
+
 // EventBus manages event subscriptions and publishing
 type EventBus struct {
 	mu             sync.RWMutex
-	subscribers    map[types.EventType][]EventHandler
+	subscribers    map[types.EventType][]subscription
+	nextID         atomic.Uint64
 	jobQueue       chan job
 	workerPoolSize int
 	ctx            context.Context
@@ -38,7 +46,7 @@ func NewEventBus(logger *zap.Logger) *EventBus {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	eb := &EventBus{
-		subscribers:    make(map[types.EventType][]EventHandler),
+		subscribers:    make(map[types.EventType][]subscription),
 		jobQueue:       make(chan job, queueSize),
 		workerPoolSize: poolSize,
 		ctx:            ctx,
@@ -82,17 +90,45 @@ func (eb *EventBus) worker() {
 	}
 }
 
-// Subscribe subscribes a handler to a specific event type
+// Subscribe subscribes a handler to a specific event type (legacy, no unsubscribe support)
 func (eb *EventBus) Subscribe(eventType types.EventType, handler EventHandler) {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
-	eb.subscribers[eventType] = append(eb.subscribers[eventType], handler)
+	id := eb.nextID.Add(1)
+	eb.subscribers[eventType] = append(eb.subscribers[eventType], subscription{id: id, handler: handler})
+}
+
+// SubscribeWithID subscribes a handler and returns a unique subscription ID for later unsubscription
+func (eb *EventBus) SubscribeWithID(eventType types.EventType, handler EventHandler) uint64 {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+	id := eb.nextID.Add(1)
+	eb.subscribers[eventType] = append(eb.subscribers[eventType], subscription{id: id, handler: handler})
+	return id
+}
+
+// Unsubscribe removes a subscription by its ID
+func (eb *EventBus) Unsubscribe(eventType types.EventType, id uint64) {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+	subs := eb.subscribers[eventType]
+	for i, sub := range subs {
+		if sub.id == id {
+			eb.subscribers[eventType] = append(subs[:i], subs[i+1:]...)
+			return
+		}
+	}
 }
 
 // Publish publishes an event to all subscribers asynchronously via the worker pool
 func (eb *EventBus) Publish(event types.Event) {
 	eb.mu.RLock()
-	handlers := eb.subscribers[event.Type]
+	subs := eb.subscribers[event.Type]
+	// Copy handlers to avoid holding lock during enqueue
+	handlers := make([]EventHandler, len(subs))
+	for i, s := range subs {
+		handlers[i] = s.handler
+	}
 	eb.mu.RUnlock()
 
 	for _, handler := range handlers {
@@ -112,7 +148,11 @@ func (eb *EventBus) Publish(event types.Event) {
 // PublishSync publishes an event to all subscribers synchronously
 func (eb *EventBus) PublishSync(event types.Event) {
 	eb.mu.RLock()
-	handlers := eb.subscribers[event.Type]
+	subs := eb.subscribers[event.Type]
+	handlers := make([]EventHandler, len(subs))
+	for i, s := range subs {
+		handlers[i] = s.handler
+	}
 	eb.mu.RUnlock()
 
 	for _, handler := range handlers {

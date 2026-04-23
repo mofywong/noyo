@@ -387,6 +387,7 @@ func (e *platformEngineImpl) subscribeTopics(c mqtt.Client) {
 	c.Subscribe("noyo/cascade/gw/+/telemetry/up", 1, e.handleTelemetryUp)
 	c.Subscribe("noyo/cascade/gw/+/command/request_reply", 1, e.handleCommandReply)
 	c.Subscribe("noyo/cascade/gw/+/status", 1, e.handleGatewayStatus)
+	c.Subscribe("noyo/cascade/gw/+/sub/+/status", 1, e.handleSubDeviceStatus)
 }
 
 func (e *platformEngineImpl) handleCommandReply(client mqtt.Client, msg mqtt.Message) {
@@ -444,6 +445,17 @@ func parseTopicGwSn(topic, pattern string) (bool, string) {
 		return true, parts[3]
 	}
 	return false, ""
+}
+
+func parseTopicSubDeviceSn(topic string) (bool, string, string) {
+	// Remove leading slash if present
+	topic = strings.TrimPrefix(topic, "/")
+	parts := strings.Split(topic, "/")
+	// After TrimPrefix, parts[0] is "noyo", parts[1] is "cascade", parts[2] is "gw", parts[3] is gwSn, parts[4] is "sub", parts[5] is subSn
+	if len(parts) >= 7 && parts[0] == "noyo" && parts[1] == "cascade" && parts[2] == "gw" && parts[4] == "sub" && parts[6] == "status" {
+		return true, parts[3], parts[5]
+	}
+	return false, "", ""
 }
 
 func (e *platformEngineImpl) handleProvisionRequest(client mqtt.Client, msg mqtt.Message) {
@@ -773,6 +785,47 @@ func (e *platformEngineImpl) handleGatewayStatus(client mqtt.Client, msg mqtt.Me
 	if statusStr == types.DeviceStatusOffline {
 		e.setSubDevicesOffline(gwSn, coreServer.DeviceManager)
 	}
+}
+
+func (e *platformEngineImpl) handleSubDeviceStatus(client mqtt.Client, msg mqtt.Message) {
+	match, gwSn, subSn := parseTopicSubDeviceSn(msg.Topic())
+	if !match {
+		return
+	}
+
+	var payload struct {
+		Status    string `json:"status"`
+		Timestamp int64  `json:"timestamp"`
+	}
+	if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
+		e.logger.Error("Failed to parse sub-device status event", zap.Error(err))
+		return
+	}
+
+	coreServer, ok := e.ctx.GetCoreServer().(*core.Server)
+	if !ok {
+		return
+	}
+
+	statusStr := types.DeviceStatusOffline
+	if payload.Status == "online" {
+		statusStr = types.DeviceStatusOnline
+	}
+
+	lastActive := time.UnixMilli(payload.Timestamp)
+	if payload.Timestamp == 0 {
+		lastActive = time.Now()
+	}
+
+	status := core.DeviceStatus{
+		Online:     payload.Status == "online",
+		LastActive: lastActive,
+		LastReport: time.Now(),
+		LastStatus: statusStr,
+	}
+
+	coreServer.DeviceManager.ReportDeviceStatus(subSn, status)
+	e.logger.Info("Reported sub-device status from cascade", zap.String("gw", gwSn), zap.String("sub", subSn), zap.Bool("online", status.Online))
 }
 
 func (e *platformEngineImpl) setSubDevicesOffline(gwSn string, dm *core.DeviceManager) {

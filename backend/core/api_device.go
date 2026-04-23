@@ -166,6 +166,10 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 	page := r.Get("page", 1).Int()
 	pageSize := r.Get("pageSize", 10).Int()
 
+	r.Response.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	r.Response.Header().Set("Pragma", "no-cache")
+	r.Response.Header().Set("Expires", "0")
+
 	devices, total, err := store.ListDevices(page, pageSize)
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
@@ -630,7 +634,10 @@ func (s *Server) handleDeviceStream(r *ghttp.Request) {
 	r.Response.Header().Set("Cache-Control", "no-cache")
 	r.Response.Header().Set("Connection", "keep-alive")
 	r.Response.Header().Set("Access-Control-Allow-Origin", "*")
+	r.Response.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
 
+	// Send initial connection event so client knows SSE is working
+	r.Response.Write("event: connected\ndata: {}\n\n")
 	r.Response.Flush()
 
 	eventChan := make(chan types.Event, 100)
@@ -642,10 +649,21 @@ func (s *Server) handleDeviceStream(r *ghttp.Request) {
 		}
 	}
 
-	s.DeviceManager.EventBus.Subscribe(types.EventDeviceStatusChanged, handler)
-	s.DeviceManager.EventBus.Subscribe(types.EventDeviceListChanged, handler)
+	// Subscribe with IDs so we can unsubscribe on disconnect
+	id1 := s.DeviceManager.EventBus.SubscribeWithID(types.EventDeviceStatusChanged, handler)
+	id2 := s.DeviceManager.EventBus.SubscribeWithID(types.EventDeviceListChanged, handler)
+
+	// Cleanup subscriptions when this SSE connection closes
+	defer func() {
+		s.DeviceManager.EventBus.Unsubscribe(types.EventDeviceStatusChanged, id1)
+		s.DeviceManager.EventBus.Unsubscribe(types.EventDeviceListChanged, id2)
+		s.Logger.Debug("SSE client disconnected, subscriptions cleaned up")
+	}()
 
 	ctx := r.Context()
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -653,12 +671,18 @@ func (s *Server) handleDeviceStream(r *ghttp.Request) {
 		case e := <-eventChan:
 			data, err := json.Marshal(e)
 			if err == nil {
-				fmt.Fprintf(r.Response.Writer, "event: %s\ndata: %s\n\n", e.Type, string(data))
+				msg := fmt.Sprintf("event: %s\ndata: %s\n\n", e.Type, string(data))
+				r.Response.Write(msg)
 				r.Response.Flush()
 			}
+		case <-heartbeat.C:
+			// Send SSE heartbeat event to keep connection alive and let frontend detect it
+			r.Response.Write("event: heartbeat\ndata: {}\n\n")
+			r.Response.Flush()
 		}
 	}
 }
+
 
 func (s *Server) handleWritePoint(r *ghttp.Request) {
 	code := r.Get("code").String()

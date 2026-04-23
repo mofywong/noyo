@@ -1146,6 +1146,96 @@ const filterEnabled = ref('');
 const filterOnline = ref('');
 
 let eventSource = null;
+let sseHeartbeatTimer = null;
+let sseFetchDebounceTimer = null;
+let sseReconnectTimer = null;
+
+// SSE 防抖拉取：多个事件短时间内触发时只执行一次 fetchDevices
+const debouncedSSEFetch = () => {
+  if (sseFetchDebounceTimer) clearTimeout(sseFetchDebounceTimer);
+  sseFetchDebounceTimer = setTimeout(() => {
+    fetchDevices(true);
+  }, 300);
+};
+
+// SSE 心跳重置：收到任何SSE消息时调用，45秒无消息则重连
+const resetSSEHeartbeat = () => {
+  if (sseHeartbeatTimer) clearTimeout(sseHeartbeatTimer);
+  sseHeartbeatTimer = setTimeout(() => {
+    console.warn('[SSE] Heartbeat timeout, reconnecting...');
+    reconnectSSE();
+  }, 45000); // 后端心跳间隔15秒，给3倍容忍
+};
+
+const setupSSE = () => {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+  if (sseReconnectTimer) {
+    clearTimeout(sseReconnectTimer);
+    sseReconnectTimer = null;
+  }
+
+  eventSource = new EventSource('/api/devices/stream');
+
+  // 后端发送的初始连接确认事件
+  eventSource.addEventListener('connected', () => {
+    console.log('[SSE] Connected to device stream');
+    resetSSEHeartbeat();
+  });
+
+  const handleSSE = () => {
+    resetSSEHeartbeat();
+    debouncedSSEFetch();
+  };
+
+  eventSource.addEventListener('device.list.changed', handleSSE);
+  eventSource.addEventListener('device.status.changed', handleSSE);
+
+  // 后端每15秒发送一次心跳事件，用于前端检测连接是否存活
+  eventSource.addEventListener('heartbeat', () => {
+    resetSSEHeartbeat();
+  });
+
+  // 捕获所有消息（包括心跳 comment 会触发 onmessage 但不会触发 addEventListener）
+  // 注意：SSE comment (:keepalive) 不会触发任何JS事件，
+  // 但如果连接断开，EventSource 会触发 onerror
+
+  eventSource.onerror = (err) => {
+    console.warn('[SSE] Connection error, will auto-reconnect', err);
+    // EventSource 自动重连，但我们也重置心跳
+    // 如果 readyState 是 CLOSED (2)，需要手动重建
+    if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+      console.warn('[SSE] Connection closed, scheduling manual reconnect');
+      sseReconnectTimer = setTimeout(() => {
+        setupSSE();
+      }, 3000);
+    } else {
+      // CONNECTING 状态，EventSource 正在自动重连
+      resetSSEHeartbeat();
+    }
+  };
+
+  eventSource.onopen = () => {
+    console.log('[SSE] Connection opened');
+    resetSSEHeartbeat();
+    // 连接恢复后立即拉取最新状态
+    fetchDevices(true);
+  };
+};
+
+const reconnectSSE = () => {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+  // 重连前先拉取一次最新数据
+  fetchDevices(true);
+  sseReconnectTimer = setTimeout(() => {
+    setupSSE();
+  }, 1000);
+};
 
 // 分页状态
 const page = ref(1);
@@ -2787,6 +2877,9 @@ onUnmounted(() => {
   if (hideDebounceTimer) clearTimeout(hideDebounceTimer);
   if (healthTooltipTimer) clearTimeout(healthTooltipTimer);
   window.removeEventListener('noyo-data-updated', fetchDevices);
+  if (sseHeartbeatTimer) clearTimeout(sseHeartbeatTimer);
+  if (sseFetchDebounceTimer) clearTimeout(sseFetchDebounceTimer);
+  if (sseReconnectTimer) clearTimeout(sseReconnectTimer);
   if (eventSource) {
     eventSource.close();
     eventSource = null;
@@ -2806,7 +2899,7 @@ const isParentCascade = ref(false);
 const fetchDevices = async (silent = false) => {
   if (!silent) loading.value = true;
   try {
-    const res = await axios.get('/api/devices', { params: { page: 0 } });
+    const res = await axios.get('/api/devices', { params: { page: 0, _t: Date.now() } });
     if (res.data.code === 0) {
       devices.value = res.data.data || [];
     }
@@ -2958,17 +3051,8 @@ onMounted(() => {
   fetchConfiguredTasks();
   window.addEventListener('noyo-data-updated', fetchDevices);
 
-  eventSource = new EventSource('/api/devices/stream');
-  const handleSSE = (e) => {
-    try {
-      fetchDevices(true);
-    } catch (err) {
-      console.error('Failed to handle SSE message', err);
-    }
-  };
-
-  eventSource.addEventListener('device.list.changed', handleSSE);
-  eventSource.addEventListener('device.status.changed', handleSSE);
+  // 建立SSE连接，支持心跳检测和自动重连
+  setupSSE();
 });
 
 const openCreateModal = () => {

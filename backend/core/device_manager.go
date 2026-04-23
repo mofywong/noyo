@@ -257,12 +257,12 @@ func (dm *DeviceManager) ReportDeviceStatus(deviceCode string, status DeviceStat
 	rt.Status = status
 	rt.mu.Unlock()
 
+	// Notify EventBus every time, no filtering
 	statusStr := types.DeviceStatusOffline
 	if status.Online {
 		statusStr = types.DeviceStatusOnline
 	}
 
-	// Notify EventBus
 	dm.EventBus.Publish(types.Event{
 		Type:      types.EventDeviceStatusChanged,
 		Topic:     deviceCode,
@@ -279,30 +279,6 @@ func (dm *DeviceManager) UpdateStatus(deviceCode string, err error) {
 
 	newOnline := err == nil
 	now := time.Now()
-	shouldReport := false
-
-	// Check if this is the first time (status initialized?)
-	// If LastActive is zero, it might be new.
-	// But we rely on stored status.
-	// Logic from before:
-	// if !exists { ... } else { ... }
-	// Here exists is guaranteed by getRuntime.
-	// But we need to know if it was *previously* reported/known.
-	// We can check if LastReport is Zero.
-
-	if rt.Status.LastReport.IsZero() {
-		// New runtime or never reported
-		if newOnline {
-			shouldReport = true
-		}
-	} else if rt.Status.Online != newOnline {
-		shouldReport = true
-	} else if newOnline {
-		// Heartbeat check (10s default)
-		if rt.Status.LastStatus != types.DeviceStatusOnline || now.Sub(rt.Status.LastReport) >= 10*time.Second {
-			shouldReport = true
-		}
-	}
 
 	if newOnline {
 		rt.Status.Online = true
@@ -311,32 +287,28 @@ func (dm *DeviceManager) UpdateStatus(deviceCode string, err error) {
 		rt.Status.Online = false
 	}
 
-	if shouldReport {
-		rt.Status.LastReport = now
-		if newOnline {
-			rt.Status.LastStatus = types.DeviceStatusOnline
-		} else {
-			rt.Status.LastStatus = types.DeviceStatusOffline
-		}
+	rt.Status.LastReport = now
+	if newOnline {
+		rt.Status.LastStatus = types.DeviceStatusOnline
+	} else {
+		rt.Status.LastStatus = types.DeviceStatusOffline
 	}
 
 	// Create copy for publishing to avoid holding lock during Publish
 	statusCopy := rt.Status
 	rt.mu.Unlock()
 
-	if shouldReport {
-		statusStr := types.DeviceStatusOffline
-		if statusCopy.Online {
-			statusStr = types.DeviceStatusOnline
-		}
-
-		dm.EventBus.Publish(types.Event{
-			Type:      types.EventDeviceStatusChanged,
-			Topic:     deviceCode,
-			Payload:   statusStr,
-			Timestamp: now.UnixMilli(),
-		})
+	statusStr := types.DeviceStatusOffline
+	if statusCopy.Online {
+		statusStr = types.DeviceStatusOnline
 	}
+
+	dm.EventBus.Publish(types.Event{
+		Type:      types.EventDeviceStatusChanged,
+		Topic:     deviceCode,
+		Payload:   statusStr,
+		Timestamp: now.UnixMilli(),
+	})
 }
 
 // GetStatus returns the online status of a device
