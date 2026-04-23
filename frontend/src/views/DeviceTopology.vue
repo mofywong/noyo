@@ -59,6 +59,13 @@
        </div>
     </div>
   </div>
+
+  <DeviceDataModal 
+    :visible="showDataModal" 
+    :device="currentDataDevice" 
+    :products="products" 
+    @close="showDataModal = false" 
+  />
 </template>
 
 <script setup>
@@ -70,6 +77,7 @@ register(ExtensionCategory.LAYOUT, 'dagre', DagreLayout);
 import axios from 'axios';
 import { useI18n } from 'vue-i18n';
 import { usePlugins, loadPlugins } from '../plugins/registry';
+import DeviceDataModal from '../components/device/DeviceDataModal.vue';
 
 const { t, locale } = useI18n();
 const { getPluginManifest } = usePlugins();
@@ -159,15 +167,22 @@ const updateTheme = () => {
 
 let themeObserver = null;
 
+const devicesList = ref([]);
+const showDataModal = ref(false);
+const currentDataDevice = ref(null);
+
 const fetchData = async () => {
   try {
     const res = await axios.get('/api/devices');
     if (res.data.code === 0) {
-      return res.data.data || [];
+      devicesList.value = res.data.data || [];
+      return devicesList.value;
     }
+    devicesList.value = [];
     return [];
   } catch (e) {
     console.error(e);
+    devicesList.value = [];
     return [];
   }
 };
@@ -229,18 +244,34 @@ const buildGraphData = (devices, plugins) => {
 
     // 1. Gateway Node (Center/Root)
     const gatewayId = 'root';
+    
+    // Determine the root node type based on cascade plugin
+    let rootLabel = 'Noyo边缘网关';
+    let rootType = 'gateway';
+    
+    if (plugins && plugins.length > 0) {
+        const cascadePlugin = plugins.find(p => p.name === 'cascade');
+        if (cascadePlugin && cascadePlugin.status === 'running') {
+            const modeField = cascadePlugin.schema?.fields?.find(f => f.name === 'mode');
+            if (modeField && modeField.value === 'platform') {
+                rootLabel = 'Noyo平台';
+                rootType = 'platform';
+            }
+        }
+    }
+
     nodes.push({
         id: gatewayId,
         data: {
-            label: 'Noyo',
-            type: 'gateway',
+            label: rootLabel,
+            type: rootType,
             status: 'online',
             isRoot: true
         },
         style: {
             fill: '#1890ff',
             stroke: '#1890ff',
-            labelText: 'Noyo',
+            labelText: rootLabel,
             labelFill: '#fff',
         }
     });
@@ -248,10 +279,47 @@ const buildGraphData = (devices, plugins) => {
     // 2. Platform Plugins (Northbound - Upstream)
     // Edges: Platform -> Gateway
     if (plugins && plugins.length > 0) {
+        // If cascade is in gateway mode, manually add the Noyo platform node
+        const cascadePlugin = plugins.find(p => p.name === 'cascade');
+        if (cascadePlugin && cascadePlugin.status === 'running') {
+            const modeField = cascadePlugin.schema?.fields?.find(f => f.name === 'mode');
+            if (!modeField || modeField.value !== 'platform') {
+                // It is in gateway mode
+                nodes.push({
+                    id: 'platform-noyo',
+                    data: {
+                        label: 'Noyo平台',
+                        type: 'platform',
+                        status: cascadePlugin.detailedStatus || cascadePlugin.status || 'connected',
+                        protocol: 'MQTT',
+                        pluginName: 'cascade'
+                    }
+                });
+
+                edges.push({
+                    source: 'platform-noyo',
+                    target: gatewayId,
+                    data: {
+                        type: 'platform-link',
+                        protocol: 'MQTT'
+                    }
+                });
+            }
+        }
+
         plugins.forEach(p => {
             if (p.category !== 'platform' || p.status !== 'running') return;
 
-            const localizedTitle = p.title?.[locale.value] || p.title?.['en'] || p.name;
+            // Filter out specific plugins from the topology graph display
+            const pTitle = p.title?.['zh'] || p.title?.['en'] || p.name;
+            if (['ai_copilot', 'ai_predict', 'cascade'].includes(p.name) || 
+                pTitle.includes('AI智能助手') || 
+                pTitle.includes('AI设备守护') || 
+                pTitle.includes('级联插件')) {
+                return;
+            }
+
+            let localizedTitle = p.title?.[locale.value] || p.title?.['en'] || p.name;
             // Determine Status Color
             const status = p.detailedStatus || p.status || 'disconnected';
             const displayStatus = (status === 'connected' || status === 'running') ? 'connected' : 'disconnected';
@@ -263,13 +331,19 @@ const buildGraphData = (devices, plugins) => {
                protocol = manifest.topology.protocol;
             }
             
+            if (p.name === 'cascade') {
+                localizedTitle = 'Noyo平台';
+                protocol = 'MQTT';
+            }
+            
             nodes.push({
                 id: `plugin-${p.name}`,
                 data: {
                     label: localizedTitle,
                     type: 'platform',
                     status: displayStatus,
-                    protocol: protocol
+                    protocol: protocol,
+                    pluginName: p.name
                 }
             });
 
@@ -297,23 +371,58 @@ const buildGraphData = (devices, plugins) => {
 
     // Create product protocol map
     const productProtocolMap = {};
+    const productDriverProtocols = {};
     if (products.value && products.value.length > 0) {
         products.value.forEach(p => {
             productProtocolMap[p.code] = p.protocol_name;
+            if (p.protocol_name && p.protocol_name.toLowerCase() === 'script' && p.config) {
+                try {
+                    const cfg = typeof p.config === 'string' ? JSON.parse(p.config) : p.config;
+                    if (cfg.script) {
+                        const script = cfg.script;
+                        const cleanScript = script.replace(/--\[\[[\s\S]*?\]\]/g, '').replace(/--.*$/gm, '');
+                        const protocols = new Set();
+                        if (cleanScript.includes('http.get') || cleanScript.includes('http.post') || cleanScript.includes('http.request')) protocols.add('HTTP客户端');
+                        if (/clients\.http\s*=/.test(cleanScript) || /clients\[['"]http['"]\]\s*=/.test(cleanScript)) protocols.add('HTTP客户端');
+                        if (cleanScript.includes('listeners.http') || /servers\.http\s*=/.test(cleanScript) || /servers\[['"]http['"]\]\s*=/.test(cleanScript)) protocols.add('HTTP服务端');
+                        if (cleanScript.includes('net.tcp_request') || cleanScript.includes('net.dial_tcp')) protocols.add('TCP客户端');
+                        if (/clients\.tcp\s*=/.test(cleanScript) || /clients\[['"]tcp['"]\]\s*=/.test(cleanScript)) protocols.add('TCP客户端');
+                        if (cleanScript.includes('listeners.tcp') || /servers\.tcp\s*=/.test(cleanScript) || /servers\[['"]tcp['"]\]\s*=/.test(cleanScript)) protocols.add('TCP服务端');
+                        if (cleanScript.includes('net.udp_request') || cleanScript.includes('net.dial_udp')) protocols.add('UDP客户端');
+                        if (cleanScript.includes('listeners.udp') || /servers\.udp\s*=/.test(cleanScript) || /servers\[['"]udp['"]\]\s*=/.test(cleanScript)) protocols.add('UDP服务端');
+                        if (cleanScript.includes('listeners.mqtt') || cleanScript.includes('mqtt.client') || /clients\.mqtt\s*=/.test(cleanScript) || /clients\[['"]mqtt['"]\]\s*=/.test(cleanScript)) protocols.add('MQTT客户端');
+                        
+                        if (protocols.size > 0) {
+                            productDriverProtocols[p.code] = Array.from(protocols).join(' / ');
+                        }
+                    }
+                } catch(e){}
+            }
         });
     }
 
     if (devices) {
         devices.forEach(d => {
-            const protocol = productProtocolMap[d.product_code] || d.protocol || '';
+            let protocol = productProtocolMap[d.product_code] || d.protocol || '';
+            if (protocol && protocol.toLowerCase() === 'script' && productDriverProtocols[d.product_code]) {
+                protocol = productDriverProtocols[d.product_code];
+            }
+            
+            let label = d.name || d.code;
+            if (d.product_code === 'noyo-gw') {
+                label = 'Noyo边缘网关';
+                protocol = 'MQTT';
+            }
+
             const isOnline = d.online;
             nodes.push({
                 id: d.code,
                 data: {
-                    label: d.name || d.code,
+                    label: label,
                     type: 'device',
                     status: d.enabled ? (d.online ? 'online' : (d.status === 'running' ? 'offline' : 'stopped')) : 'disabled',
-                    protocol: protocol
+                    protocol: protocol,
+                    product_code: d.product_code
                 }
             });
 
@@ -377,43 +486,98 @@ const initGraph = async () => {
     layout: {
       type: 'dagre',
       rankdir: 'TB', // Top to Bottom
-      nodesep: 60,
-      ranksep: 80,
+      nodesep: 80,
+      ranksep: 150,
       controlPoints: true,
     },
     node: {
-        type: 'rect',
+        type: (d) => {
+            const isRoot = d.data?.isRoot;
+            const type = d.data?.type;
+            const label = d.data?.label || '';
+            const productCode = d.data?.product_code || '';
+            
+            if (isRoot || type === 'platform') return 'circle';
+            if (productCode === 'noyo-gw' || label.includes('网关') || label.toLowerCase().includes('gateway')) return 'circle';
+            if (label.includes('子系统') || label.toLowerCase().includes('subsystem')) return 'circle';
+            
+            return 'rect';
+        },
         style: (d) => {
             let color = '#A0A0A0'; // Default disabled
             const status = d.data?.status;
             const type = d.data?.type;
             const isRoot = d.data?.isRoot;
+            const label = d.data?.label || '';
+            const protocol = d.data?.protocol || '';
+            const productCode = d.data?.product_code || '';
             const colors = themeColors.value;
 
             // Status Colors
             if (status === 'online' || status === 'running' || status === 'connected') color = '#64BB5C';
-            else if (status === 'offline' || status === 'stopped' || status === 'disconnected') color = '#FFA500';
+            else if (status === 'offline' || status === 'stopped' || status === 'disconnected') color = '#6c757d';
             else if (status === 'disabled') color = '#A0A0A0';
             else if (status === 'alarm') color = '#E84026';
             
-            // Fill Color
             let fill = colors.nodeFill;
             let labelFill = colors.text;
             let stroke = color;
 
-            if (isRoot) {
-                fill = '#1890ff';
-                stroke = '#1890ff';
-                labelFill = '#fff';
-            } else if (type === 'platform') {
-                fill = colors.platformFill;
-                stroke = color; 
-                labelFill = colors.platformStroke;
+            const isGateway = productCode === 'noyo-gw' || label.includes('网关') || label.toLowerCase().includes('gateway');
+            const isSubsystem = label.includes('子系统') || label.toLowerCase().includes('subsystem');
+
+            if (isRoot || type === 'platform' || isGateway || isSubsystem) {
+                if (isRoot) {
+                    fill = '#1890ff';
+                    stroke = '#1890ff';
+                    labelFill = colors.text;
+                } else if (type === 'platform') {
+                    fill = colors.platformFill;
+                    stroke = color; 
+                    labelFill = colors.text;
+                }
+
+                // Determine icon
+                let icon = '\uF77D'; // bi-plugin for other platforms
+                if (isRoot) {
+                    if (type === 'platform') {
+                        icon = '\uF29E'; // bi-cloud-fill for Noyo platform
+                    } else {
+                        icon = '\uF40D'; // bi-hdd-network for Noyo edge gateway
+                    }
+                } else if (type === 'platform') {
+                    if (d.data?.pluginName === 'cascade') {
+                        icon = '\uF29E'; // bi-cloud-fill for Noyo platform
+                    }
+                } else if (isSubsystem) {
+                    icon = '\uF2EE'; // bi-diagram-3 for subsystem
+                } else if (isGateway && protocol.toLowerCase().includes('modbus')) {
+                    icon = '\uF4F7'; // bi-plug for modbus
+                } else if (isGateway) {
+                    icon = '\uF40D'; // bi-hdd-network for other gateways
+                }
+
+                return {
+                    size: [56, 56],
+                    labelText: label || d.id,
+                    labelFill: labelFill,
+                    fill: fill,
+                    stroke: stroke,
+                    lineWidth: 2,
+                    cursor: 'pointer',
+                    labelPlacement: 'bottom',
+                    labelOffsetY: 8,
+                    iconText: icon,
+                    iconFontFamily: 'bootstrap-icons',
+                    iconFill: isRoot ? '#fff' : (type === 'platform' ? colors.platformStroke : stroke),
+                    iconFontSize: 28,
+                    ports: [{ placement: 'top' }, { placement: 'bottom' }]
+                };
             }
 
             return {
                 size: [160, 40],
-                labelText: d.data?.label || d.id,
+                labelText: label || d.id,
                 labelFill: labelFill,
                 fill: fill,
                 stroke: stroke,
@@ -422,8 +586,8 @@ const initGraph = async () => {
                 cursor: 'pointer',
                 labelPlacement: 'center',
                 ports: [{ placement: 'top' }, { placement: 'bottom' }]
-            }
-        },
+            };
+        }
     },
     edge: {
         type: 'cubic-vertical', 
@@ -479,6 +643,20 @@ const initGraph = async () => {
      }
      tooltipVisible.value = false;
      hoveredDevice.value = null;
+  });
+
+  graph.on('node:click', (e) => {
+     const nodeId = e.target.id;
+     if (!nodeId) return;
+     const nodeData = graph.getNodeData(nodeId);
+     
+     if (nodeData && nodeData.data && !nodeData.data.isRoot && nodeData.data.type !== 'platform') {
+         const device = devicesList.value.find(d => d.code === nodeId);
+         if (device) {
+             currentDataDevice.value = device;
+             showDataModal.value = true;
+         }
+     }
   });
 
   graph.on('node:drag', () => { 
