@@ -1088,7 +1088,7 @@ export default {
                 const payload = {
                   code: 'P' + Date.now().toString() + Math.floor(Math.random()*1000), // Generator standard code
                   name: targetName,
-                  protocol_name: action.payload.protocol_name || 'modbus',
+                  protocol_name: action.payload.protocol_name || '',
                   config: '{}' // Default empty config
                 };
                 globalProductCode = payload.code;
@@ -1194,7 +1194,10 @@ export default {
                 if (res.data.code !== 0) throw new Error("创建设备失败: " + res.data.message);
              }
              else if (action.type === 'update_mapping') {
-                if (action.executed_inline) continue; // Skip if done during device creation
+                if (action.executed_inline) {
+                    action.exec_status = 'skipped';
+                    continue; // Skip if done during device creation
+                }
 
                 let targetCode = action.payload.product_code || globalProductCode;
                 if (aiCodeMap[targetCode]) {
@@ -1312,11 +1315,29 @@ export default {
                 }
                 if (!targetCode) throw new Error("更新产品缺少目标产品编码");
 
-                const payload = { ...action.payload };
+                // 获取已有的产品信息，避免覆盖丢失原有的 Name 和 ProtocolName
+                const getRes = await axios.get('/api/products/' + targetCode);
+                if (getRes.data.code !== 0) throw new Error("获取产品信息失败: " + getRes.data.message);
+                const existingObj = getRes.data.data;
+
+                const payload = { ...existingObj, ...action.payload };
                 payload.code = targetCode; // Ensure payload code matches the real code
-                if (payload.config && typeof payload.config === 'object') {
-                    payload.config = JSON.stringify(payload.config);
+                
+                // 深度合并 config
+                let configObj = {};
+                try { configObj = JSON.parse(existingObj.config || '{}'); } catch(e) {}
+                
+                if (action.payload.config) {
+                    let newConfig = action.payload.config;
+                    if (typeof newConfig === 'string') {
+                        try { newConfig = JSON.parse(newConfig); } catch(e) {}
+                    }
+                    if (typeof newConfig === 'object') {
+                        configObj = { ...configObj, ...newConfig };
+                    }
                 }
+                payload.config = JSON.stringify(configObj);
+                
                 const res = await axios.put('/api/products/' + targetCode, payload);
                 if (res.data.code !== 0) throw new Error("更新产品失败: " + res.data.message);
              }
@@ -1324,7 +1345,12 @@ export default {
                 let targetCode = action.payload.code;
                 if (aiCodeMap[targetCode]) targetCode = aiCodeMap[targetCode];
 
-                const payload = { ...action.payload };
+                // 获取已有的设备信息，避免覆盖丢失原有的字段
+                const getRes = await axios.get('/api/devices/' + targetCode);
+                if (getRes.data.code !== 0) throw new Error("获取设备信息失败: " + getRes.data.message);
+                const existingObj = getRes.data.data;
+
+                const payload = { ...existingObj, ...action.payload };
                 payload.code = targetCode; // Ensure payload code matches the real code
                 if (payload.parent_code && aiCodeMap[payload.parent_code]) {
                     payload.parent_code = aiCodeMap[payload.parent_code];
@@ -1332,9 +1358,22 @@ export default {
                 if (payload.product_code && aiCodeMap[payload.product_code]) {
                     payload.product_code = aiCodeMap[payload.product_code];
                 }
-                if (payload.config && typeof payload.config === 'object') {
-                    payload.config = JSON.stringify(payload.config);
+                
+                // 深度合并 config
+                let configObj = {};
+                try { configObj = JSON.parse(existingObj.config || '{}'); } catch(e) {}
+                
+                if (action.payload.config) {
+                    let newConfig = action.payload.config;
+                    if (typeof newConfig === 'string') {
+                        try { newConfig = JSON.parse(newConfig); } catch(e) {}
+                    }
+                    if (typeof newConfig === 'object') {
+                        configObj = { ...configObj, ...newConfig };
+                    }
                 }
+                payload.config = JSON.stringify(configObj);
+                
                 const res = await axios.put('/api/devices/' + targetCode, payload);
                 if (res.data.code !== 0) throw new Error("更新设备失败: " + res.data.message);
              }
