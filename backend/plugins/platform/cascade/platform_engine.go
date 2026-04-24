@@ -90,29 +90,7 @@ func (e *platformEngineImpl) Start() error {
 
 	// Register DB Hooks for config changes
 	e.registerDBHooks()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	e.cancel = cancel
-	go e.statusLoop(ctx)
-
 	return nil
-}
-
-func (e *platformEngineImpl) statusLoop(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if e.client != nil && e.client.IsConnected() {
-				onlinePayload := fmt.Sprintf(`{"status":"online","timestamp":%d}`, time.Now().UnixMilli())
-				e.client.Publish("noyo/cascade/platform/status", 1, true, []byte(onlinePayload))
-			}
-		}
-	}
 }
 
 func (e *platformEngineImpl) ensureGatewayProduct() {
@@ -167,12 +145,16 @@ func (e *platformEngineImpl) Stop() error {
 }
 
 func (e *platformEngineImpl) registerDBHooks() {
-	store.DB.Callback().Update().After("gorm:update").Register("cascade:after_update", e.onDBChange)
-	store.DB.Callback().Create().After("gorm:create").Register("cascade:after_create", e.onDBChange)
-	store.DB.Callback().Delete().After("gorm:delete").Register("cascade:after_delete", e.onDBChange)
+	store.DB.Callback().Update().After("gorm:commit_or_rollback_transaction").Register("cascade:after_update", e.onDBChange)
+	store.DB.Callback().Create().After("gorm:commit_or_rollback_transaction").Register("cascade:after_create", e.onDBChange)
+	store.DB.Callback().Delete().After("gorm:commit_or_rollback_transaction").Register("cascade:after_delete", e.onDBChange)
 }
 
 func (e *platformEngineImpl) onDBChange(db *gorm.DB) {
+	if db.Error != nil {
+		// 如果事务失败或回滚，不触发同步
+		return
+	}
 	if db.Statement.Schema == nil {
 		return
 	}
@@ -248,11 +230,11 @@ func (e *platformEngineImpl) onDBChange(db *gorm.DB) {
 	}
 
 	for gwSn := range affectedGwSns {
-		e.logger.Info("Detected DB change, broadcasting config_changed to gateway", zap.String("gw_sn", gwSn))
-		payload := fmt.Sprintf(`{"timestamp":%d}`, time.Now().Unix())
+		e.logger.Info("Detected DB change, broadcasting config version to gateway", zap.String("gw_sn", gwSn))
+		payload := fmt.Sprintf(`{"version":%d}`, time.Now().UnixMilli())
 		if e.client != nil && e.client.IsConnected() {
-			topic := fmt.Sprintf("noyo/cascade/gw/%s/config_changed", gwSn)
-			e.client.Publish(topic, 1, false, []byte(payload))
+			topic := fmt.Sprintf("noyo/cascade/gw/%s/config/version", gwSn)
+			e.client.Publish(topic, 1, true, []byte(payload))
 		}
 	}
 }
@@ -344,16 +326,20 @@ func (e *platformEngineImpl) findTopLevelGateway(db *gorm.DB, deviceCode string)
 		visited[currentCode] = true
 
 		var d store.Device
-		if err := db.Unscoped().Where("code = ? OR code LIKE ?", currentCode, currentCode+"_del_%").First(&d).Error; err != nil {
-			return ""
-		}
-		if d.ParentCode == "" {
-			var p store.Product
-			if err := db.Unscoped().Where("code = ?", d.ProductCode).First(&p).Error; err == nil {
-				if p.ProtocolName == "cascade" {
-					return d.Code
-				}
+		if err := db.Unscoped().Where("code = ?", currentCode).First(&d).Error; err != nil {
+			if err := db.Unscoped().Where("code LIKE ?", currentCode+"_del_%").Order("deleted_at DESC").First(&d).Error; err != nil {
+				return ""
 			}
+		}
+		var p store.Product
+		if err := db.Unscoped().Where("code = ?", d.ProductCode).First(&p).Error; err != nil {
+			db.Unscoped().Where("code LIKE ?", d.ProductCode+"_del_%").Order("deleted_at DESC").First(&p)
+		}
+		if p.Code != "" && p.ProtocolName == "cascade" {
+			return d.Code
+		}
+
+		if d.ParentCode == "" {
 			return ""
 		}
 		currentCode = d.ParentCode
@@ -703,7 +689,7 @@ func (e *platformEngineImpl) doSyncRequest(gwSn string, lastSyncTime int64) {
 		Products  []*store.Product `json:"products"`
 		Devices   []*store.Device  `json:"devices"`
 	}{
-		Timestamp: time.Now().Unix(),
+		Timestamp: time.Now().UnixMilli(),
 		Products:  products,
 		Devices:   allDevices,
 	}

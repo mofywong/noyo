@@ -12,7 +12,7 @@ export default defineConfig({
     preserveSymlinks: true
   },
   server: {
-    host: '0.0.0.0',
+    host: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8989',

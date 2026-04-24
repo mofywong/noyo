@@ -107,8 +107,8 @@
               <td class="ps-4">
                 <input class="form-check-input" type="checkbox" :checked="selectedDevices.includes(device.code)" @change="toggleSelection(device.code)">
               </td>
-              <td class="font-monospace fw-bold text-primary" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">{{ device.code }}</td>
-              <td @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">{{ device.name || '-' }}</td>
+              <td class="font-monospace fw-bold text-primary" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.code }}</td>
+              <td @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.name || '-' }}</td>
               <td @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
                 <span class="badge rounded-pill" :class="device.online ? 'bg-success' : 'bg-secondary'">
                   <i class="bi me-1" :class="device.online ? 'bi-circle-fill' : 'bi-circle-fill text-white-50'"></i>
@@ -1076,6 +1076,16 @@ const batchDisable = async () => {
 // Data Modal State
 const showDataModal = ref(false);
 const currentDataDevice = ref(null);
+
+const openDataModal = (device, tab = 'realtime') => {
+  currentDataDevice.value = device;
+  showDataModal.value = true;
+};
+
+const closeDataModal = () => {
+  showDataModal.value = false;
+  currentDataDevice.value = null;
+};
 
 // AI Predictive Maintenance State
 const aiConfig = ref({
