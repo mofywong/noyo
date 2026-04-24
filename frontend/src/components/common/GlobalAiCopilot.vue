@@ -989,11 +989,37 @@ export default {
           // At end of stream, parse the full accumulated JSON string 
           // We do this to extract the structured `reply` and `actions` arrays.
           let finalTextRaw = aiFullContent.trim();
-          // Remove markdown wrappers if any
-          if (finalTextRaw.startsWith("```json")) finalTextRaw = finalTextRaw.substring(7);
-          else if (finalTextRaw.startsWith("```")) finalTextRaw = finalTextRaw.substring(3);
-          if (finalTextRaw.endsWith("```")) finalTextRaw = finalTextRaw.substring(0, finalTextRaw.length - 3);
-          finalTextRaw = finalTextRaw.trim();
+          
+          // Try to extract JSON block if wrapped in markdown
+          const jsonBlockMatch = finalTextRaw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+          if (jsonBlockMatch) {
+             finalTextRaw = jsonBlockMatch[1].trim();
+          } else {
+             // Try to find the first { or [ and last } or ]
+             const firstBrace = finalTextRaw.indexOf('{');
+             const lastBrace = finalTextRaw.lastIndexOf('}');
+             const firstBracket = finalTextRaw.indexOf('[');
+             const lastBracket = finalTextRaw.lastIndexOf(']');
+             
+             let startIdx = -1;
+             let endIdx = -1;
+             
+             if (firstBrace !== -1 && firstBracket !== -1) {
+                 startIdx = Math.min(firstBrace, firstBracket);
+             } else {
+                 startIdx = Math.max(firstBrace, firstBracket);
+             }
+             
+             if (lastBrace !== -1 && lastBracket !== -1) {
+                 endIdx = Math.max(lastBrace, lastBracket);
+             } else {
+                 endIdx = Math.max(lastBrace, lastBracket);
+             }
+             
+             if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                 finalTextRaw = finalTextRaw.substring(startIdx, endIdx + 1);
+             }
+          }
 
           try {
              const parsedJson = JSON.parse(finalTextRaw);
@@ -1004,8 +1030,13 @@ export default {
                  return;
              }
 
-             assistantMsg.reply = parsedJson.reply || "";
-             assistantMsg.actions = parsedJson.actions || [];
+             if (Array.isArray(parsedJson)) {
+                 assistantMsg.reply = "已为您生成以下操作：";
+                 assistantMsg.actions = parsedJson;
+             } else {
+                 assistantMsg.reply = parsedJson.reply || "";
+                 assistantMsg.actions = parsedJson.actions || [];
+             }
           } catch (e) {
              // If LLM failed to output JSON, treat everything as reply
              assistantMsg.reply = aiFullContent;
