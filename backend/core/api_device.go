@@ -672,12 +672,20 @@ func (s *Server) handleDeviceStream(r *ghttp.Request) {
 			data, err := json.Marshal(e)
 			if err == nil {
 				msg := fmt.Sprintf("event: %s\ndata: %s\n\n", e.Type, string(data))
-				r.Response.Write(msg)
+				_, writeErr := r.Response.Writer.Write([]byte(msg))
+				if writeErr != nil {
+					s.Logger.Info("SSE client disconnected (write error)", zap.Error(writeErr))
+					return
+				}
 				r.Response.Flush()
 			}
 		case <-heartbeat.C:
 			// Send SSE heartbeat event to keep connection alive and let frontend detect it
-			r.Response.Write("event: heartbeat\ndata: {}\n\n")
+			_, writeErr := r.Response.Writer.Write([]byte("event: heartbeat\ndata: {}\n\n"))
+			if writeErr != nil {
+				s.Logger.Info("SSE client disconnected (heartbeat write error)", zap.Error(writeErr))
+				return
+			}
 			r.Response.Flush()
 		}
 	}

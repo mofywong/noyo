@@ -32,14 +32,16 @@ type gatewayEngineImpl struct {
 	isRegistered   atomic.Bool
 	platformOnline atomic.Bool
 	configVersion  atomic.Int64
+	localEventSubs map[types.EventType]uint64
 }
 
 func NewGatewayEngine(ctx platform.Context, logger *zap.Logger, cfg *Config) GatewayEngine {
 	return &gatewayEngineImpl{
 		ctx:       ctx,
 		logger:    logger,
-		config:    cfg,
-		receivers: make(map[string]*FileReceiver),
+		config:         cfg,
+		receivers:      make(map[string]*FileReceiver),
+		localEventSubs: make(map[types.EventType]uint64),
 	}
 }
 
@@ -91,9 +93,9 @@ func (e *gatewayEngineImpl) Start() error {
 	go e.telemetryLoop(ctx)
 
 	// Subscribe to local core events for telemetry routing to Platform
-	e.ctx.SubscribeEvent(types.EventDeviceStatusChanged, e.handleLocalEvent)
-	e.ctx.SubscribeEvent(types.EventPropertyReported, e.handleLocalEvent)
-	e.ctx.SubscribeEvent(types.EventEventReported, e.handleLocalEvent)
+	e.localEventSubs[types.EventDeviceStatusChanged] = e.ctx.SubscribeEvent(types.EventDeviceStatusChanged, e.handleLocalEvent)
+	e.localEventSubs[types.EventPropertyReported] = e.ctx.SubscribeEvent(types.EventPropertyReported, e.handleLocalEvent)
+	e.localEventSubs[types.EventEventReported] = e.ctx.SubscribeEvent(types.EventEventReported, e.handleLocalEvent)
 
 	return nil
 }
@@ -149,6 +151,13 @@ func (e *gatewayEngineImpl) telemetryLoop(ctx context.Context) {
 
 func (e *gatewayEngineImpl) Stop() error {
 	e.logger.Info("Gateway Engine Stopped")
+	
+	// Unsubscribe from all local core events to prevent memory leak
+	for eventType, id := range e.localEventSubs {
+		e.ctx.UnsubscribeEvent(eventType, id)
+	}
+	e.localEventSubs = make(map[types.EventType]uint64)
+
 	if e.cancel != nil {
 		e.cancel()
 	}

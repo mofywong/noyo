@@ -38,7 +38,10 @@ type Context interface {
 	GetEnabledProtocols() ([]types.PluginMeta, error)
 
 	// SubscribeEvent subscribes to a specific system event
-	SubscribeEvent(eventType types.EventType, handler func(event types.Event))
+	SubscribeEvent(eventType types.EventType, handler func(event types.Event)) uint64
+
+	// UnsubscribeEvent unsubscribes a handler by its ID
+	UnsubscribeEvent(eventType types.EventType, id uint64)
 
 	// PublishEvent publishes a system event
 	PublishEvent(event types.Event)

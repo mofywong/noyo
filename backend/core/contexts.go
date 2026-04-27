@@ -216,8 +216,12 @@ func (c *PlatformContextImpl) GetEnabledProtocols() ([]types.PluginMeta, error) 
 	return protocols, nil
 }
 
-func (c *PlatformContextImpl) SubscribeEvent(eventType types.EventType, handler func(event types.Event)) {
-	c.server.DeviceManager.EventBus.Subscribe(eventType, handler)
+func (c *PlatformContextImpl) SubscribeEvent(eventType types.EventType, handler func(event types.Event)) uint64 {
+	return c.server.DeviceManager.EventBus.SubscribeWithID(eventType, handler)
+}
+
+func (c *PlatformContextImpl) UnsubscribeEvent(eventType types.EventType, id uint64) {
+	c.server.DeviceManager.EventBus.Unsubscribe(eventType, id)
 }
 
 func (c *PlatformContextImpl) PublishEvent(event types.Event) {

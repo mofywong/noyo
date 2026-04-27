@@ -307,30 +307,32 @@ func (s *SQLiteStore) queryAggregated(req QueryRequest) (*QueryResponse, error) 
 	if req.Type == TypeEvent {
 		eventCounts := make(map[string]int)
 		for _, month := range months {
-			db, err := s.getDB(month)
-			if err != nil {
-				continue
-			}
-			rows, err := db.Model(&Record{}).
-				Where("device_code = ? AND type = ? AND ts >= ? AND ts <= ?", req.DeviceCode, req.Type, start, end).
-				Rows()
-			if err != nil {
-				continue
-			}
-			defer rows.Close()
+			func() {
+				db, err := s.getDB(month)
+				if err != nil {
+					return
+				}
+				rows, err := db.Model(&Record{}).
+					Where("device_code = ? AND type = ? AND ts >= ? AND ts <= ?", req.DeviceCode, req.Type, start, end).
+					Rows()
+				if err != nil {
+					return
+				}
+				defer rows.Close()
 
-			for rows.Next() {
-				var r Record
-				db.ScanRows(rows, &r)
-				var payload map[string]interface{}
-				if err := json.Unmarshal(r.Payload, &payload); err == nil {
-					if eid, ok := payload["event_id"].(string); ok {
-						eventCounts[eid]++
-					} else {
-						eventCounts["Unknown"]++
+				for rows.Next() {
+					var r Record
+					db.ScanRows(rows, &r)
+					var payload map[string]interface{}
+					if err := json.Unmarshal(r.Payload, &payload); err == nil {
+						if eid, ok := payload["event_id"].(string); ok {
+							eventCounts[eid]++
+						} else {
+							eventCounts["Unknown"]++
+						}
 					}
 				}
-			}
+			}()
 		}
 		for k, v := range eventCounts {
 			resultList = append(resultList, map[string]interface{}{
@@ -365,77 +367,40 @@ func (s *SQLiteStore) queryAggregated(req QueryRequest) (*QueryResponse, error) 
 		useRaw := true
 
 		for _, month := range months {
-			db, err := s.getDB(month)
-			if err != nil {
-				continue
-			}
+			func() {
+				db, err := s.getDB(month)
+				if err != nil {
+					return
+				}
 
-			rows, err := db.Model(&Record{}).
-				Where("device_code = ? AND type = ? AND ts >= ? AND ts <= ?", req.DeviceCode, req.Type, start, end).
-				Rows()
-			if err != nil {
-				continue
-			}
-			defer rows.Close()
+				rows, err := db.Model(&Record{}).
+					Where("device_code = ? AND type = ? AND ts >= ? AND ts <= ?", req.DeviceCode, req.Type, start, end).
+					Rows()
+				if err != nil {
+					return
+				}
+				defer rows.Close()
 
-			for rows.Next() {
-				var r Record
-				db.ScanRows(rows, &r)
-				var payload map[string]interface{}
-				if err := json.Unmarshal(r.Payload, &payload); err == nil {
-					// Aggregation
-					binIdx := (r.Ts - start) / interval
-					b, ok := buckets[binIdx]
-					if !ok {
-						b = &Bucket{
-							Sum:    make(map[string]float64),
-							Count:  make(map[string]int),
-							Min:    make(map[string]float64),
-							Max:    make(map[string]float64),
-							Values: make(map[string][]float64),
-							Last:   make(map[string]interface{}),
-						}
-						buckets[binIdx] = b
-					}
-
-					for k, v := range payload {
-						if len(req.Keys) > 0 {
-							found := false
-							for _, rk := range req.Keys {
-								if rk == k {
-									found = true
-									break
-								}
+				for rows.Next() {
+					var r Record
+					db.ScanRows(rows, &r)
+					var payload map[string]interface{}
+					if err := json.Unmarshal(r.Payload, &payload); err == nil {
+						// Aggregation
+						binIdx := (r.Ts - start) / interval
+						b, ok := buckets[binIdx]
+						if !ok {
+							b = &Bucket{
+								Sum:    make(map[string]float64),
+								Count:  make(map[string]int),
+								Min:    make(map[string]float64),
+								Max:    make(map[string]float64),
+								Values: make(map[string][]float64),
+								Last:   make(map[string]interface{}),
 							}
-							if !found {
-								continue
-							}
+							buckets[binIdx] = b
 						}
 
-						if num, ok := v.(float64); ok {
-							b.Count[k]++
-							switch req.AggMethod {
-							case "min":
-								if val, exists := b.Min[k]; !exists || num < val {
-									b.Min[k] = num
-								}
-							case "max":
-								if val, exists := b.Max[k]; !exists || num > val {
-									b.Max[k] = num
-								}
-							case "median":
-								b.Values[k] = append(b.Values[k], num)
-							default: // avg
-								b.Sum[k] += num
-							}
-						}
-						b.Last[k] = v
-					}
-
-					// Raw
-					if useRaw {
-						item := make(map[string]interface{})
-						item["ts"] = r.Ts
 						for k, v := range payload {
 							if len(req.Keys) > 0 {
 								found := false
@@ -449,16 +414,55 @@ func (s *SQLiteStore) queryAggregated(req QueryRequest) (*QueryResponse, error) 
 									continue
 								}
 							}
-							item[k] = v
+
+							if num, ok := v.(float64); ok {
+								b.Count[k]++
+								switch req.AggMethod {
+								case "min":
+									if val, exists := b.Min[k]; !exists || num < val {
+										b.Min[k] = num
+									}
+								case "max":
+									if val, exists := b.Max[k]; !exists || num > val {
+										b.Max[k] = num
+									}
+								case "median":
+									b.Values[k] = append(b.Values[k], num)
+								default: // avg
+									b.Sum[k] += num
+								}
+							}
+							b.Last[k] = v
 						}
-						rawList = append(rawList, item)
-						if len(rawList) > rawLimit {
-							useRaw = false
-							rawList = nil
+
+						// Raw
+						if useRaw {
+							item := make(map[string]interface{})
+							item["ts"] = r.Ts
+							for k, v := range payload {
+								if len(req.Keys) > 0 {
+									found := false
+									for _, rk := range req.Keys {
+										if rk == k {
+											found = true
+											break
+										}
+									}
+									if !found {
+										continue
+									}
+								}
+								item[k] = v
+							}
+							rawList = append(rawList, item)
+							if len(rawList) > rawLimit {
+								useRaw = false
+								rawList = nil
+							}
 						}
 					}
 				}
-			}
+			}()
 		}
 
 		if useRaw {

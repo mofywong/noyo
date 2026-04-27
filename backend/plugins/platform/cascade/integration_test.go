@@ -37,7 +37,8 @@ func (m *mockContext) RegisterHTTPHandler(path string, handler interface{}) erro
 func (m *mockContext) GetOnlineDevices() ([]types.DeviceMeta, error)                             { return nil, nil }
 func (m *mockContext) GetDeviceData(deviceCode string) map[string]interface{}                    { return nil }
 func (m *mockContext) GetEnabledProtocols() ([]types.PluginMeta, error)                          { return nil, nil }
-func (m *mockContext) SubscribeEvent(eventType types.EventType, handler func(event types.Event)) {}
+func (m *mockContext) SubscribeEvent(eventType types.EventType, handler func(event types.Event)) uint64 { return 0 }
+func (m *mockContext) UnsubscribeEvent(eventType types.EventType, id uint64) {}
 func (m *mockContext) PublishEvent(event types.Event)                                            {}
 func (m *mockContext) ReportDeviceProperties(deviceCode string, properties map[string]interface{}) error {
 	return nil
