@@ -80,6 +80,7 @@ const pageTitle = computed(() => {
   if (name === 'Marketplace') return t('page_marketplace');
   if (name === 'Products') return t('sidebar_products');
   if (name === 'Devices') return t('sidebar_devices');
+  if (name === 'VideoSquare') return t('sidebar_video_square', '视频广场');
   if (name === 'PluginConfig') return `${currentPluginName.value} ${t('page_configure')}`;
   if (name === 'Settings') return t('sidebar_settings');
   if (name === 'License') return t('license_info', '授权信息');

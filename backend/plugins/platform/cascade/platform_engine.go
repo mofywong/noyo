@@ -22,13 +22,14 @@ import (
 )
 
 type platformEngineImpl struct {
-	ctx         platform.Context
-	logger      *zap.Logger
-	config      *Config
-	client      mqtt.Client
-	pendingCmds sync.Map
-	cancel      context.CancelFunc
-	syncMu      sync.Mutex // 防止并发 sync 操作
+	ctx               platform.Context
+	logger            *zap.Logger
+	config            *Config
+	client            mqtt.Client
+	pendingCmds       sync.Map
+	cancel            context.CancelFunc
+	syncMu            sync.Mutex // 防止并发 sync 操作
+	gatewayMediaAddrs sync.Map   // gw_sn -> public IP string (from STUN discovery)
 }
 
 func NewPlatformEngine(ctx platform.Context, logger *zap.Logger, cfg *Config) PlatformEngine {
@@ -41,6 +42,7 @@ func NewPlatformEngine(ctx platform.Context, logger *zap.Logger, cfg *Config) Pl
 
 func (e *platformEngineImpl) Start() error {
 	e.logger.Info("Platform Engine Started", zap.String("mqtt_url", e.config.MqttUrl))
+	setPlatformEngineRef(e)
 
 	opts := mqtt.NewClientOptions().AddBroker(e.config.MqttUrl)
 	// 使用带唯一后缀的 ClientID，避免插件重载或多实例时 broker 因同 ClientID 踢掉旧连接触发 LWT
@@ -374,6 +376,7 @@ func (e *platformEngineImpl) subscribeTopics(c mqtt.Client) {
 	c.Subscribe("noyo/cascade/gw/+/command/request_reply", 1, e.handleCommandReply)
 	c.Subscribe("noyo/cascade/gw/+/status", 1, e.handleGatewayStatus)
 	c.Subscribe("noyo/cascade/gw/+/sub/+/status", 1, e.handleSubDeviceStatus)
+	c.Subscribe("noyo/cascade/gw/+/media/address", 1, e.handleGatewayMediaAddress)
 }
 
 func (e *platformEngineImpl) handleCommandReply(client mqtt.Client, msg mqtt.Message) {
@@ -919,4 +922,88 @@ func (e *platformEngineImpl) resetAllCascadeDevicesOffline() {
 	}
 
 	e.logger.Info("Cascade device status reset complete", zap.Int("reset_count", resetCount))
+}
+
+// gwMediaAddrCache is a package-level cache for gateway media addresses (gw_sn -> public IP).
+// This allows other plugins (e.g. GB28181) to look up gateway public IPs without direct dependency on the platform engine instance.
+var gwMediaAddrCache sync.Map
+
+// platformEngineRef holds a reference to the active platform engine instance
+// for package-level functions that need to call engine methods.
+var platformEngineRef *platformEngineImpl
+
+func setPlatformEngineRef(e *platformEngineImpl) {
+	platformEngineRef = e
+}
+
+// GetGatewayMediaAddr returns the public IP of a gateway as discovered via STUN.
+// This is a package-level function that can be called from other plugins.
+// Returns empty string if the gateway has not reported its media address.
+func GetGatewayMediaAddr(gwSn string) string {
+	if v, ok := gwMediaAddrCache.Load(gwSn); ok {
+		return v.(string)
+	}
+	return ""
+}
+
+// IsGatewayDevice checks if a device code corresponds to a registered cascade gateway.
+// It looks up the device's product and checks if the protocol is "cascade".
+// This is used by other plugins (e.g. GB28181) to determine if a command should be forwarded.
+func IsGatewayDevice(deviceCode string) bool {
+	dev, err := store.GetDevice(deviceCode)
+	if err != nil || dev == nil {
+		return false
+	}
+	product, err := store.GetProduct(dev.ProductCode)
+	if err != nil || product == nil {
+		return false
+	}
+	return product.ProtocolName == "cascade"
+}
+
+// SendCommandToGateway sends a command to a gateway via MQTT and waits for a reply.
+// This is a package-level function that can be called from other plugins (e.g. GB28181)
+// to forward service invocations to the gateway for P2P WebRTC handling.
+func SendCommandToGateway(gwSn string, cmdID string, payload []byte) (interface{}, error) {
+	if platformEngineRef == nil {
+		return nil, fmt.Errorf("platform engine not available")
+	}
+	return platformEngineRef.SendCommand(gwSn, cmdID, payload)
+}
+
+// handleGatewayMediaAddress receives STUN-discovered public IP from gateways.
+func (e *platformEngineImpl) handleGatewayMediaAddress(client mqtt.Client, msg mqtt.Message) {
+	// Extract gw_sn from topic: noyo/cascade/gw/{gw_sn}/media/address
+	parts := strings.Split(msg.Topic(), "/")
+	if len(parts) < 5 {
+		return
+	}
+	gwSn := parts[3]
+
+	var payload struct {
+		PublicIP string `json:"public_ip"`
+		LocalIP  string `json:"local_ip"`
+	}
+	if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
+		e.logger.Error("Failed to parse gateway media address", zap.Error(err))
+		return
+	}
+
+	if payload.PublicIP != "" {
+		e.gatewayMediaAddrs.Store(gwSn, payload.PublicIP)
+		gwMediaAddrCache.Store(gwSn, payload.PublicIP)
+		e.logger.Info("Received gateway media address",
+			zap.String("gw_sn", gwSn),
+			zap.String("public_ip", payload.PublicIP),
+			zap.String("local_ip", payload.LocalIP))
+	}
+}
+
+// GetGatewayMediaIP returns the public IP of a gateway as discovered via STUN.
+// Returns empty string if the gateway has not reported its media address.
+func (e *platformEngineImpl) GetGatewayMediaIP(gwSn string) string {
+	if v, ok := e.gatewayMediaAddrs.Load(gwSn); ok {
+		return v.(string)
+	}
+	return ""
 }

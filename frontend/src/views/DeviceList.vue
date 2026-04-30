@@ -107,8 +107,8 @@
               <td class="ps-4">
                 <input class="form-check-input" type="checkbox" :checked="selectedDevices.includes(device.code)" @change="toggleSelection(device.code)">
               </td>
-              <td class="font-monospace fw-bold text-primary" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.code }}</td>
-              <td @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.name || '-' }}</td>
+              <td class="font-monospace fw-bold text-primary text-truncate" style="max-width: 150px;" :title="device.code" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.code }}</td>
+              <td class="text-truncate" style="max-width: 150px;" :title="device.name" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.name || '-' }}</td>
               <td @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
                 <span class="badge rounded-pill" :class="device.online ? 'bg-success' : 'bg-secondary'">
                   <i class="bi me-1" :class="device.online ? 'bi-circle-fill' : 'bi-circle-fill text-white-50'"></i>
@@ -118,8 +118,10 @@
                    {{ new Date(device.last_active).toLocaleString() }}
                 </div>
               </td>
-              <td @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData"><span class="badge bg-light text-body border">{{ getProductName(device.product_code) }}</span></td>
-              <td class="d-none d-lg-table-cell" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
+              <td class="text-truncate" style="max-width: 150px;" :title="getProductName(device.product_code)" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
+                <span class="badge bg-light text-body border text-truncate w-100" style="vertical-align: middle;">{{ getProductName(device.product_code) }}</span>
+              </td>
+              <td class="d-none d-lg-table-cell text-truncate" style="max-width: 150px;" :title="device.parent_code ? getDeviceName(device.parent_code) : ''" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
                 <span v-if="device.parent_code" class="text-muted small">
                   <i class="bi bi-arrow-return-right"></i> {{ getDeviceName(device.parent_code) }}
                 </span>
@@ -179,6 +181,11 @@
                     <li>
                       <a class="dropdown-item" href="#" @click="openDataModal(device, 'realtime')">
                         <i class="bi bi-activity me-2 text-success"></i> {{ $t('dev_data') }}
+                      </a>
+                    </li>
+                    <li v-if="getDeviceProtocol(device) === 'gb28181'">
+                      <a class="dropdown-item" href="#" @click="openGB28181Player(device)">
+                        <i class="bi bi-camera-video me-2 text-primary"></i> 视频监控
                       </a>
                     </li>
                     <li>
@@ -667,6 +674,14 @@
       :products="products" 
       @close="closeDataModal" 
     />
+    
+    <!-- GB28181 Video Player Modal -->
+    <GB28181PlayerModal 
+      v-if="showGB28181Player" 
+      :device="currentGB28181Device" 
+      @close="closeGB28181Player" 
+    />
+
     <!-- Import Device Modal -->
     <div v-if="showImportModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
       <div class="modal-dialog">
@@ -763,6 +778,7 @@ import SchemaForm from '../components/SchemaForm.vue';
 import DeviceMappingEditor from '../components/device/DeviceMappingEditor.vue';
 import DeviceDiscoveryModal from '../components/device/DeviceDiscoveryModal.vue';
 import DeviceDataModal from '../components/device/DeviceDataModal.vue';
+import GB28181PlayerModal from '../plugins/pro/protocol/gb28181/GB28181PlayerModal.vue';
 import Sparkline from '../components/Sparkline.vue';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
@@ -1032,6 +1048,11 @@ const toggleAll = () => {
   }
 };
 
+const getDeviceProtocol = (device) => {
+  const p = products.value.find(prod => prod.code === device.product_code);
+  return p ? p.protocol_name : '';
+};
+
 const getProductName = (code) => {
   const p = products.value.find(prod => prod.code === code);
   return p ? `${p.name} (${p.code})` : code;
@@ -1076,6 +1097,19 @@ const batchDisable = async () => {
 // Data Modal State
 const showDataModal = ref(false);
 const currentDataDevice = ref(null);
+
+const showGB28181Player = ref(false);
+const currentGB28181Device = ref(null);
+
+const openGB28181Player = (device) => {
+  currentGB28181Device.value = device;
+  showGB28181Player.value = true;
+};
+
+const closeGB28181Player = () => {
+  showGB28181Player.value = false;
+  currentGB28181Device.value = null;
+};
 
 const openDataModal = (device, tab = 'realtime') => {
   currentDataDevice.value = device;

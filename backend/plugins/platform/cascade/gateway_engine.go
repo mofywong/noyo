@@ -18,6 +18,7 @@ import (
 	"noyo/core/types"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/pion/stun/v3"
 	"go.uber.org/zap"
 )
 
@@ -251,6 +252,55 @@ func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
 			}
 		}
 	})
+
+}
+
+
+// getPublicIP returns the gateway's public IP via STUN discovery.
+func (e *gatewayEngineImpl) getPublicIP() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stunServers := []string{
+		"stun:stun.l.google.com:19302",
+		"stun:stun.cloudflare.com:3478",
+	}
+	for _, uriStr := range stunServers {
+		uri, err := stun.ParseURI(uriStr)
+		if err != nil {
+			continue
+		}
+		client, err := stun.DialURI(uri, &stun.DialConfig{})
+		if err != nil {
+			continue
+		}
+		message := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
+		var publicIP string
+		err = client.Do(message, func(res stun.Event) {
+			if res.Error != nil {
+				return
+			}
+			var xorAddr stun.XORMappedAddress
+			if xorAddr.GetFrom(res.Message) == nil {
+				publicIP = xorAddr.IP.String()
+			} else {
+				var mappedAddr stun.MappedAddress
+				if mappedAddr.GetFrom(res.Message) == nil {
+					publicIP = mappedAddr.IP.String()
+				}
+			}
+		})
+		client.Close()
+		if err == nil && publicIP != "" {
+			return publicIP
+		}
+		select {
+		case <-ctx.Done():
+			return ""
+		default:
+		}
+	}
+	return ""
 }
 
 func (e *gatewayEngineImpl) handleReceivedFile(fileName, filePath string) {
@@ -587,6 +637,9 @@ func (e *gatewayEngineImpl) handleRegisterResponse(client mqtt.Client, msg mqtt.
 			}
 		}
 
+		// STUN 公网 IP 发现并上报给平台
+		e.discoverAndPublishMediaAddress()
+
 		// 仅当没有有效的本地版本时才全量同步，离线变更将通过 retained 的 config/version 触发
 		if e.configVersion.Load() == 0 {
 			e.sendSyncRequest()
@@ -691,4 +744,78 @@ SEND_REPLY:
 	replyBytes, _ := json.Marshal(reply)
 	replyTopic := msg.Topic() + "_reply"
 	client.Publish(replyTopic, 1, false, replyBytes)
+}
+
+// discoverAndPublishMediaAddress uses STUN to discover the gateway's public IP
+// and publishes it to the platform via MQTT so that the platform can use it
+// in SDP offers for cameras behind this gateway.
+func (e *gatewayEngineImpl) discoverAndPublishMediaAddress() {
+	if e.client == nil || !e.client.IsConnected() {
+		return
+	}
+
+	go func() {
+		stunServers := []string{
+			"stun:stun.l.google.com:19302",
+			"stun:stun1.l.google.com:19302",
+			"stun:stun.cloudflare.com:3478",
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		publicIP := ""
+		for _, uriStr := range stunServers {
+			uri, err := stun.ParseURI(uriStr)
+			if err != nil {
+				continue
+			}
+			client, err := stun.DialURI(uri, &stun.DialConfig{})
+			if err != nil {
+				continue
+			}
+			message := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
+			err = client.Do(message, func(res stun.Event) {
+				if res.Error != nil {
+					client.Close()
+					return
+				}
+				var xorAddr stun.XORMappedAddress
+				if xorAddr.GetFrom(res.Message) == nil {
+					publicIP = xorAddr.IP.String()
+				} else {
+					var mappedAddr stun.MappedAddress
+					if mappedAddr.GetFrom(res.Message) == nil {
+						publicIP = mappedAddr.IP.String()
+					}
+				}
+			})
+			client.Close()
+			if err == nil && publicIP != "" {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+		}
+
+		if publicIP == "" {
+			e.logger.Warn("STUN discovery failed, gateway media address not published")
+			return
+		}
+
+		e.logger.Info("STUN discovery succeeded", zap.String("public_ip", publicIP))
+
+		payload := map[string]interface{}{
+			"public_ip": publicIP,
+			"local_ip":  system.GetOutboundIP(),
+			"timestamp": time.Now().UnixMilli(),
+		}
+		payloadBytes, _ := json.Marshal(payload)
+		topic := fmt.Sprintf("noyo/cascade/gw/%s/media/address", e.config.GatewaySn)
+		e.client.Publish(topic, 1, true, payloadBytes) // retained=true
+		e.logger.Info("Published gateway media address", zap.String("topic", topic), zap.String("public_ip", publicIP))
+	}()
 }

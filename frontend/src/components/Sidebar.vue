@@ -22,6 +22,9 @@
       <a href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTopology' }" @click.prevent="navigate('/topology')">
         <i class="bi bi-diagram-2"></i> <span>{{ $t('sidebar_topology') }}</span>
       </a>
+      <a v-if="hasGb28181Plugin" href="#" class="nav-link" :class="{ active: currentRouteName === 'VideoSquare' }" @click.prevent="navigate('/video-square')">
+        <i class="bi bi-grid-3x3-gap"></i> <span>{{ $t('sidebar_video_square', '视频广场') }}</span>
+      </a>
       
       <div class="nav-category mt-2">{{ $t('sidebar_active_plugins') }}</div>
       <div id="plugin-nav-list">
@@ -104,6 +107,10 @@ const navigatePlugin = (name) => {
 
 const activePlugins = computed(() => {
   return props.plugins.filter(p => p.status === 'running');
+});
+
+const hasGb28181Plugin = computed(() => {
+  return activePlugins.value.some(p => p.name === 'gb28181');
 });
 
 const groupedPlugins = computed(() => {

@@ -5,5 +5,6 @@ import (
 	_ "noyo/plugins/pro/platform/ai_copilot"
 	_ "noyo/plugins/pro/platform/ai_predict"
 	_ "noyo/plugins/pro/platform/license_auth"
+	_ "noyo/plugins/pro/protocol/gb28181"
 	_ "noyo/plugins/pro/protocol/script"
 )

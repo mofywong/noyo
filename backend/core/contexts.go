@@ -103,6 +103,10 @@ func (c *ProtocolContextImpl) GetLogger() *zap.Logger {
 	return c.server.Logger.With(zap.String("plugin", c.pluginName))
 }
 
+func (c *ProtocolContextImpl) ReloadRegistry() error {
+	return c.server.DeviceManager.Registry.Reload()
+}
+
 func (c *ProtocolContextImpl) RegisterHTTPHandler(path string, handler interface{}) error {
 	c.server.WebServer.BindHandler(path, handler)
 	return nil

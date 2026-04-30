@@ -48,6 +48,9 @@ type Context interface {
 	// GetLogger returns the underlying logger (zap)
 	GetLogger() *zap.Logger
 
+	// ReloadRegistry triggers a reload of the device registry cache
+	ReloadRegistry() error
+
 	// RegisterHTTPHandler registers a custom HTTP handler for the plugin
 	RegisterHTTPHandler(path string, handler interface{}) error
 }

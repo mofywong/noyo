@@ -864,7 +864,10 @@ const displayDataList = computed(() => {
   
   const list = [];
   keys.forEach(key => {
+    // 忽略未在当前 TSL 中定义的属性 (比如旧的已删除属性 status)
     const tslProp = currentDataTSLMap.value[key];
+    if (!tslProp && !pointConfigs.value[key]) return;
+
     list.push({
       key: key,
       name: tslProp ? tslProp.name : key,

@@ -56,7 +56,7 @@ func ListProducts(page, pageSize int) ([]Product, int64, error) {
 		db = db.Offset(offset).Limit(pageSize)
 	}
 
-	result := db.Find(&products)
+	result := db.Order("created_at desc").Find(&products)
 	return products, total, result.Error
 }
 
@@ -95,7 +95,7 @@ func ListDevices(page, pageSize int) ([]Device, int64, error) {
 		db = db.Offset(offset).Limit(pageSize)
 	}
 
-	result := db.Find(&devices)
+	result := db.Order("created_at desc").Find(&devices)
 	return devices, total, result.Error
 }
 

@@ -4,6 +4,7 @@ import Marketplace from '../views/Marketplace.vue'
 import ProductList from '../views/ProductList.vue'
 import DeviceList from '../views/DeviceList.vue'
 import DeviceTopology from '../views/DeviceTopology.vue'
+import VideoSquare from '../views/VideoSquare.vue'
 import PluginConfig from '../views/PluginConfig.vue'
 import Settings from '../views/Settings.vue'
 import Logs from '../views/Logs.vue'
@@ -34,6 +35,11 @@ const routes = [
     path: '/topology',
     name: 'DeviceTopology',
     component: DeviceTopology
+  },
+  {
+    path: '/video-square',
+    name: 'VideoSquare',
+    component: VideoSquare
   },
   {
     path: '/plugins/:name',
