@@ -2,73 +2,36 @@
   <div class="video-square-page d-flex flex-column">
     <div class="video-square-hero card border-0 mb-2 overflow-hidden">
       <div class="card-body p-2 p-lg-3">
-        <div class="d-flex flex-column flex-xl-row justify-content-between gap-3">
-          <div>
-            <div class="d-flex align-items-center mb-2">
-              <div class="hero-icon me-3">
-                <i class="bi bi-grid-3x3-gap-fill"></i>
-              </div>
-              <div>
-                <h5 class="mb-0 fw-bold">
-                  {{ $t('page_video_square', '视频广场') }}
-                </h5>
-              </div>
+        <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-center gap-2">
+          <div class="d-flex align-items-center gap-3">
+            <div class="hero-icon">
+              <i class="bi bi-grid-3x3-gap-fill"></i>
             </div>
-            <div class="d-flex flex-wrap gap-2">
-              <span class="info-pill">
-                <i class="bi bi-camera-video me-1"></i> 设备 {{ filteredDevices.length }}
-              </span>
-              <span class="info-pill">
-                <i class="bi bi-broadcast-pin me-1 text-success"></i> 在线 {{ onlineDeviceCount }}
-              </span>
-              <span class="info-pill">
-                <i class="bi bi-grid me-1 text-primary"></i> 在播 {{ occupiedCount }}/{{ gridSize }}
-              </span>
+            <div class="d-flex flex-wrap align-items-center gap-2 gap-lg-3">
+              <h5 class="mb-0 fw-bold">{{ $t('page_video_square', '视频广场') }}</h5>
+              <span class="info-pill"><i class="bi bi-camera-video me-1"></i>{{ filteredDevices.length }}</span>
+              <span class="info-pill"><i class="bi bi-broadcast-pin me-1 text-success"></i>{{ onlineDeviceCount }}</span>
+              <span class="info-pill"><i class="bi bi-grid me-1 text-primary"></i>{{ occupiedCount }}/{{ gridSize }}</span>
             </div>
           </div>
 
-          <div class="d-flex flex-column align-items-stretch align-items-xl-end gap-2">
-            <div class="toolbar-panel">
-              <div class="input-group input-group-sm toolbar-search">
-                <span class="input-group-text border-0 bg-transparent">
-                  <i class="bi bi-search text-secondary"></i>
-                </span>
-                <input
-                  v-model.trim="searchKeyword"
-                  type="text"
-                  class="form-control border-0 shadow-none"
-                  placeholder="搜索设备名称或编码"
-                >
-              </div>
-              <button
-                type="button"
-                class="btn btn-sm"
-                :class="onlineOnly ? 'btn-success' : 'btn-outline-secondary'"
-                @click="onlineOnly = !onlineOnly"
-              >
-                <i class="bi bi-wifi me-1"></i>{{ onlineOnly ? '仅在线' : '全部设备' }}
-              </button>
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <div class="btn-group btn-group-sm grid-switcher" role="group">
+              <input type="radio" class="btn-check" name="grid-layout" id="grid-1" :value="1" v-model="gridSize">
+              <label class="btn btn-outline-secondary" for="grid-1"><i class="bi bi-square"></i></label>
+
+              <input type="radio" class="btn-check" name="grid-layout" id="grid-4" :value="4" v-model="gridSize">
+              <label class="btn btn-outline-secondary" for="grid-4"><i class="bi bi-grid"></i></label>
+
+              <input type="radio" class="btn-check" name="grid-layout" id="grid-9" :value="9" v-model="gridSize">
+              <label class="btn btn-outline-secondary" for="grid-9"><i class="bi bi-grid-3x3"></i></label>
             </div>
-
-            <div class="d-flex flex-wrap gap-2 justify-content-xl-end">
-              <div class="btn-group btn-group-sm grid-switcher" role="group">
-                <input type="radio" class="btn-check" name="grid-layout" id="grid-1" :value="1" v-model="gridSize">
-                <label class="btn btn-outline-secondary" for="grid-1"><i class="bi bi-square"></i> 1宫格</label>
-
-                <input type="radio" class="btn-check" name="grid-layout" id="grid-4" :value="4" v-model="gridSize">
-                <label class="btn btn-outline-secondary" for="grid-4"><i class="bi bi-grid"></i> 4宫格</label>
-
-                <input type="radio" class="btn-check" name="grid-layout" id="grid-9" :value="9" v-model="gridSize">
-                <label class="btn btn-outline-secondary" for="grid-9"><i class="bi bi-grid-3x3"></i> 9宫格</label>
-              </div>
-
-              <button type="button" class="btn btn-sm btn-outline-primary" @click="fillWithOnlineDevices">
-                <i class="bi bi-magic me-1"></i>一键上屏
-              </button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" @click="clearGrid">
-                <i class="bi bi-x-circle me-1"></i>清空宫格
-              </button>
-            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary" @click="fillWithOnlineDevices">
+              <i class="bi bi-magic me-1"></i>{{ $t('fill_screen', '上屏') }}
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" @click="clearGrid">
+              <i class="bi bi-x-circle me-1"></i>{{ $t('clear', '清空') }}
+            </button>
           </div>
         </div>
       </div>
@@ -81,9 +44,37 @@
             <div class="d-flex justify-content-between align-items-center">
               <div>
                 <h6 class="mb-1 fw-bold">视频设备列表</h6>
-                <div class="text-secondary small">点击设备即可加入当前宫格</div>
               </div>
               <span class="badge text-bg-light">{{ filteredDevices.length }}</span>
+            </div>
+            <div class="input-group input-group-sm mt-2">
+              <span class="input-group-text border-0 bg-transparent">
+                <i class="bi bi-search text-secondary"></i>
+              </span>
+              <input
+                v-model.trim="searchKeyword"
+                type="text"
+                class="form-control border-0 shadow-none"
+                placeholder="搜索设备名称或编码"
+              >
+              <button
+                v-if="searchKeyword || onlineOnly"
+                type="button"
+                class="btn btn-sm border-0"
+                @click="searchKeyword = ''; onlineOnly = false"
+              >
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            <div class="d-flex gap-2 mt-2">
+              <button
+                type="button"
+                class="btn btn-sm w-50"
+                :class="onlineOnly ? 'btn-success' : 'btn-outline-secondary'"
+                @click="onlineOnly = !onlineOnly"
+              >
+                <i class="bi bi-wifi me-1"></i>{{ onlineOnly ? '仅在线' : '全部' }}
+              </button>
             </div>
           </div>
           <div class="card-body pt-3 px-2 px-lg-3 overflow-auto">
@@ -106,20 +97,16 @@
                 class="device-item text-start"
                 :class="{ active: isAssigned(device.code) }"
                 @click="assignDeviceToGrid(device)"
+                @mouseenter="hoverDeviceCode = device.code"
+                @mouseleave="hoverDeviceCode = null"
               >
-                <div class="d-flex align-items-center gap-3">
+                <div class="d-flex align-items-center gap-2">
                   <div class="device-icon" :class="device.online ? 'online' : 'offline'">
                     <i class="bi" :class="device.online ? 'bi-camera-video-fill' : 'bi-camera-video'"></i>
                   </div>
-                  <div class="flex-grow-1" style="min-width: 0;">
-                    <div class="small fw-semibold text-truncate" :title="device.name || device.code">{{ device.name || device.code }}</div>
-                    <div class="text-secondary device-code text-truncate" :title="device.code">{{ device.code }}</div>
-                  </div>
-                  <div class="text-end flex-shrink-0" style="min-width: 40px;">
-                    <div class="small fw-semibold" :class="device.online ? 'text-success' : 'text-secondary'">
-                      {{ device.online ? '在线' : '离线' }}
-                    </div>
-                    <div v-if="isAssigned(device.code)" class="device-tag">已上屏</div>
+                  <div class="flex-grow-1 text-truncate" style="min-width: 0;">
+                    <div class="fw-semibold text-truncate" style="font-size: 0.875rem;" :title="device.name || device.code">{{ device.name || device.code }}</div>
+                    <div class="text-secondary text-truncate" style="font-size: 0.75rem;">{{ device.code }}</div>
                   </div>
                 </div>
               </button>
@@ -131,15 +118,8 @@
       <div class="col-xl-9 col-xxl-10 d-flex flex-column">
         <div class="card video-panel border-0 shadow-sm flex-grow-1">
           <div class="card-header border-0">
-            <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 align-items-lg-center">
-              <div>
-                <h6 class="mb-1 fw-bold">实时监看区域</h6>
-                <div class="text-secondary small">当前布局 {{ gridSize }} 宫格，支持快速替换与关闭单路画面</div>
-              </div>
-              <div class="d-flex flex-wrap gap-2">
-                <span class="grid-hint"><i class="bi bi-arrows-fullscreen me-1"></i>建议优先播放在线设备</span>
-                <span class="grid-hint"><i class="bi bi-info-circle me-1"></i>如无画面将显示明确状态</span>
-              </div>
+            <div class="d-flex justify-content-between align-items-center">
+              <h6 class="mb-0 fw-bold">实时监看区域</h6>
             </div>
           </div>
           <div class="card-body p-2 p-lg-3 d-flex flex-column">
@@ -149,6 +129,7 @@
                   <div class="slot-label">窗口 {{ index }}</div>
                   <GB28181PlayerWidget 
                     :device="gridDevices[index - 1]" 
+                    :highlight="hoverDeviceCode === gridDevices[index - 1]?.code"
                     @close="removeDeviceFromGrid(index - 1)" 
                   />
                 </div>
@@ -175,6 +156,7 @@ const gridSize = ref(4); // 1, 4, 9
 const gridDevices = ref(Array(9).fill(null));
 const searchKeyword = ref('');
 const onlineOnly = ref(false);
+const hoverDeviceCode = ref(null);
 
 const filteredDevices = computed(() => {
   const keyword = searchKeyword.value.trim().toLowerCase();
@@ -461,31 +443,31 @@ watch(gridSize, (newSize) => {
 .device-item {
   width: 100%;
   border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
   transition: all 0.2s ease;
 }
 
 .device-item:hover {
   transform: translateY(-1px);
-  border-color: rgba(13, 110, 253, 0.3);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  border-color: rgba(32, 201, 151, 0.4);
+  box-shadow: 0 4px 16px rgba(32, 201, 151, 0.15);
 }
 
 .device-item.active {
-  border-color: rgba(13, 110, 253, 0.45);
-  background: rgba(13, 110, 253, 0.08);
+  border-color: #20c997;
+  background: rgba(32, 201, 151, 0.08);
 }
 
 .device-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.05rem;
+  font-size: 0.85rem;
   flex-shrink: 0;
 }
 
