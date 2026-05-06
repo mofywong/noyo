@@ -23,6 +23,8 @@
   
   <!-- Hover Tooltip -->
   <div v-if="tooltipVisible" 
+       @mouseenter="onTooltipEnter"
+       @mouseleave="onTooltipLeave"
        class="card position-fixed shadow border-0 bg-body-tertiary" 
        :style="{ 
           left: tooltipX + 'px', 
@@ -57,6 +59,11 @@
              </span>
           </div>
        </div>
+       <div class="mt-2 pt-2 border-top text-center" v-if="hoveredDevice?.isCamera && hoveredDevice?.online">
+          <button class="btn btn-sm btn-primary w-100" @click.stop="playVideo(hoveredDevice)">
+             <i class="bi bi-play-circle me-1"></i> 实时视频
+          </button>
+       </div>
     </div>
   </div>
 
@@ -65,6 +72,14 @@
     :device="currentDataDevice" 
     :products="products" 
     @close="showDataModal = false" 
+  />
+  <!-- Dynamic Extension Modals -->
+  <component 
+    v-for="modal in activeExtensionModals" 
+    :key="modal.name"
+    :is="modal.component"
+    v-bind="modal.props"
+    @close="closeExtensionModal(modal.name)"
   />
 </template>
 
@@ -80,11 +95,41 @@ import { usePlugins, loadPlugins } from '../plugins/registry';
 import DeviceDataModal from '../components/device/DeviceDataModal.vue';
 
 const { t, locale } = useI18n();
-const { getPluginManifest } = usePlugins();
+const { getPluginManifest, extensions } = usePlugins();
 const container = ref(null);
 const loading = ref(false);
 let graph = null;
 const currentTheme = ref('dark');
+
+const extensionDeviceActions = computed(() => extensions.value?.deviceActions || []);
+const activeExtensionModals = ref([]);
+
+const openExtensionModal = (name, component, props) => {
+  const existing = activeExtensionModals.value.find(m => m.name === name);
+  if (!existing) {
+    activeExtensionModals.value.push({ name, component, props });
+  } else {
+    existing.props = props;
+  }
+};
+
+const closeExtensionModal = (name) => {
+  activeExtensionModals.value = activeExtensionModals.value.filter(m => m.name !== name);
+};
+
+const playVideo = (device) => {
+  const action = extensionDeviceActions.value.find(a => a.name === 'gb28181-player');
+  if (action && action.action) {
+      const fullDevice = devicesList.value.find(d => d.code === device.code);
+      if (fullDevice) {
+          action.action(fullDevice, (eventName, payload) => {
+              if (eventName === 'open-modal') {
+                  openExtensionModal(payload.name, action.component, { device: payload.device });
+              }
+          });
+      }
+  }
+};
 
 // Tooltip State
 const tooltipVisible = ref(false);
@@ -96,6 +141,25 @@ const hoveredDeviceData = ref({});
 const products = ref([]); // Cache products for TSL
 const plugins = ref([]); // Cache plugins for topology
 let tooltipTimer = null;
+let hideTooltipTimer = null;
+
+const onTooltipEnter = () => {
+    if (hideTooltipTimer) {
+        clearTimeout(hideTooltipTimer);
+        hideTooltipTimer = null;
+    }
+};
+
+const onTooltipLeave = () => {
+    hideTooltipTimer = setTimeout(() => {
+        if (tooltipTimer) {
+            clearInterval(tooltipTimer);
+            tooltipTimer = null;
+        }
+        tooltipVisible.value = false;
+        hoveredDevice.value = null;
+    }, 300);
+};
 
 const themeColors = computed(() => {
   const isDark = currentTheme.value === 'dark';
@@ -415,6 +479,7 @@ const buildGraphData = (devices, plugins) => {
             }
 
             const isOnline = d.online;
+            const isCamera = protocol === 'gb28181' || d.protocol === 'gb28181' || d._protocol === 'gb28181';
             nodes.push({
                 id: d.code,
                 data: {
@@ -422,7 +487,11 @@ const buildGraphData = (devices, plugins) => {
                     type: 'device',
                     status: d.enabled ? (d.online ? 'online' : (d.status === 'running' ? 'offline' : 'stopped')) : 'disabled',
                     protocol: protocol,
-                    product_code: d.product_code
+                    product_code: d.product_code,
+                    isCamera: isCamera,
+                    code: d.code,
+                    name: d.name,
+                    online: d.online
                 }
             });
 
@@ -496,8 +565,9 @@ const initGraph = async () => {
             const type = d.data?.type;
             const label = d.data?.label || '';
             const productCode = d.data?.product_code || '';
+            const isCamera = d.data?.isCamera;
             
-            if (isRoot || type === 'platform') return 'circle';
+            if (isRoot || type === 'platform' || isCamera) return 'circle';
             if (productCode === 'noyo-gw' || label.includes('网关') || label.toLowerCase().includes('gateway')) return 'circle';
             if (label.includes('子系统') || label.toLowerCase().includes('subsystem')) return 'circle';
             
@@ -511,6 +581,7 @@ const initGraph = async () => {
             const label = d.data?.label || '';
             const protocol = d.data?.protocol || '';
             const productCode = d.data?.product_code || '';
+            const isCamera = d.data?.isCamera;
             const colors = themeColors.value;
 
             // Status Colors
@@ -526,7 +597,7 @@ const initGraph = async () => {
             const isGateway = productCode === 'noyo-gw' || label.includes('网关') || label.toLowerCase().includes('gateway');
             const isSubsystem = label.includes('子系统') || label.toLowerCase().includes('subsystem');
 
-            if (isRoot || type === 'platform' || isGateway || isSubsystem) {
+            if (isRoot || type === 'platform' || isGateway || isSubsystem || isCamera) {
                 if (isRoot) {
                     fill = '#1890ff';
                     stroke = '#1890ff';
@@ -549,6 +620,8 @@ const initGraph = async () => {
                     if (d.data?.pluginName === 'cascade') {
                         icon = '\uF29E'; // bi-cloud-fill for Noyo platform
                     }
+                } else if (isCamera) {
+                    icon = '\uF21F'; // bi-camera-video
                 } else if (isSubsystem) {
                     icon = '\uF2EE'; // bi-diagram-3 for subsystem
                 } else if (isGateway && protocol.toLowerCase().includes('modbus')) {
@@ -557,9 +630,15 @@ const initGraph = async () => {
                     icon = '\uF40D'; // bi-hdd-network for other gateways
                 }
 
+                const maxLength = 10;
+                let displayLabel = label || d.id;
+                if (displayLabel.length > maxLength) {
+                    displayLabel = displayLabel.substring(0, maxLength) + '...';
+                }
+
                 return {
                     size: [56, 56],
-                    labelText: label || d.id,
+                    labelText: displayLabel,
                     labelFill: labelFill,
                     fill: fill,
                     stroke: stroke,
@@ -575,9 +654,15 @@ const initGraph = async () => {
                 };
             }
 
+            const maxLength = 15;
+            let displayLabel = label || d.id;
+            if (displayLabel.length > maxLength) {
+                displayLabel = displayLabel.substring(0, maxLength) + '...';
+            }
+
             return {
                 size: [160, 40],
-                labelText: label || d.id,
+                labelText: displayLabel,
                 labelFill: labelFill,
                 fill: fill,
                 stroke: stroke,
@@ -623,6 +708,10 @@ const initGraph = async () => {
      const nodeData = nodeId ? graph.getNodeData(nodeId) : null;
      
      if (nodeData && !nodeData.data.isRoot) {
+         if (hideTooltipTimer) {
+             clearTimeout(hideTooltipTimer);
+             hideTooltipTimer = null;
+         }
          if (tooltipTimer) clearInterval(tooltipTimer);
          
          hoveredDevice.value = nodeData.data;
@@ -637,12 +726,14 @@ const initGraph = async () => {
   });
 
   graph.on('node:pointerleave', () => {
-     if (tooltipTimer) {
-         clearInterval(tooltipTimer);
-         tooltipTimer = null;
-     }
-     tooltipVisible.value = false;
-     hoveredDevice.value = null;
+     hideTooltipTimer = setTimeout(() => {
+         if (tooltipTimer) {
+             clearInterval(tooltipTimer);
+             tooltipTimer = null;
+         }
+         tooltipVisible.value = false;
+         hoveredDevice.value = null;
+     }, 300);
   });
 
   graph.on('node:click', (e) => {

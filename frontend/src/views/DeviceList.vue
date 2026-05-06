@@ -172,7 +172,10 @@
                 </div>
               </td>
               <td class="text-end pe-4">
-                <div class="dropdown">
+                <button v-if="isCameraDevice(device)" class="btn btn-sm btn-outline-primary rounded-circle me-1 d-inline-flex align-items-center justify-content-center" style="width: 28px; height: 28px; padding: 0;" @click.stop="playVideo(device)" title="播放实时视频">
+                  <i class="bi bi-play-fill fs-6"></i>
+                </button>
+                <div class="dropdown d-inline-block">
                   <button class="btn btn-sm btn-light border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="viewport" data-bs-popper-config='{"strategy":"fixed"}'>
                     <i class="bi bi-three-dots-vertical"></i>
                   </button>
@@ -1055,6 +1058,18 @@ const toggleAll = () => {
 const getDeviceProtocol = (device) => {
   const p = products.value.find(prod => prod.code === device.product_code);
   return p ? p.protocol_name : '';
+};
+
+const isCameraDevice = (device) => {
+  const protocol = getDeviceProtocol(device);
+  return protocol === 'gb28181' || device.protocol === 'gb28181' || device._protocol === 'gb28181';
+};
+
+const playVideo = (device) => {
+  const action = extensionDeviceActions.value.find(a => a.name === 'gb28181-player');
+  if (action && action.action) {
+    executeAction(action, device);
+  }
 };
 
 const getProductName = (code) => {
