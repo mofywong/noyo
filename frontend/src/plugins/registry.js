@@ -5,22 +5,37 @@ import { ref, markRaw } from 'vue';
 const plugins = ref(new Map());
 const isLoaded = ref(false);
 
+// Extension registry
+const extensions = ref({
+  routes: [],
+  menus: [],
+  deviceActions: []
+});
+
 /**
  * Auto-load all plugins using Vite's glob import
  */
 export async function loadPlugins() {
   if (isLoaded.value) return;
 
-  // Glob import for all index.js files in subdirectories of src/plugins
-  // Eager load to have them ready, or lazy import if preferred.
-  // Using eager for simplicity as we need metadata immediately for lists/topology.
   const modules = import.meta.glob('./**/*/index.js', { eager: true });
 
   for (const path in modules) {
     const mod = modules[path];
     if (mod.default && mod.default.name) {
-      // markRaw to avoid Vue reactivity performance overhead on static component definitions
-      plugins.value.set(mod.default.name, markRaw(mod.default));
+      const pluginManifest = markRaw(mod.default);
+      plugins.value.set(mod.default.name, pluginManifest);
+      
+      // Register extensions
+      if (pluginManifest.routes) {
+        extensions.value.routes.push(...pluginManifest.routes);
+      }
+      if (pluginManifest.menus) {
+        extensions.value.menus.push(...pluginManifest.menus);
+      }
+      if (pluginManifest.deviceActions) {
+        extensions.value.deviceActions.push(...pluginManifest.deviceActions);
+      }
     }
   }
 
@@ -52,6 +67,7 @@ export function usePlugins() {
   }
   return {
     getPluginManifest,
-    plugins
+    plugins,
+    extensions
   };
 }

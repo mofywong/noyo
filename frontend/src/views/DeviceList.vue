@@ -183,11 +183,13 @@
                         <i class="bi bi-activity me-2 text-success"></i> {{ $t('dev_data') }}
                       </a>
                     </li>
-                    <li v-if="getDeviceProtocol(device) === 'gb28181'">
-                      <a class="dropdown-item" href="#" @click="openGB28181Player(device)">
-                        <i class="bi bi-camera-video me-2 text-primary"></i> 视频监控
-                      </a>
-                    </li>
+                    <template v-for="action in extensionDeviceActions" :key="action.name">
+                      <li v-if="isActionVisible(action, device)">
+                        <a class="dropdown-item" href="#" @click.prevent="executeAction(action, device)">
+                          <i :class="[action.icon, action.color, 'me-2']"></i> {{ action.labelKey ? $t(action.labelKey, action.label) : action.label }}
+                        </a>
+                      </li>
+                    </template>
                     <li>
                       <a class="dropdown-item" href="#" @click="openSingleAIModal(device)">
                         <i class="bi bi-shield-check me-2 text-warning"></i> AI 设备守护 (Device Guardian)
@@ -675,11 +677,13 @@
       @close="closeDataModal" 
     />
     
-    <!-- GB28181 Video Player Modal -->
-    <GB28181PlayerModal 
-      v-if="showGB28181Player" 
-      :device="currentGB28181Device" 
-      @close="closeGB28181Player" 
+    <!-- Dynamic Extension Modals -->
+    <component 
+      v-for="modal in activeExtensionModals" 
+      :key="modal.name"
+      :is="modal.component"
+      v-bind="modal.props"
+      @close="closeExtensionModal(modal.name)"
     />
 
     <!-- Import Device Modal -->
@@ -778,8 +782,8 @@ import SchemaForm from '../components/SchemaForm.vue';
 import DeviceMappingEditor from '../components/device/DeviceMappingEditor.vue';
 import DeviceDiscoveryModal from '../components/device/DeviceDiscoveryModal.vue';
 import DeviceDataModal from '../components/device/DeviceDataModal.vue';
-import GB28181PlayerModal from '../plugins/pro/protocol/gb28181/GB28181PlayerModal.vue';
 import Sparkline from '../components/Sparkline.vue';
+import { usePlugins } from '../plugins/registry.js';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { LineChart, BarChart, ScatterChart } from 'echarts/charts';
@@ -1098,17 +1102,40 @@ const batchDisable = async () => {
 const showDataModal = ref(false);
 const currentDataDevice = ref(null);
 
-const showGB28181Player = ref(false);
-const currentGB28181Device = ref(null);
+// Dynamic Extension Actions & Modals
+const { extensions } = usePlugins();
+const extensionDeviceActions = computed(() => extensions.value.deviceActions || []);
+const activeExtensionModals = ref([]);
 
-const openGB28181Player = (device) => {
-  currentGB28181Device.value = device;
-  showGB28181Player.value = true;
+const isActionVisible = (action, device) => {
+  if (action.condition && typeof action.condition === 'function') {
+    return action.condition(device);
+  }
+  return true;
 };
 
-const closeGB28181Player = () => {
-  showGB28181Player.value = false;
-  currentGB28181Device.value = null;
+const executeAction = (action, device) => {
+  if (action.action && typeof action.action === 'function') {
+    // Pass a local emit-like function that handles 'open-modal'
+    action.action(device, (eventName, payload) => {
+      if (eventName === 'open-modal') {
+        openExtensionModal(payload.name, action.component, { device: payload.device });
+      }
+    });
+  }
+};
+
+const openExtensionModal = (name, component, props) => {
+  const existing = activeExtensionModals.value.find(m => m.name === name);
+  if (!existing) {
+    activeExtensionModals.value.push({ name, component, props });
+  } else {
+    existing.props = props;
+  }
+};
+
+const closeExtensionModal = (name) => {
+  activeExtensionModals.value = activeExtensionModals.value.filter(m => m.name !== name);
 };
 
 const openDataModal = (device, tab = 'realtime') => {

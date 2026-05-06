@@ -25,7 +25,7 @@ func (p *BasePlatformPlugin) Stop() error {
 	return nil
 }
 
-func (p *BasePlatformPlugin) PushData(data DataModel) error {
+func (p *BasePlatformPlugin) PushData(data *DataModel) error {
 	return nil
 }
 

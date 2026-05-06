@@ -1,6 +1,9 @@
 package platform
 
-import "noyo/core/types"
+import (
+	"noyo/core/types"
+	"time"
+)
 
 // DataModel represents a standardized data packet to be pushed to the platform
 type DataModel struct {
@@ -42,4 +45,23 @@ type IPlatformPlugin interface {
 
 	// IsEnabled returns true if the plugin is enabled
 	IsEnabled() bool
+}
+
+// IMediaTrack represents a media track (e.g., WebRTC video track)
+type IMediaTrack interface {
+	WriteSample(data []byte, duration time.Duration) error
+}
+
+// IPeerConnection represents a generic media peer connection
+type IPeerConnection interface {
+	OnConnectionStateChange(f func(state string))
+	ConnectionState() string
+	Close() error
+}
+
+// IWebRTCService is an optional interface that a WebRTC platform plugin can implement
+// to provide streaming capabilities to protocol plugins (like GB28181, ONVIF)
+type IWebRTCService interface {
+	// CreateConnection creates a new WebRTC peer connection and returns the SDP answer and a media track
+	CreateConnection(offer string) (answer string, track IMediaTrack, pc IPeerConnection, err error)
 }

@@ -22,10 +22,14 @@
       <a href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTopology' }" @click.prevent="navigate('/topology')">
         <i class="bi bi-diagram-2"></i> <span>{{ $t('sidebar_topology') }}</span>
       </a>
-      <a v-if="hasGb28181Plugin" href="#" class="nav-link" :class="{ active: currentRouteName === 'VideoSquare' }" @click.prevent="navigate('/video-square')">
-        <i class="bi bi-grid-3x3-gap"></i> <span>{{ $t('sidebar_video_square', '视频广场') }}</span>
-      </a>
       
+      <!-- Dynamic Extension Menus -->
+      <template v-for="menu in extensionMenus" :key="menu.name">
+        <a v-if="isMenuVisible(menu)" href="#" class="nav-link" :class="{ active: currentRouteName === menu.name }" @click.prevent="navigate(menu.path)">
+          <i :class="menu.icon"></i> <span>{{ menu.labelKey ? $t(menu.labelKey, menu.defaultLabel) : menu.defaultLabel }}</span>
+        </a>
+      </template>
+
       <div class="nav-category mt-2">{{ $t('sidebar_active_plugins') }}</div>
       <div id="plugin-nav-list">
         <div v-if="loading" class="px-4 py-2 text-muted small">{{ $t('loading') }}</div>
@@ -68,6 +72,9 @@ import { computed, ref, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
+import { usePlugins } from '../plugins/registry.js';
+
+const { extensions } = usePlugins();
 
 const props = defineProps({
   isOpen: Boolean,
@@ -109,9 +116,16 @@ const activePlugins = computed(() => {
   return props.plugins.filter(p => p.status === 'running');
 });
 
-const hasGb28181Plugin = computed(() => {
-  return activePlugins.value.some(p => p.name === 'gb28181');
+const extensionMenus = computed(() => {
+  return extensions.value.menus || [];
 });
+
+const isMenuVisible = (menu) => {
+  if (menu.requiredPlugin) {
+    return activePlugins.value.some(p => p.name === menu.requiredPlugin);
+  }
+  return true;
+};
 
 const groupedPlugins = computed(() => {
   const active = activePlugins.value;

@@ -53,4 +53,7 @@ type Context interface {
 
 	// RegisterHTTPHandler registers a custom HTTP handler for the plugin
 	RegisterHTTPHandler(path string, handler interface{}) error
+
+	// GetPlugin returns a managed plugin instance by name
+	GetPlugin(name string) interface{}
 }

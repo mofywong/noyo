@@ -112,6 +112,10 @@ func (c *ProtocolContextImpl) RegisterHTTPHandler(path string, handler interface
 	return nil
 }
 
+func (c *ProtocolContextImpl) GetPlugin(name string) interface{} {
+	return c.server.Manager.GetPlugin(name)
+}
+
 func (c *ProtocolContextImpl) LogDebug(msg string, fields ...interface{}) {
 	c.logger.Sugar().Debugw(msg, fields...)
 }
