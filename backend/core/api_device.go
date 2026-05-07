@@ -449,21 +449,24 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 	s.DeviceManager.Registry.UpdateDevice(updatedDevice)
 
 	// Restart logic
-	// 1. Stop if running
-	if s.DeviceManager.IsRunning(code) {
-		s.DeviceManager.StopDevice(code)
-	}
-
-	// 2. Start if enabled
-	if updatedDevice.Enabled {
-		if err := s.DeviceManager.StartDevice(code); err != nil {
-			s.Logger.Error("Failed to restart device", zap.String("code", code), zap.Error(err))
+	noRestart := r.Get("no_restart", false).Bool()
+	if !noRestart {
+		// 1. Stop if running
+		if s.DeviceManager.IsRunning(code) {
+			s.DeviceManager.StopDevice(code)
 		}
-	}
 
-	// 3. Restart Parent if this is a sub-device
-	if updatedDevice.ParentCode != "" {
-		s.restartParent(updatedDevice.ParentCode)
+		// 2. Start if enabled
+		if updatedDevice.Enabled {
+			if err := s.DeviceManager.StartDevice(code); err != nil {
+				s.Logger.Error("Failed to restart device", zap.String("code", code), zap.Error(err))
+			}
+		}
+
+		// 3. Restart Parent if this is a sub-device
+		if updatedDevice.ParentCode != "" {
+			s.restartParent(updatedDevice.ParentCode)
+		}
 	}
 
 	s.DeviceManager.EventBus.Publish(types.Event{

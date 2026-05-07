@@ -12,13 +12,13 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/klauspost/cpuid/v2 v2.3.0
 	github.com/mochi-mqtt/server/v2 v2.7.9
-	github.com/pion/sdp/v3 v3.0.18
 	github.com/pion/stun/v3 v3.1.1
 	github.com/pion/webrtc/v4 v4.2.11
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v4 v4.26.1
 	github.com/tjfoc/gmsm v1.4.1
 	github.com/xuri/excelize/v2 v2.10.0
+	github.com/yalue/onnxruntime_go v1.9.0
 	github.com/yapingcat/gomedia v0.0.0-20240906162731-17feea57090c
 	github.com/yuin/gopher-lua v1.1.2
 	go.uber.org/zap v1.27.1
@@ -66,6 +66,7 @@ require (
 	github.com/pion/rtcp v1.2.16 // indirect
 	github.com/pion/rtp v1.10.1 // indirect
 	github.com/pion/sctp v1.9.4 // indirect
+	github.com/pion/sdp/v3 v3.0.18 // indirect
 	github.com/pion/srtp/v3 v3.0.10 // indirect
 	github.com/pion/transport/v4 v4.0.1 // indirect
 	github.com/pion/turn/v4 v4.1.4 // indirect

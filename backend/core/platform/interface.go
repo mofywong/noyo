@@ -63,5 +63,5 @@ type IPeerConnection interface {
 // to provide streaming capabilities to protocol plugins (like GB28181, ONVIF)
 type IWebRTCService interface {
 	// CreateConnection creates a new WebRTC peer connection and returns the SDP answer and a media track
-	CreateConnection(offer string) (answer string, track IMediaTrack, pc IPeerConnection, err error)
+	CreateConnection(deviceCode, offer string) (answer string, track IMediaTrack, pc IPeerConnection, err error)
 }
