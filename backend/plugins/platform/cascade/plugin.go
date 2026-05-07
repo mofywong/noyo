@@ -158,6 +158,32 @@ func (p *CascadePlugin) CallService(device types.DeviceMeta, serviceCode string,
 
 	return engine.SendCommand(gwSn, cmdId, payloadBytes)
 }
+
+// IsGatewayDevice implements IGatewayRouter
+func (p *CascadePlugin) IsGatewayDevice(gwSn string) bool {
+	dev, err := store.GetDevice(gwSn)
+	if err != nil || dev == nil {
+		return false
+	}
+	product, err := store.GetProduct(dev.ProductCode)
+	if err != nil || product == nil {
+		return false
+	}
+	return product.ProtocolName == "cascade"
+}
+
+// SendCommandToGateway implements IGatewayRouter
+func (p *CascadePlugin) SendCommandToGateway(gwSn string, cmdID string, payload []byte) (interface{}, error) {
+	if p.PlatformEngine == nil {
+		return nil, fmt.Errorf("platform engine not available")
+	}
+	engine, ok := p.PlatformEngine.(*platformEngineImpl)
+	if !ok {
+		return nil, fmt.Errorf("platform engine is not of correct type")
+	}
+	return engine.SendCommand(gwSn, cmdID, payload)
+}
+
 func (p *CascadePlugin) GetConfigSchema() *core.PluginConfigSchema {
 	meta := p.GetMeta()
 	return &core.PluginConfigSchema{

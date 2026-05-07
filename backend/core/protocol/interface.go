@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"context"
+	"time"
 
 	"noyo/core/importer"
 	"noyo/core/types"
@@ -81,3 +82,9 @@ type IProtocolPlugin interface {
 	// IsEnabled returns true if the plugin is enabled
 	IsEnabled() bool
 }
+
+// IRawStreamProvider defines an interface for protocol plugins that provide raw video frames
+type IRawStreamProvider interface {
+	AttachRawStream(deviceCode string, viewerID string, onFrame func(frame []byte, duration time.Duration), onClose func()) (cleanup func(), err error)
+}
+

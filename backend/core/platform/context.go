@@ -51,4 +51,7 @@ type Context interface {
 
 	// ReportDeviceEvent saves event to TSDB and publishes EventEventReported
 	ReportDeviceEvent(deviceCode string, eventId string, params map[string]interface{}) error
+
+	// GetPlugin returns a managed plugin instance by name
+	GetPlugin(name string) interface{}
 }

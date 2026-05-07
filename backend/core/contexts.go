@@ -251,3 +251,7 @@ func (c *PlatformContextImpl) ReportDeviceEvent(deviceCode string, eventId strin
 	}
 	return c.server.DeviceManager.ReportDeviceEvent(*meta, eventId, params)
 }
+
+func (c *PlatformContextImpl) GetPlugin(name string) interface{} {
+	return c.server.Manager.GetPlugin(name)
+}

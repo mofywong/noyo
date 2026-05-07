@@ -65,3 +65,15 @@ type IWebRTCService interface {
 	// CreateConnection creates a new WebRTC peer connection and returns the SDP answer and a media track
 	CreateConnection(deviceCode, offer string) (answer string, track IMediaTrack, pc IPeerConnection, err error)
 }
+
+// IGatewayRouter defines an interface for a plugin that manages gateway routing
+type IGatewayRouter interface {
+	IsGatewayDevice(gwSn string) bool
+	SendCommandToGateway(gwSn string, cmdID string, payload []byte) (interface{}, error)
+}
+
+// IDataChannelBroadcaster defines an interface for broadcasting data over WebRTC datachannels
+type IDataChannelBroadcaster interface {
+	BroadcastDataChannel(deviceCode string, data []byte)
+}
+
