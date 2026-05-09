@@ -7,6 +7,7 @@ import (
 	"noyo/core/store"
 	"noyo/core/tsdb"
 	"noyo/core/types"
+	"reflect"
 	"time"
 
 	"github.com/gogf/gf/v2/frame/g"
@@ -449,7 +450,7 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 	s.DeviceManager.Registry.UpdateDevice(updatedDevice)
 
 	// Restart logic
-	noRestart := r.Get("no_restart", false).Bool()
+	noRestart := r.Get("no_restart", false).Bool() || shouldSkipRestartForDeviceUpdate(oldDevice, updatedDevice)
 	if !noRestart {
 		// 1. Stop if running
 		if s.DeviceManager.IsRunning(code) {
@@ -475,6 +476,64 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 	})
 
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Device updated"})
+}
+
+func shouldSkipRestartForDeviceUpdate(oldDevice, newDevice *store.Device) bool {
+	if oldDevice == nil || newDevice == nil {
+		return false
+	}
+	if oldDevice.ProductCode != "gb28181_camera" || newDevice.ProductCode != "gb28181_camera" {
+		return false
+	}
+	if oldDevice.Code != newDevice.Code ||
+		oldDevice.Name != newDevice.Name ||
+		oldDevice.ProductCode != newDevice.ProductCode ||
+		oldDevice.ParentCode != newDevice.ParentCode ||
+		oldDevice.Enabled != newDevice.Enabled {
+		return false
+	}
+
+	var oldConfig map[string]interface{}
+	var newConfig map[string]interface{}
+	if err := json.Unmarshal([]byte(oldDevice.Config), &oldConfig); err != nil {
+		return false
+	}
+	if err := json.Unmarshal([]byte(newDevice.Config), &newConfig); err != nil {
+		return false
+	}
+
+	yoloConfigKeys := map[string]bool{
+		"enable_yolo":        true,
+		"yolo_classes":       true,
+		"enable_yolo_webrtc": true,
+		"yolo_confidence":    true,
+	}
+
+	changed := false
+	seen := make(map[string]bool, len(oldConfig)+len(newConfig))
+	for key, oldValue := range oldConfig {
+		seen[key] = true
+		newValue, ok := newConfig[key]
+		if !ok || !reflect.DeepEqual(oldValue, newValue) {
+			if !yoloConfigKeys[key] {
+				return false
+			}
+			changed = true
+		}
+	}
+	for key, newValue := range newConfig {
+		if seen[key] {
+			continue
+		}
+		if !yoloConfigKeys[key] {
+			return false
+		}
+		if _, exists := oldConfig[key]; !exists || !reflect.DeepEqual(oldConfig[key], newValue) {
+			changed = true
+		}
+	}
+
+	return changed
 }
 
 func (s *Server) handleDeleteDevice(r *ghttp.Request) {
@@ -693,7 +752,6 @@ func (s *Server) handleDeviceStream(r *ghttp.Request) {
 		}
 	}
 }
-
 
 func (s *Server) handleWritePoint(r *ghttp.Request) {
 	code := r.Get("code").String()

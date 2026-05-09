@@ -46,8 +46,12 @@ go.work.sum
 /backend/dist/
 /frontend/dist/
 /backend/gobacnet.log
+/backend/.gocache/
+/backend/models/
 /backend/plugins/pro/
+/backend/yolo_debug_frame.h264
 /frontend/src/plugins/pro/
+/frontend/.vite-build-check/
 /backend/noyo-*
 # Environments
 .env

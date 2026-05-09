@@ -14,9 +14,38 @@
         class="form-select"
       >
         <option v-for="(opt, idx) in prop.enum" :key="opt" :value="opt">
-          {{ prop.enumNames && prop.enumNames[idx] ? prop.enumNames[idx] : opt }}
+          {{ getEnumLabel(prop, opt, idx) }}
         </option>
       </select>
+
+      <!-- Array Enum Type (Multi Select) -->
+      <div v-else-if="isArrayEnum(prop)" class="border p-2 rounded bg-light">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <small class="text-muted">{{ selectedArrayValues(key, prop).length }} / {{ prop.items.enum.length }}</small>
+          <div class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-secondary" @click="selectAllArrayEnum(key, prop)">
+              {{ $t('select_all') }}
+            </button>
+            <button type="button" class="btn btn-outline-secondary" @click="updateField(key, [])">
+              {{ $t('deselect_all') }}
+            </button>
+          </div>
+        </div>
+        <div class="schema-enum-grid">
+          <div v-for="(opt, idx) in prop.items.enum" :key="opt" class="form-check">
+            <input
+              class="form-check-input"
+              type="checkbox"
+              :id="`${key}_${idx}`"
+              :checked="selectedArrayValues(key, prop).includes(opt)"
+              @change="toggleArrayEnumValue(key, prop, opt, $event.target.checked)"
+            >
+            <label class="form-check-label" :for="`${key}_${idx}`">
+              {{ getArrayEnumLabel(prop, opt, idx) }}
+            </label>
+          </div>
+        </div>
+      </div>
 
       <!-- Array Type (Simple List) -->
       <div v-else-if="prop.type === 'array'" class="border p-2 rounded bg-light">
@@ -85,7 +114,7 @@
         @input="updateField(key, $event.target.value)"
       >
       
-      <div v-if="prop.description" class="form-text">{{ $t(prop.description) }}</div>
+      <div v-if="getDescription(prop)" class="form-text">{{ getDescription(prop) }}</div>
     </div>
   </div>
 </template>
@@ -102,11 +131,30 @@ import { useI18n } from 'vue-i18n';
 
 const { t, locale } = useI18n();
 
+const isZh = computed(() => locale.value === 'zh' || locale.value === 'zh-CN');
+
 const getTitle = (prop, key) => {
-  if ((locale.value === 'zh' || locale.value === 'zh-CN') && prop.title_zh) {
+  if (isZh.value && prop.title_zh) {
     return prop.title_zh;
   }
   return t(prop.title || key);
+};
+
+const getDescription = (prop) => {
+  if (isZh.value && prop.description_zh) {
+    return prop.description_zh;
+  }
+  return prop.description ? t(prop.description) : '';
+};
+
+const getEnumLabel = (prop, opt, idx) => {
+  if (isZh.value && prop.enumNames_zh && prop.enumNames_zh[idx]) {
+    return prop.enumNames_zh[idx];
+  }
+  if (prop.enumNames && prop.enumNames[idx]) {
+    return prop.enumNames[idx];
+  }
+  return opt;
 };
 
 const props = defineProps({
@@ -124,6 +172,39 @@ const emit = defineEmits(['update:modelValue']);
 
 const isRequired = (key) => {
   return props.schema.required && props.schema.required.includes(key);
+};
+
+const isArrayEnum = (prop) => {
+  return prop.type === 'array' && prop.items && Array.isArray(prop.items.enum);
+};
+
+const selectedArrayValues = (key, prop) => {
+  const value = props.modelValue[key];
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(prop.default)) return prop.default;
+  return [];
+};
+
+const getArrayEnumLabel = (prop, opt, idx) => {
+  if (isZh.value && prop.items.enumNames_zh && prop.items.enumNames_zh[idx]) {
+    return prop.items.enumNames_zh[idx];
+  }
+  if (prop.items.enumNames && prop.items.enumNames[idx]) {
+    return prop.items.enumNames[idx];
+  }
+  return opt;
+};
+
+const toggleArrayEnumValue = (key, prop, opt, checked) => {
+  const current = selectedArrayValues(key, prop);
+  const next = checked
+    ? [...new Set([...current, opt])]
+    : current.filter(item => item !== opt);
+  updateField(key, next);
+};
+
+const selectAllArrayEnum = (key, prop) => {
+  updateField(key, [...prop.items.enum]);
 };
 
 const sortedProperties = computed(() => {
@@ -180,3 +261,13 @@ const updateArrayItem = (key, index, val) => {
   emit('update:modelValue', { ...props.modelValue, [key]: newArray });
 };
 </script>
+
+<style scoped>
+.schema-enum-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.25rem 0.75rem;
+  max-height: 260px;
+  overflow: auto;
+}
+</style>
