@@ -83,6 +83,8 @@ const messages = {
         plugin_update_hint: 'Update settings for {name}',
         plugin_no_config: 'No configuration options available for this plugin.',
         plugin_not_found: 'Plugin data not found.',
+        ai_config_center: 'AI Config Center',
+        ai_config: 'AI Config',
         // TSL & Product
         tsl_properties: 'Properties',
         tsl_events: 'Events',
@@ -701,6 +703,8 @@ const messages = {
         plugin_update_hint: '更新 {name} 的设置',
         plugin_no_config: '该插件没有可用的配置选项。',
         plugin_not_found: '未找到插件数据。',
+        ai_config_center: 'AI配置中心',
+        ai_config: 'AI配置',
         // TSL & Product
         tsl_properties: '属性',
         tsl_events: '事件',

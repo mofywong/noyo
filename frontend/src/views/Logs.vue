@@ -125,7 +125,7 @@
                   <label class="btn btn-outline-secondary fw-bold" for="hist-match-word" :title="$t('match_whole_word')">\b</label>
                 </div>
               </div>
-              <a :href="`/api/system/log/download?name=${currentFile}`" target="_blank" class="btn btn-sm btn-outline-primary text-nowrap">
+              <a v-if="!props.remoteLogBase" :href="`/api/system/log/download?name=${currentFile}`" target="_blank" class="btn btn-sm btn-outline-primary text-nowrap">
                 <i class="bi bi-download"></i> {{ $t('btn_download') }}
               </a>
             </div>
@@ -164,6 +164,13 @@ import { useI18n } from 'vue-i18n';
 const { t } = useI18n();
 const showToast = inject('showToast');
 
+const props = defineProps({
+  remoteLogBase: {
+    type: String,
+    default: ''
+  }
+});
+
 const activeTab = ref('realtime'); // realtime | history
 
 // Real-time state
@@ -180,6 +187,7 @@ const rtMatchCount = ref(0);
 const rtCurrentMatch = ref(0);
 const maxLogs = 1000;
 let ws = null;
+let remoteRealtimePollTimer = null;
 
 // History state
 const files = ref([]);
@@ -447,7 +455,7 @@ const scrollToBottom = async () => {
 
 const fetchRealtimeTail = async () => {
   try {
-    const res = await axios.get('/api/system/log/tail?lines=100');
+    const res = await axios.get(`${logApiBase()}/tail?lines=100`);
     if (res.data.code === 0 && res.data.data) {
       logs.value = res.data.data;
       scrollToBottom();
@@ -461,7 +469,27 @@ const fetchRealtimeTail = async () => {
   }
 };
 
+const logApiBase = () => props.remoteLogBase || '/api/system/log';
+
+const startRemoteRealtimePolling = () => {
+  stopRemoteRealtimePolling();
+  fetchRealtimeTail();
+  remoteRealtimePollTimer = setInterval(fetchRealtimeTail, 3000);
+};
+
+const stopRemoteRealtimePolling = () => {
+  if (remoteRealtimePollTimer) {
+    clearInterval(remoteRealtimePollTimer);
+    remoteRealtimePollTimer = null;
+  }
+};
+
 const connectWebSocket = () => {
+  if (props.remoteLogBase) {
+    wsConnected.value = true;
+    startRemoteRealtimePolling();
+    return;
+  }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
   ws = new WebSocket(`${protocol}//${host}/api/system/log/stream`);
@@ -504,6 +532,11 @@ const connectWebSocket = () => {
 };
 
 const disconnectWebSocket = () => {
+  stopRemoteRealtimePolling();
+  if (props.remoteLogBase) {
+    wsConnected.value = false;
+    return;
+  }
   if (ws) {
     ws.close();
     ws = null;
@@ -514,7 +547,7 @@ const disconnectWebSocket = () => {
 const fetchFiles = async () => {
   loadingFiles.value = true;
   try {
-    const res = await axios.get('/api/system/log/files');
+    const res = await axios.get(`${logApiBase()}/files`);
     if (res.data.code === 0) {
       files.value = res.data.data;
     }
@@ -543,7 +576,7 @@ const selectFile = async (name) => {
   loadingContent.value = true;
   fileContent.value = '';
   try {
-    const res = await axios.get(`/api/system/log/file?name=${name}`);
+    const res = await axios.get(`${logApiBase()}/file?name=${encodeURIComponent(name)}`);
     if (res.data.code === 0) {
       fileContent.value = res.data.data;
     } else {

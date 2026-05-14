@@ -82,7 +82,7 @@
 
         <!-- Actions -->
         <div class="d-flex justify-content-end pt-3 border-top gap-2">
-          <button type="button" class="btn btn-light" @click="$router.back()">取消</button>
+          <button type="button" class="btn btn-light" @click="cancel">取消</button>
           <button type="submit" class="btn btn-primary px-4" :disabled="saving">
             <span v-if="saving" class="spinner-border spinner-border-sm me-2"></span>
             <i v-else class="bi bi-save me-2"></i>
@@ -95,12 +95,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import axios from 'axios';
 import { useToast } from '@/composables/useToast';
 import { useRouter } from 'vue-router';
 
-const props = defineProps({ pluginName: String });
+const props = defineProps({
+  pluginName: String,
+  apiBase: String,
+  remoteContext: Object
+});
+const emit = defineEmits(['saved', 'cancel']);
 const { showToast } = useToast();
 const router = useRouter();
 
@@ -116,11 +121,15 @@ const config = ref({
   gateway_name: ''
 });
 
-onMounted(async () => {
+const configEndpoint = computed(() => props.apiBase || `/api/plugins/${props.pluginName || 'cascade'}`);
+const saveEndpoint = computed(() => `${configEndpoint.value}/config`);
+
+const loadConfig = async () => {
   try {
-    const res = await axios.get(`/api/plugins/${props.pluginName || 'cascade'}`);
-    if (res.data.code === 0 && res.data.data && res.data.data.fields) {
-      const fields = res.data.data.fields;
+    const res = await axios.get(configEndpoint.value);
+    const schema = res.data?.data?.schema || res.data?.data;
+    if (res.data.code === 0 && schema && schema.fields) {
+      const fields = schema.fields;
       const getVal = (name, defaultVal) => {
         const f = fields.find(x => x.name === name);
         return f && f.value !== undefined ? f.value : defaultVal;
@@ -139,10 +148,9 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
-});
+};
 
-onUnmounted(() => {
-});
+onMounted(loadConfig);
 
 async function save() {
   saving.value = true;
@@ -156,10 +164,17 @@ async function save() {
       gateway_name: config.value.gateway_name
     };
     
-    const res = await axios.post(`/api/plugins/${props.pluginName || 'cascade'}/config`, payload);
+    if (props.remoteContext?.baseVersion !== undefined) {
+      payload.base_version = props.remoteContext.baseVersion;
+    }
+
+    const res = await axios.post(saveEndpoint.value, payload);
     if (res.data.code === 0) {
       showToast('success', '保存成功，级联插件已应用新配置');
-      router.back();
+      emit('saved', res.data.data);
+      if (!props.apiBase) {
+        router.back();
+      }
     } else {
       showToast('danger', res.data.message || '保存失败');
     }
@@ -167,6 +182,13 @@ async function save() {
     showToast('danger', '保存失败：' + e.message);
   } finally {
     saving.value = false;
+  }
+}
+
+function cancel() {
+  emit('cancel');
+  if (!props.apiBase) {
+    router.back();
   }
 }
 </script>

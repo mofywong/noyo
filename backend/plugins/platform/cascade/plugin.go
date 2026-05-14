@@ -265,6 +265,17 @@ func (p *CascadePlugin) Init(ctx platform.Context) error {
 
 	// Register HTTP routes
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/status", p.handleGetStatus)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways", p.handleGatewayList)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins", p.handleGatewayPlugins)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName", p.handleGatewayPluginConfig)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName/config", p.handleGatewayPluginConfigSave)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName/status", p.handleGatewayPluginStatusSave)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/system/config", p.handleGatewaySystemConfig)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/license/status", p.handleGatewayLicenseStatus)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/license/upload", p.handleGatewayLicenseUpload)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/system/log/files", p.handleGatewayLogFiles)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/system/log/file", p.handleGatewayLogFile)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/system/log/tail", p.handleGatewayLogTail)
 
 	return nil
 }
@@ -292,6 +303,395 @@ func (p *CascadePlugin) handleGetStatus(r *ghttp.Request) {
 		"gateway_code": p.Config.GatewaySn,
 		"ts":           time.Now(),
 	})
+}
+
+func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
+	if p.Config.Mode != "platform" {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway management is only available in platform mode"})
+		return
+	}
+
+	coreServer, _ := p.ctx.GetCoreServer().(*core.Server)
+	devices, _, err := store.ListDevices(0, 0)
+	if err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
+		return
+	}
+
+	type gatewayItem struct {
+		SN          string `json:"sn"`
+		Name        string `json:"name"`
+		ProductCode string `json:"productCode"`
+		Enabled     bool   `json:"enabled"`
+		Status      string `json:"status"`
+		Online      bool   `json:"online"`
+		OnlineAt    int64  `json:"onlineAt"`
+		UpdatedAt   int64  `json:"updatedAt"`
+	}
+
+	items := make([]gatewayItem, 0)
+	for _, dev := range devices {
+		product, err := store.GetProduct(dev.ProductCode)
+		if err != nil || product == nil || product.ProtocolName != "cascade" {
+			continue
+		}
+
+		statusStr := types.DeviceStatusOffline
+		online := false
+		onlineAt := int64(0)
+		if coreServer != nil && coreServer.DeviceManager != nil {
+			if status, ok := coreServer.DeviceManager.GetStatus(dev.Code); ok {
+				statusStr = status.LastStatus
+				online = status.Online
+				if status.Online && !status.LastActive.IsZero() {
+					onlineAt = status.LastActive.UnixMilli()
+				}
+			}
+		}
+
+		items = append(items, gatewayItem{
+			SN:          dev.Code,
+			Name:        dev.Name,
+			ProductCode: dev.ProductCode,
+			Enabled:     dev.Enabled,
+			Status:      statusStr,
+			Online:      online,
+			OnlineAt:    onlineAt,
+			UpdatedAt:   dev.UpdatedAt.UnixMilli(),
+		})
+	}
+
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": items})
+}
+
+func (p *CascadePlugin) handleGatewayPlugins(r *ghttp.Request) {
+	if r.Method != "GET" {
+		r.Response.WriteStatus(405)
+		return
+	}
+	gwSn := p.getRouteParam(r, "gwSn")
+	engine, ok := p.remotePluginEngine(r, gwSn)
+	if !ok {
+		return
+	}
+	data, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodList, "", nil)
+	if err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": gatewayPluginStateCache.List(gwSn), "message": err.Error()})
+		return
+	}
+	summaries, err := decodeRemotePluginSummaries(data)
+	if err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": data})
+		return
+	}
+	for i := range summaries {
+		gatewayPluginStateCache.SaveSnapshot(gwSn, summaries[i], time.Now())
+		summaries[i] = gatewayPluginStateCache.MergeSummary(gwSn, summaries[i])
+	}
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaries})
+}
+
+func (p *CascadePlugin) handleGatewayPluginConfig(r *ghttp.Request) {
+	if r.Method != "GET" {
+		r.Response.WriteStatus(405)
+		return
+	}
+	gwSn := p.getRouteParam(r, "gwSn")
+	pluginName := p.getRouteParam(r, "pluginName")
+	engine, ok := p.remotePluginEngine(r, gwSn)
+	if !ok {
+		return
+	}
+	data, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodConfigGet, pluginName, nil)
+	if err != nil {
+		if item, found := gatewayPluginStateCache.Get(gwSn, pluginName); found {
+			r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item), "message": err.Error()})
+			return
+		}
+		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
+		return
+	}
+	summary, err := decodeRemotePluginSummary(data)
+	if err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": data})
+		return
+	}
+	if item, found := gatewayPluginStateCache.Get(gwSn, pluginName); found && item.SyncState == remotePluginSyncPending {
+		if _, conflict := gatewayPluginStateCache.MarkConflictIfGatewayChanged(gwSn, pluginName, summary.ConfigVersion); conflict {
+			if conflictItem, ok := gatewayPluginStateCache.Get(gwSn, pluginName); ok {
+				r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(conflictItem)})
+				return
+			}
+		}
+		if item.DesiredConfig != nil {
+			applied, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodConfigSet, pluginName, map[string]interface{}{
+				"config":       item.DesiredConfig,
+				"base_version": item.BaseVersion,
+			})
+			if err == nil {
+				if appliedSummary, decodeErr := decodeRemotePluginSummary(applied); decodeErr == nil {
+					synced := gatewayPluginStateCache.MarkSynced(gwSn, *appliedSummary, time.Now())
+					r.Response.WriteJson(map[string]interface{}{"code": 0, "data": synced})
+					return
+				}
+			}
+		}
+	}
+	gatewayPluginStateCache.SaveSnapshot(gwSn, *summary, time.Now())
+	merged := gatewayPluginStateCache.MergeSummary(gwSn, *summary)
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": merged})
+}
+
+func (p *CascadePlugin) handleGatewayPluginConfigSave(r *ghttp.Request) {
+	if r.Method != "POST" {
+		r.Response.WriteStatus(405)
+		return
+	}
+	pluginName := p.getRouteParam(r, "pluginName")
+	var config map[string]interface{}
+	if err := json.Unmarshal(r.GetBody(), &config); err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "Invalid JSON"})
+		return
+	}
+	gwSn := p.getRouteParam(r, "gwSn")
+	baseVersion := extractRemoteBaseVersion(config)
+	enabled := desiredEnabledForConfig(gwSn, pluginName, config)
+	engine, ok := p.remotePluginEngine(r, gwSn)
+	if !ok {
+		return
+	}
+	if r.Get("resolve").String() != "override" && baseVersion > 0 {
+		if live, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodConfigGet, pluginName, nil); err == nil {
+			if liveSummary, decodeErr := decodeRemotePluginSummary(live); decodeErr == nil && liveSummary.ConfigVersion > baseVersion {
+				item, _ := gatewayPluginStateCache.SaveDesired(gwSn, pluginName, config, enabled, baseVersion, time.Now())
+				gatewayPluginStateCache.MarkConflictIfGatewayChanged(gwSn, pluginName, liveSummary.ConfigVersion)
+				if conflictItem, found := gatewayPluginStateCache.Get(gwSn, pluginName); found {
+					item = conflictItem
+				}
+				r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item)})
+				return
+			}
+		}
+	}
+	data, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodConfigSet, pluginName, map[string]interface{}{
+		"config":       config,
+		"base_version": baseVersion,
+	})
+	if err != nil {
+		item, _ := gatewayPluginStateCache.SaveDesired(gwSn, pluginName, config, enabled, baseVersion, time.Now())
+		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item), "message": err.Error()})
+		return
+	}
+	summary, err := decodeRemotePluginSummary(data)
+	if err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": data})
+		return
+	}
+	synced := gatewayPluginStateCache.MarkSynced(gwSn, *summary, time.Now())
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": synced})
+}
+
+func (p *CascadePlugin) handleGatewayPluginStatusSave(r *ghttp.Request) {
+	if r.Method != "POST" {
+		r.Response.WriteStatus(405)
+		return
+	}
+	pluginName := p.getRouteParam(r, "pluginName")
+	var body struct {
+		Enabled     bool  `json:"enabled"`
+		BaseVersion int64 `json:"base_version"`
+	}
+	if err := json.Unmarshal(r.GetBody(), &body); err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "Invalid JSON"})
+		return
+	}
+	gwSn := p.getRouteParam(r, "gwSn")
+	baseVersion := body.BaseVersion
+	config := map[string]interface{}{"enabled": body.Enabled}
+	engine, ok := p.remotePluginEngine(r, gwSn)
+	if !ok {
+		return
+	}
+	if baseVersion > 0 {
+		if live, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodConfigGet, pluginName, nil); err == nil {
+			if liveSummary, decodeErr := decodeRemotePluginSummary(live); decodeErr == nil && liveSummary.ConfigVersion > baseVersion {
+				item, _ := gatewayPluginStateCache.SaveDesired(gwSn, pluginName, config, body.Enabled, baseVersion, time.Now())
+				gatewayPluginStateCache.MarkConflictIfGatewayChanged(gwSn, pluginName, liveSummary.ConfigVersion)
+				if conflictItem, found := gatewayPluginStateCache.Get(gwSn, pluginName); found {
+					item = conflictItem
+				}
+				r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item)})
+				return
+			}
+		}
+	}
+	data, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodStatusSet, pluginName, map[string]interface{}{
+		"enabled":      body.Enabled,
+		"base_version": baseVersion,
+	})
+	if err != nil {
+		item, _ := gatewayPluginStateCache.SaveDesired(gwSn, pluginName, config, body.Enabled, baseVersion, time.Now())
+		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item), "message": err.Error()})
+		return
+	}
+	summary, err := decodeRemotePluginSummary(data)
+	if err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": data})
+		return
+	}
+	synced := gatewayPluginStateCache.MarkSynced(gwSn, *summary, time.Now())
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": synced})
+}
+
+func (p *CascadePlugin) writeRemotePluginCommandResponse(r *ghttp.Request, method, pluginName string, params map[string]interface{}) {
+	if p.Config.Mode != "platform" {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway plugin management is only available in platform mode"})
+		return
+	}
+	gwSn := p.getRouteParam(r, "gwSn")
+	if gwSn == "" {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway sn is required"})
+		return
+	}
+	engine, ok := p.PlatformEngine.(*platformEngineImpl)
+	if !ok || engine == nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": "platform engine not available"})
+		return
+	}
+	data, err := engine.SendRemotePluginCommand(gwSn, method, pluginName, params)
+	if err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
+		return
+	}
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": data})
+}
+
+func (p *CascadePlugin) remotePluginEngine(r *ghttp.Request, gwSn string) (*platformEngineImpl, bool) {
+	if p.Config.Mode != "platform" {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway plugin management is only available in platform mode"})
+		return nil, false
+	}
+	if gwSn == "" {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway sn is required"})
+		return nil, false
+	}
+	engine, ok := p.PlatformEngine.(*platformEngineImpl)
+	if !ok || engine == nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": "platform engine not available"})
+		return nil, false
+	}
+	return engine, true
+}
+
+func decodeRemotePluginSummary(data interface{}) (*remotePluginSummary, error) {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	var summary remotePluginSummary
+	if err := json.Unmarshal(payload, &summary); err != nil {
+		return nil, err
+	}
+	return &summary, nil
+}
+
+func decodeRemotePluginSummaries(data interface{}) ([]remotePluginSummary, error) {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	var summaries []remotePluginSummary
+	if err := json.Unmarshal(payload, &summaries); err != nil {
+		return nil, err
+	}
+	return summaries, nil
+}
+
+func extractRemoteBaseVersion(config map[string]interface{}) int64 {
+	var baseVersion int64
+	if raw, ok := config["base_version"]; ok {
+		switch v := raw.(type) {
+		case float64:
+			baseVersion = int64(v)
+		case int64:
+			baseVersion = v
+		case int:
+			baseVersion = int64(v)
+		case json.Number:
+			baseVersion, _ = v.Int64()
+		}
+		delete(config, "base_version")
+	}
+	return baseVersion
+}
+
+func desiredEnabledForConfig(gwSn, pluginName string, config map[string]interface{}) bool {
+	if raw, ok := config["enabled"]; ok {
+		if enabled, ok := raw.(bool); ok {
+			return enabled
+		}
+	}
+	if item, ok := gatewayPluginStateCache.Get(gwSn, pluginName); ok {
+		if item.SummarySnapshot != nil {
+			return item.SummarySnapshot.Status == "running"
+		}
+		return item.DesiredEnabled
+	}
+	return false
+}
+
+func summaryFromCacheItem(item *remotePluginCacheItem) remotePluginSummary {
+	if item == nil {
+		return remotePluginSummary{SyncState: remotePluginSyncPending, IsOfflineEditable: true}
+	}
+	if item.SummarySnapshot != nil {
+		summary := *cloneRemotePluginSummary(item.SummarySnapshot)
+		summary.SyncState = valueOrDefault(item.SyncState, remotePluginSyncPending)
+		summary.BaseVersion = item.BaseVersion
+		summary.GatewayVersion = item.GatewayVersion
+		summary.EnabledAt = item.EnabledAt
+		summary.LastSyncedAt = item.LastSyncedAt
+		summary.IsOfflineEditable = true
+		applyConfigToSchema(&summary, item.DesiredConfig)
+		return summary
+	}
+	status := "stopped"
+	if item.DesiredEnabled {
+		status = "running"
+	}
+	return remotePluginSummary{
+		Name:              item.PluginName,
+		Status:            status,
+		ConfigVersion:     item.BaseVersion,
+		UpdatedAt:         item.UpdatedAt,
+		UpdatedBy:         "platform",
+		SyncState:         valueOrDefault(item.SyncState, remotePluginSyncPending),
+		BaseVersion:       item.BaseVersion,
+		GatewayVersion:    item.GatewayVersion,
+		EnabledAt:         item.EnabledAt,
+		LastSyncedAt:      item.LastSyncedAt,
+		IsOfflineEditable: true,
+	}
+}
+
+func (p *CascadePlugin) getRouteParam(r *ghttp.Request, name string) string {
+	if v := r.Get(name).String(); v != "" {
+		return v
+	}
+	switch name {
+	case "gwSn":
+		if v := r.Get("gw_sn").String(); v != "" {
+			return v
+		}
+		return r.Get("gw").String()
+	case "pluginName":
+		if v := r.Get("plugin_name").String(); v != "" {
+			return v
+		}
+		return r.Get("name").String()
+	default:
+		return ""
+	}
 }
 
 // Start hooks into the Plugin Start lifecycle

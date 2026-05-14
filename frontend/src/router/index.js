@@ -4,6 +4,9 @@ import Marketplace from '../views/Marketplace.vue'
 import ProductList from '../views/ProductList.vue'
 import DeviceList from '../views/DeviceList.vue'
 import DeviceTopology from '../views/DeviceTopology.vue'
+import GatewayManagement from '../views/GatewayManagement.vue'
+import GatewayPlugins from '../views/GatewayPlugins.vue'
+import GatewayPluginConfig from '../views/GatewayPluginConfig.vue'
 import PluginConfig from '../views/PluginConfig.vue'
 import Settings from '../views/Settings.vue'
 import Logs from '../views/Logs.vue'
@@ -35,6 +38,23 @@ const routes = [
     path: '/topology',
     name: 'DeviceTopology',
     component: DeviceTopology
+  },
+  {
+    path: '/gateways',
+    name: 'GatewayManagement',
+    component: GatewayManagement
+  },
+  {
+    path: '/gateways/:gwSn/plugins',
+    name: 'GatewayPlugins',
+    component: GatewayPlugins,
+    props: true
+  },
+  {
+    path: '/gateways/:gwSn/plugins/:name',
+    name: 'GatewayPluginConfig',
+    component: GatewayPluginConfig,
+    props: true
   },
   {
     path: '/plugins/:name',

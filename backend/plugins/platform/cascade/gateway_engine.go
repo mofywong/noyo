@@ -38,8 +38,8 @@ type gatewayEngineImpl struct {
 
 func NewGatewayEngine(ctx platform.Context, logger *zap.Logger, cfg *Config) GatewayEngine {
 	return &gatewayEngineImpl{
-		ctx:       ctx,
-		logger:    logger,
+		ctx:            ctx,
+		logger:         logger,
 		config:         cfg,
 		receivers:      make(map[string]*FileReceiver),
 		localEventSubs: make(map[types.EventType]uint64),
@@ -152,7 +152,7 @@ func (e *gatewayEngineImpl) telemetryLoop(ctx context.Context) {
 
 func (e *gatewayEngineImpl) Stop() error {
 	e.logger.Info("Gateway Engine Stopped")
-	
+
 	// Unsubscribe from all local core events to prevent memory leak
 	for eventType, id := range e.localEventSubs {
 		e.ctx.UnsubscribeEvent(eventType, id)
@@ -254,7 +254,6 @@ func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
 	})
 
 }
-
 
 // getPublicIP returns the gateway's public IP via STUN discovery.
 func (e *gatewayEngineImpl) getPublicIP() string {
@@ -410,7 +409,7 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 	for _, d := range syncData.Devices {
 		d.ID = 0 // Clear Platform ID to avoid local SQLite primary key conflicts
 		syncedDeviceCodes[d.Code] = true
-		
+
 		deviceChanged := true
 		if existingD, err := store.GetDevice(d.Code); err == nil && existingD != nil {
 			if existingD.Name == d.Name && existingD.ProductCode == d.ProductCode && existingD.ParentCode == d.ParentCode && existingD.Enabled == d.Enabled && existingD.Config == d.Config {
@@ -488,7 +487,7 @@ func (e *gatewayEngineImpl) handleConfigVersion(client mqtt.Client, msg mqtt.Mes
 	if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
 		return
 	}
-	
+
 	localVer := e.configVersion.Load()
 	if payload.Version > localVer {
 		e.logger.Info("Config version updated, requesting sync", zap.Int64("local", localVer), zap.Int64("remote", payload.Version))
@@ -531,7 +530,7 @@ func (e *gatewayEngineImpl) handlePlatformStatus(client mqtt.Client, msg mqtt.Me
 				onlineBytes, _ := json.Marshal(onlineEvent)
 				// 使用 retained=false，避免 broker 缓存网关旧的在线状态导致与遗嘱消息冲突
 				e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.config.GatewaySn), 1, false, onlineBytes)
-	
+
 				// Also publish statuses of all sub-devices
 				if coreServer, ok := e.ctx.GetCoreServer().(*core.Server); ok {
 					allDevices := coreServer.DeviceManager.Registry.GetAllDevices()
@@ -557,7 +556,7 @@ func (e *gatewayEngineImpl) handlePlatformStatus(client mqtt.Client, msg mqtt.Me
 						}
 					}
 				}
-	
+
 				// 仅当没有有效的本地版本时才全量同步
 				if e.configVersion.Load() == 0 {
 					e.sendSyncRequest()
@@ -707,7 +706,113 @@ func (e *gatewayEngineImpl) handleCommand(client mqtt.Client, msg mqtt.Message) 
 		goto SEND_REPLY
 	}
 
-	if cmd.Method == "service_invoke" || cmd.Method == "property_set" {
+	if cmd.Method == remotePluginMethodList {
+		plugins, err := listGatewayPlugins(coreServer)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = plugins
+		}
+	} else if cmd.Method == remotePluginMethodConfigGet {
+		req, err := parseRemotePluginConfigGetParams(cmd.Params)
+		if err != nil {
+			reply["code"] = 400
+			reply["message"] = err.Error()
+			goto SEND_REPLY
+		}
+		data, err := getGatewayPluginConfig(coreServer, req.Plugin)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = data
+		}
+	} else if cmd.Method == remotePluginMethodConfigSet {
+		req, err := parseRemotePluginConfigSetParams(cmd.Params)
+		if err != nil {
+			reply["code"] = 400
+			reply["message"] = err.Error()
+			goto SEND_REPLY
+		}
+		data, err := setGatewayPluginConfig(coreServer, req)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = data
+		}
+	} else if cmd.Method == remotePluginMethodStatusSet {
+		req, err := parseRemotePluginStatusSetParams(cmd.Params)
+		if err != nil {
+			reply["code"] = 400
+			reply["message"] = err.Error()
+			goto SEND_REPLY
+		}
+		data, err := setGatewayPluginStatus(coreServer, req)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = data
+		}
+	} else if cmd.Method == remoteSystemMethodConfigGet {
+		data, err := getGatewaySystemConfig(coreServer)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = data
+		}
+	} else if cmd.Method == remoteSystemMethodConfigSet {
+		data, err := setGatewaySystemConfig(coreServer, cmd.Params)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = data
+		}
+	} else if cmd.Method == remoteSystemMethodLicenseStatus {
+		data, err := getGatewayLicenseStatus(coreServer)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = data
+		}
+	} else if cmd.Method == remoteSystemMethodLicenseUpload {
+		data, err := uploadGatewayLicense(coreServer, cmd.Params)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = data
+		}
+	} else if cmd.Method == remoteSystemMethodLogFiles {
+		data, err := listGatewayLogFiles(coreServer)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = data
+		}
+	} else if cmd.Method == remoteSystemMethodLogFile {
+		data, err := readGatewayLogFile(coreServer, cmd.Params)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = data
+		}
+	} else if cmd.Method == remoteSystemMethodLogTail {
+		data, err := tailGatewayLog(coreServer, cmd.Params)
+		if err != nil {
+			reply["code"] = 500
+			reply["message"] = err.Error()
+		} else {
+			reply["data"] = data
+		}
+	} else if cmd.Method == "service_invoke" || cmd.Method == "property_set" {
 		paramsMap, ok := cmd.Params.(map[string]interface{})
 		if !ok {
 			reply["code"] = 400

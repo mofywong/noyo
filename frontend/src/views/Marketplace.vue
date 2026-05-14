@@ -52,9 +52,19 @@ const props = defineProps({
 
 const emit = defineEmits(['configure', 'update-status']);
 
-const platforms = computed(() => props.plugins.filter(p => p.category === 'platform'));
-const protocols = computed(() => props.plugins.filter(p => p.category === 'protocol'));
-const others = computed(() => props.plugins.filter(p => p.category !== 'platform' && p.category !== 'protocol'));
+const pluginTime = (plugin) => Number(plugin.enabledAt || plugin.updatedAt || plugin.lastSyncedAt || 0);
+
+const sortedPlugins = computed(() => [...props.plugins].sort((a, b) => {
+  const aEnabled = a.status === 'running' ? 1 : 0;
+  const bEnabled = b.status === 'running' ? 1 : 0;
+  if (aEnabled !== bEnabled) return bEnabled - aEnabled;
+  if (aEnabled && bEnabled) return pluginTime(b) - pluginTime(a);
+  return String(a.name).localeCompare(String(b.name));
+}));
+
+const platforms = computed(() => sortedPlugins.value.filter(p => p.category === 'platform'));
+const protocols = computed(() => sortedPlugins.value.filter(p => p.category === 'protocol'));
+const others = computed(() => sortedPlugins.value.filter(p => p.category !== 'platform' && p.category !== 'protocol'));
 
 const handleStatusUpdate = (name, enabled) => {
   emit('update-status', name, enabled);

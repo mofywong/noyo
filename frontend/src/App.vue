@@ -12,6 +12,7 @@
       <TopHeader 
         :title="pageTitle" 
         :current-theme="currentTheme"
+        :mqtt-status="mqttStatus"
         @toggle-sidebar="sidebarOpen = !sidebarOpen"
         @set-theme="setTheme"
         @set-language="setLanguage"
@@ -36,7 +37,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onBeforeUnmount, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
@@ -45,16 +46,20 @@ import TopHeader from './components/TopHeader.vue';
 import ToastContainer from './components/ToastContainer.vue';
 import GlobalAiCopilot from './components/common/GlobalAiCopilot.vue'; // Added GlobalAiCopilot import
 import { useToast } from './composables/useToast';
+import { gatewayActionText, gatewayText } from './utils/gatewayLocale';
 
 const { t, locale } = useI18n();
 const { showToast } = useToast();
 const router = useRouter();
 const route = useRoute();
+const gt = (key, params) => gatewayText(locale.value, key, params);
 
 // State
 const sidebarOpen = ref(false); // Mobile sidebar
 const plugins = ref([]);
 const loadingPlugins = ref(false);
+const mqttStatus = ref(null);
+let mqttStatusTimer = null;
 
 // Theme
 const currentTheme = ref(localStorage.getItem('theme') || 'dark');
@@ -80,6 +85,9 @@ const pageTitle = computed(() => {
   if (name === 'Marketplace') return t('page_marketplace');
   if (name === 'Products') return t('sidebar_products');
   if (name === 'Devices') return t('sidebar_devices');
+  if (name === 'GatewayManagement') return gt('gateway_management');
+  if (name === 'GatewayPlugins') return `${route.params.gwSn} / ${gt('gateway_plugin_marketplace_title')}`;
+  if (name === 'GatewayPluginConfig') return `${route.params.gwSn} / ${gt('gateway_plugin_config_title')}`;
   if (name === 'VideoSquare') return t('sidebar_video_square', '视频广场');
   if (name === 'PluginConfig') return `${currentPluginName.value} ${t('page_configure')}`;
   if (name === 'Settings') return t('sidebar_settings');
@@ -107,10 +115,29 @@ const fetchPlugins = async () => {
 const updatePluginStatus = async (name, enabled) => {
   try {
     await axios.post(`/api/plugins/${name}/config`, { enabled });
-    showToast('success', `Plugin ${enabled ? 'enabled' : 'disabled'} successfully.`);
+    showToast('success', gt('gateway_plugin_status_updated', { action: gatewayActionText(locale.value, enabled) }));
     await fetchPlugins(); // Refresh list
   } catch (e) {
-    showToast('danger', 'Failed to update plugin status: ' + e.message);
+    showToast('danger', `${gt('gateway_plugin_status_update_failed')}: ${e.message}`);
+  }
+};
+
+const fetchMqttStatus = async () => {
+  try {
+    const res = await axios.get('/api/extension/cascade/status');
+    const data = res.data || {};
+    mqttStatus.value = {
+      connected: data.connected === true,
+      status: data.status || 'disconnected',
+      mode: data.mode || '',
+      broker: data.broker || '',
+      gatewayCode: data.gateway_code || '',
+      ts: data.ts || null
+    };
+  } catch (e) {
+    if (mqttStatus.value) {
+      mqttStatus.value = { ...mqttStatus.value, connected: false, status: 'disconnected' };
+    }
   }
 };
 
@@ -162,10 +189,19 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e =
 onMounted(() => {
   checkLicense();
   fetchPlugins();
+  fetchMqttStatus();
+  mqttStatusTimer = setInterval(fetchMqttStatus, 3000);
   // Restore language
   const savedLang = localStorage.getItem('lang');
   if (savedLang) {
     locale.value = savedLang;
+  }
+});
+
+onBeforeUnmount(() => {
+  if (mqttStatusTimer) {
+    clearInterval(mqttStatusTimer);
+    mqttStatusTimer = null;
   }
 });
 

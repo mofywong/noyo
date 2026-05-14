@@ -55,6 +55,13 @@ import { useI18n } from 'vue-i18n';
 import axios from 'axios';
 import { useToast } from '../composables/useToast';
 
+const props = defineProps({
+  remoteApiBase: {
+    type: String,
+    default: '/api/extension/license'
+  }
+});
+
 const { t } = useI18n();
 const { showToast } = useToast();
 
@@ -63,7 +70,7 @@ const licenseInput = ref(null);
 
 const fetchLicenseData = async () => {
   try {
-    const res = await axios.get('/api/extension/license/status');
+    const res = await axios.get(`${props.remoteApiBase}/status`);
     if (res.data.code === 200) {
       licenseData.value = res.data.data;
     }
@@ -89,7 +96,7 @@ const handleLicenseUpload = async (event) => {
   formData.append('file', file);
 
   try {
-    const res = await axios.post('/api/extension/license/upload', formData, {
+    const res = await axios.post(`${props.remoteApiBase}/upload`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }

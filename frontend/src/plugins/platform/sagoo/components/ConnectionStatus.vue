@@ -39,13 +39,31 @@ const props = defineProps({
   pluginName: {
     type: String,
     required: true
-  }
+  },
+  remoteContext: Object
 });
 
 const connectionStatus = ref(null);
 let statusInterval = null;
 
+const setRemoteConnectionStatus = () => {
+  const plugin = props.remoteContext?.plugin || {};
+  const gateway = props.remoteContext?.gateway || {};
+  const online = gateway.online !== false && plugin.status === 'running';
+  connectionStatus.value = {
+    status: online ? 'connected' : 'disconnected',
+    broker: gateway.name || props.remoteContext?.gwSn || '-',
+    gateway_code: props.remoteContext?.gwSn || '-',
+    ts: plugin.updatedAt || plugin.lastSyncedAt || Date.now()
+  };
+};
+
 const fetchConnectionStatus = async () => {
+  if (props.remoteContext?.remote) {
+    setRemoteConnectionStatus();
+    return;
+  }
+
   try {
     // Determine the target mostly for cases where case might differ, 
     // but here we assume pluginName matches or we map it if needed.
@@ -62,7 +80,9 @@ const fetchConnectionStatus = async () => {
 
 onMounted(() => {
   fetchConnectionStatus();
-  statusInterval = setInterval(fetchConnectionStatus, 5000);
+  if (!props.remoteContext?.remote) {
+    statusInterval = setInterval(fetchConnectionStatus, 5000);
+  }
 });
 
 onUnmounted(() => {

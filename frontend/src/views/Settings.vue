@@ -127,6 +127,13 @@ import axios from 'axios';
 import { inject } from 'vue';
 import { useI18n } from 'vue-i18n';
 
+const props = defineProps({
+  remoteApiBase: {
+    type: String,
+    default: '/api/system'
+  }
+});
+
 const { t } = useI18n();
 const showToast = inject('showToast');
 
@@ -153,7 +160,7 @@ const form = ref({
 
 const fetchConfig = async () => {
   try {
-    const res = await axios.get('/api/system/config');
+    const res = await axios.get(`${props.remoteApiBase}/config`);
     if (res.data.code === 0 && res.data.data) {
       form.value = { ...form.value, ...res.data.data };
     }
@@ -167,7 +174,7 @@ const fetchConfig = async () => {
 const saveConfig = async () => {
   saving.value = true;
   try {
-    const res = await axios.post('/api/system/config', form.value);
+    const res = await axios.post(`${props.remoteApiBase}/config`, form.value);
     if (res.data.code === 0) {
       showToast('success', res.data.message || t('log_config_success'));
     } else {

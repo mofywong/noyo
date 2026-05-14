@@ -16,8 +16,33 @@ if "%EDITION%"=="" (
     )
 )
 
+set BUILD_YOLO=%3
+if "%BUILD_YOLO%"=="" set BUILD_YOLO=1
+
+set BUILD_ONNXRUNTIME=%4
+if "%BUILD_ONNXRUNTIME%"=="" set BUILD_ONNXRUNTIME=1
+
+if not "%BUILD_YOLO%"=="0" if not "%BUILD_YOLO%"=="1" (
+    echo Error: build_yolo must be 0 or 1
+    exit /b 1
+)
+
+if not "%BUILD_ONNXRUNTIME%"=="0" if not "%BUILD_ONNXRUNTIME%"=="1" (
+    echo Error: build_onnxruntime must be 0 or 1
+    exit /b 1
+)
+
+if "%BUILD_YOLO%"=="0" set BUILD_ONNXRUNTIME=0
+
+if "%BUILD_YOLO%"=="1" if "%BUILD_ONNXRUNTIME%"=="0" (
+    echo Error: build_yolo=1 requires build_onnxruntime=1
+    exit /b 1
+)
+
 echo Target OS: %TARGET%
 echo Target Edition: %EDITION%
+echo Build YOLO: %BUILD_YOLO%
+echo Build ONNX Runtime: %BUILD_ONNXRUNTIME%
 
 rem Setup Version
 if "%VERSION%"=="" (
@@ -62,6 +87,7 @@ echo       Building %EDITION_NAME% Edition
 echo ==========================================
 
 set NOYO_EDITION=%EDITION_NAME%
+set NOYO_BUILD_YOLO=%BUILD_YOLO%
 
 echo [1/3] Building Frontend...
 cd frontend
@@ -76,6 +102,7 @@ echo [2/3] Skipping copy (Vite builds to backend/dist directly)...
 echo [3/3] Building Backend...
 cd backend
 set CGO_ENABLED=0
+if /I "%EDITION_NAME%"=="pro" if "%BUILD_YOLO%"=="1" if "%BUILD_ONNXRUNTIME%"=="1" set CGO_ENABLED=1
 set GOARCH=amd64
 set LDFLAGS=-w -s -X "noyo/core/system.Version=%VERSION%"
 

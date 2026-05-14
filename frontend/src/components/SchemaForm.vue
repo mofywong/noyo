@@ -6,9 +6,16 @@
         <span v-if="isRequired(key)" class="text-danger">*</span>
       </label>
       
+      <!-- Custom Polygon ROI Editor -->
+      <PolygonRoiField
+        v-if="prop['x-component'] === 'polygon-roi'"
+        :modelValue="modelValue[key] || []"
+        @update:modelValue="(val) => updateField(key, val)"
+      />
+
       <!-- Enum Select -->
       <select 
-        v-if="prop.enum" 
+        v-else-if="prop.enum" 
         :value="modelValue[key]" 
         @change="updateField(key, $event.target.value)"
         class="form-select"
@@ -128,6 +135,7 @@ export default {
 <script setup>
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import PolygonRoiField from './PolygonRoiField.vue';
 
 const { t, locale } = useI18n();
 

@@ -16,6 +16,9 @@
       <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Products' }" @click.prevent="navigate('/products')">
         <i class="bi bi-box-seam"></i> <span>{{ $t('sidebar_products') }}</span>
       </a>
+      <a v-if="!isGatewayRuntime" href="#" class="nav-link" :class="{ active: currentRouteName === 'GatewayManagement' || currentRouteName === 'GatewayPlugins' || currentRouteName === 'GatewayPluginConfig' }" @click.prevent="navigate('/gateways')">
+        <i class="bi bi-hdd-network"></i> <span>{{ gt('gateway_management') }}</span>
+      </a>
       <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Devices' }" @click.prevent="navigate('/devices')">
         <i class="bi bi-cpu"></i> <span>{{ $t('sidebar_devices') }}</span>
       </a>
@@ -73,6 +76,7 @@ import { useI18n } from 'vue-i18n';
 import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
 import { usePlugins } from '../plugins/registry.js';
+import { gatewayText } from '../utils/gatewayLocale';
 
 const { extensions } = usePlugins();
 
@@ -87,6 +91,7 @@ const emit = defineEmits(['navigate']);
 const { t, locale } = useI18n();
 const router = useRouter();
 const route = useRoute();
+const gt = (key, params) => gatewayText(locale.value, key, params);
 
 const isPro = ref(false);
 
@@ -114,6 +119,19 @@ const navigatePlugin = (name) => {
 
 const activePlugins = computed(() => {
   return props.plugins.filter(p => p.status === 'running');
+});
+
+const cascadePlugin = computed(() => {
+  return props.plugins.find((plugin) => plugin.name === 'cascade');
+});
+
+const cascadeMode = computed(() => {
+  const modeField = cascadePlugin.value?.schema?.fields?.find((field) => field.name === 'mode');
+  return modeField?.value || cascadePlugin.value?.config?.mode || '';
+});
+
+const isGatewayRuntime = computed(() => {
+  return cascadePlugin.value?.status === 'running' && cascadeMode.value === 'gateway';
 });
 
 const extensionMenus = computed(() => {

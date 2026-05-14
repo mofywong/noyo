@@ -39,7 +39,7 @@ func InitDB(dsn string) error {
 	sqlDB.SetConnMaxLifetime(time.Hour) // Connection max lifetime
 
 	// AutoMigrate can be added here if we have models
-	err = DB.AutoMigrate(&PluginModel{}, &Product{}, &Device{}, &SystemConfig{})
+	err = DB.AutoMigrate(&PluginModel{}, &Product{}, &Device{}, &SystemConfig{}, &GatewayPluginStateModel{})
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}

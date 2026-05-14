@@ -1,5 +1,5 @@
 <template>
-  <div class="card h-100 position-relative overflow-hidden">
+  <div class="card h-100 position-relative overflow-hidden plugin-card" :class="{ 'plugin-card-running': plugin.status === 'running' }">
     <!-- Overlay for unauthorized pro plugins -->
     <div v-if="plugin.isPro && plugin.isUnauthorized" class="position-absolute w-100 h-100" style="background: rgba(0, 0, 0, 0.02); z-index: 10; top: 0; left: 0; pointer-events: none;">
       <!-- Removed center badge to prevent blocking content -->
@@ -55,3 +55,35 @@ defineProps({
 
 defineEmits(['configure', 'update-status']);
 </script>
+
+<style scoped>
+.plugin-card {
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.plugin-card-running {
+  animation: pluginRunningBreath 2.8s ease-in-out infinite;
+  border-color: color-mix(in srgb, #22c55e 34%, var(--border-color));
+  box-shadow:
+    0 0 0 1px rgb(34 197 94 / 0.18),
+    0 0 18px rgb(34 197 94 / 0.18),
+    var(--card-shadow);
+}
+
+@keyframes pluginRunningBreath {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgb(34 197 94 / 0.14),
+      0 0 14px rgb(34 197 94 / 0.14),
+      var(--card-shadow);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 1px rgb(34 197 94 / 0.28),
+      0 0 26px rgb(34 197 94 / 0.24),
+      var(--card-shadow);
+  }
+}
+</style>

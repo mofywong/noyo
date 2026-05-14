@@ -503,10 +503,13 @@ func shouldSkipRestartForDeviceUpdate(oldDevice, newDevice *store.Device) bool {
 	}
 
 	yoloConfigKeys := map[string]bool{
-		"enable_yolo":        true,
-		"yolo_classes":       true,
-		"enable_yolo_webrtc": true,
-		"yolo_confidence":    true,
+		"enable_yolo":               true,
+		"yolo_classes":              true,
+		"enable_yolo_webrtc":        true,
+		"yolo_confidence":           true,
+		"ai_basic_detections":       true,
+		"ai_basic_detection_groups": true,
+		"ai_scene_rules":            true,
 	}
 
 	changed := false

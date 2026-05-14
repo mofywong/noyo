@@ -196,9 +196,6 @@ body {
     color: #fff;
 }
 
-color: var(--accent-color);
-}
-
 .nav-link i {
     width: 20px;
     margin-right: 0.75rem;

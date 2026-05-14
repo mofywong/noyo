@@ -424,6 +424,14 @@ func (e *platformEngineImpl) SendCommand(gwSn string, cmdId string, payload []by
 	}
 }
 
+func (e *platformEngineImpl) SendRemotePluginCommand(gwSn, method, pluginName string, params map[string]interface{}) (interface{}, error) {
+	payload, cmdID, err := buildRemotePluginCommand(method, pluginName, params)
+	if err != nil {
+		return nil, err
+	}
+	return e.SendCommand(gwSn, cmdID, payload)
+}
+
 func parseTopicGwSn(topic, pattern string) (bool, string) {
 	// Remove leading slash if present
 	topic = strings.TrimPrefix(topic, "/")
