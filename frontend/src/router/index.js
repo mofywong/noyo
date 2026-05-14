@@ -11,6 +11,7 @@ import PluginConfig from '../views/PluginConfig.vue'
 import Settings from '../views/Settings.vue'
 import Logs from '../views/Logs.vue'
 import License from '../views/License.vue'
+import AlarmCenter from '../views/AlarmCenter.vue'
 import { loadPlugins, usePlugins } from '../plugins/registry.js'
 
 const routes = [
@@ -76,6 +77,11 @@ const routes = [
     path: '/logs',
     name: 'Logs',
     component: Logs
+  },
+  {
+    path: '/alarms',
+    name: 'AlarmCenter',
+    component: AlarmCenter
   }
 ]
 

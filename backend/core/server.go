@@ -101,6 +101,7 @@ func (s *Server) Run() error {
 		group.POST("/plugins/:name/config", s.handleUpdatePluginConfig)
 		group.POST("/plugins/:name/discover", s.handlePluginDiscover)
 		group.POST("/history/query", s.handleQueryHistory) // Add History Query API
+		group.POST("/system/upload/image", s.handleUploadImage) // Add Upload Image API
 		group.GET("/system/stats", s.handleSystemStats)
 		s.RegisterDeviceRoutes(group)
 	})
@@ -118,9 +119,19 @@ func (s *Server) Run() error {
 
 	// Serve UI
 	if s.uiFS != nil {
+		// Serve static images from /data/images
+		s.WebServer.BindHandler("/data/images/*", func(r *ghttp.Request) {
+			path := strings.TrimPrefix(r.Request.URL.Path, "/data/images/")
+			if path != "" {
+				r.Response.ServeFile("./data/images/" + path)
+			} else {
+				r.Response.WriteStatus(404)
+			}
+		})
+
 		s.WebServer.BindHandler("/*", func(r *ghttp.Request) {
 			// Skip API
-			if strings.HasPrefix(r.Request.URL.Path, "/api/") {
+			if strings.HasPrefix(r.Request.URL.Path, "/api/") || strings.HasPrefix(r.Request.URL.Path, "/data/") {
 				r.Response.WriteStatus(404)
 				return
 			}
@@ -219,6 +230,33 @@ func (s *Server) handleQueryHistory(r *ghttp.Request) {
 	r.Response.WriteJson(g.Map{
 		"code": 0,
 		"data": res,
+	})
+}
+
+func (s *Server) handleUploadImage(r *ghttp.Request) {
+	file := r.GetUploadFile("file")
+	if file == nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "No file uploaded"})
+		return
+	}
+
+	// Ensure directory exists
+	os.MkdirAll("./data/images", 0755)
+
+	// Save file with original name or generate one
+	filename := file.Filename
+	savePath := "./data/images/"
+
+	if _, err := file.Save(savePath); err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to save file"})
+		return
+	}
+
+	r.Response.WriteJson(g.Map{
+		"code": 0,
+		"data": g.Map{
+			"url": "/data/images/" + filename,
+		},
 	})
 }
 

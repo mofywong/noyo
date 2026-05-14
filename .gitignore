@@ -43,6 +43,7 @@ go.work.sum
 /backend/noyo-*-pro*
 /backend/data/db/
 /backend/data/logs/
+/backend/data/images/
 /backend/dist/
 /frontend/dist/
 /backend/gobacnet.log

@@ -25,6 +25,9 @@
       <a href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTopology' }" @click.prevent="navigate('/topology')">
         <i class="bi bi-diagram-2"></i> <span>{{ $t('sidebar_topology') }}</span>
       </a>
+      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'AlarmCenter' }" @click.prevent="navigate('/alarms')">
+        <i class="bi bi-bell-fill"></i> <span>{{ $t('sidebar_alarms', '告警中心') }}</span>
+      </a>
       
       <!-- Dynamic Extension Menus -->
       <template v-for="menu in extensionMenus" :key="menu.name">

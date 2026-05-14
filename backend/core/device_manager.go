@@ -1,8 +1,11 @@
 package core
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"noyo/core/protocol"
 	"noyo/core/store"
 	"noyo/core/tsdb"
@@ -464,7 +467,22 @@ func (dm *DeviceManager) CallDeviceService(deviceCode string, serviceId string, 
 
 // ReportDeviceEvent handles event reporting
 func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, params map[string]interface{}) error {
-	// 1. Persist to TSDB
+	if base64Str, ok := params["snapshot_base64"].(string); ok && len(base64Str) > 0 {
+		b64Data := base64Str
+		if strings.HasPrefix(b64Data, "data:image/jpeg;base64,") {
+			b64Data = strings.TrimPrefix(b64Data, "data:image/jpeg;base64,")
+		}
+		imgData, err := base64.StdEncoding.DecodeString(b64Data)
+		if err == nil {
+			filename := fmt.Sprintf("%s_%s_%d.jpg", meta.DeviceCode, eventId, time.Now().UnixMilli())
+			os.MkdirAll("./data/images", 0755)
+			if err := os.WriteFile("./data/images/"+filename, imgData, 0644); err == nil {
+				params["snapshot_url"] = "/data/images/" + filename
+			}
+		}
+		delete(params, "snapshot_base64")
+	}
+
 	if dm.TSDB != nil {
 		data := map[string]interface{}{
 			"event_id": eventId,

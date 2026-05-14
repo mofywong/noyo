@@ -86,12 +86,9 @@ export const videoPointToDetectorPoint = (point, videoSize) => {
     };
   }
 
-  const scale = Math.min(DETECTOR_FRAME_SIZE / videoWidth, DETECTOR_FRAME_SIZE / videoHeight);
-  const padX = (DETECTOR_FRAME_SIZE - videoWidth * scale) / 2;
-  const padY = (DETECTOR_FRAME_SIZE - videoHeight * scale) / 2;
   return {
-    x: clamp(Number(point?.x || 0) * scale + padX, 0, DETECTOR_FRAME_SIZE),
-    y: clamp(Number(point?.y || 0) * scale + padY, 0, DETECTOR_FRAME_SIZE),
+    x: clamp((Number(point?.x || 0) / videoWidth) * DETECTOR_FRAME_SIZE, 0, DETECTOR_FRAME_SIZE),
+    y: clamp((Number(point?.y || 0) / videoHeight) * DETECTOR_FRAME_SIZE, 0, DETECTOR_FRAME_SIZE),
   };
 };
 
@@ -105,12 +102,9 @@ export const detectorPointToVideoPoint = (point, videoSize) => {
     };
   }
 
-  const scale = Math.min(DETECTOR_FRAME_SIZE / videoWidth, DETECTOR_FRAME_SIZE / videoHeight);
-  const padX = (DETECTOR_FRAME_SIZE - videoWidth * scale) / 2;
-  const padY = (DETECTOR_FRAME_SIZE - videoHeight * scale) / 2;
   return {
-    x: clamp((Number(point?.x || 0) - padX) / scale, 0, videoWidth),
-    y: clamp((Number(point?.y || 0) - padY) / scale, 0, videoHeight),
+    x: clamp((Number(point?.x || 0) / DETECTOR_FRAME_SIZE) * videoWidth, 0, videoWidth),
+    y: clamp((Number(point?.y || 0) / DETECTOR_FRAME_SIZE) * videoHeight, 0, videoHeight),
   };
 };
 

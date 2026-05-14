@@ -18,6 +18,10 @@ export default defineConfig({
         target: 'http://localhost:8989',
         changeOrigin: true,
         ws: true,
+      },
+      '/data': {
+        target: 'http://localhost:8989',
+        changeOrigin: true,
       }
     }
   },

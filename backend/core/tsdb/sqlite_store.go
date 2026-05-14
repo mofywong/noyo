@@ -202,7 +202,10 @@ func (s *SQLiteStore) queryList(req QueryRequest) (*QueryResponse, error) {
 			continue
 		}
 		var count int64
-		tx := db.Model(&Record{}).Where("device_code = ? AND ts BETWEEN ? AND ?", req.DeviceCode, start, end)
+		tx := db.Model(&Record{}).Where("ts BETWEEN ? AND ?", start, end)
+		if req.DeviceCode != "" {
+			tx = tx.Where("device_code = ?", req.DeviceCode)
+		}
 		if req.Type > 0 {
 			tx = tx.Where("type = ?", req.Type)
 		}
@@ -234,7 +237,10 @@ func (s *SQLiteStore) queryList(req QueryRequest) (*QueryResponse, error) {
 		}
 
 		var count int64
-		tx := db.Model(&Record{}).Where("device_code = ? AND ts BETWEEN ? AND ?", req.DeviceCode, start, end)
+		tx := db.Model(&Record{}).Where("ts BETWEEN ? AND ?", start, end)
+		if req.DeviceCode != "" {
+			tx = tx.Where("device_code = ?", req.DeviceCode)
+		}
 		if req.Type > 0 {
 			tx = tx.Where("type = ?", req.Type)
 		}
@@ -250,7 +256,10 @@ func (s *SQLiteStore) queryList(req QueryRequest) (*QueryResponse, error) {
 		}
 
 		var recs []Record
-		tx2 := db.Where("device_code = ? AND ts BETWEEN ? AND ?", req.DeviceCode, start, end)
+		tx2 := db.Where("ts BETWEEN ? AND ?", start, end)
+		if req.DeviceCode != "" {
+			tx2 = tx2.Where("device_code = ?", req.DeviceCode)
+		}
 		if req.Type > 0 {
 			tx2 = tx2.Where("type = ?", req.Type)
 		}
@@ -278,6 +287,7 @@ func (s *SQLiteStore) queryList(req QueryRequest) (*QueryResponse, error) {
 			} else {
 				payload["ts"] = r.Ts
 				payload["_type"] = r.Type
+				payload["device_code"] = r.DeviceCode
 				resultList = append(resultList, payload)
 			}
 		}
