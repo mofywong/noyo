@@ -101,6 +101,7 @@ func (s *Server) Run() error {
 		group.POST("/plugins/:name/config", s.handleUpdatePluginConfig)
 		group.POST("/plugins/:name/discover", s.handlePluginDiscover)
 		group.POST("/history/query", s.handleQueryHistory) // Add History Query API
+		group.DELETE("/history/record", s.handleDeleteRecord) // Delete alarm record (消警)
 		group.POST("/system/upload/image", s.handleUploadImage) // Add Upload Image API
 		group.GET("/system/stats", s.handleSystemStats)
 		s.RegisterDeviceRoutes(group)
@@ -485,4 +486,22 @@ func (s *Server) handlePluginDiscover(r *ghttp.Request) {
 	}
 
 	r.Response.WriteJson(g.Map{"code": 0, "data": devices})
+}
+
+func (s *Server) handleDeleteRecord(r *ghttp.Request) {
+	var req struct {
+		ID int64 `json:"id"`
+		Ts int64 `json:"ts"`
+	}
+	if err := r.Parse(&req); err != nil || req.ID <= 0 || req.Ts <= 0 {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid parameters: id and ts are required"})
+		return
+	}
+
+	if err := s.TSDB.DeleteRecord(req.ID, req.Ts); err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+		return
+	}
+
+	r.Response.WriteJson(g.Map{"code": 0, "message": "Record deleted"})
 }

@@ -283,10 +283,12 @@ func (s *SQLiteStore) queryList(req QueryRequest) (*QueryResponse, error) {
 					}
 				}
 				filtered["ts"] = r.Ts
+				filtered["_record_id"] = r.ID
 				resultList = append(resultList, filtered)
 			} else {
 				payload["ts"] = r.Ts
 				payload["_type"] = r.Type
+				payload["_record_id"] = r.ID
 				payload["device_code"] = r.DeviceCode
 				resultList = append(resultList, payload)
 			}
@@ -553,4 +555,22 @@ func (s *SQLiteStore) getMonthsInRange(start, end int64) []string {
 		months = append(months, endM)
 	}
 	return months
+}
+
+// DeleteRecord deletes a record by its ID. The ts is used to locate the correct monthly database.
+func (s *SQLiteStore) DeleteRecord(id int64, ts int64) error {
+	monthStr := s.getMonthStr(ts)
+	db, err := s.getDB(monthStr)
+	if err != nil {
+		return fmt.Errorf("failed to get DB for month %s: %w", monthStr, err)
+	}
+	result := db.Delete(&Record{}, "id = ?", id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("record not found: id=%d", id)
+	}
+	s.logger.Info("Deleted TSDB record", zap.Int64("id", id), zap.String("month", monthStr))
+	return nil
 }

@@ -16,4 +16,7 @@ type TimeSeriesStore interface {
 
 	// Prune removes old data exceeding retention period
 	Prune(retentionDays int)
+
+	// DeleteRecord deletes a record by its ID and timestamp
+	DeleteRecord(id int64, ts int64) error
 }

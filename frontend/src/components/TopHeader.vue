@@ -18,7 +18,7 @@
           <li><h6 class="dropdown-header">最新告警</h6></li>
           <li v-if="recentAlarms.length === 0"><span class="dropdown-item text-muted small">暂无新告警</span></li>
           <li v-for="evt in recentAlarms" :key="evt.ts">
-            <a class="dropdown-item py-2 border-bottom" href="#" @click.prevent="goToAlarms">
+            <a class="dropdown-item py-2 border-bottom" href="#" @click.prevent="goToAlarmDetail(evt)">
               <div class="d-flex w-100 justify-content-between">
                 <strong class="mb-1 text-truncate" style="max-width: 150px;">{{ getDeviceName(evt.device_code) }}</strong>
                 <small class="text-muted">{{ formatTimeAgo(evt.ts) }}</small>
@@ -36,7 +36,7 @@
         
         <!-- Global Toast Container placed right under the message box -->
         <div class="position-absolute top-100 mt-2 p-0 d-flex flex-column gap-2" style="z-index: 1080; width: 340px; right: -10px;">
-          <div v-for="toast in activeToasts" :key="toast.id" class="toast show align-items-start border-0 shadow-lg" role="alert" aria-live="assertive" aria-atomic="true" style="opacity: 0.98; transition: all 0.3s ease; background-color: var(--bs-body-bg); border-left: 4px solid var(--bs-danger) !important; border-radius: 6px;">
+          <div v-for="toast in activeToasts" :key="toast.id" class="toast show align-items-start border-0 shadow-lg alarm-toast-item" role="alert" aria-live="assertive" aria-atomic="true">
             <div class="d-flex w-100">
               <div class="toast-body flex-grow-1 text-start py-3">
                 <div class="fw-bold text-danger d-flex align-items-center mb-1" style="font-size: 0.95rem;">
@@ -106,6 +106,23 @@
         </ul>
       </div>
     </div>
+
+    <!-- 摄像机实时视频播放悬浮框 -->
+    <div v-if="floatingVideoDevice" 
+         class="position-fixed shadow-lg border rounded overflow-hidden" 
+         style="bottom: 20px; left: 20px; width: 480px; height: 320px; z-index: 1080; border-color: rgba(220,53,69,0.5) !important;">
+      <div class="bg-danger text-white px-2 py-1 small d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-exclamation-triangle-fill me-1"></i> 告警联动视频</span>
+        <button type="button" class="btn-close btn-close-white" style="font-size: 0.6rem;" @click="floatingVideoDevice = null"></button>
+      </div>
+      <div style="height: calc(100% - 28px);">
+        <GB28181PlayerWidget 
+          :device="floatingVideoDevice" 
+          :embedded="true"
+          @close="floatingVideoDevice = null" 
+        />
+      </div>
+    </div>
   </header>
 </template>
 
@@ -115,6 +132,7 @@ import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { gatewayText } from '../utils/gatewayLocale';
+import GB28181PlayerWidget from '@/plugins/pro/protocol/gb28181/GB28181PlayerWidget.vue';
 
 defineProps({
   title: String,
@@ -138,6 +156,7 @@ const recentEvents = ref([]);
 const unreadCount = ref(0);
 const devices = ref({});
 const products = ref({});
+const floatingVideoDevice = ref(null);
 let lastSeenTs = parseInt(localStorage.getItem('noyo_alarms_last_seen') || '0');
 let pollTimer = null;
 
@@ -247,6 +266,14 @@ const fetchRecentEvents = async () => {
               const alarmName = getEventName(evt);
               const deviceName = getDeviceName(evt.device_code);
               showToast(alarmName, `设备: ${deviceName} 发生了告警事件`);
+              
+              const dev = devices.value[evt.device_code];
+              if (dev) {
+                const prod = products.value[dev.product_code];
+                if (prod && prod.protocol_name === 'gb28181') {
+                  floatingVideoDevice.value = dev;
+                }
+              }
             }
           }
         }
@@ -305,6 +332,13 @@ const clearUnread = () => {
 const goToAlarms = () => {
   clearUnread();
   router.push('/alarms');
+};
+
+const goToAlarmDetail = (evt) => {
+  clearUnread();
+  // 携带告警时间戳参数，告警中心页面会据此自动打开详情弹框
+  // 加入 _t 随机参数确保即使已在告警页面也能触发 watch 变化
+  router.push({ path: '/alarms', query: { highlight: evt.ts, _t: Date.now() } });
 };
 
 onMounted(async () => {
@@ -373,5 +407,30 @@ onUnmounted(() => {
   .mqtt-status-value {
     display: none;
   }
+}
+</style>
+
+<style>
+/* Toast 告警弹窗高对比度样式（非 scoped，确保跨主题生效） */
+.alarm-toast-item {
+  opacity: 0.98;
+  transition: all 0.3s ease;
+  background: linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%) !important;
+  border: 1px solid rgba(220, 53, 69, 0.35) !important;
+  border-left: 5px solid #dc3545 !important;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(220, 53, 69, 0.18), 0 2px 8px rgba(0, 0, 0, 0.12) !important;
+  animation: toast-slide-in 0.35s ease-out;
+}
+
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 0.98; transform: translateX(0); }
+}
+
+[data-bs-theme="dark"] .alarm-toast-item {
+  background: linear-gradient(135deg, #3a1a1a 0%, #2d1010 100%) !important;
+  border-color: rgba(220, 53, 69, 0.5) !important;
+  box-shadow: 0 8px 32px rgba(220, 53, 69, 0.25), 0 2px 8px rgba(0, 0, 0, 0.4) !important;
 }
 </style>

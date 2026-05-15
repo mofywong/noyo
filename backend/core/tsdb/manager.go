@@ -1,6 +1,7 @@
 package tsdb
 
 import (
+	"fmt"
 	"noyo/core/config"
 	"sync"
 	"time"
@@ -154,4 +155,12 @@ func (m *TSDBManager) Query(req QueryRequest) (*QueryResponse, error) {
 		return &QueryResponse{List: []interface{}{}}, nil
 	}
 	return m.store.Query(req)
+}
+
+// DeleteRecord deletes a record by its ID
+func (m *TSDBManager) DeleteRecord(id int64, ts int64) error {
+	if !m.cfg.Enabled {
+		return fmt.Errorf("TSDB is disabled")
+	}
+	return m.store.DeleteRecord(id, ts)
 }
