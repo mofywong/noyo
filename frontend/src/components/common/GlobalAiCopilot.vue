@@ -890,9 +890,27 @@ export default {
         const isLogAnalysis = lastUserMsg && lastUserMsg._isLogAnalysis;
         const endpoint = isLogAnalysis ? '/api/extension/ai/analyze_log' : '/api/extension/ai/chat';
 
-        // Construct API payload matching backend Expectation for chat history
-        const apiMessages = this.currentMessages.map(m => {
-           if (m.role === 'user') return { role: 'user', content: m._rawContent || m.content };
+        // Construct API payload — 只保留最后一条用户消息的图片/附件
+        // 历史消息仅传文本，避免无谓消耗 context window
+        const apiMessages = this.currentMessages.map((m, idx) => {
+           if (m.role === 'user') {
+             const isCurrent = idx === this.currentMessages.length - 1;
+             if (isCurrent) {
+               // 当前消息保留完整多模态内容（含图片）
+               return { role: 'user', content: m._rawContent || m.content };
+             }
+             // 历史消息：丢弃图片，只保留文本
+             let textContent;
+             if (Array.isArray(m._rawContent)) {
+               textContent = m._rawContent
+                 .filter(c => c.type === 'text')
+                 .map(c => c.text)
+                 .join('\n');
+             } else {
+               textContent = m._rawContent || m.content;
+             }
+             return { role: 'user', content: textContent || '(图片)' };
+           }
            // For assistant, we send back its reply so it has context
            if (m.role === 'assistant') return { role: 'assistant', content: m.reply };
            return null;

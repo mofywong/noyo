@@ -75,5 +75,7 @@ type IGatewayRouter interface {
 // IDataChannelBroadcaster defines an interface for broadcasting data over WebRTC datachannels
 type IDataChannelBroadcaster interface {
 	BroadcastDataChannel(deviceCode string, data []byte)
+	// HasActiveChannels returns true if there are active DataChannels for the given device
+	HasActiveChannels(deviceCode string) bool
 }
 
