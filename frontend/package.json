@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "test:gateway-card-ui": "node scripts/gateway-management-card-ui.test.mjs",
     "test:gateway-redesign-ui": "node scripts/gateway-management-redesign-ui.test.mjs",
-    "test:ai-scene-rules-ui": "node scripts/ai-scene-rules-ui.test.mjs"
+    "test:ai-scene-rules-ui": "node scripts/ai-scene-rules-ui.test.mjs",
+    "test:device-tags-ui": "node scripts/device-tags-ui.test.mjs"
   },
   "dependencies": {
     "@antv/g6": "^5.0.50",

@@ -3,6 +3,7 @@ import Dashboard from '../views/Dashboard.vue'
 import Marketplace from '../views/Marketplace.vue'
 import ProductList from '../views/ProductList.vue'
 import DeviceList from '../views/DeviceList.vue'
+import DeviceTags from '../views/DeviceTags.vue'
 import DeviceTopology from '../views/DeviceTopology.vue'
 import GatewayManagement from '../views/GatewayManagement.vue'
 import GatewayPlugins from '../views/GatewayPlugins.vue'
@@ -34,6 +35,11 @@ const routes = [
     path: '/devices',
     name: 'Devices',
     component: DeviceList
+  },
+  {
+    path: '/device-tags',
+    name: 'DeviceTags',
+    component: DeviceTags
   },
   {
     path: '/topology',

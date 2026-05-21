@@ -85,6 +85,7 @@ const pageTitle = computed(() => {
   if (name === 'Marketplace') return t('page_marketplace');
   if (name === 'Products') return t('sidebar_products');
   if (name === 'Devices') return t('sidebar_devices');
+  if (name === 'DeviceTags') return t('sidebar_device_tags');
   if (name === 'GatewayManagement') return gt('gateway_management');
   if (name === 'GatewayPlugins') return `${route.params.gwSn} / ${gt('gateway_plugin_marketplace_title')}`;
   if (name === 'GatewayPluginConfig') return `${route.params.gwSn} / ${gt('gateway_plugin_config_title')}`;

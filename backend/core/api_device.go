@@ -27,9 +27,17 @@ func (s *Server) RegisterDeviceRoutes(group *ghttp.RouterGroup) {
 	group.GET("/devices/import/template", s.handleDownloadTemplate)
 	group.POST("/devices/import", s.handleImportDevices)
 	group.POST("/devices", s.handleCreateDevice)
+	group.PUT("/devices/:code/tags", s.handleReplaceDeviceTags)
 	group.GET("/devices/:code", s.handleGetDevice)
 	group.PUT("/devices/:code", s.handleUpdateDevice)
 	group.DELETE("/devices/:code", s.handleDeleteDevice)
+
+	group.GET("/device-tags", s.handleListDeviceTags)
+	group.POST("/device-tags", s.handleCreateDeviceTag)
+	group.PUT("/device-tags/:id", s.handleUpdateDeviceTag)
+	group.DELETE("/device-tags/:id", s.handleDeleteDeviceTag)
+	group.GET("/device-tags/:id/devices", s.handleListDeviceTagDevices)
+	group.PUT("/device-tags/:id/devices", s.handleReplaceDeviceTagDevices)
 
 	group.POST("/devices/:code/start", s.handleStartDevice)
 	group.POST("/devices/:code/stop", s.handleStopDevice)
@@ -183,6 +191,7 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 		Status          string             `json:"status"` // "running", "stopped"
 		Online          bool               `json:"online"`
 		LastActive      time.Time          `json:"last_active"`
+		Tags            []store.DeviceTag  `json:"tags"`
 		AIHealthScore   *float64           `json:"ai_health_score,omitempty"`
 		AIHealthDetails map[string]float64 `json:"ai_health_details,omitempty"`
 		AILatched       bool               `json:"ai_latched,omitempty"`
@@ -190,6 +199,15 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 	}
 
 	result := make([]DeviceWithStatus, 0)
+	deviceCodes := make([]string, 0, len(devices))
+	for _, d := range devices {
+		deviceCodes = append(deviceCodes, d.Code)
+	}
+	tagsByDevice, err := store.ListTagsForDevices(currentDeviceTagScope(r), deviceCodes)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+		return
+	}
 
 	for _, d := range devices {
 		status := "stopped"
@@ -286,6 +304,7 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 			Status:          status,
 			Online:          online,
 			LastActive:      lastActive,
+			Tags:            tagsByDevice[d.Code],
 			AIHealthScore:   healthScore,
 			AIHealthDetails: healthDetails,
 			AILatched:       isLatched,

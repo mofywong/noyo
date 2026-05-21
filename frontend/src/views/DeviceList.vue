@@ -68,6 +68,12 @@
              <option value="false">{{ $t('dev_offline') }}</option>
           </select>
         </div>
+        <div class="col-md-3">
+          <select class="form-select form-select-sm" v-model="filterTag">
+            <option value="">{{ $t('dev_tags') }}: {{ $t('all') }}</option>
+            <option v-for="tag in deviceTags" :key="tag.ID" :value="String(tag.ID)">{{ tag.name }}</option>
+          </select>
+        </div>
       </div>
     </div>
     <div class="card-body p-0">
@@ -80,6 +86,7 @@
               </th>
               <th>{{ $t('dev_code') }}</th>
               <th>{{ $t('dev_name') }}</th>
+              <th>{{ $t('dev_tags') }}</th>
               <th>{{ $t('dev_online_status') }}</th>
               <th>{{ $t('dev_product') }}</th>
               <th class="d-none d-lg-table-cell">{{ $t('dev_parent') }}</th>
@@ -94,10 +101,10 @@
           </thead>
           <tbody>
             <tr v-if="loading" class="text-center">
-              <td colspan="11" class="py-4 text-muted">{{ $t('loading') }}</td>
+              <td colspan="12" class="py-4 text-muted">{{ $t('loading') }}</td>
             </tr>
             <tr v-else-if="filteredDevices.length === 0" class="text-center">
-              <td colspan="11" class="py-4 text-muted">{{ $t('dev_no_devices') }}</td>
+              <td colspan="12" class="py-4 text-muted">{{ $t('dev_no_devices') }}</td>
             </tr>
             <tr 
               v-for="device in paginatedDevices" 
@@ -109,6 +116,25 @@
               </td>
               <td class="font-monospace fw-bold text-primary text-truncate" style="max-width: 150px;" :title="device.code" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.code }}</td>
               <td class="text-truncate" style="max-width: 150px;" :title="device.name" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.name || '-' }}</td>
+              <td class="device-tags-cell">
+                <div v-if="device.tags && device.tags.length" class="device-tag-chip-list">
+                  <span
+                    v-for="(tag, index) in device.tags.slice(0, 4)"
+                    :key="tag.ID"
+                    class="device-tag-chip"
+                    :style="tagBadgeStyle(tag)"
+                    :title="tag.description || tag.name"
+                  >
+                    <i :class="tag.icon || 'bi-tag'" class="device-tag-chip__icon"></i>
+                    <span class="device-tag-chip__name">{{ tag.name }}</span>
+                    <i class="bi bi-x device-tag-chip__close" @click.stop="unbindDeviceTag(device, tag)" :title="$t('dev_tag_unbind')"></i>
+                  </span>
+                  <span v-if="device.tags.length > 4" class="device-tag-chip device-tag-chip--overflow">
+                    +{{ device.tags.length - 4 }}
+                  </span>
+                </div>
+                <span v-else class="text-muted small">-</span>
+              </td>
               <td @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
                 <span class="badge rounded-pill" :class="device.online ? 'bg-success' : 'bg-secondary'">
                   <i class="bi me-1" :class="device.online ? 'bi-circle-fill' : 'bi-circle-fill text-white-50'"></i>
@@ -193,6 +219,11 @@
                         </a>
                       </li>
                     </template>
+                    <li>
+                      <a class="dropdown-item" href="#" @click="openDeviceTagsModal(device)">
+                        <i class="bi bi-tags me-2 text-primary"></i> {{ $t('dev_edit_tags') }}
+                      </a>
+                    </li>
                     <li>
                       <a class="dropdown-item" href="#" @click="openSingleAIModal(device)">
                         <i class="bi bi-shield-check me-2 text-warning"></i> AI 设备守护 (Device Guardian)
@@ -391,6 +422,43 @@
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" @click="showCreateModal = false">{{ $t('tsl_cancel') }}</button>
             <button type="button" class="btn btn-primary" @click="saveDevice">{{ $t('tsl_confirm') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Device Tags Modal -->
+    <div v-if="showDeviceTagsModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ $t('dev_edit_tags') }} - {{ currentTagDevice?.code }}</h5>
+            <button type="button" class="btn-close" @click="closeDeviceTagsModal"></button>
+          </div>
+          <div class="modal-body">
+            <div v-if="deviceTags.length === 0" class="text-muted text-center py-4">
+              {{ $t('dev_no_tags') }}
+            </div>
+            <div v-else class="device-tag-picker">
+              <label
+                v-for="tag in deviceTags"
+                :key="tag.ID"
+                class="d-flex align-items-center justify-content-between border rounded px-3 py-2 mb-2"
+              >
+                <span class="d-flex align-items-center gap-2">
+                  <input class="form-check-input m-0" type="checkbox" :value="tag.ID" v-model="selectedTagIds">
+                  <span class="device-tag-chip" :style="tagBadgeStyle(tag)">
+                    <i :class="tag.icon || 'bi-tag'" class="device-tag-chip__icon"></i>
+                    <span class="device-tag-chip__name">{{ tag.name }}</span>
+                  </span>
+                </span>
+                <span class="text-muted small">{{ tag.device_count || 0 }}</span>
+              </label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="closeDeviceTagsModal">{{ $t('tsl_cancel') }}</button>
+            <button type="button" class="btn btn-primary" @click="saveDeviceTags">{{ $t('common_save') }}</button>
           </div>
         </div>
       </div>
@@ -886,6 +954,11 @@ const filterProduct = ref('');
 const filterParent = ref('');
 const filterEnabled = ref('');
 const filterOnline = ref('');
+const filterTag = ref('');
+const deviceTags = ref([]);
+const selectedTagIds = ref([]);
+const showDeviceTagsModal = ref(false);
+const currentTagDevice = ref(null);
 
 let eventSource = null;
 let sseHeartbeatTimer = null;
@@ -1030,6 +1103,10 @@ const filteredDevices = computed(() => {
         const want = filterOnline.value === 'true';
         if (d.online !== want) return false;
     }
+    if (filterTag.value !== '') {
+        const wantTagId = Number(filterTag.value);
+        if (!d.tags || !d.tags.some(t => t.ID === wantTagId)) return false;
+    }
     return true;
   });
 });
@@ -1053,6 +1130,29 @@ const toggleAll = () => {
   } else {
     selectedDevices.value = filteredDevices.value.map(d => d.code);
   }
+};
+
+const tagBadgeStyle = (tag) => {
+  const color = tag?.color || '#0d6efd';
+  const rgb = hexToRgb(color) || { r: 13, g: 110, b: 253 };
+  return {
+    '--tag-color': color,
+    '--tag-rgb': `${rgb.r}, ${rgb.g}, ${rgb.b}`
+  };
+};
+
+const hexToRgb = (color) => {
+  if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color || '')) return null;
+  let hex = color.slice(1);
+  if (hex.length === 3) {
+    hex = hex.split('').map(char => char + char).join('');
+  }
+  const value = Number.parseInt(hex, 16);
+  return {
+    r: (value >> 16) & 0xff,
+    g: (value >> 8) & 0xff,
+    b: value & 0xff
+  };
 };
 
 const getDeviceProtocol = (device) => {
@@ -1878,6 +1978,73 @@ const fetchAITrend = async () => {
    }
 };
 
+const openDeviceTagsModal = (device) => {
+  currentTagDevice.value = device;
+  selectedTagIds.value = (device.tags || []).map(t => t.ID);
+  showDeviceTagsModal.value = true;
+};
+
+const closeDeviceTagsModal = () => {
+  showDeviceTagsModal.value = false;
+  currentTagDevice.value = null;
+  selectedTagIds.value = [];
+};
+
+const saveDeviceTags = async () => {
+  if (!currentTagDevice.value) return;
+  try {
+    const res = await axios.put(
+      `/api/devices/${currentTagDevice.value.code}/tags`,
+      { tag_ids: selectedTagIds.value }
+    );
+    if (res.data && res.data.success) {
+      // Refresh tags for this device in the list
+      const device = devices.value.find(d => d.code === currentTagDevice.value.code);
+      if (device) {
+        device.tags = deviceTags.value.filter(t => selectedTagIds.value.includes(t.ID));
+      }
+      closeDeviceTagsModal();
+    } else {
+      alert(res.data?.message || 'Failed to save tags');
+    }
+  } catch (e) {
+    console.error('Save device tags failed', e);
+    alert('保存标签失败');
+  }
+};
+
+const fetchDeviceTags = async () => {
+  try {
+    const res = await axios.get('/api/device-tags');
+    if (res.data && res.data.data) {
+      deviceTags.value = res.data.data;
+    }
+  } catch (e) {
+    console.error('Fetch device tags failed', e);
+  }
+};
+
+const unbindDeviceTag = async (device, tag) => {
+  // Remove a tag from a device directly via the chip close button
+  const newTagIds = (device.tags || [])
+    .filter(t => t.ID !== tag.ID)
+    .map(t => t.ID);
+  try {
+    const res = await axios.put(`/api/devices/${device.code}/tags`, { tag_ids: newTagIds });
+    if (res.data && res.data.code === 0) {
+      // Update local device data immediately
+      const localDevice = devices.value.find(d => d.code === device.code);
+      if (localDevice) {
+        localDevice.tags = (localDevice.tags || []).filter(t => t.ID !== tag.ID);
+      }
+    } else {
+      console.warn('Unbind tag failed:', res.data?.message);
+    }
+  } catch (e) {
+    console.error('Unbind device tag failed', e);
+  }
+};
+
 const openSingleAIModal = async (device) => {
   currentSingleAIDevice.value = device;
   singleAITSLMap.value = {};
@@ -2126,6 +2293,7 @@ onMounted(() => {
   fetchProducts();
   fetchPluginsInfo();
   fetchConfiguredTasks();
+  fetchDeviceTags();
   window.addEventListener('noyo-data-updated', fetchDevices);
 
   // 建立SSE连接，支持心跳检测和自动重连
@@ -2542,6 +2710,80 @@ const saveBatchAITasks = async () => {
 <style scoped>
 .animation-blink {
   animation: blinker 1.5s linear infinite;
+}
+.device-tags-cell {
+  min-width: 120px;
+  max-width: 260px;
+}
+.device-tag-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.device-tag-chip {
+  --tag-color: #0d6efd;
+  --tag-rgb: 13, 110, 253;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px 2px 6px;
+  border-radius: 3px 5px 5px 3px;
+  border: 1px solid rgba(var(--tag-rgb), 0.15);
+  border-left-width: 3px;
+  border-left-color: rgb(var(--tag-rgb));
+  background: linear-gradient(135deg, rgba(var(--tag-rgb), 0.10) 0%, rgba(var(--tag-rgb), 0.04) 100%);
+  color: rgb(var(--tag-rgb));
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.6;
+  cursor: default;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+.device-tag-chip:hover {
+  background: linear-gradient(135deg, rgba(var(--tag-rgb), 0.18) 0%, rgba(var(--tag-rgb), 0.08) 100%);
+  border-color: rgba(var(--tag-rgb), 0.30);
+  border-left-color: rgb(var(--tag-rgb));
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(var(--tag-rgb), 0.15);
+}
+.device-tag-chip__icon {
+  font-size: 0.68rem;
+  flex-shrink: 0;
+}
+.device-tag-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 80px;
+}
+.device-tag-chip__close {
+  font-size: 0.65rem;
+  cursor: pointer;
+  padding: 1px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: all 0.15s ease;
+  margin-left: 1px;
+}
+.device-tag-chip__close:hover {
+  opacity: 1;
+  background: rgba(var(--tag-rgb), 0.20);
+  color: rgb(var(--tag-rgb));
+}
+.device-tag-chip--overflow {
+  border-left-color: #adb5bd;
+  background: linear-gradient(135deg, rgba(128, 128, 128, 0.08) 0%, rgba(128, 128, 128, 0.03) 100%);
+  border-color: rgba(128, 128, 128, 0.12);
+  color: #6c757d;
+  font-weight: 500;
+  cursor: pointer;
+}
+.device-tag-chip--overflow:hover {
+  background: linear-gradient(135deg, rgba(128, 128, 128, 0.14) 0%, rgba(128, 128, 128, 0.06) 100%);
+  box-shadow: 0 2px 8px rgba(128, 128, 128, 0.12);
+  border-color: rgba(128, 128, 128, 0.22);
 }
 @keyframes blinker {
   50% { opacity: 0; }

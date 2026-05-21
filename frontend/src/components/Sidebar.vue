@@ -22,6 +22,9 @@
       <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Devices' }" @click.prevent="navigate('/devices')">
         <i class="bi bi-cpu"></i> <span>{{ $t('sidebar_devices') }}</span>
       </a>
+      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTags' }" @click.prevent="navigate('/device-tags')">
+        <i class="bi bi-tags"></i> <span>{{ $t('sidebar_device_tags') }}</span>
+      </a>
       <a href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTopology' }" @click.prevent="navigate('/topology')">
         <i class="bi bi-diagram-2"></i> <span>{{ $t('sidebar_topology') }}</span>
       </a>
