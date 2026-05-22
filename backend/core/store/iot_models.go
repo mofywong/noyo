@@ -254,6 +254,7 @@ func CreateDeviceTag(scope AccessScope, tag *DeviceTag) (*DeviceTag, error) {
 		ScopeID:     scope.ID,
 		Name:        name,
 		Color:       color,
+		Icon:        tag.Icon,
 		Description: strings.TrimSpace(tag.Description),
 	}
 	if err := DB.Create(newTag).Error; err != nil {
@@ -282,6 +283,7 @@ func UpdateDeviceTag(scope AccessScope, tag *DeviceTag) (*DeviceTag, error) {
 	}
 	existing.Name = name
 	existing.Color = color
+	existing.Icon = tag.Icon
 	existing.Description = strings.TrimSpace(tag.Description)
 	if err := DB.Save(&existing).Error; err != nil {
 		return nil, err
