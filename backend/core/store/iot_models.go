@@ -12,8 +12,10 @@ import (
 // Product represents a type of device (e.g., "Smart Meter Model X")
 type Product struct {
 	gorm.Model
-	Code         string `gorm:"uniqueIndex;not null" json:"code"`
-	Name         string `json:"name"`
+	TenantID     uint   `gorm:"index;not null;default:0" json:"tenant_id"`
+	ProjectID    uint   `gorm:"index;not null;default:0" json:"project_id"`
+	Code         string `gorm:"uniqueIndex;size:64;not null" json:"code"`
+	Name         string `gorm:"size:128;not null" json:"name"`
 	ProtocolName string `json:"protocol_name"` // e.g. "Modbus", "OPC-UA"
 	// Config stores protocol-specific product configuration (e.g. Polling Groups, TSL)
 	// Stored as JSON string
@@ -23,8 +25,10 @@ type Product struct {
 // Device represents a physical instance
 type Device struct {
 	gorm.Model
-	Code        string `gorm:"uniqueIndex;not null" json:"code"`
-	Name        string `json:"name"`
+	TenantID    uint   `gorm:"index;not null;default:0" json:"tenant_id"`
+	ProjectID   uint   `gorm:"index;not null;default:0" json:"project_id"`
+	Code        string `gorm:"uniqueIndex;size:64;not null" json:"code"`
+	Name        string `gorm:"size:128;not null" json:"name"`
 	ProductCode string `gorm:"index;not null" json:"product_code"`
 	ParentCode  string `gorm:"index" json:"parent_code"`
 	Enabled     bool   `json:"enabled"`
@@ -93,11 +97,19 @@ func GetProduct(code string) (*Product, error) {
 	return &p, nil
 }
 
-func ListProducts(page, pageSize int) ([]Product, int64, error) {
+// ListProducts retrieves products with pagination
+func ListProducts(page, pageSize int, tenantID, projectID uint) ([]Product, int64, error) {
 	var products []Product
 	var total int64
 
 	db := DB.Model(&Product{})
+	if tenantID > 0 {
+		db = db.Where("tenant_id = ?", tenantID)
+	}
+	if projectID > 0 {
+		db = db.Where("project_id = ?", projectID)
+	}
+
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -132,11 +144,25 @@ func GetDevice(code string) (*Device, error) {
 	return &d, nil
 }
 
-func ListDevices(page, pageSize int) ([]Device, int64, error) {
+// ListDevices retrieves devices with pagination
+func ListDevices(page, pageSize int, tenantID, projectID uint, allowedProjectIDs ...[]uint) ([]Device, int64, error) {
 	var devices []Device
 	var total int64
 
 	db := DB.Model(&Device{})
+	if tenantID > 0 {
+		db = db.Where("tenant_id = ?", tenantID)
+	}
+	if projectID > 0 {
+		db = db.Where("project_id = ?", projectID)
+	} else if len(allowedProjectIDs) > 0 {
+		ids := allowedProjectIDs[0]
+		if len(ids) == 0 {
+			return []Device{}, 0, nil
+		}
+		db = db.Where("project_id IN ?", ids)
+	}
+
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}

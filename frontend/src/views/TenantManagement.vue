@@ -1,0 +1,369 @@
+<template>
+  <div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('tenant_management') }}</h2>
+      <button class="btn btn-primary" @click="openCreateModal">
+        <i class="bi bi-building-add me-1"></i> {{ $t('tenant_add') }}
+      </button>
+    </div>
+
+    <!-- Tenants Table -->
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>{{ $t('tenant_code') }}</th>
+                <th>{{ $t('tenant_name') }}</th>
+                <th>{{ $t('admin_name', '管理员姓名') }}</th>
+                <th>{{ $t('tenant_phone') }}</th>
+                <th>{{ $t('tenant_status') }}</th>
+                <th>{{ $t('user_created_at') }}</th>
+                <th class="text-end">{{ $t('tenant_actions') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="loading">
+                <td colspan="7" class="text-center py-4">
+                  <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                  </div>
+                </td>
+              </tr>
+              <tr v-else-if="tenants.length === 0">
+                <td colspan="7" class="text-center py-4 text-muted">{{ $t('tenant_no_data') }}</td>
+              </tr>
+              <tr v-for="t in tenants" :key="t.ID" v-else>
+                <td><strong>{{ t.code }}</strong></td>
+                <td>{{ t.name }}</td>
+                <td>{{ t.contact }}</td>
+                <td>{{ t.phone }}</td>
+                <td>
+                  <span class="badge" :class="t.status === 1 ? 'text-bg-success' : 'text-bg-danger'">
+                    {{ t.status === 1 ? $t('user_active') : $t('user_disabled') }}
+                  </span>
+                </td>
+                <td>{{ new Date(t.CreatedAt).toLocaleString() }}</td>
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(t)" :title="$t('tenant_edit', '编辑')">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-warning me-2" @click="openResetPasswordModal(t)" :title="$t('reset_password', '重置密码')">
+                    <i class="bi bi-key"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-danger" @click="deleteTenant(t)" :disabled="t.code === 'default'" :title="$t('tenant_delete', '删除')">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tenant Modal -->
+    <div class="modal fade" id="tenantModal" tabindex="-1" ref="tenantModalRef">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ isEditing ? $t('tenant_edit') : $t('tenant_add') }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <form @submit.prevent="saveTenant">
+              <div class="mb-3">
+                <label class="form-label">{{ $t('tenant_code') }} <span class="text-danger">*</span></label>
+                <input v-model="form.code" type="text" class="form-control" :disabled="isEditing" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('tenant_name') }} <span class="text-danger">*</span></label>
+                <input v-model="form.name" type="text" class="form-control" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('login_suffix', '专属登录后缀') }}</label>
+                <div class="input-group">
+                  <span class="input-group-text">/login/</span>
+                  <input v-model="form.login_suffix" type="text" class="form-control" placeholder="如: my-company">
+                </div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('tenant_logo', '品牌Logo (SVG, PNG, JPG)') }}</label>
+                <input type="file" class="form-control" accept="image/*" @change="handleLogoUpload">
+                <div v-if="form.logo" class="mt-2 p-2 border rounded bg-light" style="width: fit-content; max-width: 150px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                  <div v-if="form.logo.trim().startsWith('<svg') || form.logo.trim().startsWith('<?xml')" v-html="DOMPurify.sanitize(form.logo, { USE_PROFILES: { svg: true } })" class="svg-container" style="max-height: 40px; display: flex; align-items: center; justify-content: center;"></div>
+                  <img v-else :src="form.logo" style="max-height: 40px; max-width: 100%; object-fit: contain;">
+                </div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('admin_name', '管理员姓名') }} <span class="text-danger">*</span></label>
+                <input v-model="form.contact" type="text" class="form-control" required>
+              </div>
+              <div class="mb-3" v-if="!isEditing">
+                <label class="form-label">{{ $t('admin_username', '管理员账号') }} <span class="text-danger">*</span></label>
+                <input v-model="form.admin_username" type="text" class="form-control" :required="!isEditing">
+              </div>
+              <div class="mb-3" v-if="!isEditing">
+                <label class="form-label">{{ $t('admin_password', '管理员密码') }} <span class="text-danger">*</span></label>
+                <div class="input-group">
+                  <input v-model="form.admin_password" :type="showAdminPassword ? 'text' : 'password'" class="form-control" :required="!isEditing">
+                  <button class="btn btn-outline-secondary" type="button" @click="showAdminPassword = !showAdminPassword">
+                    <i class="bi" :class="showAdminPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="mb-3" v-if="!isEditing">
+                <label class="form-label">{{ $t('admin_password_confirm', '确认密码') }} <span class="text-danger">*</span></label>
+                <div class="input-group">
+                  <input v-model="form.admin_password_confirm" :type="showConfirmPassword ? 'text' : 'password'" class="form-control" :required="!isEditing">
+                  <button class="btn btn-outline-secondary" type="button" @click="showConfirmPassword = !showConfirmPassword">
+                    <i class="bi" :class="showConfirmPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">{{ $t('tenant_phone') }} <span class="text-danger">*</span></label>
+                <input v-model="form.phone" type="text" class="form-control" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('tenant_email') }}</label>
+                <input v-model="form.email" type="email" class="form-control">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('tenant_description') }}</label>
+                <textarea v-model="form.description" class="form-control" rows="2"></textarea>
+              </div>
+
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('tenant_cancel') }}</button>
+            <button type="button" class="btn btn-primary" @click="saveTenant">{{ $t('tenant_save') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reset Password Modal -->
+    <div class="modal fade" id="tenantResetPasswordModal" tabindex="-1" ref="tenantResetPasswordModalRef">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ $t('user_reset_password_for', { username: resetTenant?.name }) }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">{{ $t('user_new_password', '新密码') }}</label>
+              <input v-model="newPassword" type="text" class="form-control" required>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('user_cancel', '取消') }}</button>
+            <button type="button" class="btn btn-danger" @click="resetPassword">{{ $t('user_reset_password', '重置密码') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import axios from 'axios'
+import DOMPurify from 'dompurify'
+import { Modal } from 'bootstrap'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
+const tenants = ref([])
+const loading = ref(false)
+const tenantModalRef = ref(null)
+let tenantModal = null
+
+const tenantResetPasswordModalRef = ref(null)
+let tenantResetPasswordModal = null
+const resetTenant = ref(null)
+const newPassword = ref('')
+
+const showAdminPassword = ref(false)
+const showConfirmPassword = ref(false)
+
+const isEditing = ref(false)
+const form = ref({
+  id: 0,
+  code: '',
+  name: '',
+  contact: '',
+  phone: '',
+  email: '',
+  description: '',
+  logo: '',
+  login_suffix: '',
+  max_users: 0,
+  max_devices: 0,
+  status: 1,
+  admin_username: '',
+  admin_password: '',
+  admin_password_confirm: ''
+})
+
+const handleLogoUpload = (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  if (file.size > 2 * 1024 * 1024) {
+    alert(t('logo_too_large', '图片大小不能超过2MB'));
+    event.target.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    form.value.logo = e.target.result;
+  };
+
+  if (file.type === "image/svg+xml") {
+    reader.readAsText(file);
+  } else if (file.type.startsWith("image/")) {
+    reader.readAsDataURL(file);
+  } else {
+    alert(t('logo_must_be_image', 'Logo 必须是图片格式文件'));
+    event.target.value = '';
+  }
+}
+
+const loadTenants = async () => {
+  loading.value = true
+  try {
+    const res = await axios.get('/api/tenants')
+    if (res.data.code === 0) {
+      tenants.value = res.data.data || []
+    }
+  } catch (error) {
+    console.error("Failed to load tenants:", error)
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  tenantModal = new Modal(tenantModalRef.value)
+  tenantResetPasswordModal = new Modal(tenantResetPasswordModalRef.value)
+  loadTenants()
+})
+
+const openCreateModal = () => {
+  isEditing.value = false
+  form.value = {
+    id: 0,
+    code: '',
+    name: '',
+    contact: '',
+    phone: '',
+    email: '',
+    description: '',
+    logo: '',
+    login_suffix: '',
+    max_users: 0,
+    max_devices: 0,
+    status: 1,
+    admin_username: '',
+    admin_password: '',
+    admin_password_confirm: ''
+  }
+  showAdminPassword.value = false
+  showConfirmPassword.value = false
+  tenantModal.show()
+}
+
+const openEditModal = (item) => {
+  isEditing.value = true
+  form.value = {
+    id: item.ID,
+    code: item.code,
+    name: item.name,
+    contact: item.contact,
+    phone: item.phone,
+    email: item.email,
+    description: item.description,
+    logo: item.logo,
+    login_suffix: item.login_suffix,
+    max_users: item.max_users,
+    max_devices: item.max_devices,
+    status: item.status
+  }
+  tenantModal.show()
+}
+
+const saveTenant = async () => {
+  if (!isEditing.value && form.value.admin_password !== form.value.admin_password_confirm) {
+    alert(t('auth_password_mismatch', '两次输入的密码不一致！'))
+    return
+  }
+  try {
+    let res
+    if (isEditing.value) {
+      res = await axios.put(`/api/tenants/${form.value.id}`, form.value)
+    } else {
+      res = await axios.post('/api/tenants', form.value)
+    }
+    
+    if (res.data.code === 0) {
+      tenantModal.hide()
+      loadTenants()
+    } else {
+      alert(res.data.message)
+    }
+  } catch (error) {
+    alert(t('common_save_failed', '保存失败'))
+  }
+}
+
+const deleteTenant = async (item) => {
+  if (confirm(t('tenant_delete_confirm', { name: item.name }))) {
+    try {
+      const res = await axios.delete(`/api/tenants/${item.ID}`)
+      if (res.data.code === 0) {
+        loadTenants()
+      } else {
+        alert(res.data.message)
+      }
+    } catch (error) {
+      alert(t('common_delete_failed', '删除失败'))
+    }
+  }
+}
+
+const openResetPasswordModal = (item) => {
+  resetTenant.value = item
+  newPassword.value = ''
+  tenantResetPasswordModal.show()
+}
+
+const resetPassword = async () => {
+  if (!newPassword.value) return
+  
+  try {
+    const res = await axios.post(`/api/tenants/${resetTenant.value.ID}/reset-password`, { new_password: newPassword.value })
+    if (res.data.code === 0) {
+      tenantResetPasswordModal.hide()
+      alert(t('user_reset_success', '密码重置成功'))
+    } else {
+      alert(res.data.message)
+    }
+  } catch (error) {
+    alert(t('user_reset_failed', '密码重置失败'))
+  }
+}
+</script>
+
+<style scoped>
+:deep(.svg-container svg) {
+  max-width: 100%;
+  max-height: 100%;
+}
+</style>

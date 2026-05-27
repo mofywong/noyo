@@ -1,7 +1,7 @@
 <template>
   <div class="card border-0 shadow-sm h-100">
     <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center py-3">
-      <h5 class="mb-0">{{ $t('sidebar_topology') }}</h5>
+      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_topology') }}</h2>
       <div class="btn-group">
         <button class="btn btn-outline-secondary btn-sm" @click="fitView" :title="$t('tsl_actions')">
           <i class="bi bi-arrows-fullscreen"></i>

@@ -1,8 +1,25 @@
 <template>
   <div class="sidebar" :class="{ show: isOpen }">
     <div class="sidebar-brand">
-      <img src="/Noyo.svg" alt="Noyo Logo" class="brand-logo" />
-      <span>{{ $t('brand_name') }}</span>
+      <template v-if="authStore.user && authStore.user.tenant_name">
+        <div v-if="authStore.user.tenant_logo" class="me-2 d-flex align-items-center justify-content-center" style="height: 32px; width: 32px; overflow: hidden;">
+          <div v-if="authStore.user.tenant_logo.trim().startsWith('<svg') || authStore.user.tenant_logo.trim().startsWith('<?xml')" v-html="DOMPurify.sanitize(authStore.user.tenant_logo, { USE_PROFILES: { svg: true } })" class="svg-container" style="height: 100%; display: flex; align-items: center; justify-content: center;"></div>
+          <img v-else :src="authStore.user.tenant_logo" style="max-height: 100%; max-width: 100%; object-fit: contain;">
+        </div>
+        <span class="text-truncate">{{ authStore.user.tenant_name }}</span>
+      </template>
+      <template v-else>
+        <img src="/Noyo.svg" alt="Noyo Logo" class="brand-logo" />
+        <span>{{ $t('brand_name') }}</span>
+      </template>
+    </div>
+
+    <!-- Project Selector (Moved to Top of Sidebar) -->
+    <div class="px-3 mb-3" v-if="authStore.isLoggedIn">
+      <select class="form-select form-select-sm" v-model="currentProjectId" @change="switchProject">
+        <option :value="0">{{ $t('project_all') }}</option>
+        <option v-for="p in userProjects" :key="p.ID" :value="p.ID">{{ p.name }}</option>
+      </select>
     </div>
     
     <div class="sidebar-menu">
@@ -10,25 +27,25 @@
       <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Dashboard' }" @click.prevent="navigate('/')">
         <i class="bi bi-speedometer2"></i> <span>{{ $t('sidebar_dashboard') }}</span>
       </a>
-      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Marketplace' }" @click.prevent="navigate('/marketplace')">
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('plugin:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Marketplace' }" @click.prevent="navigate('/marketplace')">
         <i class="bi bi-shop"></i> <span>{{ $t('sidebar_marketplace') }}</span>
       </a>
-      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Products' }" @click.prevent="navigate('/products')">
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('product:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Products' }" @click.prevent="navigate('/products')">
         <i class="bi bi-box-seam"></i> <span>{{ $t('sidebar_products') }}</span>
       </a>
-      <a v-if="!isGatewayRuntime" href="#" class="nav-link" :class="{ active: currentRouteName === 'GatewayManagement' || currentRouteName === 'GatewayPlugins' || currentRouteName === 'GatewayPluginConfig' }" @click.prevent="navigate('/gateways')">
+      <a v-if="!isGatewayRuntime && !authStore.isSystemAdmin && authStore.hasPermission('plugin:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'GatewayManagement' || currentRouteName === 'GatewayPlugins' || currentRouteName === 'GatewayPluginConfig' }" @click.prevent="navigate('/gateways')">
         <i class="bi bi-hdd-network"></i> <span>{{ gt('gateway_management') }}</span>
       </a>
-      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Devices' }" @click.prevent="navigate('/devices')">
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('device:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Devices' }" @click.prevent="navigate('/devices')">
         <i class="bi bi-cpu"></i> <span>{{ $t('sidebar_devices') }}</span>
       </a>
-      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTags' }" @click.prevent="navigate('/device-tags')">
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('device:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTags' }" @click.prevent="navigate('/device-tags')">
         <i class="bi bi-tags"></i> <span>{{ $t('sidebar_device_tags') }}</span>
       </a>
-      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTopology' }" @click.prevent="navigate('/topology')">
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('device:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTopology' }" @click.prevent="navigate('/topology')">
         <i class="bi bi-diagram-2"></i> <span>{{ $t('sidebar_topology') }}</span>
       </a>
-      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'AlarmCenter' }" @click.prevent="navigate('/alarms')">
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('alarm:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AlarmCenter' }" @click.prevent="navigate('/alarms')">
         <i class="bi bi-bell-fill"></i> <span>{{ $t('sidebar_alarms', '告警中心') }}</span>
       </a>
       
@@ -63,28 +80,102 @@
       </div>
       
       <div class="nav-category mt-2">{{ $t('sidebar_system') }}</div>
-      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Settings' }" @click.prevent="navigate('/settings')">
-        <i class="bi bi-gear"></i> <span>{{ $t('sidebar_settings') }}</span>
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('user:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'UserManagement' }" @click.prevent="navigate('/settings/users')">
+        <i class="bi bi-people"></i> <span>{{ $t('user_management', 'User Management') }}</span>
+      </a>
+      <a v-if="authStore.isSystemAdmin" href="#" class="nav-link" :class="{ active: currentRouteName === 'TenantManagement' }" @click.prevent="navigate('/settings/tenants')">
+        <i class="bi bi-building"></i> <span>{{ $t('tenant_management') }}</span>
+      </a>
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('project:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'ProjectManagement' }" @click.prevent="navigate('/settings/projects')">
+        <i class="bi bi-folder"></i> <span>{{ $t('project_management') }}</span>
+      </a>
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('role:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'RoleManagement' }" @click.prevent="navigate('/settings/roles')">
+        <i class="bi bi-shield-lock"></i> <span>{{ $t('role_management') }}</span>
+      </a>
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('position:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'PositionManagement' }" @click.prevent="navigate('/settings/positions')">
+        <i class="bi bi-person-badge"></i> <span>{{ $t('position_management', 'Position Management') }}</span>
+      </a>
+      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('app:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AppManagement' }" @click.prevent="navigate('/settings/apps')">
+        <i class="bi bi-window-sidebar"></i> <span>{{ $t('app_management', 'App Integration') }}</span>
+      </a>
+      <a v-if="authStore.isSystemAdmin" href="#" class="nav-link" :class="{ active: currentRouteName === 'AuditLogs' }" @click.prevent="navigate('/settings/audit-logs')">
+        <i class="bi bi-journal-text"></i> <span>{{ $t('audit_logs', 'Audit Logs') }}</span>
       </a>
       <a v-if="isPro" href="#" class="nav-link" :class="{ active: currentRouteName === 'License' }" @click.prevent="navigate('/license')">
         <i class="bi bi-shield-check"></i> <span>{{ $t('license_info', '授权信息') }}</span>
       </a>
-      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Logs' }" @click.prevent="navigate('/logs')">
-        <i class="bi bi-journal-text"></i> <span>{{ $t('sidebar_logs') }}</span>
+      <a v-if="authStore.hasPermission('system:logs')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Logs' }" @click.prevent="navigate('/logs')">
+        <i class="bi bi-journal-code"></i> <span>{{ $t('system_logs', '系统日志') }}</span>
       </a>
+    </div>
+    <!-- Powered By Footer -->
+    <div class="sidebar-footer mt-auto p-3 text-center border-top border-secondary border-opacity-25">
+      <div class="text-muted" style="font-size: 0.75rem; opacity: 0.7;">
+        <i class="bi bi-lightning-charge-fill text-warning me-1"></i>
+        <span>Powered by <strong>Noyo</strong></span>
+      </div>
     </div>
   </div>
 </template>
 
+<style scoped>
+:deep(.svg-container svg) {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-menu {
+  flex-grow: 1;
+  overflow-y: auto;
+}
+.sidebar-footer {
+  flex-shrink: 0;
+}
+</style>
+
 <script setup>
 import { computed, ref, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
+import DOMPurify from 'dompurify';
 import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
 import { usePlugins } from '../plugins/registry.js';
 import { gatewayText } from '../utils/gatewayLocale';
+import { useAuthStore } from '../stores/auth.js';
 
 const { extensions } = usePlugins();
+const authStore = useAuthStore();
+
+const userProjects = ref([]);
+const currentProjectId = ref(Number(localStorage.getItem('current_project_id') || 0));
+
+const tenantName = computed(() => {
+  if (authStore.user && authStore.user.tenant_id > 0) {
+    return authStore.user.tenant_name || localStorage.getItem('tenant_name') || ''
+  }
+  return ''
+});
+
+const loadUserProjects = async () => {
+  if (!authStore.isLoggedIn) return;
+  try {
+    const res = await axios.get('/api/projects');
+    if (res.data.code === 0) {
+      userProjects.value = res.data.data || [];
+    }
+  } catch (e) {
+    console.error("Failed to load projects", e);
+  }
+};
+
+const switchProject = () => {
+  localStorage.setItem('current_project_id', currentProjectId.value);
+  window.location.reload(); // Reload to apply new project scope globally
+};
 
 const props = defineProps({
   isOpen: Boolean,
@@ -110,6 +201,8 @@ onMounted(async () => {
   } catch (e) {
     isPro.value = false;
   }
+  
+  loadUserProjects();
 });
 
 const currentRouteName = computed(() => route.name);

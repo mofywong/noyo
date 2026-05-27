@@ -4,7 +4,7 @@
       <aside class="tag-sidebar">
         <div class="card border-0 shadow-sm h-100">
           <div class="card-header bg-transparent border-0 py-3 d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">{{ $t('dev_tag_manage') }}</h5>
+            <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('dev_tag_manage') }}</h2>
             <button class="btn btn-primary btn-sm" @click="openTagModal()">
               <i class="bi bi-plus-lg me-1"></i>{{ $t('dev_tag_create') }}
             </button>

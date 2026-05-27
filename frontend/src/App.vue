@@ -1,17 +1,18 @@
 <template>
   <div :data-bs-theme="currentTheme === 'system' ? systemTheme : currentTheme">
-    <Sidebar 
-      :is-open="sidebarOpen" 
-      :current-plugin="currentPluginName"
-      :plugins="plugins"
-      :loading="loadingPlugins"
-      @navigate="handleNavigate"
-    />
-    
-    <div class="main-content">
-      <TopHeader 
-        :title="pageTitle" 
-        :current-theme="currentTheme"
+    <template v-if="route.name !== 'Login'">
+      <Sidebar 
+        :is-open="sidebarOpen" 
+        :current-plugin="currentPluginName"
+        :plugins="plugins"
+        :loading="loadingPlugins"
+        @navigate="handleNavigate"
+      />
+      
+      <div class="main-content">
+        <TopHeader 
+          :title="pageTitle" 
+          :current-theme="currentTheme"
         :mqtt-status="mqttStatus"
         @toggle-sidebar="sidebarOpen = !sidebarOpen"
         @set-theme="setTheme"
@@ -30,9 +31,44 @@
           <GlobalAiCopilot />
         </div>
       </div>
-    </div>
+      </div>
+    </template>
+    
+    <template v-else>
+      <router-view />
+    </template>
     
     <ToastContainer />
+    
+    <div class="modal fade" id="forceChangePasswordModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ $t('auth_force_change_password', '安全要求：请修改初始密码') }}</h5>
+          </div>
+          <div class="modal-body">
+            <p class="text-danger small">{{ $t('auth_force_change_password_desc', '出于安全考虑，您必须修改初始密码后才能继续使用系统。') }}</p>
+            <form @submit.prevent="submitForceChangePassword">
+              <div class="mb-3">
+                <label class="form-label">{{ $t('auth_old_password', '旧密码') }}</label>
+                <input v-model="forcePasswordForm.oldPassword" type="password" class="form-control" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('auth_new_password', '新密码') }}</label>
+                <input v-model="forcePasswordForm.newPassword" type="password" class="form-control" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('auth_confirm_new_password', '确认新密码') }}</label>
+                <input v-model="forcePasswordForm.confirmPassword" type="password" class="form-control" required>
+              </div>
+              <button type="submit" class="btn btn-primary w-100" :disabled="forcePasswordForm.loading">
+                {{ $t('auth_submit_password', '提交修改') }}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -44,14 +80,17 @@ import axios from 'axios';
 import Sidebar from './components/Sidebar.vue';
 import TopHeader from './components/TopHeader.vue';
 import ToastContainer from './components/ToastContainer.vue';
-import GlobalAiCopilot from './components/common/GlobalAiCopilot.vue'; // Added GlobalAiCopilot import
+import GlobalAiCopilot from './components/common/GlobalAiCopilot.vue';
 import { useToast } from './composables/useToast';
 import { gatewayActionText, gatewayText } from './utils/gatewayLocale';
+import { Modal } from 'bootstrap';
+import { useAuthStore } from './stores/auth';
 
 const { t, locale } = useI18n();
 const { showToast } = useToast();
 const router = useRouter();
 const route = useRoute();
+const authStore = useAuthStore();
 const gt = (key, params) => gatewayText(locale.value, key, params);
 
 // State
@@ -66,6 +105,8 @@ const currentTheme = ref(localStorage.getItem('theme') || 'dark');
 const systemTheme = ref(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 
 const licenseData = ref(null);
+const forcePasswordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '', loading: false });
+let forcePasswordModal = null;
 
 const copyToClipboard = async (text) => {
   try {
@@ -197,6 +238,11 @@ onMounted(() => {
   if (savedLang) {
     locale.value = savedLang;
   }
+
+  if (authStore.user && authStore.user.must_change_password) {
+    forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
+    forcePasswordModal.show();
+  }
 });
 
 onBeforeUnmount(() => {
@@ -222,6 +268,29 @@ const checkLicense = async () => {
     }
   } catch (e) {
     // API not found (e.g. open source version)
+  }
+};
+
+const submitForceChangePassword = async () => {
+  if (forcePasswordForm.value.newPassword !== forcePasswordForm.value.confirmPassword) {
+    showToast('danger', t('auth_password_mismatch', '两次输入的密码不一致！'));
+    return;
+  }
+  forcePasswordForm.value.loading = true;
+  try {
+    const res = await authStore.changePassword(forcePasswordForm.value.oldPassword, forcePasswordForm.value.newPassword);
+    if (res.code === 0) {
+      showToast('success', t('auth_password_changed', '密码修改成功，请重新登录'));
+      if (forcePasswordModal) forcePasswordModal.hide();
+      authStore.logout();
+      router.push('/login');
+    } else {
+      showToast('danger', res.message || t('auth_password_change_failed', '密码修改失败'));
+    }
+  } catch (err) {
+    showToast('danger', err.response?.data?.message || t('auth_network_error', '网络错误'));
+  } finally {
+    forcePasswordForm.value.loading = false;
   }
 };
 

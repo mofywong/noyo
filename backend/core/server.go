@@ -93,30 +93,7 @@ func (s *Server) Run() error {
 	s.WebServer.SetRouteOverWrite(true) // Enable route overwrite for plugin reload
 	s.WebServer.SetPort(s.Config.Server.Port)
 
-	// API Routes
-	s.WebServer.Group("/api", func(group *ghttp.RouterGroup) {
-		group.GET("/plugins", s.handleListPlugins)
-		group.GET("/plugins/:name", s.handleGetPlugin)
-		group.GET("/plugins/:name/schemas", s.handleGetPluginSchemas)
-		group.POST("/plugins/:name/config", s.handleUpdatePluginConfig)
-		group.POST("/plugins/:name/discover", s.handlePluginDiscover)
-		group.POST("/history/query", s.handleQueryHistory) // Add History Query API
-		group.DELETE("/history/record", s.handleDeleteRecord) // Delete alarm record (消警)
-		group.POST("/system/upload/image", s.handleUploadImage) // Add Upload Image API
-		group.GET("/system/stats", s.handleSystemStats)
-		s.RegisterDeviceRoutes(group)
-	})
-
-	// System Settings / Logs
-	s.WebServer.BindHandler("GET:/api/system/config", s.handleGetSystemConfig)
-	s.WebServer.BindHandler("POST:/api/system/config", s.handleUpdateSystemConfig)
-	s.WebServer.BindHandler("GET:/api/system/log/config", s.handleGetLogConfig)
-	s.WebServer.BindHandler("POST:/api/system/log/config", s.handleUpdateLogConfig)
-	s.WebServer.BindHandler("GET:/api/system/log/files", s.handleListLogFiles)
-	s.WebServer.BindHandler("GET:/api/system/log/file", s.handleReadLogFile)
-	s.WebServer.BindHandler("GET:/api/system/log/tail", s.handleTailLog)
-	s.WebServer.BindHandler("GET:/api/system/log/download", s.handleDownloadLogFile)
-	s.WebServer.BindHandler("/api/system/log/stream", s.handleRealtimeLogs)
+	s.registerAPIRoutes()
 
 	// Serve UI
 	if s.uiFS != nil {
@@ -504,4 +481,9 @@ func (s *Server) handleDeleteRecord(r *ghttp.Request) {
 	}
 
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Record deleted"})
+}
+
+// Injecting debug route
+func init() {
+	// We cannot easily inject a route without modifying server.go setup
 }

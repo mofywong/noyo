@@ -19,7 +19,7 @@
         </button>
       </div>
       <div v-else class="d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">{{ $t('sidebar_devices') }}</h5>
+        <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_devices') }}</h2>
         <div class="d-flex gap-2">
           <button class="btn btn-outline-primary btn-sm" @click="downloadTemplate">
             <i class="bi bi-download me-1"></i> {{ $t('download_template') }}

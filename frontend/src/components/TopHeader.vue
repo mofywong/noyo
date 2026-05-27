@@ -1,20 +1,20 @@
 <template>
   <header class="top-header">
-    <div class="d-flex align-items-center">
-      <button class="btn btn-link text-body d-md-none me-3" @click="$emit('toggleSidebar')">
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+      <button class="btn btn-link text-body d-md-none me-2" @click="$emit('toggleSidebar')">
         <i class="bi bi-list fs-4"></i>
       </button>
-      <div class="header-title">{{ title }}</div>
     </div>
     <div class="d-flex align-items-center gap-3">
-      <div class="dropdown me-1">
-        <button class="btn btn-sm btn-outline-secondary position-relative border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false" @click="clearUnread">
+      <!-- 告警下拉 -->
+      <div class="dropdown me-1" :class="{ show: activeDropdown === 'alarm' }">
+        <button class="btn btn-sm btn-outline-secondary position-relative border-0" type="button" aria-expanded="false" @click="toggleDropdown('alarm'); clearUnread()">
           <i class="bi bi-bell fs-5"></i>
           <span v-if="unreadCount > 0" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem; padding: 0.25rem 0.4rem;">
             {{ unreadCount > 99 ? '99+' : unreadCount }}
           </span>
         </button>
-        <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="width: 320px; max-height: 400px; overflow-y: auto;">
+        <ul class="dropdown-menu dropdown-menu-end shadow-sm" :class="{ show: activeDropdown === 'alarm' }" style="width: 320px; max-height: 400px; overflow-y: auto;">
           <li><h6 class="dropdown-header">最新告警</h6></li>
           <li v-if="recentAlarms.length === 0"><span class="dropdown-item text-muted small">暂无新告警</span></li>
           <li v-for="evt in recentAlarms" :key="evt.ts">
@@ -62,47 +62,55 @@
         <span class="mqtt-status-value">{{ mqttStatus.connected ? 'Connected' : 'Disconnected' }}</span>
       </div>
 
-      <div class="dropdown">
-        <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <!-- 主题下拉 -->
+      <div class="dropdown" :class="{ show: activeDropdown === 'theme' }">
+        <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2" type="button" aria-expanded="false" @click="toggleDropdown('theme')">
           <i class="bi bi-circle-half"></i>
         </button>
-        <ul class="dropdown-menu dropdown-menu-end shadow-sm">
-          <li><button class="dropdown-item d-flex align-items-center gap-2" @click="$emit('setTheme', 'light')">
+        <ul class="dropdown-menu dropdown-menu-end shadow-sm" :class="{ show: activeDropdown === 'theme' }">
+          <li><button class="dropdown-item d-flex align-items-center gap-2" @click="$emit('setTheme', 'light'); activeDropdown = ''">
             <i class="bi bi-sun"></i> <span>{{ $t('theme_light') }}</span>
           </button></li>
-          <li><button class="dropdown-item d-flex align-items-center gap-2" @click="$emit('setTheme', 'dark')">
+          <li><button class="dropdown-item d-flex align-items-center gap-2" @click="$emit('setTheme', 'dark'); activeDropdown = ''">
             <i class="bi bi-moon"></i> <span>{{ $t('theme_dark') }}</span>
           </button></li>
-          <li><button class="dropdown-item d-flex align-items-center gap-2" @click="$emit('setTheme', 'system')">
+          <li><button class="dropdown-item d-flex align-items-center gap-2" @click="$emit('setTheme', 'system'); activeDropdown = ''">
             <i class="bi bi-circle-half"></i> <span>{{ $t('theme_system') }}</span>
           </button></li>
         </ul>
       </div>
 
-      <div class="dropdown">
-        <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <!-- 语言下拉 -->
+      <div class="dropdown" :class="{ show: activeDropdown === 'lang' }">
+        <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2" type="button" aria-expanded="false" @click="toggleDropdown('lang')">
           <i class="bi bi-translate"></i> <span>{{ currentLangName }}</span>
         </button>
-        <ul class="dropdown-menu dropdown-menu-end shadow-sm">
-          <li><button class="dropdown-item d-flex align-items-center gap-2" @click="$emit('setLanguage', 'en')">
+        <ul class="dropdown-menu dropdown-menu-end shadow-sm" :class="{ show: activeDropdown === 'lang' }">
+          <li><button class="dropdown-item d-flex align-items-center gap-2" @click="$emit('setLanguage', 'en'); activeDropdown = ''">
             <span>{{ languageEnglish }}</span>
           </button></li>
-          <li><button class="dropdown-item d-flex align-items-center gap-2" @click="$emit('setLanguage', 'zh')">
+          <li><button class="dropdown-item d-flex align-items-center gap-2" @click="$emit('setLanguage', 'zh'); activeDropdown = ''">
             <span>{{ languageChinese }}</span>
           </button></li>
         </ul>
       </div>
 
-      <div class="dropdown">
-        <a href="#" class="d-flex align-items-center text-decoration-none dropdown-toggle text-body" data-bs-toggle="dropdown">
-          <div class="bg-body rounded-circle d-flex align-items-center justify-content-center border" style="width: 32px; height: 32px;">
+      <!-- 用户下拉 -->
+      <div class="dropdown" :class="{ show: activeDropdown === 'user' }">
+        <a href="#" class="d-flex align-items-center text-decoration-none dropdown-toggle text-body" @click.prevent="toggleDropdown('user')">
+          <div class="bg-body rounded-circle d-flex align-items-center justify-content-center border me-2" style="width: 32px; height: 32px;">
             <i class="bi bi-person-fill text-secondary"></i>
           </div>
+          <span class="d-none d-md-block">{{ authStore.user?.display_name || authStore.user?.username }}</span>
         </a>
-        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
-          <li><a class="dropdown-item" href="#">{{ $t('header_profile') }}</a></li>
+        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" :class="{ show: activeDropdown === 'user' }">
+          <li><a class="dropdown-item" href="#" @click.prevent="openProfileModal">
+            <i class="bi bi-person me-2"></i>{{ $t('header_profile', '个人资料') }}
+          </a></li>
           <li><hr class="dropdown-divider"></li>
-          <li><a class="dropdown-item text-danger" href="#">{{ $t('header_logout') }}</a></li>
+          <li><a class="dropdown-item text-danger" href="#" @click.prevent="handleLogout">
+            <i class="bi bi-box-arrow-right me-2"></i>{{ $t('header_logout', '退出登录') }}
+          </a></li>
         </ul>
       </div>
     </div>
@@ -123,6 +131,28 @@
         />
       </div>
     </div>
+
+    <!-- 个人资料弹框 -->
+    <div class="modal fade" id="profileModal" tabindex="-1" ref="profileModalRef">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ $t('header_profile', '个人资料') }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-2"><strong>{{ $t('user_username', '用户名') }}:</strong> {{ authStore.user?.username }}</div>
+            <div class="mb-2"><strong>{{ getDisplayNameLabel(authStore.user) }}:</strong> {{ authStore.user?.display_name || '-' }}</div>
+            <div class="mb-2"><strong>{{ $t('user_role', '角色') }}:</strong> {{ authStore.user?.role || '-' }}</div>
+            <div class="mb-2"><strong>{{ $t('user_email', '邮箱') }}:</strong> {{ authStore.user?.email || '-' }}</div>
+            <div class="mb-0"><strong>{{ $t('user_phone', '电话') }}:</strong> {{ authStore.user?.phone || '-' }}</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('close', '关闭') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </header>
 </template>
 
@@ -130,9 +160,11 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
+import { Modal } from 'bootstrap';
 import axios from 'axios';
 import { gatewayText } from '../utils/gatewayLocale';
 import GB28181PlayerWidget from '@/plugins/pro/protocol/gb28181/GB28181PlayerWidget.vue';
+import { useAuthStore } from '../stores/auth.js';
 
 defineProps({
   title: String,
@@ -142,7 +174,9 @@ defineProps({
 
 defineEmits(['toggleSidebar', 'setTheme', 'setLanguage']);
 
-const { locale } = useI18n();
+const { t, locale } = useI18n();
+const authStore = useAuthStore();
+const router = useRouter();
 
 const languageEnglish = computed(() => gatewayText(locale.value, 'language_english'));
 const languageChinese = computed(() => gatewayText(locale.value, 'language_chinese'));
@@ -151,7 +185,6 @@ const currentLangName = computed(() => {
   return locale.value === 'zh' ? languageChinese.value : languageEnglish.value;
 });
 
-const router = useRouter();
 const recentEvents = ref([]);
 const unreadCount = ref(0);
 const devices = ref({});
@@ -159,6 +192,43 @@ const products = ref({});
 const floatingVideoDevice = ref(null);
 let lastSeenTs = parseInt(localStorage.getItem('noyo_alarms_last_seen') || '0');
 let pollTimer = null;
+
+const activeDropdown = ref('');
+const projectsList = ref([]);
+const currentProjectId = ref(
+  localStorage.getItem('current_project_id') ? parseInt(localStorage.getItem('current_project_id')) : ''
+);
+
+const toggleDropdown = (name) => {
+  activeDropdown.value = activeDropdown.value === name ? '' : name;
+};
+
+const closeAllDropdowns = (event) => {
+  if (event && event.target && event.target.closest('.dropdown')) {
+    return;
+  }
+  activeDropdown.value = '';
+};
+
+const loadProjects = async () => {
+  try {
+    const res = await axios.get('/api/projects');
+    if (res.data.code === 0) {
+      projectsList.value = res.data.data || [];
+    }
+  } catch (e) {
+    console.error('Failed to load projects:', e);
+  }
+};
+
+const handleProjectChange = () => {
+  if (currentProjectId.value !== '') {
+    localStorage.setItem('current_project_id', currentProjectId.value.toString());
+  } else {
+    localStorage.removeItem('current_project_id');
+  }
+  window.location.reload();
+};
 
 // 场景告警事件ID列表（只有这些才在消息盒子中展示）
 const ALARM_EVENT_IDS = [
@@ -331,24 +401,65 @@ const clearUnread = () => {
 
 const goToAlarms = () => {
   clearUnread();
+  activeDropdown.value = '';
   router.push('/alarms');
 };
 
 const goToAlarmDetail = (evt) => {
   clearUnread();
+  activeDropdown.value = '';
   // 携带告警时间戳参数，告警中心页面会据此自动打开详情弹框
   // 加入 _t 随机参数确保即使已在告警页面也能触发 watch 变化
   router.push({ path: '/alarms', query: { highlight: evt.ts, _t: Date.now() } });
 };
 
+const handleLogout = async () => {
+  try {
+    await axios.post('/api/auth/logout');
+  } catch (e) {
+    // Ignore error
+  }
+  authStore.logout();
+  router.push('/login');
+};
+
+const profileModalRef = ref(null);
+let profileModal = null;
+
+const openProfileModal = () => {
+  activeDropdown.value = '';
+  if (profileModal) {
+    profileModal.show();
+  }
+};
+
 onMounted(async () => {
+  if (profileModalRef.value) {
+    profileModal = new Modal(profileModalRef.value);
+  }
   await fetchDataMetadata();
   fetchRecentEvents();
   pollTimer = setInterval(fetchRecentEvents, 5000);
+  document.addEventListener('click', closeAllDropdowns);
+  window.addEventListener('project-updated', loadProjects);
+  if (authStore.user && authStore.user.tenant_id > 0) {
+    await loadProjects();
+  }
 });
+
+const getDisplayNameLabel = (user) => {
+  if (!user) return t('user_display_name', '姓名');
+  const r = user.role;
+  if (r === 'admin' || r === 'super_admin' || r === 'tenant_admin' || r === 'project_admin') {
+    return t('user_admin_name', '管理员姓名');
+  }
+  return t('user_display_name', '姓名');
+};
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer);
+  document.removeEventListener('click', closeAllDropdowns);
+  window.removeEventListener('project-updated', loadProjects);
 });
 </script>
 
@@ -432,5 +543,12 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #3a1a1a 0%, #2d1010 100%) !important;
   border-color: rgba(220, 53, 69, 0.5) !important;
   box-shadow: 0 8px 32px rgba(220, 53, 69, 0.25), 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+}
+</style>
+
+<style scoped>
+:deep(.svg-container svg) {
+  max-width: 100%;
+  max-height: 100%;
 }
 </style>

@@ -1,7 +1,7 @@
 <template>
   <div class="alarm-center container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h2>{{ $t('sidebar_alarms', '告警中心') }}</h2>
+      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_alarms', '告警中心') }}</h2>
       <button class="btn btn-outline-primary btn-sm" @click="fetchEvents" :disabled="loading">
         <span v-if="loading" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
         <i v-else class="bi bi-arrow-clockwise me-1"></i>刷新

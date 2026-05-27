@@ -1,6 +1,6 @@
 <template>
   <div class="settings-container">
-    <h4 class="mb-4">{{ $t('sidebar_settings') }}</h4>
+    <h2 class="h4 mb-4 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_settings') }}</h2>
 
     <div v-if="loading" class="text-center py-4">
       <div class="spinner-border text-primary" role="status">

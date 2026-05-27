@@ -1,6 +1,6 @@
 <template>
   <div class="settings-container">
-    <h4 class="mb-4">{{ $t('license_info', '授权信息') }}</h4>
+    <h2 class="h4 mb-4 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('license_info', '授权信息') }}</h2>
 
     <div v-if="licenseData && licenseData.status" class="card border-0 shadow-sm mb-4">
       <div class="card-header bg-transparent border-bottom-0 pt-4 pb-0 d-flex justify-content-between align-items-center">

@@ -77,7 +77,7 @@ func (p *MQTTAPIPlugin) handleGatewayCommand(client mqtt.Client, msg mqtt.Messag
 			}
 		}
 
-		devices, total, err := store.ListDevices(page, pageSize)
+		devices, total, err := store.ListDevices(page, pageSize, 0, 0)
 		if err != nil {
 			reply.Code = 500
 			reply.Message = err.Error()
@@ -129,7 +129,7 @@ func (p *MQTTAPIPlugin) handleGatewayCommand(client mqtt.Client, msg mqtt.Messag
 		page := getInt(params["page"], 0)
 		pageSize := getInt(params["pageSize"], 0)
 
-		products, total, err := store.ListProducts(page, pageSize)
+		products, total, err := store.ListProducts(page, pageSize, 0, 0)
 		if err != nil {
 			reply.Code = 500
 			reply.Message = err.Error()

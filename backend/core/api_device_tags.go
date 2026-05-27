@@ -24,9 +24,20 @@ type deviceTagAssignmentPayload struct {
 	DeviceCodes []string `json:"device_codes"`
 }
 
-func currentDeviceTagScope(_ *ghttp.Request) store.AccessScope {
-	// Future RBAC integration should resolve this from authenticated user context.
-	return store.GlobalAccessScope()
+func currentDeviceTagScope(r *ghttp.Request) store.AccessScope {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || authCtx.TenantID == 0 {
+		return store.GlobalAccessScope()
+	}
+	return store.AccessScope{Type: "tenant", ID: strconv.FormatUint(uint64(authCtx.TenantID), 10)}
+}
+
+func canAccessDeviceCode(r *ghttp.Request, deviceCode string) bool {
+	device, err := store.GetDevice(deviceCode)
+	if err != nil {
+		return false
+	}
+	return canAccessDevice(r, device)
 }
 
 func parseUintRouteParam(r *ghttp.Request, name string) (uint, error) {
@@ -133,7 +144,13 @@ func (s *Server) handleListDeviceTagDevices(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
-	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{"device_codes": deviceCodes}})
+	filteredCodes := make([]string, 0, len(deviceCodes))
+	for _, code := range deviceCodes {
+		if canAccessDeviceCode(r, code) {
+			filteredCodes = append(filteredCodes, code)
+		}
+	}
+	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{"device_codes": filteredCodes}})
 }
 
 func (s *Server) handleReplaceDeviceTagDevices(r *ghttp.Request) {
@@ -147,6 +164,16 @@ func (s *Server) handleReplaceDeviceTagDevices(r *ghttp.Request) {
 	if err := json.Unmarshal(r.GetBody(), &payload); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
 		return
+	}
+	for _, code := range payload.DeviceCodes {
+		if !canAccessDeviceCode(r, code) {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+			return
+		}
+		if err := s.checkDeviceTagPermission(r, code); err != nil {
+			r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
+			return
+		}
 	}
 
 	if err := store.ReplaceDevicesForTag(currentDeviceTagScope(r), id, payload.DeviceCodes); err != nil {
@@ -163,6 +190,14 @@ func (s *Server) handleReplaceDeviceTags(r *ghttp.Request) {
 	var payload deviceTagAssignmentPayload
 	if err := json.Unmarshal(r.GetBody(), &payload); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
+		return
+	}
+	if !canAccessDeviceCode(r, code) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+	if err := s.checkDeviceTagPermission(r, code); err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
 		return
 	}
 

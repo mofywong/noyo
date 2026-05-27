@@ -16,39 +16,38 @@ import (
 )
 
 func (s *Server) RegisterDeviceRoutes(group *ghttp.RouterGroup) {
-	group.GET("/products", s.handleListProducts)
-	group.GET("/products/:code", s.handleGetProduct)
-	group.POST("/products", s.handleCreateProduct)
-	group.PUT("/products/:code", s.handleUpdateProduct)
-	group.DELETE("/products/:code", s.handleDeleteProduct)
+	permissionGET(group, "/products", "product:list", s.handleListProducts)
+	permissionGET(group, "/products/:code", "product:list", s.handleGetProduct)
+	permissionPOST(group, "/products", "product:create", s.handleCreateProduct)
+	permissionPUT(group, "/products/:code", "product:edit", s.handleUpdateProduct)
+	permissionDELETE(group, "/products/:code", "product:delete", s.handleDeleteProduct)
 
-	group.GET("/devices", s.handleListDevices)
-	group.GET("/devices/stream", s.handleDeviceStream)
-	group.GET("/devices/import/template", s.handleDownloadTemplate)
-	group.POST("/devices/import", s.handleImportDevices)
-	group.POST("/devices", s.handleCreateDevice)
-	group.PUT("/devices/:code/tags", s.handleReplaceDeviceTags)
-	group.GET("/devices/:code", s.handleGetDevice)
-	group.PUT("/devices/:code", s.handleUpdateDevice)
-	group.DELETE("/devices/:code", s.handleDeleteDevice)
+	permissionGET(group, "/devices", "device:list", s.handleListDevices)
+	permissionGET(group, "/devices/stream", "device:list", s.handleDeviceStream)
+	permissionGET(group, "/devices/import/template", "device:create", s.handleDownloadTemplate)
+	permissionPOST(group, "/devices/import", "device:create", s.handleImportDevices)
+	permissionGET(group, "/devices/config-schema", "device:list", s.handleGetDeviceConfigSchema)
+	permissionPOST(group, "/devices", "device:create", s.handleCreateDevice)
+	permissionPUT(group, "/devices/:code/tags", "device:edit", s.handleReplaceDeviceTags)
+	permissionGET(group, "/devices/:code", "device:list", s.handleGetDevice)
+	permissionPUT(group, "/devices/:code", "device:edit", s.handleUpdateDevice)
+	permissionDELETE(group, "/devices/:code", "device:delete", s.handleDeleteDevice)
 
-	group.GET("/device-tags", s.handleListDeviceTags)
-	group.POST("/device-tags", s.handleCreateDeviceTag)
-	group.PUT("/device-tags/:id", s.handleUpdateDeviceTag)
-	group.DELETE("/device-tags/:id", s.handleDeleteDeviceTag)
-	group.GET("/device-tags/:id/devices", s.handleListDeviceTagDevices)
-	group.PUT("/device-tags/:id/devices", s.handleReplaceDeviceTagDevices)
+	permissionGET(group, "/device-tags", "device:list", s.handleListDeviceTags)
+	permissionPOST(group, "/device-tags", "device:edit", s.handleCreateDeviceTag)
+	permissionPUT(group, "/device-tags/:id", "device:edit", s.handleUpdateDeviceTag)
+	permissionDELETE(group, "/device-tags/:id", "device:edit", s.handleDeleteDeviceTag)
+	permissionGET(group, "/device-tags/:id/devices", "device:list", s.handleListDeviceTagDevices)
+	permissionPUT(group, "/device-tags/:id/devices", "device:edit", s.handleReplaceDeviceTagDevices)
 
-	group.POST("/devices/:code/start", s.handleStartDevice)
-	group.POST("/devices/:code/stop", s.handleStopDevice)
-	group.POST("/devices/:code/write", s.handleWritePoint)
-	group.POST("/devices/:code/invoke", s.handleInvokeService)
-	group.GET("/devices/:code/data", s.handleGetDeviceData)
-	group.GET("/devices/:code/events", s.handleListDeviceEvents)
-	group.GET("/stats", s.handleGetStats)
+	permissionPOST(group, "/devices/:code/start", "device:control", s.handleStartDevice)
+	permissionPOST(group, "/devices/:code/stop", "device:control", s.handleStopDevice)
+	permissionPOST(group, "/devices/:code/write", "device:control", s.handleWritePoint)
+	permissionPOST(group, "/devices/:code/invoke", "device:control", s.handleInvokeService)
+	permissionGET(group, "/devices/:code/data", "device:list", s.handleGetDeviceData)
+	permissionGET(group, "/devices/:code/events", "device:list", s.handleListDeviceEvents)
+	permissionGET(group, "/stats", "device:list", s.handleGetStats)
 
-	// 设备配置 Schema API（子设备从父设备获取协议的 SubDeviceConfigSchema）
-	group.GET("/devices/config-schema", s.handleGetDeviceConfigSchema)
 }
 
 // --- Product Handlers ---
@@ -57,7 +56,10 @@ func (s *Server) handleListProducts(r *ghttp.Request) {
 	page := r.Get("page", 1).Int()
 	pageSize := r.Get("pageSize", 10).Int()
 
-	products, total, err := store.ListProducts(page, pageSize)
+	tenantID := r.GetCtxVar("tenant_id").Uint()
+	projectID := r.GetCtxVar("project_id").Uint()
+
+	products, total, err := store.ListProducts(page, pageSize, tenantID, projectID)
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
@@ -78,6 +80,10 @@ func (s *Server) handleGetProduct(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "Product not found"})
 		return
 	}
+	if !canAccessProduct(r, product) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
 	r.Response.WriteJson(g.Map{"code": 0, "data": product})
 }
 
@@ -91,6 +97,16 @@ func (s *Server) handleCreateProduct(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Code is required"})
 		return
 	}
+
+	tenantID := r.GetCtxVar("tenant_id").Uint()
+	if tenantID > 0 {
+		p.TenantID = tenantID
+	}
+	if !canAccessProduct(r, &p) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+
 	// ProtocolName 现在为可选字段，为空表示该产品只能作为子设备使用
 	if err := store.SaveProduct(&p); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
@@ -113,6 +129,17 @@ func (s *Server) handleUpdateProduct(r *ghttp.Request) {
 	}
 	// Ensure code matches
 	p.Code = code
+	existing, err := store.GetProduct(code)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 404, "message": "Product not found"})
+		return
+	}
+	if !canAccessProduct(r, existing) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+	p.TenantID = existing.TenantID
+	p.ProjectID = existing.ProjectID
 	if err := store.UpdateProduct(&p); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
@@ -152,6 +179,15 @@ func (s *Server) handleUpdateProduct(r *ghttp.Request) {
 
 func (s *Server) handleDeleteProduct(r *ghttp.Request) {
 	code := r.Get("code").String()
+	product, err := store.GetProduct(code)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 404, "message": "Product not found"})
+		return
+	}
+	if !canAccessProduct(r, product) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
 	if err := store.DeleteProduct(code); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
@@ -168,6 +204,10 @@ func (s *Server) handleGetDevice(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "Device not found"})
 		return
 	}
+	if !canAccessDevice(r, device) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
 	r.Response.WriteJson(g.Map{"code": 0, "data": device})
 }
 
@@ -179,7 +219,26 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 	r.Response.Header().Set("Pragma", "no-cache")
 	r.Response.Header().Set("Expires", "0")
 
-	devices, total, err := store.ListDevices(page, pageSize)
+	tenantID := r.GetCtxVar("tenant_id").Uint()
+	projectID := r.GetCtxVar("project_id").Uint()
+
+	var projectIDs []uint
+	restrictProjects := false
+	if authCtx := requestAuthContext(r); authCtx != nil {
+		if ids, restricted := authCtx.ProjectIDsForTenantQuery(); restricted && projectID == 0 {
+			projectIDs = ids
+			restrictProjects = true
+		}
+	}
+
+	var devices []store.Device
+	var total int64
+	var err error
+	if restrictProjects {
+		devices, total, err = store.ListDevices(page, pageSize, tenantID, projectID, projectIDs)
+	} else {
+		devices, total, err = store.ListDevices(page, pageSize, tenantID, projectID)
+	}
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
@@ -332,6 +391,23 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 		return
 	}
 
+	tenantID := r.GetCtxVar("tenant_id").Uint()
+	if tenantID > 0 {
+		d.TenantID = tenantID
+	}
+	if authCtx := requestAuthContext(r); authCtx != nil && !authCtx.IsTenantAdmin && !authCtx.IsSystemAdmin {
+		projectID := r.GetCtxVar("project_id").Uint()
+		if projectID == 0 {
+			r.Response.WriteJson(g.Map{"code": 400, "message": "Project context is required"})
+			return
+		}
+		d.ProjectID = projectID
+	}
+	if !canAccessDevice(r, &d) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+
 	// 验证协议配置
 	product, err := store.GetProduct(d.ProductCode)
 	if err != nil {
@@ -350,6 +426,10 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 		parentDevice, err := store.GetDevice(d.ParentCode)
 		if err != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备不存在"})
+			return
+		}
+		if !canAccessDevice(r, parentDevice) {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 			return
 		}
 		parentProduct, err := store.GetProduct(parentDevice.ProductCode)
@@ -416,6 +496,12 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "Device not found"})
 		return
 	}
+	if !canAccessDevice(r, oldDevice) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+	d.TenantID = oldDevice.TenantID
+	d.ProjectID = oldDevice.ProjectID
 	if err := validatePollingGroupsPreserved(oldDevice.Config, d.Config); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 		return
@@ -562,7 +648,15 @@ func (s *Server) handleDeleteDevice(r *ghttp.Request) {
 	code := r.Get("code").String()
 
 	// Get device info before deletion to check ParentCode
-	device, _ := store.GetDevice(code)
+	device, err := store.GetDevice(code)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 404, "message": "Device not found"})
+		return
+	}
+	if !canAccessDevice(r, device) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
 	parentCode := ""
 	if device != nil {
 		parentCode = device.ParentCode
@@ -598,6 +692,10 @@ func (s *Server) handleStartDevice(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "Device not found"})
 		return
 	}
+	if !canAccessDevice(r, device) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
 	device.Enabled = true
 	if err := store.SaveDevice(device); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
@@ -631,6 +729,10 @@ func (s *Server) handleStopDevice(r *ghttp.Request) {
 	device, err := store.GetDevice(code)
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "Device not found"})
+		return
+	}
+	if !canAccessDevice(r, device) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
 	device.Enabled = false
@@ -682,6 +784,15 @@ func (s *Server) handleStopDevice(r *ghttp.Request) {
 
 func (s *Server) handleGetDeviceData(r *ghttp.Request) {
 	code := r.Get("code").String()
+	device, err := store.GetDevice(code)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 404, "message": "Device not found"})
+		return
+	}
+	if !canAccessDevice(r, device) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
 	data := s.DeviceManager.GetLatestData(code)
 
 	// If no runtime data (e.g., offline or just restarted), try to fetch the last reported data from TSDB
@@ -753,6 +864,9 @@ func (s *Server) handleDeviceStream(r *ghttp.Request) {
 		case <-ctx.Done():
 			return
 		case e := <-eventChan:
+			if !canAccessDeviceEvent(r, e) {
+				continue
+			}
 			data, err := json.Marshal(e)
 			if err == nil {
 				msg := fmt.Sprintf("event: %s\ndata: %s\n\n", e.Type, string(data))
@@ -794,8 +908,18 @@ func (s *Server) handleWritePoint(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "Device not found"})
 		return
 	}
+	if !canAccessDevice(r, deviceModel) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
 	if !deviceModel.Enabled {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Device is disabled"})
+		return
+	}
+
+	// Permission Check
+	if err := s.checkDeviceTagPermission(r, code); err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
 		return
 	}
 
@@ -896,8 +1020,18 @@ func (s *Server) handleInvokeService(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "Device not found"})
 		return
 	}
+	if !canAccessDevice(r, deviceModel) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
 	if !deviceModel.Enabled {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Device is disabled"})
+		return
+	}
+
+	// Permission Check
+	if err := s.checkDeviceTagPermission(r, code); err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
 		return
 	}
 
@@ -1057,6 +1191,10 @@ func (s *Server) handleGetDeviceConfigSchema(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 404, "message": "Product not found"})
 			return
 		}
+		if !canAccessProduct(r, product) {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+			return
+		}
 		if product.ProtocolName == "" {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "该产品没有绑定协议，只能作为子设备使用"})
 			return
@@ -1107,6 +1245,10 @@ func (s *Server) handleGetDeviceConfigSchema(r *ghttp.Request) {
 			product, err := store.GetProduct(productCode)
 			if err != nil {
 				r.Response.WriteJson(g.Map{"code": 404, "message": "Product not found"})
+				return
+			}
+			if !canAccessProduct(r, product) {
+				r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 				return
 			}
 			if product.ProtocolName == "" {
@@ -1196,4 +1338,79 @@ func (s *Server) handleGetDeviceConfigSchema(r *ghttp.Request) {
 			"isSubDevice":  isSubDevice,
 		},
 	})
+}
+
+func (s *Server) checkDeviceTagPermission(r *ghttp.Request, deviceCode string) error {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil {
+		return fmt.Errorf("auth context not found")
+	}
+	if authCtx.SubjectType == "app" || authCtx.IsSystemAdmin || authCtx.IsTenantAdmin {
+		return nil
+	}
+
+	scope := currentDeviceTagScope(r)
+	var bindings []store.DeviceTagBinding
+	if err := store.DB.Where("scope_type = ? AND scope_id = ? AND device_code = ?", scope.Type, scope.ID, deviceCode).Find(&bindings).Error; err != nil {
+		return err
+	}
+	if len(bindings) == 0 {
+		return nil
+	}
+
+	for _, b := range bindings {
+		for _, roleID := range authCtx.RoleIDs {
+			var dtp store.RoleDeviceTagPermission
+			if err := store.DB.Where("role_id = ? AND tag_id = ? AND permission = ?", roleID, b.TagID, "write").First(&dtp).Error; err == nil {
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("read-only access to this device due to tag restrictions")
+}
+
+func canAccessDeviceEvent(r *ghttp.Request, event types.Event) bool {
+	if event.Type == types.EventDeviceListChanged {
+		return true
+	}
+	if event.Topic == "" {
+		return false
+	}
+	device, err := store.GetDevice(event.Topic)
+	if err != nil {
+		return false
+	}
+	return canAccessDevice(r, device)
+}
+
+func canAccessProduct(r *ghttp.Request, product *store.Product) bool {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || product == nil {
+		return false
+	}
+	if authCtx.IsSystemAdmin {
+		return authCtx.TenantID == 0 || product.TenantID == authCtx.TenantID
+	}
+	if product.TenantID != authCtx.TenantID {
+		return false
+	}
+	return product.ProjectID == 0 || authCtx.CanAccessProject(product.ProjectID)
+}
+
+func canAccessDevice(r *ghttp.Request, device *store.Device) bool {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || device == nil {
+		return false
+	}
+	if authCtx.IsSystemAdmin {
+		return authCtx.TenantID == 0 || device.TenantID == authCtx.TenantID
+	}
+	if device.TenantID != authCtx.TenantID {
+		return false
+	}
+	if authCtx.IsTenantAdmin {
+		return true
+	}
+	return device.ProjectID > 0 && authCtx.CanAccessProject(device.ProjectID)
 }

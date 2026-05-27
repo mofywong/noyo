@@ -1,6 +1,7 @@
 package core
 
 import (
+	"noyo/core/store"
 	"noyo/core/tsdb"
 	"time"
 
@@ -11,6 +12,15 @@ import (
 // handleListDeviceEvents retrieves events for a device
 func (s *Server) handleListDeviceEvents(r *ghttp.Request) {
 	code := r.Get("code").String()
+	device, err := store.GetDevice(code)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 404, "message": "Device not found"})
+		return
+	}
+	if !canAccessDevice(r, device) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
 	startTime := r.Get("start").Int64()
 	endTime := r.Get("end").Int64()
 	page := r.Get("page", 1).Int()

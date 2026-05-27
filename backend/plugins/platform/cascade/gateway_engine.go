@@ -441,7 +441,7 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 	}
 
 	// 3. Clean up deleted devices
-	localDevices, _, err := store.ListDevices(0, 0)
+	localDevices, _, err := store.ListDevices(0, 0, 0, 0)
 	if err != nil {
 		e.logger.Error("Failed to list local devices for cleanup", zap.Error(err))
 	} else {

@@ -1,7 +1,7 @@
 <template>
   <div class="card border-0 shadow-sm h-100">
     <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center py-3">
-      <h5 class="mb-0">{{ $t('sidebar_products') }}</h5>
+      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_products') }}</h2>
       <button class="btn btn-primary btn-sm" @click="openCreateModal">
         <i class="bi bi-plus-lg me-1"></i> {{ $t('prod_create') }}
       </button>

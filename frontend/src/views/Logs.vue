@@ -1,7 +1,7 @@
 <template>
   <div class="logs-container h-100 d-flex flex-column">
     <div class="d-flex justify-content-between align-items-center mb-3">
-      <h4 class="mb-0">{{ $t('sidebar_logs') }}</h4>
+      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_logs') }}</h2>
       
       <div class="btn-group">
         <button class="btn btn-outline-primary" :class="{ active: activeTab === 'realtime' }" @click="activeTab = 'realtime'">

@@ -37,7 +37,7 @@ func (dr *DeviceRegistry) Init() error {
 		return fmt.Errorf("failed to load products: %w", err)
 	}
 
-	devices, _, err := store.ListDevices(0, 0)
+	devices, _, err := store.ListDevices(0, 0, 0, 0)
 	if err != nil {
 		return fmt.Errorf("failed to load devices: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 // PluginModel represents the database structure for plugin configuration
 type PluginModel struct {
 	Name      string    `gorm:"primaryKey" json:"name"`
+	TenantID  uint      `gorm:"index;not null;default:0" json:"tenant_id"`
 	Enabled   bool      `json:"enabled"`
 	Config    string    `json:"config"` // JSON string
 	CreatedAt time.Time `json:"created_at"`

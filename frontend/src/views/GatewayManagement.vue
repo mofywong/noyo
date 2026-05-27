@@ -3,8 +3,8 @@
     <div class="gateway-page-header">
       <div>
         <div class="gateway-page-kicker">{{ gt('remote_gateway_config') }}</div>
-        <h5 class="gateway-page-title">{{ gt('gateway_management') }}</h5>
-        <div class="gateway-page-subtitle">{{ gt('gateway_management_hint') }}</div>
+        <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ gt('gateway_management') }}</h2>
+        <div class="gateway-page-subtitle mt-2">{{ gt('gateway_management_hint') }}</div>
       </div>
       <button class="btn btn-outline-primary btn-sm gateway-refresh-btn" @click="fetchGateways" :disabled="loading">
         <i class="bi bi-arrow-clockwise me-1"></i>{{ $t('refresh') }}

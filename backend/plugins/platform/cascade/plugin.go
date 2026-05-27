@@ -312,7 +312,7 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 	}
 
 	coreServer, _ := p.ctx.GetCoreServer().(*core.Server)
-	devices, _, err := store.ListDevices(0, 0)
+	devices, _, err := store.ListDevices(0, 0, 0, 0)
 	if err != nil {
 		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
 		return
