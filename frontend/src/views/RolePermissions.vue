@@ -151,7 +151,11 @@ const open = async (roleItem) => {
 const loadSystemPermissions = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/permissions')
+    const params = {}
+    if (role.value?.project_id > 0) {
+      params.project_id = role.value.project_id
+    }
+    const res = await axios.get('/api/permissions', { params })
     if (res.data.code === 0) {
       allPermissions.value = res.data.data || []
     }

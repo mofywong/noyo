@@ -31,6 +31,7 @@ type AuthContext struct {
 	RoleIDs            []uint
 	PermissionCodes    map[string]bool
 	AllowedProjectIDs  []uint
+	UsesProjectLimits  bool
 	MustChangePassword bool
 }
 
@@ -156,7 +157,7 @@ func (ctx *AuthContext) CanAssignRole(role store.Role, targetProjectID uint) boo
 		return false
 	}
 	if targetProjectID == 0 {
-		return ctx.IsTenantAdmin && role.ProjectID == 0 && role.Code != RoleCodeProjectAdmin
+		return ctx.IsTenantAdmin && role.ProjectID == 0 && !role.IsInherited && role.Code != RoleCodeProjectAdmin
 	}
 	if !ctx.CanAccessProject(targetProjectID) {
 		return false
@@ -324,11 +325,13 @@ func applyRoleBindings(ctx *AuthContext, bindings []resolvedRoleBinding, legacyR
 			for _, id := range allProjectIDs(ctx.TenantID) {
 				projectIDMap[id] = true
 			}
-			continue
 		}
 		if binding.ProjectID > 0 {
 			projectIDMap[binding.ProjectID] = true
-			continue
+			ctx.UsesProjectLimits = true
+		}
+		if role.ProjectID > 0 || role.IsInherited || role.Code == RoleCodeProjectAdmin {
+			ctx.UsesProjectLimits = true
 		}
 		if role.ProjectID > 0 {
 			projectIDMap[role.ProjectID] = true
@@ -360,9 +363,75 @@ func loadPermissions(ctx *AuthContext) {
 		Joins("JOIN role_permissions ON role_permissions.permission_id = permissions.id").
 		Where("role_permissions.role_id IN ?", ctx.RoleIDs).
 		Find(&permissions)
+	baseCodes := make(map[string]bool)
 	for _, permission := range permissions {
-		ctx.PermissionCodes[permission.Code] = true
+		baseCodes[permission.Code] = true
 	}
+	ctx.PermissionCodes = applyPermissionLimits(ctx, baseCodes)
+}
+
+func applyPermissionLimits(ctx *AuthContext, baseCodes map[string]bool) map[string]bool {
+	if ctx == nil {
+		return map[string]bool{}
+	}
+	if ctx.TenantID == 0 {
+		return baseCodes
+	}
+
+	tenantLimit := permissionLimitCodeSet("tenant", ctx.TenantID, 0)
+	filteredCodes := intersectPermissionCodes(baseCodes, tenantLimit)
+	if ctx.IsTenantAdmin || !ctx.UsesProjectLimits {
+		return filteredCodes
+	}
+
+	var projectLimit map[string]bool
+	if ctx.ProjectID > 0 {
+		projectLimit = permissionLimitCodeSet("project", ctx.TenantID, ctx.ProjectID)
+	} else {
+		projectLimit = projectPermissionLimitUnionCodeSet(ctx.TenantID, ctx.AllowedProjectIDs)
+	}
+	return intersectPermissionCodes(filteredCodes, projectLimit)
+}
+
+func permissionLimitCodeSet(scopeType string, tenantID, projectID uint) map[string]bool {
+	var codes []string
+	store.DB.Model(&store.Permission{}).
+		Select("permissions.code").
+		Joins("JOIN scope_permission_limits ON scope_permission_limits.permission_id = permissions.id").
+		Where("scope_permission_limits.scope_type = ? AND scope_permission_limits.tenant_id = ? AND scope_permission_limits.project_id = ?", scopeType, tenantID, projectID).
+		Scan(&codes)
+	return permissionCodeSet(codes)
+}
+
+func projectPermissionLimitUnionCodeSet(tenantID uint, projectIDs []uint) map[string]bool {
+	if len(projectIDs) == 0 {
+		return map[string]bool{}
+	}
+	var codes []string
+	store.DB.Model(&store.Permission{}).
+		Select("permissions.code").
+		Joins("JOIN scope_permission_limits ON scope_permission_limits.permission_id = permissions.id").
+		Where("scope_permission_limits.scope_type = ? AND scope_permission_limits.tenant_id = ? AND scope_permission_limits.project_id IN ?", "project", tenantID, projectIDs).
+		Scan(&codes)
+	return permissionCodeSet(codes)
+}
+
+func permissionCodeSet(codes []string) map[string]bool {
+	result := make(map[string]bool, len(codes))
+	for _, code := range codes {
+		result[code] = true
+	}
+	return result
+}
+
+func intersectPermissionCodes(left, right map[string]bool) map[string]bool {
+	result := make(map[string]bool)
+	for code := range left {
+		if right[code] {
+			result[code] = true
+		}
+	}
+	return result
 }
 
 func allProjectIDs(tenantID uint) []uint {

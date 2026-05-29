@@ -31,7 +31,21 @@ func (s *Server) handleGetTenants(r *ghttp.Request) {
 		return
 	}
 
-	r.Response.WriteJson(g.Map{"code": 0, "data": tenants, "total": total, "page": page, "pageSize": pageSize})
+	type TenantResponse struct {
+		store.Tenant
+		PermissionIDs []uint `json:"permission_ids"`
+	}
+	res := make([]TenantResponse, 0, len(tenants))
+	for _, tenant := range tenants {
+		permissionIDs, err := loadScopePermissionLimitIDs(store.DB, permissionLimitScopeTenant, tenant.ID, 0)
+		if err != nil {
+			r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch tenant permission limits"})
+			return
+		}
+		res = append(res, TenantResponse{Tenant: tenant, PermissionIDs: permissionIDs})
+	}
+
+	r.Response.WriteJson(g.Map{"code": 0, "data": res, "total": total, "page": page, "pageSize": pageSize})
 }
 
 func (s *Server) handleCreateTenant(r *ghttp.Request) {
@@ -39,6 +53,7 @@ func (s *Server) handleCreateTenant(r *ghttp.Request) {
 		store.Tenant
 		AdminUsername string `json:"admin_username"`
 		AdminPassword string `json:"admin_password"`
+		PermissionIDs []uint `json:"permission_ids"`
 	}
 
 	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
@@ -85,7 +100,7 @@ func (s *Server) handleCreateTenant(r *ghttp.Request) {
 			return err
 		}
 
-		return nil
+		return replaceTenantPermissionLimit(tx, req.Tenant.ID, req.PermissionIDs)
 	})
 
 	if err != nil {
@@ -104,25 +119,37 @@ func (s *Server) handleUpdateTenant(r *ghttp.Request) {
 		return
 	}
 
-	var update store.Tenant
+	var update struct {
+		store.Tenant
+		PermissionIDs []uint `json:"permission_ids"`
+	}
 	if err := json.Unmarshal(r.GetBody(), &update); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
 		return
 	}
 
-	tenant.Name = update.Name
-	tenant.Contact = update.Contact
-	tenant.Phone = update.Phone
-	tenant.Email = update.Email
-	tenant.Description = update.Description
-	tenant.Logo = update.Logo
-	tenant.LoginSuffix = update.LoginSuffix
-	tenant.Status = update.Status
-	tenant.MaxUsers = update.MaxUsers
-	tenant.MaxDevices = update.MaxDevices
-	tenant.ExpiresAt = update.ExpiresAt
+	tenant.Name = update.Tenant.Name
+	tenant.Contact = update.Tenant.Contact
+	tenant.Phone = update.Tenant.Phone
+	tenant.Email = update.Tenant.Email
+	tenant.Description = update.Tenant.Description
+	tenant.Logo = update.Tenant.Logo
+	tenant.LoginSuffix = update.Tenant.LoginSuffix
+	tenant.Status = update.Tenant.Status
+	tenant.MaxUsers = update.Tenant.MaxUsers
+	tenant.MaxDevices = update.Tenant.MaxDevices
+	tenant.ExpiresAt = update.Tenant.ExpiresAt
 
-	if err := store.DB.Save(&tenant).Error; err != nil {
+	err := store.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&tenant).Error; err != nil {
+			return err
+		}
+		if update.PermissionIDs != nil {
+			return replaceTenantPermissionLimit(tx, tenant.ID, update.PermissionIDs)
+		}
+		return nil
+	})
+	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to update tenant: " + err.Error()})
 		return
 	}
@@ -139,6 +166,7 @@ func (s *Server) handleDeleteTenant(r *ghttp.Request) {
 		tx.Where("tenant_id = ?", id).Delete(&store.Project{})
 		tx.Where("tenant_id = ?", id).Delete(&store.App{})
 		tx.Where("tenant_id = ?", id).Delete(&store.UserRoleBinding{})
+		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.ScopePermissionLimit{})
 		tx.Where("tenant_id = ?", id).Delete(&store.AuditLog{})
 		return tx.Delete(&store.Tenant{}, id).Error
 	})
@@ -148,6 +176,15 @@ func (s *Server) handleDeleteTenant(r *ghttp.Request) {
 		return
 	}
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Deleted successfully"})
+}
+
+func (s *Server) handleGetTenantPermissionOptions(r *ghttp.Request) {
+	var permissions []store.Permission
+	if err := tenantPermissionOptionQuery(store.DB).Order("module asc, sort_order asc, code asc").Find(&permissions).Error; err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch permissions"})
+		return
+	}
+	r.Response.WriteJson(g.Map{"code": 0, "data": permissions, "total": len(permissions)})
 }
 
 func (s *Server) handleGetTenantUsers(r *ghttp.Request) {

@@ -109,9 +109,10 @@ func (s *Server) handleGetProjects(r *ghttp.Request) {
 
 	type ProjectResponse struct {
 		store.Project
-		Admins       string `json:"admins"`
-		AdminUserIDs []uint `json:"admin_user_ids"`
-		AdminUserID  uint   `json:"admin_user_id"`
+		Admins        string `json:"admins"`
+		AdminUserIDs  []uint `json:"admin_user_ids"`
+		AdminUserID   uint   `json:"admin_user_id"`
+		PermissionIDs []uint `json:"permission_ids"`
 	}
 
 	res := make([]ProjectResponse, 0, len(projects))
@@ -121,11 +122,17 @@ func (s *Server) handleGetProjects(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch project administrators"})
 			return
 		}
+		permissionIDs, err := loadScopePermissionLimitIDs(store.DB, permissionLimitScopeProject, p.TenantID, p.ID)
+		if err != nil {
+			r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch project permission limits"})
+			return
+		}
 		res = append(res, ProjectResponse{
-			Project:      p,
-			Admins:       adminSummary.Names,
-			AdminUserIDs: adminSummary.UserIDs,
-			AdminUserID:  adminSummary.UserID,
+			Project:       p,
+			Admins:        adminSummary.Names,
+			AdminUserIDs:  adminSummary.UserIDs,
+			AdminUserID:   adminSummary.UserID,
+			PermissionIDs: permissionIDs,
 		})
 	}
 
@@ -156,10 +163,34 @@ func (s *Server) handleGetAccessibleProjects(r *ghttp.Request) {
 	r.Response.WriteJson(g.Map{"code": 0, "data": projects, "total": len(projects)})
 }
 
+func (s *Server) handleGetProjectPermissionOptions(r *ghttp.Request) {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || !authCtx.IsTenantAdmin || (!authCtx.HasPermission("project:create") && !authCtx.HasPermission("project:edit")) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+
+	var permissions []store.Permission
+	if err := store.DB.Model(&store.Permission{}).
+		Where(
+			"id IN (?)",
+			store.DB.Model(&store.ScopePermissionLimit{}).
+				Select("permission_id").
+				Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeTenant, authCtx.TenantID, 0),
+		).
+		Order("module asc, sort_order asc, code asc").
+		Find(&permissions).Error; err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch permissions"})
+		return
+	}
+	r.Response.WriteJson(g.Map{"code": 0, "data": permissions, "total": len(permissions)})
+}
+
 func (s *Server) handleCreateProject(r *ghttp.Request) {
 	var req struct {
 		store.Project
-		AdminUserID uint `json:"admin_user_id"`
+		AdminUserID   uint   `json:"admin_user_id"`
+		PermissionIDs []uint `json:"permission_ids"`
 	}
 
 	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
@@ -184,6 +215,9 @@ func (s *Server) handleCreateProject(r *ghttp.Request) {
 			return err
 		}
 
+		if err := replaceProjectPermissionLimit(tx, req.Project.TenantID, req.Project.ID, req.PermissionIDs); err != nil {
+			return err
+		}
 		return replaceProjectAdmin(tx, req.Project.TenantID, req.Project.ID, req.AdminUserID)
 	})
 
@@ -209,7 +243,8 @@ func (s *Server) handleUpdateProject(r *ghttp.Request) {
 
 	var update struct {
 		store.Project
-		AdminUserID uint `json:"admin_user_id"`
+		AdminUserID   uint   `json:"admin_user_id"`
+		PermissionIDs []uint `json:"permission_ids"`
 	}
 	if err := json.Unmarshal(r.GetBody(), &update); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
@@ -231,7 +266,12 @@ func (s *Server) handleUpdateProject(r *ghttp.Request) {
 			return err
 		}
 		if update.AdminUserID > 0 {
-			return replaceProjectAdmin(tx, project.TenantID, project.ID, update.AdminUserID)
+			if err := replaceProjectAdmin(tx, project.TenantID, project.ID, update.AdminUserID); err != nil {
+				return err
+			}
+		}
+		if update.PermissionIDs != nil {
+			return replaceProjectPermissionLimit(tx, project.TenantID, project.ID, update.PermissionIDs)
 		}
 		return nil
 	})
@@ -254,7 +294,13 @@ func (s *Server) handleDeleteProject(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
-	if err := store.DB.Delete(&store.Project{}, id).Error; err != nil {
+	err := store.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeProject, project.TenantID, project.ID).Delete(&store.ScopePermissionLimit{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&store.Project{}, id).Error
+	})
+	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to delete project"})
 		return
 	}

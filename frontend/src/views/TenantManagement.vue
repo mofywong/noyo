@@ -164,6 +164,31 @@
                 </div>
               </template>
 
+              <hr class="my-3">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="text-primary mb-0"><i class="bi bi-shield-check me-2"></i>{{ $t('tenant_permission_limit', '租户最大权限集') }}</h6>
+                <div class="btn-group btn-group-sm">
+                  <button type="button" class="btn btn-outline-primary" @click="selectAllTenantPermissions">{{ $t('common_select_all', '全选') }}</button>
+                  <button type="button" class="btn btn-outline-secondary" @click="clearTenantPermissions">{{ $t('common_clear', '清空') }}</button>
+                </div>
+              </div>
+              <div v-if="tenantPermissionOptions.length === 0" class="text-muted small mb-3">
+                {{ $t('tenant_permission_empty', '暂无可分配权限') }}
+              </div>
+              <div class="row">
+                <div class="col-md-4 mb-3" v-for="(permissions, module) in groupedTenantPermissionOptions" :key="module">
+                  <div class="border rounded p-3 h-100">
+                    <div class="fw-bold text-muted small mb-2 text-uppercase">{{ module }}</div>
+                    <div class="form-check" v-for="permission in permissions" :key="permission.ID">
+                      <input class="form-check-input" type="checkbox" :id="'tenant-perm-' + permission.ID" :value="permission.ID" v-model="form.permission_ids">
+                      <label class="form-check-label small" :for="'tenant-perm-' + permission.ID">
+                        {{ permission.name }}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
             </form>
           </div>
           <div class="modal-footer">
@@ -226,7 +251,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import axios from 'axios'
 import DOMPurify from 'dompurify'
 import { Modal } from 'bootstrap'
@@ -236,6 +261,7 @@ const { t } = useI18n()
 
 const tenants = ref([])
 const loading = ref(false)
+const tenantPermissionOptions = ref([])
 const tenantModalRef = ref(null)
 let tenantModal = null
 
@@ -269,8 +295,26 @@ const form = ref({
   status: 1,
   admin_username: '',
   admin_password: '',
-  admin_password_confirm: ''
+  admin_password_confirm: '',
+  permission_ids: []
 })
+
+const groupedTenantPermissionOptions = computed(() => {
+  const groups = {}
+  tenantPermissionOptions.value.forEach(permission => {
+    if (!groups[permission.module]) groups[permission.module] = []
+    groups[permission.module].push(permission)
+  })
+  return groups
+})
+
+const selectAllTenantPermissions = () => {
+  form.value.permission_ids = tenantPermissionOptions.value.map(permission => permission.ID)
+}
+
+const clearTenantPermissions = () => {
+  form.value.permission_ids = []
+}
 
 const handleLogoUpload = (event) => {
   const file = event.target.files[0];
@@ -311,11 +355,23 @@ const loadTenants = async () => {
   }
 }
 
+const loadTenantPermissionOptions = async () => {
+  try {
+    const res = await axios.get('/api/tenants/permission-options')
+    if (res.data.code === 0) {
+      tenantPermissionOptions.value = res.data.data || []
+    }
+  } catch (error) {
+    console.error("Failed to load tenant permission options:", error)
+  }
+}
+
 onMounted(() => {
   tenantModal = new Modal(tenantModalRef.value)
   tenantResetPasswordModal = new Modal(tenantResetPasswordModalRef.value)
   changeAdminModal = new Modal(changeAdminModalRef.value)
   loadTenants()
+  loadTenantPermissionOptions()
 })
 
 const openCreateModal = () => {
@@ -335,7 +391,8 @@ const openCreateModal = () => {
     status: 1,
     admin_username: '',
     admin_password: '',
-    admin_password_confirm: ''
+    admin_password_confirm: '',
+    permission_ids: []
   }
   showAdminPassword.value = false
   showConfirmPassword.value = false
@@ -356,12 +413,17 @@ const openEditModal = (item) => {
     login_suffix: item.login_suffix,
     max_users: item.max_users,
     max_devices: item.max_devices,
-    status: item.status
+    status: item.status,
+    permission_ids: item.permission_ids || []
   }
   tenantModal.show()
 }
 
 const saveTenant = async () => {
+  if (form.value.permission_ids.length === 0) {
+    alert(t('tenant_permission_required', '请至少选择一个租户权限'))
+    return
+  }
   if (!isEditing.value && form.value.admin_password !== form.value.admin_password_confirm) {
     alert(t('auth_password_mismatch', '两次输入的密码不一致！'))
     return

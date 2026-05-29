@@ -20,11 +20,46 @@ func (s *Server) handleGetSystemPermissions(r *ghttp.Request) {
 	db := store.DB.Model(&store.Permission{})
 	switch {
 	case authCtx.IsSystemAdmin:
-		db = db.Where("module IN ?", []string{"tenant", "system"})
+		db = tenantPermissionOptionQuery(store.DB)
 	case authCtx.IsTenantAdmin:
-		db = db.Where("module NOT IN ?", []string{"tenant", "system"})
+		projectID := r.Get("project_id").Uint()
+		if projectID > 0 {
+			if !projectBelongsToTenant(projectID, authCtx.TenantID) {
+				r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
+				return
+			}
+			db = db.Where(
+				"id IN (?)",
+				store.DB.Model(&store.ScopePermissionLimit{}).
+					Select("permission_id").
+					Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeProject, authCtx.TenantID, projectID),
+			)
+		} else {
+			db = db.Where(
+				"id IN (?)",
+				store.DB.Model(&store.ScopePermissionLimit{}).
+					Select("permission_id").
+					Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeTenant, authCtx.TenantID, 0),
+			)
+		}
 	default:
-		db = db.Where("module NOT IN ?", []string{"tenant", "system", "project"})
+		projectID := r.Get("project_id").Uint()
+		if projectID == 0 {
+			projectID = authCtx.ProjectID
+		}
+		if projectID == 0 && len(authCtx.AllowedProjectIDs) == 1 {
+			projectID = authCtx.AllowedProjectIDs[0]
+		}
+		if projectID == 0 || !authCtx.CanAccessProject(projectID) {
+			r.Response.WriteJson(g.Map{"code": 0, "data": []store.Permission{}, "total": 0})
+			return
+		}
+		db = db.Where(
+			"id IN (?)",
+			store.DB.Model(&store.ScopePermissionLimit{}).
+				Select("permission_id").
+				Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeProject, authCtx.TenantID, projectID),
+		)
 	}
 
 	var perms []store.Permission
@@ -114,6 +149,9 @@ func validateAssignablePermissionIDs(tx *gorm.DB, permissionIDs []uint, targetRo
 	for _, permission := range perms {
 		if !permissionAssignableToRole(permission, targetRole, authCtx) {
 			return fmt.Errorf("permission %s is outside assignable scope", permission.Code)
+		}
+		if !permissionWithinAssignmentLimit(tx, permission.ID, targetRole, authCtx) {
+			return fmt.Errorf("permission %s is outside permission limit", permission.Code)
 		}
 	}
 	return nil

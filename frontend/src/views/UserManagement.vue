@@ -410,9 +410,19 @@ const removeUnifiedRoleRow = (index) => {
 const getRolesForScope = (projectId) => {
   if (projectId === null || projectId === undefined) return [];
   if (projectId === 0) {
-    return allRoles.value.filter(x => x.project_id === 0 && x.code !== 'project_admin');
+    return allRoles.value.filter(isTenantAssignableRole);
   }
-  return allRoles.value.filter(x => (x.project_id === 0 || x.project_id === projectId) && x.code !== 'tenant_admin' && x.code !== 'super_admin');
+  return allRoles.value.filter(role => isProjectAssignableRole(role, projectId));
+}
+
+const isTenantAssignableRole = (role) => {
+  return role.project_id === 0 && role.is_inherited !== true && role.code !== 'project_admin' && role.code !== 'super_admin';
+}
+
+const isProjectAssignableRole = (role, projectId) => {
+  if (role.code === 'tenant_admin' || role.code === 'super_admin') return false;
+  if (role.code === 'project_admin') return true;
+  return (role.project_id === 0 && role.is_inherited === true) || role.project_id === projectId;
 }
 
 const isEditing = ref(false)
@@ -440,7 +450,7 @@ const getFormNameLabel = () => {
 
 const getRolesForProject = (projectId) => {
   if (!projectId) return [];
-  return allRoles.value.filter(r => (r.project_id === 0 || r.project_id === projectId) && r.code !== 'tenant_admin' && r.code !== 'super_admin');
+  return allRoles.value.filter(role => isProjectAssignableRole(role, projectId));
 }
 
 const getGroupedProjects = (projects) => {

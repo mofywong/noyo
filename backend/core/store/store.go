@@ -50,6 +50,7 @@ func InitDB(dsn string) error {
 		&Permission{},
 		&UserRoleBinding{},
 		&RolePermission{},
+		&ScopePermissionLimit{},
 		&RoleDeviceTagPermission{},
 		&PluginModel{},
 		&Product{},

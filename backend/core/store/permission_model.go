@@ -26,8 +26,15 @@ type UserRoleBinding struct {
 // RolePermission maps a role to a permission
 type RolePermission struct {
 	gorm.Model
-	RoleID       uint   `gorm:"uniqueIndex:idx_role_permission" json:"role_id"`
-	PermissionID uint   `gorm:"uniqueIndex:idx_role_permission" json:"permission_id"`
+	RoleID       uint `gorm:"uniqueIndex:idx_role_permission" json:"role_id"`
+	PermissionID uint `gorm:"uniqueIndex:idx_role_permission" json:"permission_id"`
 }
 
-
+// ScopePermissionLimit stores the maximum permission set for a tenant or project.
+type ScopePermissionLimit struct {
+	gorm.Model
+	ScopeType    string `gorm:"size:16;not null;uniqueIndex:idx_scope_permission_limit" json:"scope_type"` // tenant, project
+	TenantID     uint   `gorm:"not null;uniqueIndex:idx_scope_permission_limit;index" json:"tenant_id"`
+	ProjectID    uint   `gorm:"not null;default:0;uniqueIndex:idx_scope_permission_limit;index" json:"project_id"`
+	PermissionID uint   `gorm:"not null;uniqueIndex:idx_scope_permission_limit;index" json:"permission_id"`
+}
