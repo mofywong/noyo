@@ -29,55 +29,65 @@ const routes = [
   {
     path: '/',
     name: 'Dashboard',
-    component: Dashboard
+    component: Dashboard,
+    meta: { requiresAuth: true, permission: 'dashboard:view' }
   },
   {
     path: '/marketplace',
     name: 'Marketplace',
-    component: Marketplace
+    component: Marketplace,
+    meta: { requiresAuth: true, permission: 'plugin:list' }
   },
   {
     path: '/products',
     name: 'Products',
-    component: ProductList
+    component: ProductList,
+    meta: { requiresAuth: true, permission: 'product:list' }
   },
   {
     path: '/devices',
     name: 'Devices',
-    component: DeviceList
+    component: DeviceList,
+    meta: { requiresAuth: true, permission: 'device:list' }
   },
   {
     path: '/device-tags',
     name: 'DeviceTags',
-    component: DeviceTags
+    component: DeviceTags,
+    meta: { requiresAuth: true, permission: 'device_tag:list' }
   },
   {
     path: '/topology',
     name: 'DeviceTopology',
-    component: DeviceTopology
+    component: DeviceTopology,
+    meta: { requiresAuth: true, permission: 'device:topology' }
   },
   {
     path: '/gateways',
     name: 'GatewayManagement',
-    component: GatewayManagement
+    component: GatewayManagement,
+    meta: { requiresAuth: true, permission: 'gateway:list' }
   },
   {
     path: '/gateways/:gwSn/plugins',
     name: 'GatewayPlugins',
     component: GatewayPlugins,
-    props: true
+    props: true,
+    meta: { requiresAuth: true, permission: 'gateway:config' }
   },
   {
     path: '/gateways/:gwSn/plugins/:name',
     name: 'GatewayPluginConfig',
     component: GatewayPluginConfig,
-    props: true
+    props: true,
+    meta: { requiresAuth: true, permission: 'gateway:config' }
   },
   {
     path: '/plugins/:name',
     name: 'PluginConfig',
     component: PluginConfig,
-    props: true
+    props: true,
+    meta: { requiresAuth: true, permission: 'plugin:config' }
   },
   {
     path: '/settings',
@@ -94,7 +104,7 @@ const routes = [
     path: '/settings/tenants',
     name: 'TenantManagement',
     component: TenantManagement,
-    meta: { requiresAuth: true, systemAdmin: true }
+    meta: { requiresAuth: true, permission: 'tenant:list' }
   },
   {
     path: '/settings/projects',
@@ -135,17 +145,20 @@ const routes = [
   {
     path: '/license',
     name: 'License',
-    component: License
+    component: License,
+    meta: { requiresAuth: true, permission: 'system:license' }
   },
   {
     path: '/logs',
     name: 'Logs',
-    component: Logs
+    component: Logs,
+    meta: { requiresAuth: true, permission: 'system:logs' }
   },
   {
     path: '/alarms',
     name: 'AlarmCenter',
-    component: AlarmCenter
+    component: AlarmCenter,
+    meta: { requiresAuth: true, permission: 'alarm:list' }
   },
   {
     path: '/login/:suffix?',
@@ -161,7 +174,7 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
-  
+
   if (to.name === 'Login') {
     if (authStore.isLoggedIn) {
       return next('/')
@@ -173,20 +186,8 @@ router.beforeEach((to, from, next) => {
     return next('/login')
   }
 
-  if (to.meta?.systemAdmin && !authStore.isSystemAdmin) {
-    return next('/')
-  }
-
   if (to.meta?.permission && !authStore.hasPermission(to.meta.permission)) {
     return next('/')
-  }
-
-  if (to.meta?.roles && to.meta.roles.length > 0) {
-    const userRole = authStore.user?.role
-    const allowed = to.meta.roles.includes(userRole)
-    if (!allowed && !authStore.isSystemAdmin) {
-      return next('/')
-    }
   }
 
   next()
@@ -198,7 +199,8 @@ loadPlugins().then(() => {
   if (extensions.value.routes) {
     extensions.value.routes.forEach(route => {
       if (!route.meta) route.meta = {}
-      if (!route.meta.roles) route.meta.roles = ['admin']
+      if (!route.meta.requiresAuth) route.meta.requiresAuth = true
+      if (!route.meta.permission) route.meta.permission = 'plugin:config'
       router.addRoute(route)
     })
   }

@@ -72,10 +72,10 @@
                   <button class="btn btn-sm btn-outline-info me-2" @click="openPermModal(r)" :disabled="r.is_builtin" :title="$t('role_config_perm', '配置权限')" v-permission="'role:edit'">
                     <i class="bi bi-shield-check"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(r)" :disabled="r.is_builtin" :title="$t('role_edit', '编辑')" v-permission="'role:edit'">
+                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_edit', '编辑')" v-permission="'role:edit'">
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="deleteRole(r)" :disabled="r.is_builtin" :title="$t('role_delete', '删除')" v-permission="'role:delete'">
+                  <button class="btn btn-sm btn-outline-danger" @click="deleteRole(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_delete', '删除')" v-permission="'role:delete'">
                     <i class="bi bi-trash"></i>
                   </button>
                 </td>
@@ -87,7 +87,7 @@
     </div>
 
     <!-- Role Modal -->
-    <div class="modal fade" id="roleModal" tabindex="-1" ref="roleModalRef">
+    <div class="modal fade" id="roleModal" tabindex="-1" ref="roleModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -134,7 +134,7 @@
     </div>
 
     <!-- Role Details Modal -->
-    <div class="modal fade" id="roleDetailsModal" tabindex="-1" ref="roleDetailsModalRef">
+    <div class="modal fade" id="roleDetailsModal" tabindex="-1" ref="roleDetailsModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -208,10 +208,11 @@ import { Modal } from 'bootstrap'
 import { useI18n } from 'vue-i18n'
 import RolePermissions from './RolePermissions.vue'
 import { useAuthStore } from '../stores/auth'
+import { isInheritedRoleReadOnlyForUser } from '../utils/authIdentity'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
-const isTenantAdmin = computed(() => authStore.user?.role === 'admin' || authStore.user?.role === 'tenant_admin')
+const isTenantAdmin = computed(() => authStore.user?.is_tenant_admin === true)
 
 const roles = ref([])
 const projects = ref([])
@@ -253,7 +254,7 @@ const loadRoles = async () => {
 
 const loadProjects = async () => {
   try {
-    const res = await axios.get('/api/projects')
+    const res = await axios.get('/api/auth/projects')
     if (res.data.code === 0) {
       projects.value = res.data.data || []
     }
@@ -276,6 +277,8 @@ const filteredRoles = computed(() => {
   }
   return roles.value.filter(r => r.project_id === filterProjectId.value)
 })
+
+const isRoleReadOnly = (item) => isInheritedRoleReadOnlyForUser(authStore.user, item)
 
 onMounted(() => {
   roleModal = new Modal(roleModalRef.value)

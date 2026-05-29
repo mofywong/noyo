@@ -212,7 +212,7 @@ const closeAllDropdowns = (event) => {
 
 const loadProjects = async () => {
   try {
-    const res = await axios.get('/api/projects');
+    const res = await axios.get('/api/auth/projects');
     if (res.data.code === 0) {
       projectsList.value = res.data.data || [];
     }
@@ -449,8 +449,7 @@ onMounted(async () => {
 
 const getDisplayNameLabel = (user) => {
   if (!user) return t('user_display_name', '姓名');
-  const r = user.role;
-  if (r === 'admin' || r === 'super_admin' || r === 'tenant_admin' || r === 'project_admin') {
+  if (user.is_system_admin || user.is_tenant_admin || user.is_project_admin) {
     return t('user_admin_name', '管理员姓名');
   }
   return t('user_display_name', '姓名');

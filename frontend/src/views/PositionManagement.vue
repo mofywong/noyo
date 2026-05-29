@@ -2,7 +2,7 @@
   <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('position_management', '岗位管理') }}</h2>
-      <button class="btn btn-primary btn-sm" @click="openCreateModal">
+      <button class="btn btn-primary btn-sm" @click="openCreateModal" v-permission="'position:create'">
         <i class="bi bi-person-badge me-1"></i> {{ $t('position_add', '新增岗位') }}
       </button>
     </div>
@@ -38,13 +38,13 @@
                 <td>{{ p.description }}</td>
                 <td>{{ new Date(p.CreatedAt).toLocaleString() }}</td>
                 <td class="text-end">
-                  <button class="btn btn-sm btn-outline-info me-2" @click="openRolesModal(p)" :title="$t('position_assign_roles', '分配角色')">
+                  <button class="btn btn-sm btn-outline-info me-2" @click="openRolesModal(p)" :title="$t('position_assign_roles', '分配角色')" v-permission="'position:edit'">
                     <i class="bi bi-shield-lock"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(p)">
+                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(p)" v-permission="'position:edit'">
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="deletePosition(p)">
+                  <button class="btn btn-sm btn-outline-danger" @click="deletePosition(p)" v-permission="'position:delete'">
                     <i class="bi bi-trash"></i>
                   </button>
                 </td>
@@ -56,7 +56,7 @@
     </div>
 
     <!-- Position Modal -->
-    <div class="modal fade" id="positionModal" tabindex="-1" ref="positionModalRef">
+    <div class="modal fade" id="positionModal" tabindex="-1" ref="positionModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -88,7 +88,7 @@
     </div>
 
     <!-- Assign Roles Modal -->
-    <div class="modal fade" id="rolesModal" tabindex="-1" ref="rolesModalRef">
+    <div class="modal fade" id="rolesModal" tabindex="-1" ref="rolesModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">

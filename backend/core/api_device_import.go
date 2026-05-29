@@ -166,6 +166,9 @@ func (s *Server) handleImportDevices(r *ghttp.Request) {
 	errs := res.Errors
 	parentsToRestart := make(map[string]bool)
 
+	tenantID := r.GetCtxVar("tenant_id").Uint()
+	authCtx := requestAuthContext(r)
+
 	for _, devModel := range res.Devices {
 		// Verify Product
 		var product store.Product
@@ -174,13 +177,24 @@ func (s *Server) handleImportDevices(r *ghttp.Request) {
 			continue
 		}
 
-		// Create Device
+		// Create Device with tenant/project context
 		device := store.Device{
 			Name:        devModel.Name,
 			Code:        devModel.Code,
 			ProductCode: devModel.ProductCode,
 			ParentCode:  devModel.ParentCode,
 			Enabled:     devModel.Enabled,
+			TenantID:    tenantID,
+		}
+
+		// For non-admin users, enforce project context
+		if authCtx != nil && !authCtx.IsTenantAdmin && !authCtx.IsSystemAdmin {
+			projectID := r.GetCtxVar("project_id").Uint()
+			if projectID == 0 {
+				errs = append(errs, fmt.Sprintf("Project context is required for device %s", devModel.Name))
+				continue
+			}
+			device.ProjectID = projectID
 		}
 
 		// Merge Config

@@ -144,12 +144,20 @@ const handle401Error = (originalRequest) => {
 axios.interceptors.response.use(
   (response) => {
     if (response.data && response.data.code === 401) {
+      const url = response.config.url || ''
+      if (url === '/api/auth/login' || url === '/api/auth/refresh') {
+        return response
+      }
       return handle401Error(response.config)
     }
     return response
   },
   (error) => {
     if (error.response && error.response.status === 401) {
+      const url = error.config?.url || ''
+      if (url === '/api/auth/login' || url === '/api/auth/refresh') {
+        return Promise.reject(error)
+      }
       return handle401Error(error.config)
     }
     return Promise.reject(error)

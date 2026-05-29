@@ -1,5 +1,11 @@
 import { defineStore } from 'pinia';
 import axios from 'axios';
+import {
+  hasUserPermission,
+  isProjectAdminUser,
+  isSystemAdminUser,
+  isTenantAdminUser,
+} from '../utils/authIdentity.js';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -10,17 +16,11 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isLoggedIn: (state) => !!state.token,
     userRole: (state) => (state.user ? state.user.role : ''),
-    isAdmin: (state) => state.user && state.user.role === 'admin',
-    isSystemAdmin: (state) => state.user && state.user.role === 'admin' && state.user.tenant_id === 0,
-    isTenantAdmin: (state) => state.user && state.user.role === 'admin' && state.user.tenant_id > 0,
-    isProjectAdmin: (state) => state.user && state.user.role === 'project_admin' && state.user.tenant_id > 0,
-    isOperator: (state) => state.user && (state.user.role === 'admin' || state.user.role === 'operator' || state.user.role === 'project_admin') && state.user.tenant_id > 0,
+    isSystemAdmin: (state) => isSystemAdminUser(state.user),
+    isTenantAdmin: (state) => isTenantAdminUser(state.user),
+    isProjectAdmin: (state) => isProjectAdminUser(state.user),
     hasPermission: (state) => {
-      return (code) => {
-        if (!state.user) return false;
-        if (state.user.role === 'admin' || state.user.role === 'superadmin') return true;
-        return state.user.permissions && state.user.permissions.includes(code);
-      }
+      return (code) => hasUserPermission(state.user, code)
     }
   },
   actions: {

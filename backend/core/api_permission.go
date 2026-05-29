@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"noyo/core/store"
 
 	"github.com/gogf/gf/v2/frame/g"
@@ -10,8 +11,24 @@ import (
 )
 
 func (s *Server) handleGetSystemPermissions(r *ghttp.Request) {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+
+	db := store.DB.Model(&store.Permission{})
+	switch {
+	case authCtx.IsSystemAdmin:
+		db = db.Where("module IN ?", []string{"tenant", "system"})
+	case authCtx.IsTenantAdmin:
+		db = db.Where("module NOT IN ?", []string{"tenant", "system"})
+	default:
+		db = db.Where("module NOT IN ?", []string{"tenant", "system", "project"})
+	}
+
 	var perms []store.Permission
-	if err := store.DB.Find(&perms).Error; err != nil {
+	if err := db.Order("module asc, sort_order asc, code asc").Find(&perms).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch permissions"})
 		return
 	}
@@ -31,12 +48,16 @@ func (s *Server) handleGetRolePermissions(r *ghttp.Request) {
 		return
 	}
 
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	if tenantID > 0 && targetRole.TenantID != tenantID && !targetRole.IsBuiltin {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
-	if authCtx := requestAuthContext(r); authCtx == nil || (!authCtx.CanManageRole(targetRole) && !targetRole.IsBuiltin) {
+	if !targetRole.IsBuiltin && !authCtx.CanViewRole(targetRole) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+	if targetRole.IsBuiltin && authCtx.TenantID == 0 && !authCtx.IsSystemAdmin {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
@@ -62,6 +83,42 @@ func (s *Server) handleGetRolePermissions(r *ghttp.Request) {
 	})
 }
 
+func permissionAssignableToRole(permission store.Permission, targetRole store.Role, authCtx *AuthContext) bool {
+	if authCtx == nil || authCtx.IsSystemAdmin {
+		return false
+	}
+	if permission.Module == "tenant" || permission.Module == "system" {
+		return false
+	}
+	if authCtx.IsProjectAdmin && permission.Module == "project" {
+		return false
+	}
+	if targetRole.ProjectID > 0 && authCtx.IsProjectAdmin && permission.Module == "project" {
+		return false
+	}
+	return true
+}
+
+func validateAssignablePermissionIDs(tx *gorm.DB, permissionIDs []uint, targetRole store.Role, authCtx *AuthContext) error {
+	if len(permissionIDs) == 0 {
+		return nil
+	}
+
+	var perms []store.Permission
+	if err := tx.Where("id IN ?", permissionIDs).Find(&perms).Error; err != nil {
+		return err
+	}
+	if len(perms) != len(permissionIDs) {
+		return fmt.Errorf("invalid permission assignment")
+	}
+	for _, permission := range perms {
+		if !permissionAssignableToRole(permission, targetRole, authCtx) {
+			return fmt.Errorf("permission %s is outside assignable scope", permission.Code)
+		}
+	}
+	return nil
+}
+
 func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 	roleID := r.Get("id").Uint()
 	if roleID == 0 {
@@ -69,27 +126,20 @@ func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 		return
 	}
 
-	role := r.GetCtxVar("role").String()
-	isProjectAdmin := role == "project_admin"
-
 	var targetRole store.Role
 	if err := store.DB.First(&targetRole, roleID).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "Role not found"})
 		return
 	}
 
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	if tenantID > 0 && targetRole.TenantID != tenantID {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
-		return
-	}
-	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanManageRole(targetRole) {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+	if targetRole.IsBuiltin {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Cannot modify builtin roles"})
 		return
 	}
 
-	if targetRole.IsBuiltin {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Cannot modify builtin roles"})
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || !authCtx.CanManageRole(targetRole) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
 
@@ -107,17 +157,8 @@ func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 	}
 
 	err := store.DB.Transaction(func(tx *gorm.DB) error {
-		if isProjectAdmin {
-			var perms []store.Permission
-			if err := tx.Where("id IN ?", req.PermissionIDs).Find(&perms).Error; err == nil {
-				var validIDs []uint
-				for _, p := range perms {
-					if p.Module != "project" && p.Module != "tenant" {
-						validIDs = append(validIDs, p.ID)
-					}
-				}
-				req.PermissionIDs = validIDs
-			}
+		if err := validateAssignablePermissionIDs(tx, req.PermissionIDs, targetRole, authCtx); err != nil {
+			return err
 		}
 
 		if err := tx.Where("role_id = ?", roleID).Delete(&store.RolePermission{}).Error; err != nil {
@@ -146,7 +187,7 @@ func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 	})
 
 	if err != nil {
-		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to update role permissions: " + err.Error()})
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Failed to update role permissions: " + err.Error()})
 		return
 	}
 

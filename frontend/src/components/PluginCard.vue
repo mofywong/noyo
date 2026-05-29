@@ -29,12 +29,12 @@
       </p>
       
       <div class="d-flex align-items-center justify-content-between mt-3 pt-3 border-top">
-        <button class="btn btn-sm btn-outline-primary" @click="$emit('configure')" :disabled="plugin.isPro && plugin.isUnauthorized">
+        <button class="btn btn-sm btn-outline-primary" @click="$emit('configure')" :disabled="plugin.isPro && plugin.isUnauthorized" v-permission="'plugin:config'">
           <i class="bi bi-gear-fill me-1"></i> {{ $t('configure') }}
         </button>
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" role="switch" 
-                 :id="'switch-' + plugin.name" 
+        <div class="form-check form-switch" v-permission="'plugin:config'">
+          <input class="form-check-input" type="checkbox" role="switch"
+                 :id="'switch-' + plugin.name"
                  :checked="plugin.status === 'running'"
                  :disabled="plugin.isPro && plugin.isUnauthorized"
                  @change="$emit('update-status', plugin.name, $event.target.checked)">

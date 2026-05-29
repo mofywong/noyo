@@ -6,7 +6,7 @@
         <button class="btn btn-outline-info me-2" @click="goToGuide">
           <i class="bi bi-book me-1"></i> 接入指导
         </button>
-        <button class="btn btn-primary" @click="openCreateModal">
+        <button class="btn btn-primary" @click="openCreateModal" v-permission="'app:create'">
           <i class="bi bi-window-sidebar me-1"></i> 新增应用
         </button>
       </div>
@@ -51,13 +51,13 @@
                 </td>
                 <td>{{ new Date(a.CreatedAt).toLocaleString() }}</td>
                 <td class="text-end">
-                  <button class="btn btn-sm btn-outline-warning me-2" @click="resetAppKey(a)" title="重置密钥">
+                  <button class="btn btn-sm btn-outline-warning me-2" @click="resetAppKey(a)" title="重置密钥" v-permission="'app:reset-key'">
                     <i class="bi bi-key"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(a)">
+                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(a)" v-permission="'app:edit'">
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="deleteApp(a)">
+                  <button class="btn btn-sm btn-outline-danger" @click="deleteApp(a)" v-permission="'app:delete'">
                     <i class="bi bi-trash"></i>
                   </button>
                 </td>

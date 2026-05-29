@@ -108,7 +108,7 @@ func (c *ProtocolContextImpl) ReloadRegistry() error {
 }
 
 func (c *ProtocolContextImpl) RegisterHTTPHandler(path string, handler interface{}) error {
-	c.server.WebServer.BindHandler(path, handler)
+	c.server.WebServer.BindHandler(path, c.server.wrapPluginHandler(handler))
 	return nil
 }
 
@@ -188,7 +188,7 @@ func (c *PlatformContextImpl) GetLogger() *zap.Logger {
 }
 
 func (c *PlatformContextImpl) RegisterHTTPHandler(path string, handler interface{}) error {
-	c.server.WebServer.BindHandler(path, handler)
+	c.server.WebServer.BindHandler(path, c.server.wrapPluginHandler(handler))
 	return nil
 }
 

@@ -39,6 +39,32 @@ func (s *Server) SetUI(uiFS fs.FS) {
 	s.uiFS = uiFS
 }
 
+// wrapPluginHandler wraps a plugin handler with authentication and audit logging.
+// This ensures all plugin-registered routes under /api/extension/* are authenticated.
+func (s *Server) wrapPluginHandler(handler interface{}) func(*ghttp.Request) {
+	originalHandler, ok := handler.(func(*ghttp.Request))
+	if !ok {
+		s.Logger.Error("Plugin registered handler with unsupported type")
+		return func(r *ghttp.Request) {
+			r.Response.WriteJson(map[string]interface{}{
+				"code":    500,
+				"message": "Internal server error: invalid handler type",
+			})
+		}
+	}
+
+	secret := s.Config.Auth.JWTSecret
+
+	return func(r *ghttp.Request) {
+		authCtx := authenticateRequest(r, secret)
+		if authCtx == nil {
+			return // auth failed, response already written
+		}
+		defer logAuditRecord(r)
+		originalHandler(r)
+	}
+}
+
 // NewServer creates a new server instance
 func NewServer() (*Server, error) {
 	// 0. Init Database

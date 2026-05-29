@@ -83,7 +83,7 @@
             </div>
           </div>
 
-          <button class="btn btn-primary gateway-enter-btn" @click="openGateway(gw)" :disabled="!gw.online">
+          <button class="btn btn-primary gateway-enter-btn" @click="openGateway(gw)" :disabled="!gw.online" v-permission="'gateway:config'">
             <span>{{ gt('enter') }}</span>
             <i class="bi bi-arrow-right-short"></i>
           </button>

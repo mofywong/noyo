@@ -1,5 +1,10 @@
 <template>
-  <div class="dashboard-container">
+  <div v-if="!hasPermission" class="container py-5 text-center">
+    <i class="bi bi-shield-exclamation display-1 text-muted"></i>
+    <h4 class="mt-3 text-muted">{{ $t('access_denied', 'Access Denied') }}</h4>
+    <p class="text-muted">{{ $t('no_permission_dashboard', 'You do not have permission to access the dashboard.') }}</p>
+  </div>
+  <div v-else class="dashboard-container">
     <!-- Header Row -->
     <div class="row g-3 mb-3">
       <!-- Welcome Header -->
@@ -304,8 +309,11 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import axios from 'axios';
 import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '../stores/auth.js';
 
 const { t } = useI18n();
+const authStore = useAuthStore();
+const hasPermission = computed(() => authStore.hasPermission('dashboard:view'));
 
 const stats = ref({
   plugins: { total: 0, active: 0 },
@@ -343,6 +351,7 @@ const aiStats = ref({
 });
 
 const fetchAIStats = async () => {
+    if (!authStore.hasPermission('plugin:list')) return;
     try {
         const res = await axios.get('/api/plugins/ai_predict/stats');
         if (res.data.code === 0 && res.data.data) {
@@ -375,42 +384,43 @@ const onlineRate = computed(() => {
 const fetchDashboardData = async () => {
     loading.value = true;
     try {
-        // 1. Plugins Stats
-        const resPlugins = await axios.get('/api/plugins');
-        if (resPlugins.data.code === 0) {
-            const list = resPlugins.data.data || [];
-            stats.value.plugins.total = list.length;
-            stats.value.plugins.active = list.filter(p => p.status === 'running').length;
-        }
-
-        // 2. Devices Stats
-        const resDevices = await axios.get('/api/devices');
-        if (resDevices.data.code === 0) {
-            // Check structure. If it's paginated list: { total: 10, list: [...] }
-            const data = resDevices.data.data;
-            if (data.list) {
-                stats.value.devices.total = data.total || data.list.length;
-                stats.value.devices.online = data.list.filter(d => d.online).length;
-                stats.value.devices.offline = stats.value.devices.total - stats.value.devices.online;
-            } else {
-                 // If it returns just list
-                 const list = Array.isArray(data) ? data : [];
-                 stats.value.devices.total = list.length;
-                 stats.value.devices.online = list.filter(d => d.online).length;
-                 stats.value.devices.offline = stats.value.devices.total - stats.value.devices.online;
+        if (authStore.hasPermission('plugin:list')) {
+            const resPlugins = await axios.get('/api/plugins');
+            if (resPlugins.data.code === 0) {
+                const list = resPlugins.data.data || [];
+                stats.value.plugins.total = list.length;
+                stats.value.plugins.active = list.filter(p => p.status === 'running').length;
             }
         }
 
-        try {
-             // Fetch real product count
-             const resProd = await axios.get('/api/products', {
-                params: { page: 1, pageSize: 1 } // Minimal fetch to get total
-             }); 
-             if (resProd.data.code === 0) {
-                stats.value.products.total = resProd.data.total || (resProd.data.data ? resProd.data.data.length : 0);
-             }
-        } catch(e) {
-            console.error("Product fetch error", e);
+        if (authStore.hasPermission('device:list')) {
+            const resDevices = await axios.get('/api/devices');
+            if (resDevices.data.code === 0) {
+                const data = resDevices.data.data;
+                if (data.list) {
+                    stats.value.devices.total = data.total || data.list.length;
+                    stats.value.devices.online = data.list.filter(d => d.online).length;
+                    stats.value.devices.offline = stats.value.devices.total - stats.value.devices.online;
+                } else {
+                    const list = Array.isArray(data) ? data : [];
+                    stats.value.devices.total = list.length;
+                    stats.value.devices.online = list.filter(d => d.online).length;
+                    stats.value.devices.offline = stats.value.devices.total - stats.value.devices.online;
+                }
+            }
+        }
+
+        if (authStore.hasPermission('product:list')) {
+            try {
+                const resProd = await axios.get('/api/products', {
+                    params: { page: 1, pageSize: 1 }
+                });
+                if (resProd.data.code === 0) {
+                    stats.value.products.total = resProd.data.total || (resProd.data.data ? resProd.data.data.length : 0);
+                }
+            } catch(e) {
+                console.error("Product fetch error", e);
+            }
         }
 
     } catch (e) {

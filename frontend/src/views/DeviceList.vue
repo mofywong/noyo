@@ -4,13 +4,13 @@
       <div v-if="selectedDevices.length > 0" class="d-flex align-items-center p-2 rounded bg-secondary bg-opacity-10">
         <span class="me-3 fw-bold">{{ selectedDevices.length }} {{ $t('selected') }}</span>
         <div class="btn-group btn-group-sm">
-          <button class="btn btn-outline-success" @click="batchEnable">
+          <button class="btn btn-outline-success" @click="batchEnable" v-permission="'device:control'">
             <i class="bi bi-check-circle"></i> {{ $t('dev_enable') }}
           </button>
-          <button class="btn btn-outline-secondary" @click="batchDisable">
+          <button class="btn btn-outline-secondary" @click="batchDisable" v-permission="'device:control'">
             <i class="bi bi-x-circle"></i> {{ $t('dev_disable') }}
           </button>
-          <button class="btn btn-outline-danger" @click="batchDelete">
+          <button class="btn btn-outline-danger" @click="batchDelete" v-permission="'device:delete'">
             <i class="bi bi-trash"></i> {{ $t('dev_delete') }}
           </button>
         </div>
@@ -21,20 +21,20 @@
       <div v-else class="d-flex justify-content-between align-items-center">
         <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_devices') }}</h2>
         <div class="d-flex gap-2">
-          <button class="btn btn-outline-primary btn-sm" @click="downloadTemplate">
+          <button class="btn btn-outline-primary btn-sm" @click="downloadTemplate" v-permission="'device:create'">
             <i class="bi bi-download me-1"></i> {{ $t('download_template') }}
           </button>
-          <button class="btn btn-outline-primary btn-sm" @click="triggerImport">
+          <button class="btn btn-outline-primary btn-sm" @click="triggerImport" v-permission="'device:create'">
             <i class="bi bi-upload me-1"></i> {{ $t('import_devices') }}
           </button>
           <input type="file" ref="fileInput" class="d-none" accept=".xlsx" @change="handleFileUpload">
-          <button class="btn btn-primary btn-sm" @click="openCreateModal">
+          <button class="btn btn-primary btn-sm" @click="openCreateModal" v-permission="'device:create'">
             <i class="bi bi-plus-lg me-1"></i> {{ $t('dev_create') }}
           </button>
-          <button class="btn btn-outline-warning btn-sm fw-bold" @click="openAIBatchConfigModal">
+          <button class="btn btn-outline-warning btn-sm fw-bold" @click="openAIBatchConfigModal" v-permission="'device:edit'">
             <i class="bi bi-shield-check me-1"></i> AI 批量配置
           </button>
-          <button class="btn btn-outline-info btn-sm" @click="showDiscoveryModal = true" :title="$t('discover_devices')">
+          <button class="btn btn-outline-info btn-sm" @click="showDiscoveryModal = true" :title="$t('discover_devices')" v-permission="'device:create'">
             <i class="bi bi-search"></i>
           </button>
         </div>
@@ -127,7 +127,7 @@
                   >
                     <i :class="tag.icon || 'bi-tag'" class="device-tag-chip__icon"></i>
                     <span class="device-tag-chip__name">{{ tag.name }}</span>
-                    <i class="bi bi-x device-tag-chip__close" @click.stop="unbindDeviceTag(device, tag)" :title="$t('dev_tag_unbind')"></i>
+                    <i class="bi bi-x device-tag-chip__close" @click.stop="unbindDeviceTag(device, tag)" :title="$t('dev_tag_unbind')" v-permission="'device:edit'"></i>
                   </span>
                   <span v-if="device.tags.length > 4" class="device-tag-chip device-tag-chip--overflow">
                     +{{ device.tags.length - 4 }}
@@ -192,13 +192,13 @@
                 </div>
               </td>
               <td>
-                <div class="form-check form-switch">
+                <div class="form-check form-switch" v-permission="'device:control'">
                   <input class="form-check-input" type="checkbox" role="switch" :checked="device.enabled" @click.prevent="toggleDevice(device)">
                   <label class="form-check-label small text-muted ms-1">{{ device.enabled ? $t('dev_enabled') : $t('dev_disabled') }}</label>
                 </div>
               </td>
               <td class="text-end pe-4">
-                <button v-if="isCameraDevice(device)" class="btn btn-sm btn-outline-primary rounded-circle me-1 d-inline-flex align-items-center justify-content-center" style="width: 28px; height: 28px; padding: 0;" @click.stop="playVideo(device)" title="播放实时视频">
+                <button v-if="isCameraDevice(device)" class="btn btn-sm btn-outline-primary rounded-circle me-1 d-inline-flex align-items-center justify-content-center" style="width: 28px; height: 28px; padding: 0;" @click.stop="playVideo(device)" title="播放实时视频" v-permission="'device:control'">
                   <i class="bi bi-play-fill fs-6"></i>
                 </button>
                 <div class="dropdown d-inline-block">
@@ -219,39 +219,39 @@
                         </a>
                       </li>
                     </template>
-                    <li>
+                    <li v-permission="'device:edit'">
                       <a class="dropdown-item" href="#" @click="openDeviceTagsModal(device)">
                         <i class="bi bi-tags me-2 text-primary"></i> {{ $t('dev_edit_tags') }}
                       </a>
                     </li>
-                    <li>
+                    <li v-permission="'device:edit'">
                       <a class="dropdown-item" href="#" @click="openSingleAIModal(device)">
                         <i class="bi bi-shield-check me-2 text-warning"></i> AI 设备守护 (Device Guardian)
                       </a>
                     </li>
-                    <li>
+                    <li v-permission="'device:control'">
                       <a class="dropdown-item" href="#" @click="toggleDevice(device)">
                         <i class="bi me-2" :class="device.enabled ? 'bi-stop-fill text-warning' : 'bi-play-fill text-success'"></i>
                         {{ device.enabled ? $t('stop') : $t('start') }}
                       </a>
                     </li>
-                    <li v-if="!device.parent_code || isChildOfCascade(device)">
+                    <li v-if="!device.parent_code || isChildOfCascade(device)" v-permission="'device:create'">
                       <a class="dropdown-item" href="#" @click="openCreateSubDeviceModal(device)">
                         <i class="bi bi-plus-square me-2 text-primary"></i> {{ $t('dev_create_sub') }}
                       </a>
                     </li>
-                    <li>
+                    <li v-permission="'device:edit'">
                       <a class="dropdown-item" href="#" @click="openEditModal(device)">
                         <i class="bi bi-pencil me-2 text-info"></i> {{ $t('dev_edit') }}
                       </a>
                     </li>
-                    <li v-if="needsProtocolMapping(device)">
+                    <li v-if="needsProtocolMapping(device)" v-permission="'device:edit'">
                       <a class="dropdown-item" href="#" @click="openMappingModal(device)">
                         <i class="bi bi-diagram-3 me-2 text-body"></i> {{ $t('tsl_prop_proto_map') }}
                       </a>
                     </li>
                     <li><hr class="dropdown-divider"></li>
-                    <li>
+                    <li v-permission="'device:delete'">
                       <a class="dropdown-item text-danger" href="#" @click="deleteDevice(device)">
                         <i class="bi bi-trash me-2"></i> {{ $t('dev_delete') }}
                       </a>

@@ -1,5 +1,5 @@
 <template>
-  <div class="modal fade" id="permissionModal" tabindex="-1" ref="modalRef">
+  <div class="modal fade" id="permissionModal" tabindex="-1" ref="modalRef" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-lg">
       <div class="modal-content">
         <div class="modal-header">
@@ -22,8 +22,8 @@
               <div v-if="loading" class="text-center py-3">{{ $t('common_loading', '加载中...') }}</div>
               <div v-else>
                 <div class="d-flex justify-content-end mb-3 gap-2">
-                  <button class="btn btn-sm btn-outline-primary" @click="selectAllPerms">{{ $t('common_select_all', '全选') }}</button>
-                  <button class="btn btn-sm btn-outline-secondary" @click="invertAllPerms">{{ $t('common_invert_selection', '反选') }}</button>
+                  <button class="btn btn-sm btn-outline-primary" @click="selectAllPerms" :disabled="isReadOnly">{{ $t('common_select_all', '全选') }}</button>
+                  <button class="btn btn-sm btn-outline-secondary" @click="invertAllPerms" :disabled="isReadOnly">{{ $t('common_invert_selection', '反选') }}</button>
                 </div>
                 <div class="row">
                   <div class="col-md-4 mb-3" v-for="(perms, module) in groupedPermissions" :key="module">
@@ -31,14 +31,14 @@
                       <div class="card-header bg-light fw-bold text-uppercase d-flex justify-content-between align-items-center">
                         <span>{{ translateModule(module) }}</span>
                         <div>
-                          <button class="btn btn-sm btn-link text-primary p-0 text-decoration-none me-2" @click="selectAllModule(perms)">{{ $t('common_select_all', '全选') }}</button>
-                          <button class="btn btn-sm btn-link text-secondary p-0 text-decoration-none" @click="invertModule(perms)">{{ $t('common_invert_selection', '反选') }}</button>
+                          <button class="btn btn-sm btn-link text-primary p-0 text-decoration-none me-2" @click="selectAllModule(perms)" :disabled="isReadOnly">{{ $t('common_select_all', '全选') }}</button>
+                          <button class="btn btn-sm btn-link text-secondary p-0 text-decoration-none" @click="invertModule(perms)" :disabled="isReadOnly">{{ $t('common_invert_selection', '反选') }}</button>
                         </div>
                       </div>
                     <ul class="list-group list-group-flush">
                       <li class="list-group-item" v-for="p in perms" :key="p.ID">
                         <div class="form-check">
-                          <input class="form-check-input" type="checkbox" :value="p.ID" :id="'perm'+p.ID" v-model="selectedPerms">
+                          <input class="form-check-input" type="checkbox" :value="p.ID" :id="'perm'+p.ID" v-model="selectedPerms" :disabled="isReadOnly">
                           <label class="form-check-label" :for="'perm'+p.ID">
                             {{ p.name }} <span class="badge bg-secondary ms-1" style="font-size: 0.7em">{{ translateType(p.type) }}</span>
                           </label>
@@ -73,7 +73,7 @@
                     </td>
                     <td>{{ t.scope_type === 'global' ? $t('common_global', '全局') : t.scope_type }}</td>
                     <td>
-                      <select class="form-select form-select-sm" v-model="tagPermissions[t.ID]">
+                      <select class="form-select form-select-sm" v-model="tagPermissions[t.ID]" :disabled="isReadOnly">
                         <option value="">{{ $t('role_perm_none', '无权限') }}</option>
                         <option value="read">{{ $t('role_perm_read', '只读') }}</option>
                         <option value="write">{{ $t('role_perm_write', '读写 (控制)') }}</option>
@@ -90,7 +90,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('common_cancel', '取消') }}</button>
-          <button type="button" class="btn btn-primary" @click="save" :disabled="saving">
+          <button type="button" class="btn btn-primary" @click="save" :disabled="saving || isReadOnly">
             <span v-if="saving" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
             {{ $t('common_save', '保存') }}
           </button>
@@ -105,9 +105,12 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import { Modal } from 'bootstrap'
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '../stores/auth'
+import { isInheritedRoleReadOnlyForUser } from '../utils/authIdentity'
 
 const emit = defineEmits(['saved'])
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 const modalRef = ref(null)
 let modalInstance = null
@@ -122,6 +125,7 @@ const selectedPerms = ref([])
 
 const tags = ref([])
 const tagPermissions = ref({}) // tag_id -> permission string
+const isReadOnly = computed(() => isInheritedRoleReadOnlyForUser(authStore.user, role.value))
 
 const initModal = () => {
   if (!modalInstance && modalRef.value) {
@@ -193,6 +197,7 @@ const loadRolePermissions = async (roleId) => {
 
 const save = async () => {
   if (!role.value) return
+  if (isReadOnly.value) return
   saving.value = true
   
   const deviceTagsPayload = []
@@ -270,6 +275,9 @@ const translateModule = (module) => {
     'project': '项目管理',
     'system': '系统管理',
     'device': '设备管理',
+    'device_tag': '设备标签',
+    'gateway': '网关管理',
+    'history': '历史记录',
     'rule': '规则引擎',
     'alarm': '告警中心',
     'auth': '认证授权',

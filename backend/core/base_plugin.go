@@ -101,7 +101,7 @@ func (p *Plugin) RegisterAutoRoutes() {
 					method.Func.Call([]reflect.Value{v, reflect.ValueOf(r)})
 				}
 
-				p.Server.WebServer.BindHandler(fullPath, handlerFunc)
+				p.Server.WebServer.BindHandler(fullPath, p.Server.wrapPluginHandler(handlerFunc))
 			}
 		}
 	}

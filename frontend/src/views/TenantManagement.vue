@@ -2,7 +2,7 @@
   <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('tenant_management') }}</h2>
-      <button class="btn btn-primary" @click="openCreateModal">
+      <button class="btn btn-primary" @click="openCreateModal" v-permission="'tenant:create'">
         <i class="bi bi-building-add me-1"></i> {{ $t('tenant_add') }}
       </button>
     </div>
@@ -46,13 +46,16 @@
                 </td>
                 <td>{{ new Date(t.CreatedAt).toLocaleString() }}</td>
                 <td class="text-end">
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(t)" :title="$t('tenant_edit', '编辑')">
+                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(t)" :title="$t('tenant_edit', '编辑')" v-permission="'tenant:edit'">
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-warning me-2" @click="openResetPasswordModal(t)" :title="$t('reset_password', '重置密码')">
+                  <button class="btn btn-sm btn-outline-warning me-2" @click="openResetPasswordModal(t)" :title="$t('reset_password', '重置密码')" v-permission="'tenant:edit'">
                     <i class="bi bi-key"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="deleteTenant(t)" :disabled="t.code === 'default'" :title="$t('tenant_delete', '删除')">
+                  <button class="btn btn-sm btn-outline-info me-2" @click="openChangeAdminModal(t)" :title="$t('tenant_change_admin', '更换管理员')" v-permission="'tenant:edit'">
+                    <i class="bi bi-person-gear"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-danger" @click="deleteTenant(t)" :disabled="t.code === 'default'" :title="$t('tenant_delete', '删除')" v-permission="'tenant:delete'">
                     <i class="bi bi-trash"></i>
                   </button>
                 </td>
@@ -64,8 +67,8 @@
     </div>
 
     <!-- Tenant Modal -->
-    <div class="modal fade" id="tenantModal" tabindex="-1" ref="tenantModalRef">
-      <div class="modal-dialog">
+    <div class="modal fade" id="tenantModal" tabindex="-1" ref="tenantModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
+      <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">{{ isEditing ? $t('tenant_edit') : $t('tenant_add') }}</h5>
@@ -73,68 +76,93 @@
           </div>
           <div class="modal-body">
             <form @submit.prevent="saveTenant">
-              <div class="mb-3">
-                <label class="form-label">{{ $t('tenant_code') }} <span class="text-danger">*</span></label>
-                <input v-model="form.code" type="text" class="form-control" :disabled="isEditing" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">{{ $t('tenant_name') }} <span class="text-danger">*</span></label>
-                <input v-model="form.name" type="text" class="form-control" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">{{ $t('login_suffix', '专属登录后缀') }}</label>
-                <div class="input-group">
-                  <span class="input-group-text">/login/</span>
-                  <input v-model="form.login_suffix" type="text" class="form-control" placeholder="如: my-company">
+              <!-- Basic Info -->
+              <h6 class="text-primary mb-3"><i class="bi bi-building me-2"></i>{{ $t('tenant_basic_info', '基本信息') }}</h6>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">{{ $t('tenant_code') }} <span class="text-danger">*</span></label>
+                  <input v-model="form.code" type="text" class="form-control" :disabled="isEditing" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">{{ $t('tenant_name') }} <span class="text-danger">*</span></label>
+                  <input v-model="form.name" type="text" class="form-control" required>
                 </div>
               </div>
-              <div class="mb-3">
-                <label class="form-label">{{ $t('tenant_logo', '品牌Logo (SVG, PNG, JPG)') }}</label>
-                <input type="file" class="form-control" accept="image/*" @change="handleLogoUpload">
-                <div v-if="form.logo" class="mt-2 p-2 border rounded bg-light" style="width: fit-content; max-width: 150px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
-                  <div v-if="form.logo.trim().startsWith('<svg') || form.logo.trim().startsWith('<?xml')" v-html="DOMPurify.sanitize(form.logo, { USE_PROFILES: { svg: true } })" class="svg-container" style="max-height: 40px; display: flex; align-items: center; justify-content: center;"></div>
-                  <img v-else :src="form.logo" style="max-height: 40px; max-width: 100%; object-fit: contain;">
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">{{ $t('login_suffix', '专属登录后缀') }}</label>
+                  <div class="input-group">
+                    <span class="input-group-text">/login/</span>
+                    <input v-model="form.login_suffix" type="text" class="form-control" placeholder="如: my-company">
+                  </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">{{ $t('tenant_logo', '品牌Logo (SVG, PNG, JPG)') }}</label>
+                  <input type="file" class="form-control" accept="image/*" @change="handleLogoUpload">
+                  <div v-if="form.logo" class="mt-2 p-2 border rounded bg-light" style="width: fit-content; max-width: 150px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                    <div v-if="form.logo.trim().startsWith('<svg') || form.logo.trim().startsWith('<?xml')" v-html="DOMPurify.sanitize(form.logo, { USE_PROFILES: { svg: true } })" class="svg-container" style="max-height: 40px; display: flex; align-items: center; justify-content: center;"></div>
+                    <img v-else :src="form.logo" style="max-height: 40px; max-width: 100%; object-fit: contain;">
+                  </div>
                 </div>
               </div>
-              <div class="mb-3">
-                <label class="form-label">{{ $t('admin_name', '管理员姓名') }} <span class="text-danger">*</span></label>
-                <input v-model="form.contact" type="text" class="form-control" required>
-              </div>
-              <div class="mb-3" v-if="!isEditing">
-                <label class="form-label">{{ $t('admin_username', '管理员账号') }} <span class="text-danger">*</span></label>
-                <input v-model="form.admin_username" type="text" class="form-control" :required="!isEditing">
-              </div>
-              <div class="mb-3" v-if="!isEditing">
-                <label class="form-label">{{ $t('admin_password', '管理员密码') }} <span class="text-danger">*</span></label>
-                <div class="input-group">
-                  <input v-model="form.admin_password" :type="showAdminPassword ? 'text' : 'password'" class="form-control" :required="!isEditing">
-                  <button class="btn btn-outline-secondary" type="button" @click="showAdminPassword = !showAdminPassword">
-                    <i class="bi" :class="showAdminPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
-                  </button>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">{{ $t('tenant_phone') }} <span class="text-danger">*</span></label>
+                  <input v-model="form.phone" type="text" class="form-control" required>
                 </div>
-              </div>
-              <div class="mb-3" v-if="!isEditing">
-                <label class="form-label">{{ $t('admin_password_confirm', '确认密码') }} <span class="text-danger">*</span></label>
-                <div class="input-group">
-                  <input v-model="form.admin_password_confirm" :type="showConfirmPassword ? 'text' : 'password'" class="form-control" :required="!isEditing">
-                  <button class="btn btn-outline-secondary" type="button" @click="showConfirmPassword = !showConfirmPassword">
-                    <i class="bi" :class="showConfirmPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
-                  </button>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">{{ $t('tenant_email') }}</label>
+                  <input v-model="form.email" type="email" class="form-control">
                 </div>
-              </div>
-
-              <div class="mb-3">
-                <label class="form-label">{{ $t('tenant_phone') }} <span class="text-danger">*</span></label>
-                <input v-model="form.phone" type="text" class="form-control" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">{{ $t('tenant_email') }}</label>
-                <input v-model="form.email" type="email" class="form-control">
               </div>
               <div class="mb-3">
                 <label class="form-label">{{ $t('tenant_description') }}</label>
                 <textarea v-model="form.description" class="form-control" rows="2"></textarea>
               </div>
+
+              <!-- Admin Info (create only) -->
+              <template v-if="!isEditing">
+                <hr class="my-3">
+                <h6 class="text-primary mb-3"><i class="bi bi-person-gear me-2"></i>{{ $t('tenant_admin_info', '管理员信息') }}</h6>
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">{{ $t('admin_name', '管理员姓名') }} <span class="text-danger">*</span></label>
+                    <input v-model="form.contact" type="text" class="form-control" required>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">{{ $t('admin_username', '管理员账号') }} <span class="text-danger">*</span></label>
+                    <input v-model="form.admin_username" type="text" class="form-control" required>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">{{ $t('admin_password', '管理员密码') }} <span class="text-danger">*</span></label>
+                    <div class="input-group">
+                      <input v-model="form.admin_password" :type="showAdminPassword ? 'text' : 'password'" class="form-control" required>
+                      <button class="btn btn-outline-secondary" type="button" @click="showAdminPassword = !showAdminPassword">
+                        <i class="bi" :class="showAdminPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">{{ $t('admin_password_confirm', '确认密码') }} <span class="text-danger">*</span></label>
+                    <div class="input-group">
+                      <input v-model="form.admin_password_confirm" :type="showConfirmPassword ? 'text' : 'password'" class="form-control" required>
+                      <button class="btn btn-outline-secondary" type="button" @click="showConfirmPassword = !showConfirmPassword">
+                        <i class="bi" :class="showConfirmPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <hr class="my-3">
+                <h6 class="text-primary mb-3"><i class="bi bi-person me-2"></i>{{ $t('tenant_contact_info', '联系人信息') }}</h6>
+                <div class="mb-3">
+                  <label class="form-label">{{ $t('admin_name', '管理员姓名') }} <span class="text-danger">*</span></label>
+                  <input v-model="form.contact" type="text" class="form-control" required>
+                </div>
+              </template>
 
             </form>
           </div>
@@ -147,7 +175,7 @@
     </div>
 
     <!-- Reset Password Modal -->
-    <div class="modal fade" id="tenantResetPasswordModal" tabindex="-1" ref="tenantResetPasswordModalRef">
+    <div class="modal fade" id="tenantResetPasswordModal" tabindex="-1" ref="tenantResetPasswordModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -163,6 +191,33 @@
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('user_cancel', '取消') }}</button>
             <button type="button" class="btn btn-danger" @click="resetPassword">{{ $t('user_reset_password', '重置密码') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Change Admin Modal -->
+    <div class="modal fade" id="changeAdminModal" tabindex="-1" ref="changeAdminModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ $t('tenant_change_admin') }} - {{ changeAdminTenant?.name }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">{{ $t('tenant_select_admin') }} <span class="text-danger">*</span></label>
+              <select v-model="selectedAdminUserId" class="form-select">
+                <option value="" disabled>{{ $t('tenant_select_admin') }}</option>
+                <option v-for="u in tenantUsers" :key="u.ID" :value="u.ID">
+                  {{ u.display_name || u.username }} ({{ u.username }})
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('tenant_cancel') }}</button>
+            <button type="button" class="btn btn-primary" @click="changeAdmin" :disabled="!selectedAdminUserId">{{ $t('tenant_save') }}</button>
           </div>
         </div>
       </div>
@@ -188,6 +243,12 @@ const tenantResetPasswordModalRef = ref(null)
 let tenantResetPasswordModal = null
 const resetTenant = ref(null)
 const newPassword = ref('')
+
+const changeAdminModalRef = ref(null)
+let changeAdminModal = null
+const changeAdminTenant = ref(null)
+const tenantUsers = ref([])
+const selectedAdminUserId = ref('')
 
 const showAdminPassword = ref(false)
 const showConfirmPassword = ref(false)
@@ -253,6 +314,7 @@ const loadTenants = async () => {
 onMounted(() => {
   tenantModal = new Modal(tenantModalRef.value)
   tenantResetPasswordModal = new Modal(tenantResetPasswordModalRef.value)
+  changeAdminModal = new Modal(changeAdminModalRef.value)
   loadTenants()
 })
 
@@ -346,7 +408,7 @@ const openResetPasswordModal = (item) => {
 
 const resetPassword = async () => {
   if (!newPassword.value) return
-  
+
   try {
     const res = await axios.post(`/api/tenants/${resetTenant.value.ID}/reset-password`, { new_password: newPassword.value })
     if (res.data.code === 0) {
@@ -357,6 +419,40 @@ const resetPassword = async () => {
     }
   } catch (error) {
     alert(t('user_reset_failed', '密码重置失败'))
+  }
+}
+
+const openChangeAdminModal = async (item) => {
+  changeAdminTenant.value = item
+  selectedAdminUserId.value = ''
+  tenantUsers.value = []
+  try {
+    const res = await axios.get(`/api/tenants/${item.ID}/users`)
+    if (res.data.code === 0) {
+      tenantUsers.value = (res.data.data || []).filter(u => u.status === 1)
+    }
+  } catch (error) {
+    console.error("Failed to load tenant users:", error)
+  }
+  changeAdminModal.show()
+}
+
+const changeAdmin = async () => {
+  if (!selectedAdminUserId.value) return
+
+  if (!confirm(t('tenant_change_admin_confirm'))) return
+
+  try {
+    const res = await axios.post(`/api/tenants/${changeAdminTenant.value.ID}/change-admin`, { user_id: selectedAdminUserId.value })
+    if (res.data.code === 0) {
+      changeAdminModal.hide()
+      alert(t('tenant_change_admin_success'))
+      loadTenants()
+    } else {
+      alert(res.data.message)
+    }
+  } catch (error) {
+    alert(error.response?.data?.message || t('common_save_failed', '操作失败'))
   }
 }
 </script>

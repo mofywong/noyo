@@ -10,49 +10,95 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Server) handleGetProjects(r *ghttp.Request) {
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	userID := r.GetCtxVar("user_id").Uint()
-	userRole := r.GetCtxVar("role").String()
+type ProjectAdminSummary struct {
+	Names   string
+	UserIDs []uint
+	UserID  uint
+}
 
-	db := store.DB.Model(&store.Project{})
-	if tenantID > 0 {
-		db = db.Where("tenant_id = ?", tenantID)
+func loadProjectAdminSummary(db *gorm.DB, projectID uint) (ProjectAdminSummary, error) {
+	type adminRow struct {
+		UserID uint
+		Name   string
+	}
+
+	var rows []adminRow
+	if err := db.Table("users").
+		Select("users.id AS user_id, CASE WHEN users.display_name != '' AND users.display_name IS NOT NULL THEN users.display_name ELSE users.username END AS name").
+		Joins("JOIN user_role_bindings ON users.id = user_role_bindings.user_id").
+		Joins("JOIN roles ON user_role_bindings.role_id = roles.id").
+		Where("user_role_bindings.project_id = ? AND roles.code = ?", projectID, RoleCodeProjectAdmin).
+		Group("users.id, users.display_name, users.username").
+		Order("users.id ASC").
+		Scan(&rows).Error; err != nil {
+		return ProjectAdminSummary{}, err
+	}
+
+	names := make([]string, 0, len(rows))
+	userIDs := make([]uint, 0, len(rows))
+	for _, row := range rows {
+		names = append(names, row.Name)
+		userIDs = append(userIDs, row.UserID)
+	}
+
+	summary := ProjectAdminSummary{
+		Names:   strings.Join(names, ", "),
+		UserIDs: userIDs,
+	}
+	if len(userIDs) > 0 {
+		summary.UserID = userIDs[0]
+	}
+	return summary, nil
+}
+
+func replaceProjectAdmin(tx *gorm.DB, tenantID, projectID, adminUserID uint) error {
+	var adminUser store.User
+	if err := tx.Where("id = ? AND tenant_id = ?", adminUserID, tenantID).First(&adminUser).Error; err != nil {
+		return err
+	}
+
+	var projectAdminRole store.Role
+	if err := tx.Where("code = ? AND tenant_id = ? AND project_id = ?", RoleCodeProjectAdmin, 0, 0).First(&projectAdminRole).Error; err != nil {
+		return err
+	}
+
+	var projectAdminRoleIDs []uint
+	if err := tx.Model(&store.Role{}).Where("code = ?", RoleCodeProjectAdmin).Pluck("id", &projectAdminRoleIDs).Error; err != nil {
+		return err
+	}
+	if len(projectAdminRoleIDs) > 0 {
+		if err := tx.Unscoped().Where("project_id = ? AND role_id IN ?", projectID, projectAdminRoleIDs).Delete(&store.UserRoleBinding{}).Error; err != nil {
+			return err
+		}
+	}
+
+	return tx.Create(&store.UserRoleBinding{
+		UserID:    adminUserID,
+		ProjectID: projectID,
+		RoleID:    projectAdminRole.ID,
+		TenantID:  tenantID,
+	}).Error
+}
+
+func (s *Server) handleGetProjects(r *ghttp.Request) {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || authCtx.TenantID == 0 {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+
+	db := store.DB.Model(&store.Project{}).Where("tenant_id = ?", authCtx.TenantID)
+	if projectIDs, restricted := authCtx.ProjectIDsForTenantQuery(); restricted {
+		if len(projectIDs) == 0 {
+			r.Response.WriteJson(g.Map{"code": 0, "data": []store.Project{}, "total": 0})
+			return
+		}
+		db = db.Where("id IN ?", projectIDs)
 	}
 
 	keyword := r.Get("keyword").String()
 	if keyword != "" {
 		db = db.Where("name LIKE ? OR code LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
-	}
-
-	if tenantID > 0 && userRole != "admin" {
-		var bindings []store.UserRoleBinding
-		if err := store.DB.Where("user_id = ?", userID).Find(&bindings).Error; err != nil {
-			r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to query user projects"})
-			return
-		}
-
-		projectIDs := make([]uint, 0)
-		hasGlobal := false
-		for _, b := range bindings {
-			if b.ProjectID == 0 {
-				hasGlobal = true
-				break
-			}
-			projectIDs = append(projectIDs, b.ProjectID)
-		}
-
-		if !hasGlobal {
-			if len(projectIDs) == 0 {
-				r.Response.WriteJson(g.Map{
-					"code":  0,
-					"data":  []store.Project{},
-					"total": 0,
-				})
-				return
-			}
-			db = db.Where("id IN (?)", projectIDs)
-		}
 	}
 
 	var projects []store.Project
@@ -63,28 +109,51 @@ func (s *Server) handleGetProjects(r *ghttp.Request) {
 
 	type ProjectResponse struct {
 		store.Project
-		Admins string `json:"admins"`
+		Admins       string `json:"admins"`
+		AdminUserIDs []uint `json:"admin_user_ids"`
+		AdminUserID  uint   `json:"admin_user_id"`
 	}
 
-	var res []ProjectResponse
+	res := make([]ProjectResponse, 0, len(projects))
 	for _, p := range projects {
-		var adminNames []string
-		store.DB.Table("users").
-			Select("CASE WHEN users.display_name != '' AND users.display_name IS NOT NULL THEN users.display_name ELSE users.username END as name").
-			Joins("JOIN user_role_bindings ON users.id = user_role_bindings.user_id").
-			Joins("JOIN roles ON user_role_bindings.role_id = roles.id").
-			Where("user_role_bindings.project_id = ? AND roles.code = ?", p.ID, "project_admin").
-			Where("users.id NOT IN (SELECT user_id FROM user_role_bindings JOIN roles r2 ON user_role_bindings.role_id = r2.id WHERE r2.code = 'tenant_admin')").
-			Pluck("name", &adminNames)
-
-		adminsStr := ""
-		if len(adminNames) > 0 {
-			adminsStr = strings.Join(adminNames, "、")
+		adminSummary, err := loadProjectAdminSummary(store.DB, p.ID)
+		if err != nil {
+			r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch project administrators"})
+			return
 		}
-		res = append(res, ProjectResponse{Project: p, Admins: adminsStr})
+		res = append(res, ProjectResponse{
+			Project:      p,
+			Admins:       adminSummary.Names,
+			AdminUserIDs: adminSummary.UserIDs,
+			AdminUserID:  adminSummary.UserID,
+		})
 	}
 
 	r.Response.WriteJson(g.Map{"code": 0, "data": res, "total": len(res)})
+}
+
+func (s *Server) handleGetAccessibleProjects(r *ghttp.Request) {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || authCtx.TenantID == 0 || authCtx.IsSystemAdmin {
+		r.Response.WriteJson(g.Map{"code": 0, "data": []store.Project{}, "total": 0})
+		return
+	}
+
+	db := store.DB.Model(&store.Project{}).Where("tenant_id = ? AND status = ?", authCtx.TenantID, 1)
+	if projectIDs, restricted := authCtx.ProjectIDsForTenantQuery(); restricted {
+		if len(projectIDs) == 0 {
+			r.Response.WriteJson(g.Map{"code": 0, "data": []store.Project{}, "total": 0})
+			return
+		}
+		db = db.Where("id IN ?", projectIDs)
+	}
+
+	var projects []store.Project
+	if err := db.Order("created_at desc").Find(&projects).Error; err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch projects"})
+		return
+	}
+	r.Response.WriteJson(g.Map{"code": 0, "data": projects, "total": len(projects)})
 }
 
 func (s *Server) handleCreateProject(r *ghttp.Request) {
@@ -103,42 +172,19 @@ func (s *Server) handleCreateProject(r *ghttp.Request) {
 		return
 	}
 
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	if tenantID > 0 {
-		req.Project.TenantID = tenantID
-	}
-	if authCtx := requestAuthContext(r); authCtx != nil && !authCtx.CanManageTenantResource(req.Project.TenantID) {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || !authCtx.CanManageTenantResource(authCtx.TenantID) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
+	req.Project.TenantID = authCtx.TenantID
 
 	err := store.DB.Transaction(func(tx *gorm.DB) error {
-		var adminUser store.User
-		if err := tx.Where("id = ? AND tenant_id = ?", req.AdminUserID, req.Project.TenantID).First(&adminUser).Error; err != nil {
-			return err
-		}
 		if err := tx.Create(&req.Project).Error; err != nil {
 			return err
 		}
 
-		// 1. Find tenant-specific project_admin Role
-		var projectRole store.Role
-		if err := tx.Where("code = ? AND tenant_id = ?", "project_admin", req.Project.TenantID).First(&projectRole).Error; err != nil {
-			return err
-		}
-
-		// 2. Map user to project and role
-		userProject := store.UserRoleBinding{
-			UserID:    req.AdminUserID,
-			ProjectID: req.Project.ID,
-			RoleID:    projectRole.ID,
-			TenantID:  req.Project.TenantID,
-		}
-		if err := tx.Create(&userProject).Error; err != nil {
-			return err
-		}
-
-		return nil
+		return replaceProjectAdmin(tx, req.Project.TenantID, req.Project.ID, req.AdminUserID)
 	})
 
 	if err != nil {
@@ -161,7 +207,10 @@ func (s *Server) handleUpdateProject(r *ghttp.Request) {
 		return
 	}
 
-	var update store.Project
+	var update struct {
+		store.Project
+		AdminUserID uint `json:"admin_user_id"`
+	}
 	if err := json.Unmarshal(r.GetBody(), &update); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
 		return
@@ -171,7 +220,22 @@ func (s *Server) handleUpdateProject(r *ghttp.Request) {
 	project.Description = update.Description
 	project.Status = update.Status
 
-	if err := store.DB.Save(&project).Error; err != nil {
+	authCtx := requestAuthContext(r)
+	if update.AdminUserID > 0 && (authCtx == nil || !authCtx.IsTenantAdmin) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Only tenant admins can change project administrators"})
+		return
+	}
+
+	err := store.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&project).Error; err != nil {
+			return err
+		}
+		if update.AdminUserID > 0 {
+			return replaceProjectAdmin(tx, project.TenantID, project.ID, update.AdminUserID)
+		}
+		return nil
+	})
+	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to update project: " + err.Error()})
 		return
 	}

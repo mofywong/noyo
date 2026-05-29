@@ -73,7 +73,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onBeforeUnmount, onMounted } from 'vue';
+import { ref, computed, onBeforeUnmount, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
@@ -148,7 +148,7 @@ const fetchPlugins = async () => {
     }
   } catch (e) {
     console.error("Failed to fetch plugins", e);
-    showToast('danger', 'Failed to fetch plugins: ' + e.message);
+    showToast('danger', 'Failed to fetch plugins: ' + (e.message || 'Unknown error'));
   } finally {
     loadingPlugins.value = false;
   }
@@ -229,19 +229,22 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e =
 });
 
 onMounted(() => {
-  checkLicense();
-  fetchPlugins();
-  fetchMqttStatus();
-  mqttStatusTimer = setInterval(fetchMqttStatus, 3000);
   // Restore language
   const savedLang = localStorage.getItem('lang');
   if (savedLang) {
     locale.value = savedLang;
   }
 
-  if (authStore.user && authStore.user.must_change_password) {
-    forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
-    forcePasswordModal.show();
+  if (authStore.isLoggedIn) {
+    checkLicense();
+    fetchPlugins();
+    fetchMqttStatus();
+    mqttStatusTimer = setInterval(fetchMqttStatus, 3000);
+
+    if (authStore.user && authStore.user.must_change_password) {
+      forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
+      forcePasswordModal.show();
+    }
   }
 });
 
@@ -249,6 +252,28 @@ onBeforeUnmount(() => {
   if (mqttStatusTimer) {
     clearInterval(mqttStatusTimer);
     mqttStatusTimer = null;
+  }
+});
+
+watch(() => authStore.isLoggedIn, (loggedIn) => {
+  if (loggedIn) {
+    checkLicense();
+    fetchPlugins();
+    fetchMqttStatus();
+    if (!mqttStatusTimer) {
+      mqttStatusTimer = setInterval(fetchMqttStatus, 3000);
+    }
+    if (authStore.user && authStore.user.must_change_password) {
+      forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
+      forcePasswordModal.show();
+    }
+  } else {
+    if (mqttStatusTimer) {
+      clearInterval(mqttStatusTimer);
+      mqttStatusTimer = null;
+    }
+    plugins.value = [];
+    mqttStatus.value = null;
   }
 });
 

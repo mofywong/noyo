@@ -15,7 +15,7 @@
     </div>
 
     <!-- Project Selector (Moved to Top of Sidebar) -->
-    <div class="px-3 mb-3" v-if="authStore.isLoggedIn">
+    <div class="px-3 mb-3" v-if="authStore.isLoggedIn && userProjects.length > 0">
       <select class="form-select form-select-sm" v-model="currentProjectId" @change="switchProject">
         <option :value="0">{{ $t('project_all') }}</option>
         <option v-for="p in userProjects" :key="p.ID" :value="p.ID">{{ p.name }}</option>
@@ -24,28 +24,28 @@
     
     <div class="sidebar-menu">
       <div class="nav-category">{{ $t('sidebar_main') }}</div>
-      <a href="#" class="nav-link" :class="{ active: currentRouteName === 'Dashboard' }" @click.prevent="navigate('/')">
+      <a v-if="authStore.hasPermission('dashboard:view')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Dashboard' }" @click.prevent="navigate('/')">
         <i class="bi bi-speedometer2"></i> <span>{{ $t('sidebar_dashboard') }}</span>
       </a>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('plugin:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Marketplace' }" @click.prevent="navigate('/marketplace')">
+      <a v-if="authStore.hasPermission('plugin:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Marketplace' }" @click.prevent="navigate('/marketplace')">
         <i class="bi bi-shop"></i> <span>{{ $t('sidebar_marketplace') }}</span>
       </a>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('product:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Products' }" @click.prevent="navigate('/products')">
+      <a v-if="authStore.hasPermission('product:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Products' }" @click.prevent="navigate('/products')">
         <i class="bi bi-box-seam"></i> <span>{{ $t('sidebar_products') }}</span>
       </a>
-      <a v-if="!isGatewayRuntime && !authStore.isSystemAdmin && authStore.hasPermission('plugin:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'GatewayManagement' || currentRouteName === 'GatewayPlugins' || currentRouteName === 'GatewayPluginConfig' }" @click.prevent="navigate('/gateways')">
+      <a v-if="!isGatewayRuntime && authStore.hasPermission('gateway:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'GatewayManagement' || currentRouteName === 'GatewayPlugins' || currentRouteName === 'GatewayPluginConfig' }" @click.prevent="navigate('/gateways')">
         <i class="bi bi-hdd-network"></i> <span>{{ gt('gateway_management') }}</span>
       </a>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('device:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Devices' }" @click.prevent="navigate('/devices')">
+      <a v-if="authStore.hasPermission('device:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Devices' }" @click.prevent="navigate('/devices')">
         <i class="bi bi-cpu"></i> <span>{{ $t('sidebar_devices') }}</span>
       </a>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('device:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTags' }" @click.prevent="navigate('/device-tags')">
+      <a v-if="authStore.hasPermission('device_tag:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTags' }" @click.prevent="navigate('/device-tags')">
         <i class="bi bi-tags"></i> <span>{{ $t('sidebar_device_tags') }}</span>
       </a>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('device:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTopology' }" @click.prevent="navigate('/topology')">
+      <a v-if="authStore.hasPermission('device:topology')" href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTopology' }" @click.prevent="navigate('/topology')">
         <i class="bi bi-diagram-2"></i> <span>{{ $t('sidebar_topology') }}</span>
       </a>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('alarm:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AlarmCenter' }" @click.prevent="navigate('/alarms')">
+      <a v-if="authStore.hasPermission('alarm:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AlarmCenter' }" @click.prevent="navigate('/alarms')">
         <i class="bi bi-bell-fill"></i> <span>{{ $t('sidebar_alarms', '告警中心') }}</span>
       </a>
       
@@ -56,52 +56,54 @@
         </a>
       </template>
 
-      <div class="nav-category mt-2">{{ $t('sidebar_active_plugins') }}</div>
-      <div id="plugin-nav-list">
-        <div v-if="loading" class="px-4 py-2 text-muted small">{{ $t('loading') }}</div>
-        <div v-else-if="activePlugins.length === 0" class="px-4 py-2 text-muted small">
-          {{ $t('no_active_plugins') }}
-        </div>
-        <div v-else>
-          <div v-for="group in groupedPlugins" :key="group.category">
-             <div class="nav-category mt-2">{{ group.title }}</div>
-             <a v-for="plugin in group.items" :key="plugin.name" 
-               href="#"
-               class="nav-link" 
-               :class="{ active: currentRouteParams.name === plugin.name }"
-               @click.prevent="navigatePlugin(plugin.name)">
-               <img v-if="plugin.icon" :src="plugin.icon" class="me-2" style="width: 16px; height: 16px;">
-               <i v-else class="bi bi-plugin"></i>
-               <span class="flex-grow-1 text-truncate">{{ plugin.title ? (plugin.title[locale] || plugin.title['en'] || plugin.name) : plugin.name }}</span>
-               <i class="bi bi-circle-fill text-success" style="font-size: 8px; width: auto; margin: 0;"></i>
-            </a>
+      <template v-if="authStore.hasPermission('plugin:list')">
+        <div class="nav-category mt-2">{{ $t('sidebar_active_plugins') }}</div>
+        <div id="plugin-nav-list">
+          <div v-if="loading" class="px-4 py-2 text-muted small">{{ $t('loading') }}</div>
+          <div v-else-if="activePlugins.length === 0" class="px-4 py-2 text-muted small">
+            {{ $t('no_active_plugins') }}
+          </div>
+          <div v-else>
+            <div v-for="group in groupedPlugins" :key="group.category">
+               <div class="nav-category mt-2">{{ group.title }}</div>
+               <a v-for="plugin in group.items" :key="plugin.name" 
+                 href="#"
+                 class="nav-link" 
+                 :class="{ active: currentRouteParams.name === plugin.name }"
+                 @click.prevent="navigatePlugin(plugin.name)">
+                 <img v-if="plugin.icon" :src="plugin.icon" class="me-2" style="width: 16px; height: 16px;">
+                 <i v-else class="bi bi-plugin"></i>
+                 <span class="flex-grow-1 text-truncate">{{ plugin.title ? (plugin.title[locale] || plugin.title['en'] || plugin.name) : plugin.name }}</span>
+                 <i class="bi bi-circle-fill text-success" style="font-size: 8px; width: auto; margin: 0;"></i>
+              </a>
+            </div>
           </div>
         </div>
-      </div>
+      </template>
       
       <div class="nav-category mt-2">{{ $t('sidebar_system') }}</div>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('user:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'UserManagement' }" @click.prevent="navigate('/settings/users')">
+      <a v-if="authStore.hasPermission('user:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'UserManagement' }" @click.prevent="navigate('/settings/users')">
         <i class="bi bi-people"></i> <span>{{ $t('user_management', 'User Management') }}</span>
       </a>
-      <a v-if="authStore.isSystemAdmin" href="#" class="nav-link" :class="{ active: currentRouteName === 'TenantManagement' }" @click.prevent="navigate('/settings/tenants')">
+      <a v-if="authStore.hasPermission('tenant:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'TenantManagement' }" @click.prevent="navigate('/settings/tenants')">
         <i class="bi bi-building"></i> <span>{{ $t('tenant_management') }}</span>
       </a>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('project:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'ProjectManagement' }" @click.prevent="navigate('/settings/projects')">
+      <a v-if="authStore.hasPermission('project:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'ProjectManagement' }" @click.prevent="navigate('/settings/projects')">
         <i class="bi bi-folder"></i> <span>{{ $t('project_management') }}</span>
       </a>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('role:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'RoleManagement' }" @click.prevent="navigate('/settings/roles')">
+      <a v-if="authStore.hasPermission('role:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'RoleManagement' }" @click.prevent="navigate('/settings/roles')">
         <i class="bi bi-shield-lock"></i> <span>{{ $t('role_management') }}</span>
       </a>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('position:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'PositionManagement' }" @click.prevent="navigate('/settings/positions')">
+      <a v-if="authStore.hasPermission('position:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'PositionManagement' }" @click.prevent="navigate('/settings/positions')">
         <i class="bi bi-person-badge"></i> <span>{{ $t('position_management', 'Position Management') }}</span>
       </a>
-      <a v-if="!authStore.isSystemAdmin && authStore.hasPermission('app:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AppManagement' }" @click.prevent="navigate('/settings/apps')">
+      <a v-if="authStore.hasPermission('app:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AppManagement' }" @click.prevent="navigate('/settings/apps')">
         <i class="bi bi-window-sidebar"></i> <span>{{ $t('app_management', 'App Integration') }}</span>
       </a>
-      <a v-if="authStore.isSystemAdmin" href="#" class="nav-link" :class="{ active: currentRouteName === 'AuditLogs' }" @click.prevent="navigate('/settings/audit-logs')">
+      <a v-if="authStore.hasPermission('audit:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AuditLogs' }" @click.prevent="navigate('/settings/audit-logs')">
         <i class="bi bi-journal-text"></i> <span>{{ $t('audit_logs', 'Audit Logs') }}</span>
       </a>
-      <a v-if="isPro" href="#" class="nav-link" :class="{ active: currentRouteName === 'License' }" @click.prevent="navigate('/license')">
+      <a v-if="authStore.hasPermission('system:license')" href="#" class="nav-link" :class="{ active: currentRouteName === 'License' }" @click.prevent="navigate('/license')">
         <i class="bi bi-shield-check"></i> <span>{{ $t('license_info', '授权信息') }}</span>
       </a>
       <a v-if="authStore.hasPermission('system:logs')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Logs' }" @click.prevent="navigate('/logs')">
@@ -163,7 +165,7 @@ const tenantName = computed(() => {
 const loadUserProjects = async () => {
   if (!authStore.isLoggedIn) return;
   try {
-    const res = await axios.get('/api/projects');
+    const res = await axios.get('/api/auth/projects');
     if (res.data.code === 0) {
       userProjects.value = res.data.data || [];
     }
@@ -190,18 +192,7 @@ const router = useRouter();
 const route = useRoute();
 const gt = (key, params) => gatewayText(locale.value, key, params);
 
-const isPro = ref(false);
-
 onMounted(async () => {
-  try {
-    const res = await axios.get('/api/extension/license/status');
-    if (res.data && res.data.code === 200) {
-      isPro.value = true;
-    }
-  } catch (e) {
-    isPro.value = false;
-  }
-  
   loadUserProjects();
 });
 
@@ -239,9 +230,11 @@ const extensionMenus = computed(() => {
 
 const isMenuVisible = (menu) => {
   if (menu.requiredPlugin) {
-    return activePlugins.value.some(p => p.name === menu.requiredPlugin);
+    const pluginActive = activePlugins.value.some(p => p.name === menu.requiredPlugin);
+    if (!pluginActive) return false;
   }
-  return true;
+  const requiredPermission = menu.permission || menu.requiredPermission || menu.meta?.permission || 'plugin:config';
+  return authStore.hasPermission(requiredPermission);
 };
 
 const groupedPlugins = computed(() => {

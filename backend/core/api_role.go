@@ -10,54 +10,63 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Server) handleGetRoles(r *ghttp.Request) {
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	projectID := r.GetCtxVar("project_id").Uint()
-	role := r.GetCtxVar("role").String()
-	userID := r.GetCtxVar("user_id").Uint()
+var assignableBuiltinRoleCodes = []string{RoleCodeTenantAdmin, RoleCodeProjectAdmin}
 
-	isProjectAdmin := role == "project_admin"
+func isReservedAdminRoleCode(code string) bool {
+	return code == RoleCodeSuperAdmin || code == RoleCodeTenantAdmin || code == RoleCodeProjectAdmin
+}
+
+func (s *Server) handleGetRoles(r *ghttp.Request) {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || authCtx.TenantID == 0 {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+
+	includeBuiltin := r.Get("include_builtin").Bool()
+	projectID := r.Get("project_id").Uint()
+	if projectID == 0 {
+		projectID = r.GetCtxVar("project_id").Uint()
+	}
 
 	db := store.DB.Model(&store.Role{})
-	if tenantID > 0 {
-		if isProjectAdmin {
-			allowedProjectIDs := s.getManagedProjectIDs(userID)
-			if len(allowedProjectIDs) == 0 {
-				r.Response.WriteJson(g.Map{"code": 0, "data": []store.Role{}, "total": 0})
+	if authCtx.IsTenantAdmin {
+		if projectID > 0 {
+			if !projectBelongsToTenant(projectID, authCtx.TenantID) {
+				r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
 				return
 			}
-			if projectID > 0 {
-				allowed := false
-				for _, pid := range allowedProjectIDs {
-					if pid == projectID {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
-					return
-				}
-				db = db.Where("is_builtin = ? OR (tenant_id = ? AND (project_id = ? OR (project_id = 0 AND is_inherited = ?)))", true, tenantID, projectID, true)
-			} else {
-				db = db.Where("is_builtin = ? OR (tenant_id = ? AND (project_id IN ? OR (project_id = 0 AND is_inherited = ?)))", true, tenantID, allowedProjectIDs, true)
-			}
-
-			// 过滤掉租户管理员等高级角色
-			db = db.Where("code NOT IN ?", []string{"tenant_admin", "super_admin"})
+			db = db.Where("tenant_id = ? AND is_builtin = ? AND (project_id = ? OR project_id = 0)", authCtx.TenantID, false, projectID)
 		} else {
-			if projectID > 0 {
-				db = db.Where("is_builtin = ? OR (tenant_id = ? AND (project_id = ? OR (project_id = 0 AND is_inherited = ?)))", true, tenantID, projectID, true)
-			} else {
-				db = db.Where("tenant_id = ? OR is_builtin = ?", tenantID, true)
-			}
-			// 租户管理员不应该看到超级管理员角色
-			db = db.Where("code != ?", "super_admin")
+			db = db.Where("tenant_id = ? AND is_builtin = ?", authCtx.TenantID, false)
 		}
+		if includeBuiltin {
+			db = db.Or("tenant_id = ? AND project_id = ? AND is_builtin = ? AND code IN ?", 0, 0, true, assignableBuiltinRoleCodes)
+		}
+	} else {
+		allowedProjectIDs := authCtx.AllowedProjectIDs
+		if projectID > 0 {
+			if !authCtx.CanAccessProject(projectID) {
+				r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
+				return
+			}
+			allowedProjectIDs = []uint{projectID}
+		}
+		if len(allowedProjectIDs) == 0 {
+			r.Response.WriteJson(g.Map{"code": 0, "data": []store.Role{}, "total": 0})
+			return
+		}
+		db = db.Where(
+			"tenant_id = ? AND is_builtin = ? AND (project_id IN ? OR (project_id = 0 AND is_inherited = ?))",
+			authCtx.TenantID,
+			false,
+			allowedProjectIDs,
+			true,
+		)
 	}
 
 	var roles []store.Role
-	if err := db.Find(&roles).Error; err != nil {
+	if err := db.Order("project_id asc, created_at desc").Find(&roles).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch roles"})
 		return
 	}
@@ -72,49 +81,45 @@ func (s *Server) handleCreateRole(r *ghttp.Request) {
 		return
 	}
 
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	if tenantID > 0 {
-		role.TenantID = tenantID
-		role.IsBuiltin = false
-	}
-
-	userRole := r.GetCtxVar("role").String()
 	authCtx := requestAuthContext(r)
-	if userRole == "project_admin" {
-		userID := r.GetCtxVar("user_id").Uint()
-		allowedProjectIDs := s.getManagedProjectIDs(userID)
-		if len(allowedProjectIDs) == 0 {
-			r.Response.WriteJson(g.Map{"code": 403, "message": "No project access"})
-			return
-		}
-
-		if role.ProjectID > 0 {
-			allowed := false
-			for _, pid := range allowedProjectIDs {
-				if pid == role.ProjectID {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
-				return
-			}
-		} else {
-			role.ProjectID = allowedProjectIDs[0]
-		}
+	if authCtx == nil || authCtx.TenantID == 0 {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
 	}
-
-	if authCtx != nil && role.ProjectID > 0 && !authCtx.CanManageProject(role.ProjectID) {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
+	if isReservedAdminRoleCode(role.Code) {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Reserved admin roles are managed by the system"})
 		return
 	}
 
-	// 约束：如果角色属于某个项目，则不能被继承
-	if role.ProjectID > 0 {
+	role.TenantID = authCtx.TenantID
+	role.IsBuiltin = false
+
+	if role.ProjectID == 0 {
+		if !authCtx.IsTenantAdmin {
+			if authCtx.ProjectID > 0 {
+				role.ProjectID = authCtx.ProjectID
+			} else if len(authCtx.AllowedProjectIDs) > 0 {
+				role.ProjectID = authCtx.AllowedProjectIDs[0]
+			} else {
+				r.Response.WriteJson(g.Map{"code": 403, "message": "No project access"})
+				return
+			}
+		}
+	}
+
+	if role.ProjectID == 0 {
+		if !authCtx.IsTenantAdmin {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Only tenant admins can create tenant common roles"})
+			return
+		}
+		role.IsInherited = true
+	} else {
+		if !projectBelongsToTenant(role.ProjectID, authCtx.TenantID) || !authCtx.CanManageProject(role.ProjectID) {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
+			return
+		}
 		role.IsInherited = false
 	}
-	// 如果 ProjectID == 0，保留由前端传来的 role.IsInherited 状态
 
 	var count int64
 	store.DB.Model(&store.Role{}).Where("tenant_id = ? AND project_id = ? AND code = ?", role.TenantID, role.ProjectID, role.Code).Count(&count)
@@ -144,7 +149,8 @@ func (s *Server) handleUpdateRole(r *ghttp.Request) {
 		return
 	}
 
-	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanManageRole(role) {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || !authCtx.CanManageRole(role) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
@@ -159,13 +165,7 @@ func (s *Server) handleUpdateRole(r *ghttp.Request) {
 	role.Description = update.Description
 	role.DataScope = update.DataScope
 	role.Status = update.Status
-
-	// 更新继承属性：仅当非项目级角色时允许继承
-	if role.ProjectID == 0 {
-		role.IsInherited = update.IsInherited
-	} else {
-		role.IsInherited = false
-	}
+	role.IsInherited = role.ProjectID == 0
 
 	if err := store.DB.Save(&role).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to update role: " + err.Error()})
@@ -183,18 +183,12 @@ func (s *Server) handleDeleteRole(r *ghttp.Request) {
 		return
 	}
 
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	if tenantID > 0 && role.TenantID != tenantID {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+	if role.IsBuiltin {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Built-in roles cannot be deleted"})
 		return
 	}
 	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanManageRole(role) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
-		return
-	}
-
-	if role.IsBuiltin {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Built-in roles cannot be deleted"})
 		return
 	}
 

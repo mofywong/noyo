@@ -29,13 +29,24 @@
           </div>
           <div class="mb-4">
             <label class="form-label">{{ $t('auth_password') }}</label>
-            <input 
-              v-model="password" 
-              type="password" 
-              class="form-control" 
-              :placeholder="$t('auth_password_placeholder')"
-              required 
-            />
+            <div class="position-relative">
+              <input
+                v-model="password"
+                :type="showPassword ? 'text' : 'password'"
+                class="form-control pe-5"
+                :placeholder="$t('auth_password_placeholder')"
+                required
+              />
+              <button
+                type="button"
+                class="btn btn-link position-absolute end-0 top-50 translate-middle-y text-muted p-0 me-2"
+                style="z-index: 5;"
+                @click="showPassword = !showPassword"
+                tabindex="-1"
+              >
+                <i :class="showPassword ? 'bi bi-eye-slash' : 'bi bi-eye'"></i>
+              </button>
+            </div>
           </div>
           <button 
             type="submit" 
@@ -66,6 +77,7 @@ const { t } = useI18n()
 
 const username = ref('')
 const password = ref('')
+const showPassword = ref(false)
 const errorMsg = ref('')
 const loading = ref(false)
 

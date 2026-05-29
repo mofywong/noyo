@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"noyo/core/store"
+	"noyo/core/utils"
 	"strings"
 
 	"github.com/gogf/gf/v2/frame/g"
@@ -43,9 +44,15 @@ func (s *Server) handleCreateApp(r *ghttp.Request) {
 		return
 	}
 
-	// Auto generate AppID and AppKey
+	// Auto generate AppID and AppKey (key is hashed before storage)
 	app.AppID = strings.ReplaceAll(uuid.New().String(), "-", "")
-	app.AppKey = strings.ReplaceAll(uuid.New().String(), "-", "")
+	rawAppKey := strings.ReplaceAll(uuid.New().String(), "-", "")
+	hashedKey, err := utils.HashPassword(rawAppKey)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to generate app key"})
+		return
+	}
+	app.AppKey = hashedKey
 
 	if err := store.DB.Create(&app).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to create app: " + err.Error()})
@@ -55,7 +62,7 @@ func (s *Server) handleCreateApp(r *ghttp.Request) {
 	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{
 		"ID":          app.ID,
 		"app_id":      app.AppID,
-		"AppKey":      app.AppKey,
+		"AppKey":      rawAppKey, // Return the raw key — this is the only time it's visible
 		"name":        app.Name,
 		"description": app.Description,
 		"status":      app.Status,
@@ -126,7 +133,13 @@ func (s *Server) handleResetAppKey(r *ghttp.Request) {
 		return
 	}
 
-	app.AppKey = strings.ReplaceAll(uuid.New().String(), "-", "")
+	rawAppKey := strings.ReplaceAll(uuid.New().String(), "-", "")
+	hashedKey, err := utils.HashPassword(rawAppKey)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to generate app key"})
+		return
+	}
+	app.AppKey = hashedKey
 	if err := store.DB.Save(&app).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to reset app key"})
 		return
@@ -134,6 +147,6 @@ func (s *Server) handleResetAppKey(r *ghttp.Request) {
 	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{
 		"ID":     app.ID,
 		"app_id": app.AppID,
-		"AppKey": app.AppKey,
+		"AppKey": rawAppKey, // Return the raw key — this is the only time it's visible
 	}, "message": "Key reset successfully"})
 }

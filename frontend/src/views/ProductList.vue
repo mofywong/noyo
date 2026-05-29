@@ -2,7 +2,7 @@
   <div class="card border-0 shadow-sm h-100">
     <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center py-3">
       <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_products') }}</h2>
-      <button class="btn btn-primary btn-sm" @click="openCreateModal">
+      <button class="btn btn-primary btn-sm" @click="openCreateModal" v-permission="'product:create'">
         <i class="bi bi-plus-lg me-1"></i> {{ $t('prod_create') }}
       </button>
     </div>
@@ -50,14 +50,14 @@
               </td>
               <td class="text-end pe-4">
                 <div class="btn-group btn-group-sm me-2">
-                  <button class="btn btn-outline-secondary" :title="$t('prod_edit_info')" @click="openInfoEditModal(product)">
+                  <button class="btn btn-outline-secondary" :title="$t('prod_edit_info')" @click="openInfoEditModal(product)" v-permission="'product:edit'">
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button class="btn btn-outline-primary" :title="$t('prod_edit_tsl')" @click="openTSLEditModal(product)">
+                  <button class="btn btn-outline-primary" :title="$t('prod_edit_tsl')" @click="openTSLEditModal(product)" v-permission="'product:edit'">
                     <i class="bi bi-diagram-3"></i>
                   </button>
                 </div>
-                <button class="btn btn-sm btn-outline-danger" :title="$t('tsl_delete')" @click="deleteProduct(product.code)">
+                <button class="btn btn-sm btn-outline-danger" :title="$t('tsl_delete')" @click="deleteProduct(product.code)" v-permission="'product:delete'">
                   <i class="bi bi-trash"></i>
                 </button>
               </td>

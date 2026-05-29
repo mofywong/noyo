@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"noyo/core/store"
 	"noyo/core/utils"
 
@@ -11,13 +12,26 @@ import (
 )
 
 func (s *Server) handleGetTenants(r *ghttp.Request) {
+	page := r.Get("page", 1).Int()
+	pageSize := r.Get("pageSize", 20).Int()
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	if page < 1 {
+		page = 1
+	}
+
+	var total int64
+	store.DB.Model(&store.Tenant{}).Count(&total)
+
 	var tenants []store.Tenant
-	if err := store.DB.Find(&tenants).Error; err != nil {
+	offset := (page - 1) * pageSize
+	if err := store.DB.Offset(offset).Limit(pageSize).Find(&tenants).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch tenants"})
 		return
 	}
 
-	r.Response.WriteJson(g.Map{"code": 0, "data": tenants, "total": len(tenants)})
+	r.Response.WriteJson(g.Map{"code": 0, "data": tenants, "total": total, "page": page, "pageSize": pageSize})
 }
 
 func (s *Server) handleCreateTenant(r *ghttp.Request) {
@@ -56,63 +70,15 @@ func (s *Server) handleCreateTenant(r *ghttp.Request) {
 			return err
 		}
 
-		// 1. Find global tenant_admin Role
-		var globalTenantAdmin store.Role
-		if err := tx.Where("code = ? AND tenant_id = 0", "tenant_admin").First(&globalTenantAdmin).Error; err != nil {
-			return err
-		}
-		
-		// Find global project_admin Role
-		var globalProjectAdmin store.Role
-		if err := tx.Where("code = ? AND tenant_id = 0", "project_admin").First(&globalProjectAdmin).Error; err != nil {
+		var tenantAdminRole store.Role
+		if err := tx.Where("code = ? AND tenant_id = ? AND project_id = ?", RoleCodeTenantAdmin, 0, 0).First(&tenantAdminRole).Error; err != nil {
 			return err
 		}
 
-		// 2. Clone tenant_admin
-		tenantAdminRole := globalTenantAdmin
-		tenantAdminRole.ID = 0
-		tenantAdminRole.TenantID = req.Tenant.ID
-		tenantAdminRole.IsBuiltin = true
-		if err := tx.Create(&tenantAdminRole).Error; err != nil {
-			return err
-		}
-
-		// Clone project_admin
-		projectAdminRole := globalProjectAdmin
-		projectAdminRole.ID = 0
-		projectAdminRole.TenantID = req.Tenant.ID
-		projectAdminRole.IsBuiltin = true
-		if err := tx.Create(&projectAdminRole).Error; err != nil {
-			return err
-		}
-
-		// 3. Clone permissions for tenant_admin
-		var tenantAdminPerms []store.RolePermission
-		tx.Where("role_id = ?", globalTenantAdmin.ID).Find(&tenantAdminPerms)
-		for _, rp := range tenantAdminPerms {
-			newRp := store.RolePermission{
-				RoleID:       tenantAdminRole.ID,
-				PermissionID: rp.PermissionID,
-			}
-			tx.Create(&newRp)
-		}
-
-		// Clone permissions for project_admin
-		var projectAdminPerms []store.RolePermission
-		tx.Where("role_id = ?", globalProjectAdmin.ID).Find(&projectAdminPerms)
-		for _, rp := range projectAdminPerms {
-			newRp := store.RolePermission{
-				RoleID:       projectAdminRole.ID,
-				PermissionID: rp.PermissionID,
-			}
-			tx.Create(&newRp)
-		}
-
-		// 4. Map user to the newly cloned tenant_admin role
 		userRole := store.UserRoleBinding{
-			UserID: adminUser.ID,
-			RoleID: tenantAdminRole.ID,
-			TenantID: req.Tenant.ID,
+			UserID:    adminUser.ID,
+			RoleID:    tenantAdminRole.ID,
+			TenantID:  req.Tenant.ID,
 			ProjectID: 0,
 		}
 		if err := tx.Create(&userRole).Error; err != nil {
@@ -166,7 +132,7 @@ func (s *Server) handleUpdateTenant(r *ghttp.Request) {
 
 func (s *Server) handleDeleteTenant(r *ghttp.Request) {
 	id := r.Get("id").Uint()
-	
+
 	err := store.DB.Transaction(func(tx *gorm.DB) error {
 		tx.Where("tenant_id = ?", id).Delete(&store.User{})
 		tx.Where("tenant_id = ?", id).Delete(&store.Role{})
@@ -176,12 +142,168 @@ func (s *Server) handleDeleteTenant(r *ghttp.Request) {
 		tx.Where("tenant_id = ?", id).Delete(&store.AuditLog{})
 		return tx.Delete(&store.Tenant{}, id).Error
 	})
-	
+
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to delete tenant: " + err.Error()})
 		return
 	}
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Deleted successfully"})
+}
+
+func (s *Server) handleGetTenantUsers(r *ghttp.Request) {
+	id := r.Get("id").Uint()
+	if id == 0 {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid tenant ID"})
+		return
+	}
+
+	var users []store.User
+	if err := store.DB.Where("tenant_id = ?", id).Order("created_at desc").Find(&users).Error; err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch users"})
+		return
+	}
+
+	r.Response.WriteJson(g.Map{"code": 0, "data": users})
+}
+
+func (s *Server) handleChangeTenantAdmin(r *ghttp.Request) {
+	id := r.Get("id").Uint()
+	if id == 0 {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid tenant ID"})
+		return
+	}
+
+	var req struct {
+		UserID uint `json:"user_id"`
+	}
+	if err := json.Unmarshal(r.GetBody(), &req); err != nil || req.UserID == 0 {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid request: user_id is required"})
+		return
+	}
+
+	// Verify target user exists and belongs to this tenant
+	var targetUser store.User
+	if err := store.DB.Where("id = ? AND tenant_id = ?", req.UserID, id).First(&targetUser).Error; err != nil {
+		r.Response.WriteJson(g.Map{"code": 404, "message": "User not found in this tenant"})
+		return
+	}
+
+	err := store.DB.Transaction(func(tx *gorm.DB) error {
+		// Tenant admin is a system builtin role; the binding carries tenant scope.
+		var tenantAdminRole store.Role
+		if err := tx.Where("code = ? AND tenant_id = ? AND project_id = ?", RoleCodeTenantAdmin, 0, 0).First(&tenantAdminRole).Error; err != nil {
+			return err
+		}
+
+		// Find current admin binding
+		var currentBinding store.UserRoleBinding
+		currentErr := tx.Where("role_id = ? AND tenant_id = ? AND project_id = ?", tenantAdminRole.ID, id, 0).First(&currentBinding).Error
+
+		// If target user is already the admin, return error
+		if currentErr == nil && currentBinding.UserID == req.UserID {
+			return fmt.Errorf("user is already the tenant admin")
+		}
+
+		// Remove old admin binding
+		if currentErr == nil {
+			if err := tx.Delete(&currentBinding).Error; err != nil {
+				return err
+			}
+			// Downgrade old admin's user role
+			tx.Model(&store.User{}).Where("id = ?", currentBinding.UserID).Update("role", "viewer")
+		}
+
+		// Create new admin binding
+		newBinding := store.UserRoleBinding{
+			UserID:    req.UserID,
+			RoleID:    tenantAdminRole.ID,
+			TenantID:  id,
+			ProjectID: 0,
+		}
+		if err := tx.Create(&newBinding).Error; err != nil {
+			return err
+		}
+
+		// Update new admin's user role
+		tx.Model(&store.User{}).Where("id = ?", req.UserID).Update("role", "admin")
+
+		return nil
+	})
+
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+		return
+	}
+
+	r.Response.WriteJson(g.Map{"code": 0, "message": "Tenant admin changed successfully"})
+}
+
+func (s *Server) handleTransferTenantAdmin(r *ghttp.Request) {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || !authCtx.IsTenantAdmin {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Only tenant admin can transfer admin role"})
+		return
+	}
+
+	var req struct {
+		TargetUserID uint `json:"target_user_id"`
+	}
+	if err := json.Unmarshal(r.GetBody(), &req); err != nil || req.TargetUserID == 0 {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid request: target_user_id is required"})
+		return
+	}
+
+	tenantID := authCtx.TenantID
+
+	// Verify target user exists and belongs to the same tenant
+	var targetUser store.User
+	if err := store.DB.Where("id = ? AND tenant_id = ?", req.TargetUserID, tenantID).First(&targetUser).Error; err != nil {
+		r.Response.WriteJson(g.Map{"code": 404, "message": "User not found in your tenant"})
+		return
+	}
+
+	// Cannot transfer to yourself
+	if req.TargetUserID == authCtx.UserID {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Cannot transfer admin to yourself"})
+		return
+	}
+
+	err := store.DB.Transaction(func(tx *gorm.DB) error {
+		// Tenant admin is a system builtin role; the binding carries tenant scope.
+		var tenantAdminRole store.Role
+		if err := tx.Where("code = ? AND tenant_id = ? AND project_id = ?", RoleCodeTenantAdmin, 0, 0).First(&tenantAdminRole).Error; err != nil {
+			return err
+		}
+
+		// Remove current admin binding
+		if err := tx.Where("user_id = ? AND role_id = ? AND tenant_id = ?", authCtx.UserID, tenantAdminRole.ID, tenantID).Delete(&store.UserRoleBinding{}).Error; err != nil {
+			return err
+		}
+
+		// Create new admin binding for target user
+		newBinding := store.UserRoleBinding{
+			UserID:    req.TargetUserID,
+			RoleID:    tenantAdminRole.ID,
+			TenantID:  tenantID,
+			ProjectID: 0,
+		}
+		if err := tx.Create(&newBinding).Error; err != nil {
+			return err
+		}
+
+		// Update user roles
+		tx.Model(&store.User{}).Where("id = ?", authCtx.UserID).Update("role", "operator")
+		tx.Model(&store.User{}).Where("id = ?", req.TargetUserID).Update("role", "admin")
+
+		return nil
+	})
+
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+		return
+	}
+
+	r.Response.WriteJson(g.Map{"code": 0, "message": "Admin role transferred successfully"})
 }
 
 func (s *Server) handleResetTenantPassword(r *ghttp.Request) {
@@ -197,15 +319,18 @@ func (s *Server) handleResetTenantPassword(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "New password is required"})
 		return
 	}
-	
-	// Ensure the caller is a system admin
-	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.IsSystemAdmin {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Only System Admin can reset tenant passwords"})
+
+	var tenantAdminRole store.Role
+	if err := store.DB.Where("code = ? AND tenant_id = ? AND project_id = ?", RoleCodeTenantAdmin, 0, 0).First(&tenantAdminRole).Error; err != nil {
+		r.Response.WriteJson(g.Map{"code": 404, "message": "Tenant admin role not found"})
 		return
 	}
 
 	var adminUser store.User
-	if err := store.DB.Where("tenant_id = ? AND role = ?", id, "admin").First(&adminUser).Error; err != nil {
+	if err := store.DB.
+		Joins("JOIN user_role_bindings ON user_role_bindings.user_id = users.id").
+		Where("users.tenant_id = ? AND user_role_bindings.role_id = ? AND user_role_bindings.tenant_id = ? AND user_role_bindings.project_id = ?", id, tenantAdminRole.ID, id, 0).
+		First(&adminUser).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "Tenant admin user not found"})
 		return
 	}
@@ -224,4 +349,3 @@ func (s *Server) handleResetTenantPassword(r *ghttp.Request) {
 
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Password reset successfully"})
 }
-

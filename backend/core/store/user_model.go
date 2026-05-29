@@ -9,15 +9,15 @@ import (
 // User represents a system user
 type User struct {
 	gorm.Model
-	TenantID    uint       `gorm:"index;uniqueIndex:idx_tenant_username;not null;default:0" json:"tenant_id"`
-	Username    string     `gorm:"uniqueIndex:idx_tenant_username;size:64;not null" json:"username"`
-	Password    string     `gorm:"size:128;not null" json:"-"` // DO NOT return password in JSON
-	DisplayName string     `gorm:"size:64" json:"display_name"`
-	Email       string     `gorm:"size:128" json:"email"`
-	Role        string     `gorm:"size:32;not null;default:viewer" json:"role"` // admin, operator, viewer
-	Status      int        `gorm:"default:1" json:"status"`                     // 1=active, 0=disabled
-	MustChangePassword bool `gorm:"default:false" json:"must_change_password"`
-	LastLoginAt *time.Time `json:"last_login_at"`
+	TenantID           uint       `gorm:"index;uniqueIndex:idx_tenant_username;not null;default:0" json:"tenant_id"`
+	Username           string     `gorm:"uniqueIndex:idx_tenant_username;size:64;not null" json:"username"`
+	Password           string     `gorm:"size:128;not null" json:"-"` // DO NOT return password in JSON
+	DisplayName        string     `gorm:"size:64" json:"display_name"`
+	Email              string     `gorm:"size:128" json:"email"`
+	Role               string     `gorm:"size:32;not null;default:viewer" json:"role"` // admin, operator, viewer
+	Status             int        `gorm:"default:1" json:"status"`                     // 1=active, 0=disabled
+	MustChangePassword bool       `gorm:"default:false" json:"must_change_password"`
+	LastLoginAt        *time.Time `json:"last_login_at"`
 }
 
 // GetUserByUsername retrieves a user by their username
@@ -83,11 +83,11 @@ func ListUsers(page, pageSize int, tenantID, projectID, roleID uint, isProjectAd
 	}
 
 	if isProjectAdmin {
-		db = db.Where("id IN (?)", DB.Model(&UserRoleBinding{}).Select("user_id").Where("project_id IN ? OR project_id = 0", allowedProjectIDs))
+		db = db.Where("id IN (?)", DB.Model(&UserRoleBinding{}).Select("user_id").Where("project_id IN ?", allowedProjectIDs))
 	}
 
 	if projectID > 0 {
-		db = db.Where("id IN (?)", DB.Model(&UserRoleBinding{}).Select("user_id").Where("project_id = ? OR project_id = 0", projectID))
+		db = db.Where("id IN (?)", DB.Model(&UserRoleBinding{}).Select("user_id").Where("project_id = ?", projectID))
 	}
 
 	if roleID > 0 {

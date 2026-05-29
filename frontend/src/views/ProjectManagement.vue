@@ -7,7 +7,7 @@
           <input type="text" class="form-control" :placeholder="$t('project_search_placeholder', '搜索项目名称或编码...')" v-model="filterKeyword" @keyup.enter="loadProjects">
           <button class="btn btn-outline-secondary" @click="loadProjects"><i class="bi bi-search"></i></button>
         </div>
-        <button class="btn btn-primary btn-sm ms-2" @click="openCreateModal">
+        <button class="btn btn-primary btn-sm ms-2" @click="openCreateModal" v-permission="'project:create'">
           <i class="bi bi-folder-plus me-1"></i> {{ $t('project_add') }}
         </button>
       </div>
@@ -55,10 +55,10 @@
                   <button class="btn btn-sm btn-outline-success me-2" @click="openDetailsModal(p)" :title="$t('common_view_details', '查看详情')">
                     <i class="bi bi-eye"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(p)" :title="$t('project_edit', '编辑')">
+                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(p)" :title="$t('project_edit', '编辑')" v-permission="'project:edit'">
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="deleteProject(p)" :disabled="p.code === 'default'" :title="$t('project_delete', '删除')">
+                  <button class="btn btn-sm btn-outline-danger" @click="deleteProject(p)" :disabled="p.code === 'default'" :title="$t('project_delete', '删除')" v-permission="'project:delete'">
                     <i class="bi bi-trash"></i>
                   </button>
                 </td>
@@ -70,7 +70,7 @@
     </div>
 
     <!-- Project Details Modal -->
-    <div class="modal fade" id="projectDetailsModal" tabindex="-1" ref="projectDetailsModalRef">
+    <div class="modal fade" id="projectDetailsModal" tabindex="-1" ref="projectDetailsModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -116,7 +116,7 @@
     </div>
 
     <!-- Project Modal -->
-    <div class="modal fade" id="projectModal" tabindex="-1" ref="projectModalRef">
+    <div class="modal fade" id="projectModal" tabindex="-1" ref="projectModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -133,7 +133,7 @@
                 <label class="form-label">{{ $t('project_name') }}</label>
                 <input v-model="form.name" type="text" class="form-control" required>
               </div>
-              <div class="mb-3" v-if="!isEditing">
+              <div class="mb-3">
                 <label class="form-label">{{ $t('project_admin') }}</label>
                 <select v-model="form.admin_user_id" class="form-select" required>
                   <option value="" disabled>{{ $t('project_select_admin') }}</option>
@@ -246,7 +246,7 @@ const openEditModal = (item) => {
     name: item.name,
     description: item.description,
     status: item.status,
-    admin_user_id: ''
+    admin_user_id: item.admin_user_id || ''
   }
   projectModal.show()
 }

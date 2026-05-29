@@ -5,7 +5,7 @@
         <div class="card border-0 shadow-sm h-100">
           <div class="card-header bg-transparent border-0 py-3 d-flex justify-content-between align-items-center">
             <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('dev_tag_manage') }}</h2>
-            <button class="btn btn-primary btn-sm" @click="openTagModal()">
+            <button class="btn btn-primary btn-sm" @click="openTagModal()" v-permission="'device_tag:create'">
               <i class="bi bi-plus-lg me-1"></i>{{ $t('dev_tag_create') }}
             </button>
           </div>
@@ -38,10 +38,10 @@
                   {{ tag.device_count || 0 }}
                 </span>
                 <span class="btn-group btn-group-sm" @click.stop>
-                  <button class="btn btn-link p-1" :class="selectedTag?.ID === tag.ID ? 'text-white' : 'text-muted'" @click="openTagModal(tag)" :title="$t('tsl_edit')">
+                  <button class="btn btn-link p-1" :class="selectedTag?.ID === tag.ID ? 'text-white' : 'text-muted'" @click="openTagModal(tag)" :title="$t('tsl_edit')" v-permission="'device_tag:edit'">
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button class="btn btn-link p-1" :class="selectedTag?.ID === tag.ID ? 'text-white' : 'text-danger'" @click="deleteTag(tag)" :title="$t('tsl_delete')">
+                  <button class="btn btn-link p-1" :class="selectedTag?.ID === tag.ID ? 'text-white' : 'text-danger'" @click="deleteTag(tag)" :title="$t('tsl_delete')" v-permission="'device_tag:delete'">
                     <i class="bi bi-trash"></i>
                   </button>
                 </span>
@@ -59,10 +59,11 @@
                 <h5 class="mb-1 text-truncate">{{ selectedTag ? selectedTag.name : $t('dev_tag_assign_title') }}</h5>
                 <div class="text-muted small">{{ $t('dev_tag_assign_hint') }}</div>
               </div>
-              <button class="btn btn-sm flex-shrink-0" 
-                      :class="isDirty ? 'btn-warning' : 'btn-primary'" 
-                      :disabled="!selectedTag || isSaving" 
-                      @click="saveAssignments">
+              <button class="btn btn-sm flex-shrink-0"
+                      :class="isDirty ? 'btn-warning' : 'btn-primary'"
+                      :disabled="!selectedTag || isSaving"
+                      @click="saveAssignments"
+                      v-permission="'device_tag:edit'">
                 <i class="bi me-1" :class="isSaving ? 'bi-arrow-repeat spin' : 'bi-check2'"></i>
                 <span v-if="isDirty && !isSaving" class="badge bg-warning-subtle text-warning-emphasis me-1">!</span>
                 {{ $t('common_save') }}
@@ -97,7 +98,7 @@
                       <h6 class="mb-0">{{ $t('dev_tag_bound_devices') }}</h6>
                       <span class="small text-muted">{{ assignedDevices.length }}</span>
                     </div>
-                    <button class="btn btn-outline-secondary btn-sm" :disabled="assignedVisibleDevices.length === 0" @click="clearVisibleDevices">
+                    <button class="btn btn-outline-secondary btn-sm" :disabled="assignedVisibleDevices.length === 0" @click="clearVisibleDevices" v-permission="'device_tag:edit'">
                       <i class="bi bi-dash-circle me-1"></i>{{ $t('dev_tag_unbind_visible') }}
                     </button>
                   </div>
@@ -115,7 +116,7 @@
                           </span>
                         </div>
                       </div>
-                      <button class="btn btn-light btn-sm" @click="unbindDevice(device)">
+                      <button class="btn btn-light btn-sm" @click="unbindDevice(device)" v-permission="'device_tag:edit'">
                         <i class="bi bi-dash-lg me-1"></i>{{ $t('dev_tag_unbind') }}
                       </button>
                     </article>
@@ -131,7 +132,7 @@
                       <h6 class="mb-0">{{ $t('dev_tag_unbound_devices') }}</h6>
                       <span class="small text-muted">{{ unassignedDevices.length }}</span>
                     </div>
-                    <button class="btn btn-outline-primary btn-sm" :disabled="unassignedVisibleDevices.length === 0" @click="selectVisibleDevices">
+                    <button class="btn btn-outline-primary btn-sm" :disabled="unassignedVisibleDevices.length === 0" @click="selectVisibleDevices" v-permission="'device_tag:edit'">
                       <i class="bi bi-plus-circle me-1"></i>{{ $t('dev_tag_bind_visible') }}
                     </button>
                   </div>
@@ -149,7 +150,7 @@
                           </span>
                         </div>
                       </div>
-                      <button class="btn btn-outline-primary btn-sm" @click="bindDevice(device)">
+                      <button class="btn btn-outline-primary btn-sm" @click="bindDevice(device)" v-permission="'device_tag:edit'">
                         <i class="bi bi-plus-lg me-1"></i>{{ $t('dev_tag_bind') }}
                       </button>
                     </article>

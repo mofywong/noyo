@@ -104,7 +104,7 @@
     </div>
 
     <!-- User Modal -->
-    <div class="modal fade" id="userModal" tabindex="-1" ref="userModalRef">
+    <div class="modal fade" id="userModal" tabindex="-1" ref="userModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -130,11 +130,11 @@
               <div class="row" v-if="!isEditing">
                 <div class="col-md-6 mb-3">
                   <label class="form-label">{{ $t('auth_password', '密码') }} <span class="text-danger">*</span></label>
-                  <input v-model="form.password" type="password" class="form-control" required>
+                  <input v-model="form.password" type="password" class="form-control">
                 </div>
                 <div class="col-md-6 mb-3">
                   <label class="form-label">{{ $t('auth_password_confirm', '确认密码') }} <span class="text-danger">*</span></label>
-                  <input v-model="form.confirm_password" type="password" class="form-control" required>
+                  <input v-model="form.confirm_password" type="password" class="form-control">
                 </div>
               </div>
 
@@ -180,7 +180,7 @@
     </div>
 
     <!-- Reset Password Modal -->
-    <div class="modal fade" id="resetPasswordModal" tabindex="-1" ref="resetPasswordModalRef">
+    <div class="modal fade" id="resetPasswordModal" tabindex="-1" ref="resetPasswordModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -202,7 +202,7 @@
     </div>
 
     <!-- Assign Positions Modal -->
-    <div class="modal fade" id="positionsModal" tabindex="-1" ref="positionsModalRef">
+    <div class="modal fade" id="positionsModal" tabindex="-1" ref="positionsModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -227,7 +227,7 @@
     </div>
 
     <!-- Assign Roles Modal -->
-    <div class="modal fade" id="rolesModal" tabindex="-1" ref="rolesModalRef">
+    <div class="modal fade" id="rolesModal" tabindex="-1" ref="rolesModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -252,7 +252,7 @@
                    <label v-if="index === 0" class="form-label small text-muted mb-1">{{ $t('user_select_scope', '授权范围') }}</label>
                    <select v-model="pr.project_id" class="form-select form-select-sm" required>
                      <option :value="null" disabled>{{ $t('user_please_select_scope', '请选择范围') }}</option>
-                     <option :value="0">{{ $t('scope_global_tenant', '全局 / 租户级 (所有项目)') }}</option>
+                     <option :value="0">{{ $t('scope_tenant', '租户') }}</option>
                      <option v-for="p in allProjects" :key="p.ID" :value="p.ID">{{ p.name }}</option>
                    </select>
                  </div>
@@ -280,7 +280,7 @@
     </div>
 
     <!-- User Details Modal -->
-    <div class="modal fade" id="userDetailsModal" tabindex="-1" ref="userDetailsModalRef">
+    <div class="modal fade" id="userDetailsModal" tabindex="-1" ref="userDetailsModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -410,15 +410,9 @@ const removeUnifiedRoleRow = (index) => {
 const getRolesForScope = (projectId) => {
   if (projectId === null || projectId === undefined) return [];
   if (projectId === 0) {
-    // 在“全局/租户级”中排除明确属于项目级别的默认角色（如项目管理员）
-    return allRoles.value.filter(x => 
-      x.project_id === 0 && 
-      !x.name.includes('项目管理员') && 
-      !x.name.includes('Project Admin')
-    );
+    return allRoles.value.filter(x => x.project_id === 0 && x.code !== 'project_admin');
   }
-  // 允许特定项目选择租户级(0)定义的默认角色（如“项目管理员”）
-  return allRoles.value.filter(x => x.project_id === 0 || x.project_id === projectId);
+  return allRoles.value.filter(x => (x.project_id === 0 || x.project_id === projectId) && x.code !== 'tenant_admin' && x.code !== 'super_admin');
 }
 
 const isEditing = ref(false)
@@ -437,7 +431,7 @@ const form = ref({
 const getFormNameLabel = () => {
   const user = isEditing.value ? users.value.find(u => u.id === form.value.id) : null;
   if (user) {
-    if (user.role === 'admin' || user.role === 'tenant_admin' || user.role === 'super_admin') {
+    if (user.is_system_admin || user.is_tenant_admin || user.is_project_admin) {
       return t('user_admin_name', '管理员姓名');
     }
   }
@@ -446,7 +440,7 @@ const getFormNameLabel = () => {
 
 const getRolesForProject = (projectId) => {
   if (!projectId) return [];
-  return allRoles.value.filter(r => r.project_id === 0 || r.project_id === projectId);
+  return allRoles.value.filter(r => (r.project_id === 0 || r.project_id === projectId) && r.code !== 'tenant_admin' && r.code !== 'super_admin');
 }
 
 const getGroupedProjects = (projects) => {
@@ -482,13 +476,13 @@ const openDetailsModal = (user) => {
 }
 
 const isRoleModificationDisabled = (user) => {
-  if (user.role === 'admin' || user.role === 'tenant_admin') {
+  if (user.is_system_admin) {
     return true;
   }
-  if (user.tenant_roles && user.tenant_roles.some(r => r.role_name.includes('项目管理员') || r.role_name.includes('租户管理员') || r.role_name.includes('Project Admin') || r.role_name.includes('Tenant Admin'))) {
+  if (user.tenant_roles && user.tenant_roles.some(r => r.role_code === 'super_admin')) {
     return true;
   }
-  if (user.projects && user.projects.some(p => p.RoleName && (p.RoleName.includes('项目管理员') || p.RoleName.includes('Project Admin')))) {
+  if (user.projects && user.projects.some(p => p.role_code === 'tenant_admin')) {
     return true;
   }
   return false;
@@ -496,8 +490,8 @@ const isRoleModificationDisabled = (user) => {
 
 const isUserDeletionDisabled = (user) => {
   if (user.username === 'admin' || user.id === currentUser.id) return true;
-  if (user.role === 'admin' || user.role === 'tenant_admin') return true;
-  if (user.projects && user.projects.some(p => p.RoleName && (p.RoleName.includes('项目管理员') || p.RoleName.includes('Project Admin')))) return true;
+  if (user.is_system_admin) return true;
+  if (user.projects && user.projects.some(p => p.role_code === 'tenant_admin')) return true;
   return false;
 }
 
@@ -549,7 +543,7 @@ const loadAllPositions = async () => {
 
 const loadAllRoles = async () => {
   try {
-    const res = await axios.get('/api/roles')
+    const res = await axios.get('/api/roles', { params: { include_builtin: 1 } })
     if (res.data.code === 0) {
       allRoles.value = res.data.data || []
     }
@@ -560,7 +554,7 @@ const loadAllRoles = async () => {
 
 const loadAllProjects = async () => {
   try {
-    const res = await axios.get('/api/projects')
+    const res = await axios.get('/api/auth/projects')
     if (res.data.code === 0) {
       allProjects.value = res.data.data || []
     }
@@ -637,7 +631,7 @@ const saveUser = async () => {
       return
     }
   }
-  
+
   try {
     let res
     let userId = form.value.id
@@ -646,10 +640,23 @@ const saveUser = async () => {
     } else {
       res = await axios.post('/api/users', form.value)
       if (res.data.code === 0) {
-        userId = res.data.data?.id
+        const data = res.data.data
+        if (data?.existing) {
+          const bind = confirm(
+            t('user_bind_existing_confirm',
+              `用户「${form.value.username}」已存在于当前租户中，无需重复创建。\n是否直接将该用户绑定到所选项目？`)
+          )
+          if (bind) {
+            userId = data.id
+          } else {
+            return
+          }
+        } else {
+          userId = data?.id
+        }
       }
     }
-    
+
     if (res.data.code === 0) {
       if (userId) {
         await axios.put(`/api/users/${userId}/projects`, {
@@ -662,7 +669,7 @@ const saveUser = async () => {
       alert(res.data.message)
     }
   } catch (error) {
-    alert("Failed to save user")
+    alert(t('common_save_failed', '保存失败'))
   }
 }
 
@@ -773,9 +780,11 @@ const saveRoles = async () => {
       .filter(x => x.project_id !== 0)
       .map(x => ({ project_id: x.project_id, role_id: x.role_id }))
 
-    const resRoles = await axios.put(`/api/users/${currentUserToAssign.value.id}/roles`, {
-      role_ids: tenantRoleIds
-    })
+    const resRoles = authStore.user?.is_tenant_admin === true
+      ? await axios.put(`/api/users/${currentUserToAssign.value.id}/roles`, {
+          role_ids: tenantRoleIds
+        })
+      : { data: { code: 0 } }
     const resProj = await axios.put(`/api/users/${currentUserToAssign.value.id}/projects`, {
       projects: specificProjects
     })

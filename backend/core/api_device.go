@@ -33,12 +33,12 @@ func (s *Server) RegisterDeviceRoutes(group *ghttp.RouterGroup) {
 	permissionPUT(group, "/devices/:code", "device:edit", s.handleUpdateDevice)
 	permissionDELETE(group, "/devices/:code", "device:delete", s.handleDeleteDevice)
 
-	permissionGET(group, "/device-tags", "device:list", s.handleListDeviceTags)
-	permissionPOST(group, "/device-tags", "device:edit", s.handleCreateDeviceTag)
-	permissionPUT(group, "/device-tags/:id", "device:edit", s.handleUpdateDeviceTag)
-	permissionDELETE(group, "/device-tags/:id", "device:edit", s.handleDeleteDeviceTag)
-	permissionGET(group, "/device-tags/:id/devices", "device:list", s.handleListDeviceTagDevices)
-	permissionPUT(group, "/device-tags/:id/devices", "device:edit", s.handleReplaceDeviceTagDevices)
+	permissionGET(group, "/device-tags", "device_tag:list", s.handleListDeviceTags)
+	permissionPOST(group, "/device-tags", "device_tag:create", s.handleCreateDeviceTag)
+	permissionPUT(group, "/device-tags/:id", "device_tag:edit", s.handleUpdateDeviceTag)
+	permissionDELETE(group, "/device-tags/:id", "device_tag:delete", s.handleDeleteDeviceTag)
+	permissionGET(group, "/device-tags/:id/devices", "device_tag:list", s.handleListDeviceTagDevices)
+	permissionPUT(group, "/device-tags/:id/devices", "device_tag:edit", s.handleReplaceDeviceTagDevices)
 
 	permissionPOST(group, "/devices/:code/start", "device:control", s.handleStartDevice)
 	permissionPOST(group, "/devices/:code/stop", "device:control", s.handleStopDevice)
@@ -1372,7 +1372,20 @@ func (s *Server) checkDeviceTagPermission(r *ghttp.Request, deviceCode string) e
 
 func canAccessDeviceEvent(r *ghttp.Request, event types.Event) bool {
 	if event.Type == types.EventDeviceListChanged {
-		return true
+		authCtx := requestAuthContext(r)
+		if authCtx == nil {
+			return false
+		}
+		if authCtx.IsSystemAdmin {
+			return true
+		}
+		// Check if event carries tenant info matching user's tenant
+		if payload, ok := event.Payload.(map[string]interface{}); ok && payload != nil {
+			if eventTenantID, ok := payload["tenant_id"].(uint); ok {
+				return eventTenantID == authCtx.TenantID
+			}
+		}
+		return false
 	}
 	if event.Topic == "" {
 		return false

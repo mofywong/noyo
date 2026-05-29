@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"noyo/core/utils"
@@ -63,6 +64,7 @@ func InitDB(dsn string) error {
 		&App{},
 		&AppRole{},
 		&AuditLog{},
+		&TokenBlacklist{},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
@@ -71,7 +73,31 @@ func InitDB(dsn string) error {
 	// Initialize default super admin, tenant, project, and permissions
 	InitDefaultData()
 
+	// Migrate plaintext AppKeys to bcrypt hashes
+	migrateAppKeys()
+
+	// Clean expired token blacklist entries
+	CleanExpiredBlacklist()
+
 	return nil
+}
+
+var superAdminDefaultPermissionCodes = map[string]bool{
+	"tenant:list":    true,
+	"tenant:create":  true,
+	"tenant:edit":    true,
+	"tenant:delete":  true,
+	"dashboard:view": true,
+	"audit:list":     true,
+	"system:logs":    true,
+	"system:license": true,
+}
+
+var exclusiveTenantManagementPermissionCodes = map[string]bool{
+	"tenant:list":   true,
+	"tenant:create": true,
+	"tenant:edit":   true,
+	"tenant:delete": true,
 }
 
 func InitDefaultData() {
@@ -139,28 +165,49 @@ func InitPermissions() {
 		{Code: "device:edit", Name: "编辑设备", Module: "device", Type: "button"},
 		{Code: "device:delete", Name: "删除设备", Module: "device", Type: "button"},
 		{Code: "device:control", Name: "设备控制", Module: "device", Type: "button"},
+		{Code: "device:topology", Name: "设备拓扑", Module: "device", Type: "menu"},
+		// Device Tags
+		{Code: "device_tag:list", Name: "设备标签列表", Module: "device_tag", Type: "menu"},
+		{Code: "device_tag:create", Name: "创建设备标签", Module: "device_tag", Type: "button"},
+		{Code: "device_tag:edit", Name: "编辑设备标签", Module: "device_tag", Type: "button"},
+		{Code: "device_tag:delete", Name: "删除设备标签", Module: "device_tag", Type: "button"},
 		// Plugins
 		{Code: "plugin:list", Name: "插件列表", Module: "plugin", Type: "menu"},
 		{Code: "plugin:config", Name: "配置插件", Module: "plugin", Type: "button"},
+		// Gateway
+		{Code: "gateway:list", Name: "网关管理", Module: "gateway", Type: "menu"},
+		{Code: "gateway:config", Name: "网关配置", Module: "gateway", Type: "button"},
 		// Alarm
 		{Code: "alarm:list", Name: "告警列表", Module: "alarm", Type: "menu"},
 		{Code: "alarm:handle", Name: "处理告警", Module: "alarm", Type: "button"},
+		// History
+		{Code: "history:delete", Name: "删除历史记录", Module: "history", Type: "button"},
 		// Audit
 		{Code: "audit:list", Name: "审计日志", Module: "audit", Type: "menu"},
 		// System Config & Log
 		{Code: "system:config", Name: "系统配置", Module: "system", Type: "menu"},
 		{Code: "system:logs", Name: "系统日志", Module: "system", Type: "menu"},
+		{Code: "system:license", Name: "授权信息", Module: "system", Type: "menu"},
+		// Dashboard
+		{Code: "dashboard:view", Name: "仪表盘", Module: "system", Type: "menu"},
+		// Tenant Transfer
+		{Code: "tenant:transfer", Name: "转让租户管理员", Module: "tenant", Type: "button"},
+		// Device Upload
+		{Code: "device:upload", Name: "设备图片上传", Module: "device", Type: "button"},
 	}
 
 	for _, p := range defaultPermissions {
 		var permission Permission
-		DB.Where("code = ?", p.Code).Assign(Permission{
-			Name:       p.Name,
-			Module:     p.Module,
-			Type:       p.Type,
-			ParentCode: p.ParentCode,
-			SortOrder:  p.SortOrder,
-		}).FirstOrCreate(&permission, Permission{Code: p.Code})
+		DB.Where("code = ?", p.Code).
+			Assign(Permission{
+				Code:       p.Code,
+				Name:       p.Name,
+				Module:     p.Module,
+				Type:       p.Type,
+				ParentCode: p.ParentCode,
+				SortOrder:  p.SortOrder,
+			}).
+			FirstOrCreate(&permission)
 	}
 
 	superAdminRole := Role{
@@ -168,7 +215,7 @@ func InitPermissions() {
 		ProjectID:   0,
 		Code:        "super_admin",
 		Name:        "超级管理员",
-		Description: "系统默认全局角色：拥有系统内的所有最高权限",
+		Description: "系统默认全局角色：管理租户和系统级信息，不进入租户业务数据",
 		DataScope:   1,
 		IsBuiltin:   true,
 		Status:      1,
@@ -222,24 +269,89 @@ func InitPermissions() {
 	var perms []Permission
 	if err := DB.Find(&perms).Error; err == nil {
 		for _, perm := range perms {
-			DB.FirstOrCreate(&RolePermission{}, RolePermission{
-				RoleID:       superAdminRole.ID,
-				PermissionID: perm.ID,
-			})
+			if superAdminDefaultPermissionCodes[perm.Code] {
+				DB.Where("role_id = ? AND permission_id = ?", superAdminRole.ID, perm.ID).
+					FirstOrCreate(&RolePermission{
+						RoleID:       superAdminRole.ID,
+						PermissionID: perm.ID,
+					})
+			}
 
-			DB.FirstOrCreate(&RolePermission{}, RolePermission{
-				RoleID:       tenantAdminRole.ID,
-				PermissionID: perm.ID,
-			})
+			// tenant:transfer is a tenant-module permission that tenant_admin also needs
+			if perm.Code == "tenant:transfer" {
+				DB.Where("role_id = ? AND permission_id = ?", tenantAdminRole.ID, perm.ID).
+					FirstOrCreate(&RolePermission{
+						RoleID:       tenantAdminRole.ID,
+						PermissionID: perm.ID,
+					})
+			}
 
-			if perm.Module != "project" && perm.Module != "tenant" {
-				DB.FirstOrCreate(&RolePermission{}, RolePermission{
-					RoleID:       projectAdminRole.ID,
-					PermissionID: perm.ID,
-				})
+			// dashboard:view is needed by all roles to access the root path
+			if perm.Code == "dashboard:view" {
+				DB.Where("role_id = ? AND permission_id = ?", tenantAdminRole.ID, perm.ID).
+					FirstOrCreate(&RolePermission{
+						RoleID:       tenantAdminRole.ID,
+						PermissionID: perm.ID,
+					})
+				DB.Where("role_id = ? AND permission_id = ?", projectAdminRole.ID, perm.ID).
+					FirstOrCreate(&RolePermission{
+						RoleID:       projectAdminRole.ID,
+						PermissionID: perm.ID,
+					})
+			}
+
+			if perm.Module != "tenant" && perm.Module != "system" {
+				DB.Where("role_id = ? AND permission_id = ?", tenantAdminRole.ID, perm.ID).
+					FirstOrCreate(&RolePermission{
+						RoleID:       tenantAdminRole.ID,
+						PermissionID: perm.ID,
+					})
+			}
+
+			if perm.Module == "user" || perm.Module == "role" || perm.Module == "product" || perm.Module == "device" || perm.Module == "device_tag" || perm.Module == "gateway" || perm.Module == "alarm" || perm.Module == "plugin" {
+				DB.Where("role_id = ? AND permission_id = ?", projectAdminRole.ID, perm.ID).
+					FirstOrCreate(&RolePermission{
+						RoleID:       projectAdminRole.ID,
+						PermissionID: perm.ID,
+					})
 			}
 		}
 	}
+	syncRolePermissionAllowlist(superAdminRole.ID, superAdminDefaultPermissionCodes)
+	removePermissionCodesFromOtherRoles(superAdminRole.ID, exclusiveTenantManagementPermissionCodes)
+}
+
+func syncRolePermissionAllowlist(roleID uint, allowedCodes map[string]bool) {
+	permissionIDs := permissionIDsForCodeSet(allowedCodes)
+	if len(permissionIDs) == 0 {
+		DB.Where("role_id = ?", roleID).Delete(&RolePermission{})
+		return
+	}
+	DB.Where("role_id = ? AND permission_id NOT IN ?", roleID, permissionIDs).Delete(&RolePermission{})
+}
+
+func removePermissionCodesFromOtherRoles(exemptRoleID uint, codes map[string]bool) {
+	permissionIDs := permissionIDsForCodeSet(codes)
+	if len(permissionIDs) == 0 {
+		return
+	}
+	DB.Where("role_id <> ? AND permission_id IN ?", exemptRoleID, permissionIDs).Delete(&RolePermission{})
+}
+
+func permissionIDsForCodeSet(codes map[string]bool) []uint {
+	codeList := make([]string, 0, len(codes))
+	for code, enabled := range codes {
+		if enabled {
+			codeList = append(codeList, code)
+		}
+	}
+	if len(codeList) == 0 {
+		return nil
+	}
+
+	var permissionIDs []uint
+	DB.Model(&Permission{}).Where("code IN ?", codeList).Pluck("id", &permissionIDs)
+	return permissionIDs
 }
 
 // CloseDB closes the database connection (if needed, though GORM manages pool)
@@ -293,4 +405,25 @@ func UpdateDevice(d *Device) error {
 	d.ID = existing.ID
 	d.CreatedAt = existing.CreatedAt
 	return DB.Save(d).Error
+}
+
+// migrateAppKeys hashes plaintext AppKeys in the database.
+// Bcrypt hashes start with "$2", so any AppKey not starting with "$2" is plaintext.
+func migrateAppKeys() {
+	var apps []App
+	DB.Find(&apps)
+	for _, app := range apps {
+		if app.AppKey != "" && !strings.HasPrefix(app.AppKey, "$2") {
+			hashed, err := utils.HashPassword(app.AppKey)
+			if err != nil {
+				continue
+			}
+			DB.Model(&app).Update("app_key", hashed)
+		}
+	}
+}
+
+// CleanExpiredBlacklist removes expired token blacklist entries from the database.
+func CleanExpiredBlacklist() {
+	DB.Where("expires_at < ?", time.Now()).Delete(&TokenBlacklist{})
 }

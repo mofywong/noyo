@@ -71,7 +71,7 @@
                 </td>
                 <td class="text-center">
                   <button class="btn btn-outline-success btn-sm" @click.stop="dismissAlarm(evt)" :disabled="evt._dismissing"
-                          title="消警">
+                          title="消警" v-permission="'alarm:handle'">
                     <span v-if="evt._dismissing" class="spinner-border spinner-border-sm" role="status"></span>
                     <i v-else class="bi bi-check-circle"></i>
                     <span class="ms-1">消警</span>
@@ -195,7 +195,7 @@
             </div>
           </div>
           <div class="modal-footer border-top">
-            <button class="btn btn-outline-success" @click="dismissAlarm(detailEvent)" :disabled="detailEvent._dismissing">
+            <button class="btn btn-outline-success" @click="dismissAlarm(detailEvent)" :disabled="detailEvent._dismissing" v-permission="'alarm:handle'">
               <span v-if="detailEvent._dismissing" class="spinner-border spinner-border-sm me-1" role="status"></span>
               <i v-else class="bi bi-check-circle me-1"></i>消警
             </button>

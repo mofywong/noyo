@@ -3,6 +3,7 @@ package cascade
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -32,14 +33,22 @@ func (m *mockContext) LogInfo(msg string, fields ...interface{}) {
 func (m *mockContext) LogError(msg string, err error) {
 	m.logger.Error(msg, zap.Error(err))
 }
-func (m *mockContext) GetLogger() *zap.Logger                                                    { return m.logger }
-func (m *mockContext) RegisterHTTPHandler(path string, handler interface{}) error                { return nil }
-func (m *mockContext) GetOnlineDevices() ([]types.DeviceMeta, error)                             { return nil, nil }
-func (m *mockContext) GetDeviceData(deviceCode string) map[string]interface{}                    { return nil }
-func (m *mockContext) GetEnabledProtocols() ([]types.PluginMeta, error)                          { return nil, nil }
-func (m *mockContext) SubscribeEvent(eventType types.EventType, handler func(event types.Event)) uint64 { return 0 }
+func (m *mockContext) GetLogger() *zap.Logger                                     { return m.logger }
+func (m *mockContext) RegisterHTTPHandler(path string, handler interface{}) error { return nil }
+func (m *mockContext) GetOnlineDevices() ([]types.DeviceMeta, error)              { return nil, nil }
+func (m *mockContext) GetDeviceData(deviceCode string) map[string]interface{}     { return nil }
+func (m *mockContext) GetEnabledProtocols() ([]types.PluginMeta, error)           { return nil, nil }
+func (m *mockContext) SubscribeEvent(eventType types.EventType, handler func(event types.Event)) uint64 {
+	return 0
+}
 func (m *mockContext) UnsubscribeEvent(eventType types.EventType, id uint64) {}
-func (m *mockContext) PublishEvent(event types.Event)                                            {}
+func (m *mockContext) PublishEvent(event types.Event)                        {}
+func (m *mockContext) GetPlugin(name string) interface{} {
+	if m.server == nil || m.server.Manager == nil {
+		return nil
+	}
+	return m.server.Manager.GetPlugin(name)
+}
 func (m *mockContext) ReportDeviceProperties(deviceCode string, properties map[string]interface{}) error {
 	return nil
 }
@@ -48,6 +57,10 @@ func (m *mockContext) ReportDeviceEvent(deviceCode string, eventId string, param
 }
 
 func TestEnginesIntegration(t *testing.T) {
+	if os.Getenv("NOYO_CASCADE_INTEGRATION") != "1" {
+		t.Skip("set NOYO_CASCADE_INTEGRATION=1 to run the external MQTT cascade integration test")
+	}
+
 	brokerURL := "tcp://test.zenaios.com.cn:1883"
 	gwSn := "GW-TEST-" + uuid.New().String()[:6]
 

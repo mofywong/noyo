@@ -20,8 +20,8 @@ import (
 )
 
 var (
-	TokenBlacklist sync.Map // key: token hash, value: expiry time
-	loginTracker   = &LoginAttemptTracker{attempts: make(map[string]*AttemptInfo)}
+	TokenBlacklistCache sync.Map // key: token hash, value: expiry time (read-through cache)
+	loginTracker        = &LoginAttemptTracker{attempts: make(map[string]*AttemptInfo)}
 )
 
 type LoginAttemptTracker struct {
@@ -65,13 +65,36 @@ func hashToken(token string) string {
 }
 
 func isTokenBlacklisted(token string) bool {
-	if exp, ok := TokenBlacklist.Load(hashToken(token)); ok {
+	tokenHash := hashToken(token)
+	// Check in-memory cache first
+	if exp, ok := TokenBlacklistCache.Load(tokenHash); ok {
 		if time.Now().Before(exp.(time.Time)) {
 			return true
 		}
-		TokenBlacklist.Delete(hashToken(token))
+		TokenBlacklistCache.Delete(tokenHash)
+		return false
+	}
+	// Check database
+	var entry store.TokenBlacklist
+	if err := store.DB.Where("token_hash = ?", tokenHash).First(&entry).Error; err == nil {
+		if time.Now().Before(entry.ExpiresAt) {
+			TokenBlacklistCache.Store(tokenHash, entry.ExpiresAt)
+			return true
+		}
+		// Expired, clean up
+		store.DB.Delete(&entry)
 	}
 	return false
+}
+
+// blacklistToken persists a token revocation to the database and in-memory cache.
+func blacklistToken(tokenString string, expiry time.Time) {
+	tokenHash := hashToken(tokenString)
+	store.DB.Create(&store.TokenBlacklist{
+		TokenHash: tokenHash,
+		ExpiresAt: expiry,
+	})
+	TokenBlacklistCache.Store(tokenHash, expiry)
 }
 
 func validatePasswordStrength(password string) error {
@@ -131,6 +154,40 @@ func permissionCodesFromAuthContext(authCtx *AuthContext) []string {
 		permissions = append(permissions, code)
 	}
 	return permissions
+}
+
+func buildAuthUserInfo(user *store.User, authCtx *AuthContext, tenantName, tenantLogo string) g.Map {
+	effectiveRole := user.Role
+	isSystemAdmin := false
+	isTenantAdmin := false
+	isProjectAdmin := false
+	allowedProjectIDs := []uint{}
+	permissions := []string{}
+	if authCtx != nil {
+		effectiveRole = authCtx.Role
+		isSystemAdmin = authCtx.IsSystemAdmin
+		isTenantAdmin = authCtx.IsTenantAdmin
+		isProjectAdmin = authCtx.IsProjectAdmin
+		allowedProjectIDs = authCtx.AllowedProjectIDs
+		permissions = permissionCodesFromAuthContext(authCtx)
+	}
+
+	return g.Map{
+		"id":                   user.ID,
+		"tenant_id":            user.TenantID,
+		"tenant_name":          tenantName,
+		"tenant_logo":          tenantLogo,
+		"username":             user.Username,
+		"display_name":         user.DisplayName,
+		"email":                user.Email,
+		"role":                 effectiveRole,
+		"is_system_admin":      isSystemAdmin,
+		"is_tenant_admin":      isTenantAdmin,
+		"is_project_admin":     isProjectAdmin,
+		"permissions":          permissions,
+		"allowed_project_ids":  allowedProjectIDs,
+		"must_change_password": user.MustChangePassword,
+	}
 }
 
 // handleLogin authenticates a user and returns JWT tokens
@@ -239,25 +296,13 @@ func (s *Server) handleLogin(r *ghttp.Request) {
 		}
 	}
 
-	permissions := permissionCodesFromAuthContext(authCtx)
-
 	r.Response.WriteJson(g.Map{
 		"code": 0,
 		"data": g.Map{
 			"access_token":  accessToken,
 			"refresh_token": refreshToken,
 			"expires_in":    accessExpiry * 60,
-			"user_info": g.Map{
-				"id":                   matchedUser.ID,
-				"tenant_id":            matchedUser.TenantID,
-				"tenant_name":          tenantName,
-				"tenant_logo":          tenantLogo,
-				"username":             matchedUser.Username,
-				"display_name":         matchedUser.DisplayName,
-				"role":                 effectiveRole,
-				"permissions":          permissions,
-				"must_change_password": matchedUser.MustChangePassword,
-			},
+			"user_info":     buildAuthUserInfo(matchedUser, authCtx, tenantName, tenantLogo),
 		},
 	})
 }
@@ -374,8 +419,6 @@ func (s *Server) handleGetProfile(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
 		return
 	}
-	effectiveRole := authCtx.Role
-
 	var tenantName string
 	if user.TenantID > 0 {
 		var tenant store.Tenant
@@ -384,22 +427,10 @@ func (s *Server) handleGetProfile(r *ghttp.Request) {
 		}
 	}
 
-	permissions := permissionCodesFromAuthContext(authCtx)
+	userInfo := buildAuthUserInfo(user, authCtx, tenantName, "")
+	userInfo["status"] = user.Status
 
-	r.Response.WriteJson(g.Map{
-		"code": 0,
-		"data": g.Map{
-			"id":           user.ID,
-			"tenant_id":    user.TenantID,
-			"tenant_name":  tenantName,
-			"username":     user.Username,
-			"display_name": user.DisplayName,
-			"email":        user.Email,
-			"role":         effectiveRole,
-			"permissions":  permissions,
-			"status":       user.Status,
-		},
-	})
+	r.Response.WriteJson(g.Map{"code": 0, "data": userInfo})
 }
 
 // handleChangePassword allows users to change their own password
@@ -457,7 +488,7 @@ func (s *Server) handleLogout(r *ghttp.Request) {
 			tokenString := parts[1]
 			claims, _ := utils.ParseToken(tokenString, s.Config.Auth.JWTSecret)
 			if claims != nil {
-				TokenBlacklist.Store(hashToken(tokenString), claims.ExpiresAt.Time)
+				blacklistToken(tokenString, claims.ExpiresAt.Time)
 			}
 		}
 	}

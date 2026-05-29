@@ -9,21 +9,29 @@ import (
 
 const authContextKey = "auth_context"
 
+const (
+	RoleCodeSuperAdmin   = "super_admin"
+	RoleCodeTenantAdmin  = "tenant_admin"
+	RoleCodeProjectAdmin = "project_admin"
+	RoleCodeViewer       = "viewer"
+)
+
 type AuthContext struct {
-	SubjectType       string
-	UserID            uint
-	AppID             string
-	AppDBID           uint
-	Username          string
-	TenantID          uint
-	ProjectID         uint
-	Role              string
-	IsSystemAdmin     bool
-	IsTenantAdmin     bool
-	IsProjectAdmin    bool
-	RoleIDs           []uint
-	PermissionCodes   map[string]bool
-	AllowedProjectIDs []uint
+	SubjectType        string
+	UserID             uint
+	AppID              string
+	AppDBID            uint
+	Username           string
+	TenantID           uint
+	ProjectID          uint
+	Role               string
+	IsSystemAdmin      bool
+	IsTenantAdmin      bool
+	IsProjectAdmin     bool
+	RoleIDs            []uint
+	PermissionCodes    map[string]bool
+	AllowedProjectIDs  []uint
+	MustChangePassword bool
 }
 
 func (ctx *AuthContext) HasPermission(code string) bool {
@@ -37,8 +45,11 @@ func (ctx *AuthContext) CanAccessProject(projectID uint) bool {
 	if ctx == nil {
 		return false
 	}
+	if ctx.IsSystemAdmin {
+		return false
+	}
 	if projectID == 0 {
-		return ctx.IsSystemAdmin || ctx.IsTenantAdmin
+		return ctx.IsTenantAdmin
 	}
 	for _, id := range ctx.AllowedProjectIDs {
 		if id == projectID {
@@ -49,7 +60,10 @@ func (ctx *AuthContext) CanAccessProject(projectID uint) bool {
 }
 
 func (ctx *AuthContext) ProjectIDsForTenantQuery() ([]uint, bool) {
-	if ctx == nil || ctx.IsSystemAdmin || ctx.IsTenantAdmin {
+	if ctx == nil || ctx.IsSystemAdmin {
+		return []uint{}, true
+	}
+	if ctx.IsTenantAdmin {
 		return nil, false
 	}
 	if ctx.ProjectID > 0 {
@@ -69,10 +83,10 @@ func (ctx *AuthContext) IsRoleAllowed(allowedRoles ...string) bool {
 		if ctx.Role == role {
 			return true
 		}
-		if role == "admin" && ctx.IsTenantAdmin {
+		if role == RoleCodeTenantAdmin && ctx.IsTenantAdmin {
 			return true
 		}
-		if role == "project_admin" && ctx.IsProjectAdmin {
+		if role == RoleCodeProjectAdmin && ctx.IsProjectAdmin {
 			return true
 		}
 	}
@@ -83,9 +97,6 @@ func (ctx *AuthContext) CanManageTenantResource(tenantID uint) bool {
 	if ctx == nil {
 		return false
 	}
-	if ctx.IsSystemAdmin {
-		return true
-	}
 	return tenantID > 0 && tenantID == ctx.TenantID && ctx.IsTenantAdmin
 }
 
@@ -93,7 +104,7 @@ func (ctx *AuthContext) CanManageProject(projectID uint) bool {
 	if ctx == nil {
 		return false
 	}
-	if ctx.IsSystemAdmin || ctx.IsTenantAdmin {
+	if ctx.IsTenantAdmin {
 		return true
 	}
 	return projectID > 0 && ctx.CanAccessProject(projectID)
@@ -103,8 +114,8 @@ func (ctx *AuthContext) CanManageRole(role store.Role) bool {
 	if ctx == nil {
 		return false
 	}
-	if ctx.IsSystemAdmin {
-		return true
+	if role.IsBuiltin {
+		return false
 	}
 	if role.TenantID != ctx.TenantID {
 		return false
@@ -115,27 +126,46 @@ func (ctx *AuthContext) CanManageRole(role store.Role) bool {
 	return role.ProjectID > 0 && ctx.CanAccessProject(role.ProjectID)
 }
 
+func (ctx *AuthContext) CanViewRole(role store.Role) bool {
+	if ctx == nil {
+		return false
+	}
+	if role.TenantID != 0 && role.TenantID != ctx.TenantID {
+		return false
+	}
+	if ctx.IsTenantAdmin {
+		return role.TenantID == ctx.TenantID
+	}
+	if role.ProjectID > 0 {
+		return ctx.CanAccessProject(role.ProjectID)
+	}
+	return role.IsInherited && len(ctx.AllowedProjectIDs) > 0
+}
+
 func (ctx *AuthContext) CanAssignRole(role store.Role, targetProjectID uint) bool {
 	if ctx == nil {
 		return false
 	}
-	if ctx.IsSystemAdmin {
-		return true
+	if ctx.IsSystemAdmin || role.Code == RoleCodeSuperAdmin {
+		return false
 	}
-	if role.Code == "tenant_admin" && !ctx.IsTenantAdmin {
+	if role.Code == RoleCodeTenantAdmin && !ctx.IsTenantAdmin {
 		return false
 	}
 	if role.TenantID != 0 && role.TenantID != ctx.TenantID {
 		return false
 	}
 	if targetProjectID == 0 {
-		return ctx.IsTenantAdmin
+		return ctx.IsTenantAdmin && role.ProjectID == 0 && role.Code != RoleCodeProjectAdmin
 	}
 	if !ctx.CanAccessProject(targetProjectID) {
 		return false
 	}
 	if ctx.IsTenantAdmin {
-		return role.ProjectID == 0 || role.ProjectID == targetProjectID
+		return role.Code != RoleCodeTenantAdmin && (role.ProjectID == 0 || role.ProjectID == targetProjectID)
+	}
+	if role.IsBuiltin || role.Code == RoleCodeProjectAdmin {
+		return false
 	}
 	return role.ProjectID == targetProjectID || (role.ProjectID == 0 && role.IsInherited)
 }
@@ -150,20 +180,25 @@ func ResolveUserAuthContext(userID, requestedTenantID, requestedProjectID uint) 
 	}
 
 	tenantID := user.TenantID
-	if user.TenantID == 0 && requestedTenantID > 0 {
-		tenantID = requestedTenantID
+	projectID := requestedProjectID
+	if user.TenantID == 0 {
+		// System users stay in global scope; stale tenant/project headers must
+		// not block global account flows such as required password changes.
+		tenantID = 0
+		projectID = 0
 	} else if requestedTenantID > 0 && requestedTenantID != user.TenantID {
 		return nil, fmt.Errorf("tenant is outside allowed scope")
 	}
 
 	ctx := &AuthContext{
-		SubjectType:     "user",
-		UserID:          user.ID,
-		Username:        user.Username,
-		TenantID:        tenantID,
-		ProjectID:       requestedProjectID,
-		Role:            user.Role,
-		PermissionCodes: make(map[string]bool),
+		SubjectType:        "user",
+		UserID:             user.ID,
+		Username:           user.Username,
+		TenantID:           tenantID,
+		ProjectID:          projectID,
+		Role:               user.Role,
+		PermissionCodes:    make(map[string]bool),
+		MustChangePassword: user.MustChangePassword,
 	}
 
 	roleBindings, err := resolveUserRoleBindings(user.ID, tenantID)
@@ -172,7 +207,7 @@ func ResolveUserAuthContext(userID, requestedTenantID, requestedProjectID uint) 
 	}
 	applyRoleBindings(ctx, roleBindings, user.Role)
 
-	if requestedProjectID > 0 && !ctx.CanAccessProject(requestedProjectID) {
+	if projectID > 0 && !ctx.CanAccessProject(projectID) {
 		return nil, fmt.Errorf("project is outside allowed scope")
 	}
 	loadPermissions(ctx)
@@ -264,27 +299,24 @@ func applyRoleBindings(ctx *AuthContext, bindings []resolvedRoleBinding, legacyR
 	projectIDMap := make(map[uint]bool)
 	for _, binding := range bindings {
 		role := binding.Role
-		if roleIDMap[role.ID] {
-			continue
-		}
-		roleIDMap[role.ID] = true
-		ctx.RoleIDs = append(ctx.RoleIDs, role.ID)
+		if !roleIDMap[role.ID] {
+			roleIDMap[role.ID] = true
+			ctx.RoleIDs = append(ctx.RoleIDs, role.ID)
 
-		switch role.Code {
-		case "super_admin":
-			ctx.IsSystemAdmin = true
-			if ctx.Role == "" || ctx.Role == "viewer" || ctx.Role == "admin" || ctx.Role == "project_admin" {
-				ctx.Role = "superadmin"
-			}
-		case "tenant_admin":
-			ctx.IsTenantAdmin = true
-			if ctx.Role == "" || ctx.Role == "viewer" || ctx.Role == "project_admin" {
-				ctx.Role = "admin"
-			}
-		case "project_admin":
-			ctx.IsProjectAdmin = true
-			if ctx.Role == "" || ctx.Role == "viewer" {
-				ctx.Role = "project_admin"
+			switch role.Code {
+			case RoleCodeSuperAdmin:
+				ctx.IsSystemAdmin = true
+				ctx.Role = RoleCodeSuperAdmin
+			case RoleCodeTenantAdmin:
+				ctx.IsTenantAdmin = true
+				if ctx.Role != RoleCodeSuperAdmin {
+					ctx.Role = RoleCodeTenantAdmin
+				}
+			case RoleCodeProjectAdmin:
+				ctx.IsProjectAdmin = true
+				if ctx.Role != RoleCodeSuperAdmin && ctx.Role != RoleCodeTenantAdmin {
+					ctx.Role = RoleCodeProjectAdmin
+				}
 			}
 		}
 
