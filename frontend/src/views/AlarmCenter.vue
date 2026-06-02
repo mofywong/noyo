@@ -238,7 +238,7 @@ const detailEvent = ref(null);
 const devices = ref({});
 const products = ref({});
 
-let timer = null;
+let eventSource = null;
 
 const formatTime = (ts) => {
   if (!ts) return '-';
@@ -453,19 +453,53 @@ watch(() => route.query, (newQuery) => {
   }
 }, { deep: true });
 
+const setupEventStream = () => {
+  if (eventSource) return;
+  eventSource = new EventSource('/api/devices/stream');
+  
+  eventSource.addEventListener('event.reported', (e) => {
+    try {
+      if (page.value !== 1) return; // Only real-time update on first page
+      
+      const data = JSON.parse(e.data);
+      const evt = {
+        device_code: data.Topic,
+        event_id: data.Payload.eventId,
+        params: data.Payload.params,
+        ts: data.Timestamp
+      };
+      
+      events.value.unshift(evt);
+      if (events.value.length > pageSize.value) {
+        events.value.pop();
+      }
+      total.value++;
+    } catch (err) {
+      console.error('Failed to parse SSE event:', err);
+    }
+  });
+
+  eventSource.onerror = () => {
+    if (eventSource.readyState === EventSource.CLOSED) {
+      setTimeout(() => {
+        eventSource = null;
+        setupEventStream();
+      }, 3000);
+    }
+  };
+};
+
 onMounted(async () => {
   await fetchDataMetadata();
   fetchEvents();
-  // refresh every 10 seconds if on first page
-  timer = setInterval(() => {
-    if (page.value === 1 && !previewUrl.value && !detailEvent.value) {
-      fetchEvents();
-    }
-  }, 10000);
+  setupEventStream();
 });
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer);
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
 });
 </script>
 

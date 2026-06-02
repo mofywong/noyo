@@ -18,42 +18,42 @@
                 <th>{{ $t('tenant_name') }}</th>
                 <th>{{ $t('admin_name', '管理员姓名') }}</th>
                 <th>{{ $t('tenant_phone') }}</th>
-                <th>{{ $t('tenant_status') }}</th>
                 <th>{{ $t('user_created_at') }}</th>
                 <th class="text-end">{{ $t('tenant_actions') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="loading">
-                <td colspan="7" class="text-center py-4">
+                <td colspan="8" class="text-center py-4">
                   <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Loading...</span>
                   </div>
                 </td>
               </tr>
               <tr v-else-if="tenants.length === 0">
-                <td colspan="7" class="text-center py-4 text-muted">{{ $t('tenant_no_data') }}</td>
+                <td colspan="8" class="text-center py-4 text-muted">{{ $t('tenant_no_data') }}</td>
               </tr>
               <tr v-for="t in tenants" :key="t.ID" v-else>
                 <td><strong>{{ t.code }}</strong></td>
                 <td>{{ t.name }}</td>
                 <td>{{ t.contact }}</td>
                 <td>{{ t.phone }}</td>
-                <td>
-                  <span class="badge" :class="t.status === 1 ? 'text-bg-success' : 'text-bg-danger'">
-                    {{ t.status === 1 ? $t('user_active') : $t('user_disabled') }}
-                  </span>
-                </td>
-                <td>{{ new Date(t.CreatedAt).toLocaleString() }}</td>
+                <td>{{ new Date(t.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
                 <td class="text-end">
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(t)" :title="$t('tenant_edit', '编辑')" v-permission="'tenant:edit'">
-                    <i class="bi bi-pencil"></i>
+                  <button class="btn btn-sm btn-outline-success me-2" @click="openDetailsModal(t)" :title="$t('common_view_details', '查看详情')">
+                    <i class="bi bi-eye"></i>
+                  </button>
+                  <button class="btn btn-sm me-2" :class="(t.permission_ids && t.permission_ids.length > 0) ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermissionModal(t)" :title="$t('tenant_permission_config', '权限配置')" v-permission="'tenant:edit'">
+                    <i class="bi bi-shield-check"></i>
                   </button>
                   <button class="btn btn-sm btn-outline-warning me-2" @click="openResetPasswordModal(t)" :title="$t('reset_password', '重置密码')" v-permission="'tenant:edit'">
                     <i class="bi bi-key"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-info me-2" @click="openChangeAdminModal(t)" :title="$t('tenant_change_admin', '更换管理员')" v-permission="'tenant:edit'">
+                  <button class="btn btn-sm btn-outline-secondary me-2" @click="openChangeAdminModal(t)" :title="$t('tenant_change_admin', '更换管理员')" v-permission="'tenant:edit'">
                     <i class="bi bi-person-gear"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(t)" :title="$t('tenant_edit', '编辑')" v-permission="'tenant:edit'">
+                    <i class="bi bi-pencil"></i>
                   </button>
                   <button class="btn btn-sm btn-outline-danger" @click="deleteTenant(t)" :disabled="t.code === 'default'" :title="$t('tenant_delete', '删除')" v-permission="'tenant:delete'">
                     <i class="bi bi-trash"></i>
@@ -62,6 +62,90 @@
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tenant Permission Modal -->
+    <div class="modal fade" id="tenantPermissionModal" tabindex="-1" ref="tenantPermissionModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ $t('tenant_permission_config', '权限配置') }} - {{ form.name }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div v-if="tenantPermissionOptions.length === 0" class="text-muted small mb-3">
+              {{ $t('tenant_permission_empty', '暂无可分配权限') }}
+            </div>
+            <PermissionDualMode
+              :allPermissions="tenantPermissionOptions"
+              v-model="form.permission_ids"
+              :title="$t('tenant_permission_limit', '租户最大权限集')"
+            />
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('common_cancel', '取消') }}</button>
+            <button type="button" class="btn btn-primary" @click="saveTenantPermission">{{ $t('tenant_save', '保存') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tenant Details Modal -->
+    <div class="modal fade" id="tenantDetailsModal" tabindex="-1" ref="tenantDetailsModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ $t('tenant_details', '租户详情') }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body p-0">
+            <div v-if="currentTenantDetails" class="bg-light">
+              <div class="p-4 text-center border-bottom bg-white">
+                <div class="display-4 text-primary mb-2">
+                  <div v-if="currentTenantDetails.logo" class="svg-container mx-auto" style="height: 60px; max-width: 200px; display: flex; align-items: center; justify-content: center;">
+                    <div v-if="currentTenantDetails.logo.trim().startsWith('<svg') || currentTenantDetails.logo.trim().startsWith('<?xml')" v-html="DOMPurify.sanitize(currentTenantDetails.logo, { USE_PROFILES: { svg: true } })" style="max-height: 100%; display: flex; align-items: center; justify-content: center;"></div>
+                    <img v-else :src="currentTenantDetails.logo" style="max-height: 100%; max-width: 100%; object-fit: contain;">
+                  </div>
+                  <i v-else class="bi bi-building"></i>
+                </div>
+                <h5 class="mb-1">{{ currentTenantDetails.name }}</h5>
+                <p class="text-muted mb-0">{{ $t('tenant_code', '编码') }}: {{ currentTenantDetails.code }}</p>
+              </div>
+              <div class="p-4">
+                <div class="row g-3">
+                  <div class="col-6">
+                    <label class="text-muted small mb-1">{{ $t('admin_name', '管理员') }}</label>
+                    <div class="fw-medium text-primary">{{ currentTenantDetails.contact }}</div>
+                  </div>
+                  <div class="col-6">
+                    <label class="text-muted small mb-1">{{ $t('tenant_phone', '联系电话') }}</label>
+                    <div class="fw-medium">{{ currentTenantDetails.phone || $t('common_none', '无') }}</div>
+                  </div>
+                  <div class="col-6">
+                    <label class="text-muted small mb-1">{{ $t('tenant_email', '邮箱') }}</label>
+                    <div class="fw-medium">{{ currentTenantDetails.email || $t('common_none', '无') }}</div>
+                  </div>
+                  <div class="col-6">
+                    <label class="text-muted small mb-1">{{ $t('login_suffix', '专属登录后缀') }}</label>
+                    <div class="fw-medium">{{ currentTenantDetails.login_suffix ? '/login/' + currentTenantDetails.login_suffix : $t('common_none', '无') }}</div>
+                  </div>
+                  <div class="col-12">
+                    <label class="text-muted small mb-1">{{ $t('tenant_description', '描述') }}</label>
+                    <div class="fw-medium">{{ currentTenantDetails.description || $t('common_none', '无') }}</div>
+                  </div>
+                  <div class="col-12">
+                    <label class="text-muted small mb-1">{{ $t('user_created_at', '创建时间') }}</label>
+                    <div class="fw-medium">{{ new Date(currentTenantDetails.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('common_close', '关闭') }}</button>
+          </div>
         </div>
       </div>
     </div>
@@ -164,30 +248,7 @@
                 </div>
               </template>
 
-              <hr class="my-3">
-              <div class="d-flex justify-content-between align-items-center mb-3">
-                <h6 class="text-primary mb-0"><i class="bi bi-shield-check me-2"></i>{{ $t('tenant_permission_limit', '租户最大权限集') }}</h6>
-                <div class="btn-group btn-group-sm">
-                  <button type="button" class="btn btn-outline-primary" @click="selectAllTenantPermissions">{{ $t('common_select_all', '全选') }}</button>
-                  <button type="button" class="btn btn-outline-secondary" @click="clearTenantPermissions">{{ $t('common_clear', '清空') }}</button>
-                </div>
-              </div>
-              <div v-if="tenantPermissionOptions.length === 0" class="text-muted small mb-3">
-                {{ $t('tenant_permission_empty', '暂无可分配权限') }}
-              </div>
-              <div class="row">
-                <div class="col-md-4 mb-3" v-for="(permissions, module) in groupedTenantPermissionOptions" :key="module">
-                  <div class="border rounded p-3 h-100">
-                    <div class="fw-bold text-muted small mb-2 text-uppercase">{{ module }}</div>
-                    <div class="form-check" v-for="permission in permissions" :key="permission.ID">
-                      <input class="form-check-input" type="checkbox" :id="'tenant-perm-' + permission.ID" :value="permission.ID" v-model="form.permission_ids">
-                      <label class="form-check-label small" :for="'tenant-perm-' + permission.ID">
-                        {{ permission.name }}
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
+
 
             </form>
           </div>
@@ -256,6 +317,7 @@ import axios from 'axios'
 import DOMPurify from 'dompurify'
 import { Modal } from 'bootstrap'
 import { useI18n } from 'vue-i18n'
+import PermissionDualMode from '../components/PermissionDualMode.vue'
 
 const { t } = useI18n()
 
@@ -264,6 +326,13 @@ const loading = ref(false)
 const tenantPermissionOptions = ref([])
 const tenantModalRef = ref(null)
 let tenantModal = null
+
+const tenantDetailsModalRef = ref(null)
+let tenantDetailsModal = null
+const currentTenantDetails = ref(null)
+
+const tenantPermissionModalRef = ref(null)
+let tenantPermissionModal = null
 
 const tenantResetPasswordModalRef = ref(null)
 let tenantResetPasswordModal = null
@@ -292,29 +361,13 @@ const form = ref({
   login_suffix: '',
   max_users: 0,
   max_devices: 0,
-  status: 1,
-  admin_username: '',
+    admin_username: '',
   admin_password: '',
   admin_password_confirm: '',
   permission_ids: []
 })
 
-const groupedTenantPermissionOptions = computed(() => {
-  const groups = {}
-  tenantPermissionOptions.value.forEach(permission => {
-    if (!groups[permission.module]) groups[permission.module] = []
-    groups[permission.module].push(permission)
-  })
-  return groups
-})
 
-const selectAllTenantPermissions = () => {
-  form.value.permission_ids = tenantPermissionOptions.value.map(permission => permission.ID)
-}
-
-const clearTenantPermissions = () => {
-  form.value.permission_ids = []
-}
 
 const handleLogoUpload = (event) => {
   const file = event.target.files[0];
@@ -368,11 +421,18 @@ const loadTenantPermissionOptions = async () => {
 
 onMounted(() => {
   tenantModal = new Modal(tenantModalRef.value)
+  tenantDetailsModal = new Modal(tenantDetailsModalRef.value)
+  tenantPermissionModal = new Modal(tenantPermissionModalRef.value)
   tenantResetPasswordModal = new Modal(tenantResetPasswordModalRef.value)
   changeAdminModal = new Modal(changeAdminModalRef.value)
   loadTenants()
   loadTenantPermissionOptions()
 })
+
+const openDetailsModal = (item) => {
+  currentTenantDetails.value = item
+  tenantDetailsModal.show()
+}
 
 const openCreateModal = () => {
   isEditing.value = false
@@ -388,8 +448,7 @@ const openCreateModal = () => {
     login_suffix: '',
     max_users: 0,
     max_devices: 0,
-    status: 1,
-    admin_username: '',
+        admin_username: '',
     admin_password: '',
     admin_password_confirm: '',
     permission_ids: []
@@ -413,17 +472,38 @@ const openEditModal = (item) => {
     login_suffix: item.login_suffix,
     max_users: item.max_users,
     max_devices: item.max_devices,
-    status: item.status,
-    permission_ids: item.permission_ids || []
+        permission_ids: item.permission_ids || []
   }
   tenantModal.show()
 }
 
-const saveTenant = async () => {
-  if (form.value.permission_ids.length === 0) {
-    alert(t('tenant_permission_required', '请至少选择一个租户权限'))
-    return
+const openPermissionModal = (item) => {
+  form.value = {
+    id: item.ID,
+    name: item.name,
+    permission_ids: item.permission_ids || []
   }
+  tenantPermissionModal.show()
+}
+
+const saveTenantPermission = async () => {
+  try {
+    const res = await axios.put(`/api/tenants/${form.value.id}`, {
+      permission_ids: form.value.permission_ids
+    })
+    if (res.data.code === 0) {
+      tenantPermissionModal.hide()
+      loadTenants()
+    } else {
+      alert(res.data.message || '保存失败')
+    }
+  } catch (error) {
+    console.error("Failed to save tenant permissions:", error)
+    alert('保存失败，请检查网络或联系管理员')
+  }
+}
+
+const saveTenant = async () => {
   if (!isEditing.value && form.value.admin_password !== form.value.admin_password_confirm) {
     alert(t('auth_password_mismatch', '两次输入的密码不一致！'))
     return
@@ -491,7 +571,7 @@ const openChangeAdminModal = async (item) => {
   try {
     const res = await axios.get(`/api/tenants/${item.ID}/users`)
     if (res.data.code === 0) {
-      tenantUsers.value = (res.data.data || []).filter(u => u.status === 1)
+      tenantUsers.value = (res.data.data || [])
     }
   } catch (error) {
     console.error("Failed to load tenant users:", error)

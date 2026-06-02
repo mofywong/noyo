@@ -9,7 +9,6 @@ type App struct {
 	AppKey      string `gorm:"size:128;not null" json:"-"`
 	Name        string `gorm:"size:64;not null" json:"name"`
 	Description string `json:"description"`
-	Status      int    `gorm:"default:1" json:"status"`
 	RateLimit   int    `gorm:"default:0" json:"rate_limit"`
 }
 

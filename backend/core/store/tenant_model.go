@@ -10,7 +10,6 @@ type Tenant struct {
 	gorm.Model
 	Code        string     `gorm:"uniqueIndex;size:64;not null" json:"code"`
 	Name        string     `gorm:"size:128;not null" json:"name"`
-	Status      int        `gorm:"default:1" json:"status"`
 	Contact     string     `gorm:"size:64" json:"contact"`
 	Phone       string     `gorm:"size:32" json:"phone"`
 	Email       string     `gorm:"size:128" json:"email"`

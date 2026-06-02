@@ -98,7 +98,7 @@ func (s *Server) handleDeletePosition(r *ghttp.Request) {
 		return
 	}
 
-	if err := store.DB.Delete(&pos).Error; err != nil {
+	if err := store.DB.Unscoped().Delete(&pos).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to delete position"})
 		return
 	}

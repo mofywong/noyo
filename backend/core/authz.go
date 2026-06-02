@@ -165,7 +165,7 @@ func (ctx *AuthContext) CanAssignRole(role store.Role, targetProjectID uint) boo
 	if ctx.IsTenantAdmin {
 		return role.Code != RoleCodeTenantAdmin && (role.ProjectID == 0 || role.ProjectID == targetProjectID)
 	}
-	if role.IsBuiltin || role.Code == RoleCodeProjectAdmin {
+	if role.IsBuiltin && role.Code != RoleCodeProjectAdmin {
 		return false
 	}
 	return role.ProjectID == targetProjectID || (role.ProjectID == 0 && role.IsInherited)
@@ -216,9 +216,7 @@ func ResolveUserAuthContext(userID, requestedTenantID, requestedProjectID uint) 
 }
 
 func ResolveAppAuthContext(app store.App, requestedProjectID uint) (*AuthContext, error) {
-	if app.Status != 1 {
-		return nil, fmt.Errorf("app disabled")
-	}
+	
 	ctx := &AuthContext{
 		SubjectType:     "app",
 		AppID:           app.AppID,

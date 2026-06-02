@@ -135,7 +135,6 @@ func (s *Server) handleUpdateTenant(r *ghttp.Request) {
 	tenant.Description = update.Tenant.Description
 	tenant.Logo = update.Tenant.Logo
 	tenant.LoginSuffix = update.Tenant.LoginSuffix
-	tenant.Status = update.Tenant.Status
 	tenant.MaxUsers = update.Tenant.MaxUsers
 	tenant.MaxDevices = update.Tenant.MaxDevices
 	tenant.ExpiresAt = update.Tenant.ExpiresAt
@@ -161,14 +160,14 @@ func (s *Server) handleDeleteTenant(r *ghttp.Request) {
 	id := r.Get("id").Uint()
 
 	err := store.DB.Transaction(func(tx *gorm.DB) error {
-		tx.Where("tenant_id = ?", id).Delete(&store.User{})
-		tx.Where("tenant_id = ?", id).Delete(&store.Role{})
-		tx.Where("tenant_id = ?", id).Delete(&store.Project{})
-		tx.Where("tenant_id = ?", id).Delete(&store.App{})
-		tx.Where("tenant_id = ?", id).Delete(&store.UserRoleBinding{})
+		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.User{})
+		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.Role{})
+		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.Project{})
+		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.App{})
+		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.UserRoleBinding{})
 		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.ScopePermissionLimit{})
-		tx.Where("tenant_id = ?", id).Delete(&store.AuditLog{})
-		return tx.Delete(&store.Tenant{}, id).Error
+		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.AuditLog{})
+		return tx.Unscoped().Delete(&store.Tenant{}, id).Error
 	})
 
 	if err != nil {

@@ -71,7 +71,41 @@ func (s *Server) handleGetRoles(r *ghttp.Request) {
 		return
 	}
 
-	r.Response.WriteJson(g.Map{"code": 0, "data": roles, "total": len(roles)})
+	type RoleResponse struct {
+		store.Role
+		HasPermissions bool `json:"has_permissions"`
+	}
+	res := make([]RoleResponse, 0, len(roles))
+	if len(roles) > 0 {
+		var roleIDs []uint
+		for _, r := range roles {
+			roleIDs = append(roleIDs, r.ID)
+		}
+
+		var rpCounts []struct {
+			RoleID uint
+		}
+		store.DB.Model(&store.RolePermission{}).Select("role_id").Where("role_id IN ?", roleIDs).Group("role_id").Find(&rpCounts)
+
+		var dtpCounts []struct {
+			RoleID uint
+		}
+		store.DB.Model(&store.RoleDeviceTagPermission{}).Select("role_id").Where("role_id IN ?", roleIDs).Group("role_id").Find(&dtpCounts)
+
+		hasPermMap := make(map[uint]bool)
+		for _, c := range rpCounts {
+			hasPermMap[c.RoleID] = true
+		}
+		for _, c := range dtpCounts {
+			hasPermMap[c.RoleID] = true
+		}
+
+		for _, r := range roles {
+			res = append(res, RoleResponse{Role: r, HasPermissions: hasPermMap[r.ID]})
+		}
+	}
+
+	r.Response.WriteJson(g.Map{"code": 0, "data": res, "total": len(roles)})
 }
 
 func (s *Server) handleCreateRole(r *ghttp.Request) {
@@ -112,8 +146,7 @@ func (s *Server) handleCreateRole(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 403, "message": "Only tenant admins can create tenant common roles"})
 			return
 		}
-		role.IsInherited = true
-	} else {
+		} else {
 		if !projectBelongsToTenant(role.ProjectID, authCtx.TenantID) || !authCtx.CanManageProject(role.ProjectID) {
 			r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
 			return
@@ -164,7 +197,6 @@ func (s *Server) handleUpdateRole(r *ghttp.Request) {
 	role.Name = update.Name
 	role.Description = update.Description
 	role.DataScope = update.DataScope
-	role.Status = update.Status
 	role.IsInherited = role.ProjectID == 0
 
 	if err := store.DB.Save(&role).Error; err != nil {
@@ -199,11 +231,11 @@ func (s *Server) handleDeleteRole(r *ghttp.Request) {
 			return fmt.Errorf("cannot delete role: %d users are still bound to it", count)
 		}
 
-		tx.Where("role_id = ?", id).Delete(&store.RolePermission{})
-		tx.Where("role_id = ?", id).Delete(&store.RoleDeviceTagPermission{})
-		tx.Where("role_id = ?", id).Delete(&store.PositionRole{})
+		tx.Unscoped().Where("role_id = ?", id).Delete(&store.RolePermission{})
+		tx.Unscoped().Where("role_id = ?", id).Delete(&store.RoleDeviceTagPermission{})
+		tx.Unscoped().Where("role_id = ?", id).Delete(&store.PositionRole{})
 
-		return tx.Delete(&role).Error
+		return tx.Unscoped().Delete(&role).Error
 	})
 
 	if err != nil {

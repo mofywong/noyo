@@ -191,7 +191,7 @@ const devices = ref({});
 const products = ref({});
 const floatingVideoDevice = ref(null);
 let lastSeenTs = parseInt(localStorage.getItem('noyo_alarms_last_seen') || '0');
-let pollTimer = null;
+let eventSource = null;
 
 const activeDropdown = ref('');
 const projectsList = ref([]);
@@ -361,6 +361,64 @@ const fetchRecentEvents = async () => {
   }
 };
 
+const setupEventStream = () => {
+  if (eventSource) return;
+  eventSource = new EventSource('/api/devices/stream');
+  
+  eventSource.addEventListener('event.reported', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      const evt = {
+        device_code: data.Topic,
+        event_id: data.Payload.eventId,
+        params: data.Payload.params,
+        ts: data.Timestamp
+      };
+      
+      const isAlarm = evt.params?.scene_type || ALARM_EVENT_IDS.includes(evt.event_id);
+      if (isAlarm) {
+        recentEvents.value.unshift(evt);
+        if (recentEvents.value.length > 50) {
+          recentEvents.value.pop();
+        }
+        
+        unreadCount.value++;
+        
+        if (!toastShownForTs.has(evt.ts)) {
+          toastShownForTs.add(evt.ts);
+          const alarmName = getEventName(evt);
+          const deviceName = getDeviceName(evt.device_code);
+          showToast(alarmName, `设备: ${deviceName} 发生了告警事件`);
+          
+          const dev = devices.value[evt.device_code];
+          if (dev) {
+            const prod = products.value[dev.product_code];
+            if (prod && prod.protocol_name === 'gb28181') {
+              floatingVideoDevice.value = dev;
+            }
+          }
+        }
+        
+        if (toastShownForTs.size > 100) {
+          const toDelete = Array.from(toastShownForTs).slice(0, 50);
+          toDelete.forEach(ts => toastShownForTs.delete(ts));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse SSE event:', err);
+    }
+  });
+
+  eventSource.onerror = () => {
+    if (eventSource.readyState === EventSource.CLOSED) {
+      setTimeout(() => {
+        eventSource = null;
+        setupEventStream();
+      }, 3000);
+    }
+  };
+};
+
 const fetchDataMetadata = async () => {
   try {
     const [devRes, prodRes] = await Promise.all([
@@ -438,8 +496,8 @@ onMounted(async () => {
     profileModal = new Modal(profileModalRef.value);
   }
   await fetchDataMetadata();
-  fetchRecentEvents();
-  pollTimer = setInterval(fetchRecentEvents, 5000);
+  await fetchRecentEvents();
+  setupEventStream();
   document.addEventListener('click', closeAllDropdowns);
   window.addEventListener('project-updated', loadProjects);
   if (authStore.user && authStore.user.tenant_id > 0) {
@@ -456,7 +514,10 @@ const getDisplayNameLabel = (user) => {
 };
 
 onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer);
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
   document.removeEventListener('click', closeAllDropdowns);
   window.removeEventListener('project-updated', loadProjects);
 });

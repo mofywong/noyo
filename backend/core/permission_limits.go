@@ -18,9 +18,6 @@ func replaceTenantPermissionLimit(tx *gorm.DB, tenantID uint, permissionIDs []ui
 		return fmt.Errorf("tenant id is required")
 	}
 	permissionIDs = uniquePermissionIDs(permissionIDs)
-	if len(permissionIDs) == 0 {
-		return fmt.Errorf("permission limit cannot be empty")
-	}
 	if err := validateTenantPermissionLimitIDs(tx, permissionIDs); err != nil {
 		return err
 	}
@@ -35,9 +32,6 @@ func replaceProjectPermissionLimit(tx *gorm.DB, tenantID, projectID uint, permis
 		return fmt.Errorf("project does not belong to tenant")
 	}
 	permissionIDs = uniquePermissionIDs(permissionIDs)
-	if len(permissionIDs) == 0 {
-		return fmt.Errorf("permission limit cannot be empty")
-	}
 	if err := validateProjectPermissionLimitIDs(tx, tenantID, permissionIDs); err != nil {
 		return err
 	}
@@ -65,7 +59,7 @@ func replaceScopePermissionLimit(tx *gorm.DB, scopeType string, tenantID, projec
 }
 
 func loadScopePermissionLimitIDs(tx *gorm.DB, scopeType string, tenantID, projectID uint) ([]uint, error) {
-	var permissionIDs []uint
+	permissionIDs := make([]uint, 0)
 	if err := tx.Model(&store.ScopePermissionLimit{}).
 		Where("scope_type = ? AND tenant_id = ? AND project_id = ?", scopeType, tenantID, projectID).
 		Order("permission_id asc").

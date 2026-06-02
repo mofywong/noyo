@@ -13,7 +13,6 @@ type Role struct {
 	Description string `json:"description"`
 	DataScope   int    `gorm:"default:5" json:"data_scope"` // 1=All, 2=Project, 3=ProjectAndChildren, 4=Custom, 5=Personal
 	IsBuiltin   bool   `gorm:"default:false" json:"is_builtin"`
-	Status      int    `gorm:"default:1" json:"status"`
 	IsInherited bool   `gorm:"default:false" json:"is_inherited"`
 }
 

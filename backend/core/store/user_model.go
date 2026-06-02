@@ -107,7 +107,7 @@ func ListUsers(page, pageSize int, tenantID, projectID, roleID uint, isProjectAd
 	return users, total, result.Error
 }
 
-// DeleteUser performs a soft delete on a user
+// DeleteUser performs a hard delete on a user
 func DeleteUser(id uint) error {
-	return DB.Delete(&User{}, id).Error
+	return DB.Unscoped().Delete(&User{}, id).Error
 }

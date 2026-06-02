@@ -117,7 +117,7 @@ func replaceUserTenantRoleBindings(tx *gorm.DB, authCtx *AuthContext, user store
 		}
 	}
 
-	if err := tx.Where("user_id = ? AND project_id = ?", user.ID, 0).Delete(&store.UserRoleBinding{}).Error; err != nil {
+	if err := tx.Unscoped().Where("user_id = ? AND project_id = ?", user.ID, 0).Delete(&store.UserRoleBinding{}).Error; err != nil {
 		return err
 	}
 	for _, roleID := range validRoleIDs {
@@ -165,7 +165,6 @@ func (s *Server) handleListUsers(r *ghttp.Request) {
 	pageSize := r.Get("pageSize", 10).Int()
 
 	tenantID := r.GetCtxVar("tenant_id").Uint()
-	projectID := r.GetCtxVar("project_id").Uint()
 	roleID := r.Get("role_id").Uint()
 
 	authCtx := requestAuthContext(r)
@@ -175,6 +174,11 @@ func (s *Server) handleListUsers(r *ghttp.Request) {
 	}
 	isProjectScoped := !authCtx.IsTenantAdmin
 	allowedProjectIDs := authCtx.AllowedProjectIDs
+
+	projectID := r.Get("project_id").Uint()
+	if projectID == 0 && isProjectScoped {
+		projectID = r.GetCtxVar("project_id").Uint()
+	}
 
 	users, total, err := store.ListUsers(page, pageSize, tenantID, projectID, roleID, isProjectScoped, allowedProjectIDs)
 	if err != nil {
@@ -246,6 +250,9 @@ func (s *Server) handleListUsers(r *ghttp.Request) {
 
 	for _, b := range allBindings {
 		if b.ProjectID > 0 {
+			if b.ProjectName == "" {
+				continue
+			}
 			userProjsMap[b.UserID] = append(userProjsMap[b.UserID], UserProjectInfo{
 				ProjectID:   b.ProjectID,
 				ProjectName: b.ProjectName,
@@ -453,7 +460,7 @@ func (s *Server) handleUpdateUser(r *ghttp.Request) {
 	r.Response.WriteJson(g.Map{"code": 0, "message": "User updated"})
 }
 
-// handleDeleteUser soft deletes a user
+// handleDeleteUser hard deletes a user
 func (s *Server) handleDeleteUser(r *ghttp.Request) {
 	id := r.Get("id").Uint()
 
@@ -737,10 +744,10 @@ func (s *Server) handleSetUserProjects(r *ghttp.Request) {
 		}
 
 		if len(allowedProjectIDs) > 0 {
-			tx.Where("user_id = ? AND project_id IN ?", userID, allowedProjectIDs).Delete(&store.UserRoleBinding{})
+			tx.Unscoped().Where("user_id = ? AND project_id IN ?", userID, allowedProjectIDs).Delete(&store.UserRoleBinding{})
 		}
 	} else {
-		tx.Where("user_id = ? AND project_id > 0", userID).Delete(&store.UserRoleBinding{})
+		tx.Unscoped().Where("user_id = ? AND project_id > 0", userID).Delete(&store.UserRoleBinding{})
 	}
 
 	for _, p := range req.Projects {

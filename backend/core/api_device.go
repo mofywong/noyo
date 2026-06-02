@@ -847,11 +847,15 @@ func (s *Server) handleDeviceStream(r *ghttp.Request) {
 	// Subscribe with IDs so we can unsubscribe on disconnect
 	id1 := s.DeviceManager.EventBus.SubscribeWithID(types.EventDeviceStatusChanged, handler)
 	id2 := s.DeviceManager.EventBus.SubscribeWithID(types.EventDeviceListChanged, handler)
+	id3 := s.DeviceManager.EventBus.SubscribeWithID(types.EventEventReported, handler)
+	id4 := s.DeviceManager.EventBus.SubscribeWithID(types.EventPropertyReported, handler)
 
 	// Cleanup subscriptions when this SSE connection closes
 	defer func() {
 		s.DeviceManager.EventBus.Unsubscribe(types.EventDeviceStatusChanged, id1)
 		s.DeviceManager.EventBus.Unsubscribe(types.EventDeviceListChanged, id2)
+		s.DeviceManager.EventBus.Unsubscribe(types.EventEventReported, id3)
+		s.DeviceManager.EventBus.Unsubscribe(types.EventPropertyReported, id4)
 		s.Logger.Debug("SSE client disconnected, subscriptions cleaned up")
 	}()
 

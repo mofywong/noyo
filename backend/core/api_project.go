@@ -146,7 +146,7 @@ func (s *Server) handleGetAccessibleProjects(r *ghttp.Request) {
 		return
 	}
 
-	db := store.DB.Model(&store.Project{}).Where("tenant_id = ? AND status = ?", authCtx.TenantID, 1)
+	db := store.DB.Model(&store.Project{}).Where("tenant_id = ?", authCtx.TenantID)
 	if projectIDs, restricted := authCtx.ProjectIDsForTenantQuery(); restricted {
 		if len(projectIDs) == 0 {
 			r.Response.WriteJson(g.Map{"code": 0, "data": []store.Project{}, "total": 0})
@@ -253,7 +253,6 @@ func (s *Server) handleUpdateProject(r *ghttp.Request) {
 
 	project.Name = update.Name
 	project.Description = update.Description
-	project.Status = update.Status
 
 	authCtx := requestAuthContext(r)
 	if update.AdminUserID > 0 && (authCtx == nil || !authCtx.IsTenantAdmin) {
@@ -298,7 +297,10 @@ func (s *Server) handleDeleteProject(r *ghttp.Request) {
 		if err := tx.Unscoped().Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeProject, project.TenantID, project.ID).Delete(&store.ScopePermissionLimit{}).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&store.Project{}, id).Error
+		if err := tx.Unscoped().Where("project_id = ?", id).Delete(&store.UserRoleBinding{}).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Delete(&store.Project{}, id).Error
 	})
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to delete project"})

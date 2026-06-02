@@ -36,10 +36,13 @@
                 <td><strong>{{ p.code }}</strong></td>
                 <td>{{ p.name }}</td>
                 <td>{{ p.description }}</td>
-                <td>{{ new Date(p.CreatedAt).toLocaleString() }}</td>
+                <td>{{ new Date(p.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
                 <td class="text-end">
-                  <button class="btn btn-sm btn-outline-info me-2" @click="openRolesModal(p)" :title="$t('position_assign_roles', '分配角色')" v-permission="'position:edit'">
-                    <i class="bi bi-shield-lock"></i>
+                  <button class="btn btn-sm btn-outline-success me-2" @click="openDetailsModal(p)" :title="$t('common_view_details', '查看详情')">
+                    <i class="bi bi-eye"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-secondary me-2" @click="openRolesModal(p)" :title="$t('position_assign_roles', '分配角色')" v-permission="'position:edit'">
+                    <i class="bi bi-shield-check"></i>
                   </button>
                   <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(p)" v-permission="'position:edit'">
                     <i class="bi bi-pencil"></i>
@@ -111,6 +114,44 @@
       </div>
     </div>
 
+    <!-- Position Details Modal -->
+    <div class="modal fade" id="positionDetailsModal" tabindex="-1" ref="positionDetailsModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ $t('position_details', '岗位详情') }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body p-0">
+            <div v-if="currentPositionDetails" class="bg-light">
+              <div class="p-4 text-center border-bottom bg-white">
+                <div class="display-4 text-primary mb-2">
+                  <i class="bi bi-person-badge"></i>
+                </div>
+                <h5 class="mb-1">{{ currentPositionDetails.name }}</h5>
+                <p class="text-muted mb-0">Code: {{ currentPositionDetails.code }}</p>
+              </div>
+              <div class="p-4">
+                <div class="row g-3">
+                  <div class="col-12">
+                    <label class="text-muted small mb-1">{{ $t('role_description', '描述') }}</label>
+                    <div class="fw-medium">{{ currentPositionDetails.description || $t('common_none', '无') }}</div>
+                  </div>
+                  <div class="col-12">
+                    <label class="text-muted small mb-1">{{ $t('user_created_at', '创建时间') }}</label>
+                    <div class="fw-medium">{{ new Date(currentPositionDetails.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('common_close', '关闭') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -128,12 +169,15 @@ const loading = ref(false)
 
 const positionModalRef = ref(null)
 const rolesModalRef = ref(null)
+const positionDetailsModalRef = ref(null)
 let positionModal = null
 let rolesModal = null
+let positionDetailsModal = null
 
 const isEditing = ref(false)
 const currentPosId = ref(0)
 const selectedRoleIds = ref([])
+const currentPositionDetails = ref(null)
 
 const form = ref({
   id: 0,
@@ -170,9 +214,15 @@ const loadRoles = async () => {
 onMounted(() => {
   positionModal = new Modal(positionModalRef.value)
   rolesModal = new Modal(rolesModalRef.value)
+  positionDetailsModal = new Modal(positionDetailsModalRef.value)
   loadPositions()
   loadRoles()
 })
+
+const openDetailsModal = (item) => {
+  currentPositionDetails.value = item
+  positionDetailsModal.show()
+}
 
 const openCreateModal = () => {
   isEditing.value = false

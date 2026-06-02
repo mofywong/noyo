@@ -23,8 +23,7 @@
                 <th>名称</th>
                 <th>描述</th>
                 <th>限流 (次/秒)</th>
-                <th>状态</th>
-                <th>创建时间</th>
+                                <th>创建时间</th>
                 <th class="text-end">操作</th>
               </tr>
             </thead>
@@ -164,8 +163,7 @@ const form = ref({
   id: 0,
   name: '',
   description: '',
-  rate_limit: 0,
-  status: 1
+  rate_limit: 0
 })
 
 const newAppInfo = ref({ app_id: '', AppKey: '' })
@@ -206,13 +204,13 @@ onMounted(() => {
 
 const openCreateModal = () => {
   isEditing.value = false
-  form.value = { id: 0, name: '', description: '', rate_limit: 0, status: 1 }
+  form.value = { id: 0, name: '', description: '', rate_limit: 0 }
   appModal.show()
 }
 
 const openEditModal = (item) => {
   isEditing.value = true
-  form.value = { id: item.ID, name: item.name, description: item.description, rate_limit: item.rate_limit, status: item.status }
+  form.value = { id: item.ID, name: item.name, description: item.description, rate_limit: item.rate_limit }
   appModal.show()
 }
 

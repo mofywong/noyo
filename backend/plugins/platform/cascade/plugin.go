@@ -265,6 +265,7 @@ func (p *CascadePlugin) Init(ctx platform.Context) error {
 
 	// Register HTTP routes
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/status", p.handleGetStatus)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/stream", p.handleStream)
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways", p.handleGatewayList)
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins", p.handleGatewayPlugins)
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName", p.handleGatewayPluginConfig)
@@ -303,6 +304,67 @@ func (p *CascadePlugin) handleGetStatus(r *ghttp.Request) {
 		"gateway_code": p.Config.GatewaySn,
 		"ts":           time.Now(),
 	})
+}
+
+func (p *CascadePlugin) handleStream(r *ghttp.Request) {
+	r.Response.Header().Set("Content-Type", "text/event-stream")
+	r.Response.Header().Set("Cache-Control", "no-cache")
+	r.Response.Header().Set("Connection", "keep-alive")
+	r.Response.Header().Set("Access-Control-Allow-Origin", "*")
+	r.Response.Header().Set("X-Accel-Buffering", "no")
+
+	r.Response.Write("event: connected\ndata: {}\n\n")
+	r.Response.Flush()
+
+	ctx := r.Context()
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	lastConnected := false
+	first := true
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			connected := false
+			if p.Config.Mode == "platform" && p.PlatformEngine != nil {
+				if engine, ok := p.PlatformEngine.(*platformEngineImpl); ok && engine.client != nil {
+					connected = engine.client.IsConnected()
+				}
+			} else if p.Config.Mode == "gateway" && p.GatewayEngine != nil {
+				if engine, ok := p.GatewayEngine.(*gatewayEngineImpl); ok && engine.client != nil {
+					connected = engine.client.IsConnected()
+				}
+			}
+
+			if first || connected != lastConnected {
+				data := map[string]interface{}{
+					"plugin":       "cascade",
+					"status":       map[bool]string{true: "connected", false: "disconnected"}[connected],
+					"connected":    connected,
+					"mode":         p.Config.Mode,
+					"broker":       p.Config.MqttUrl,
+					"gateway_code": p.Config.GatewaySn,
+					"ts":           time.Now(),
+				}
+				b, _ := json.Marshal(data)
+				msg := fmt.Sprintf("event: status\ndata: %s\n\n", string(b))
+				if _, err := r.Response.Writer.Write([]byte(msg)); err != nil {
+					return
+				}
+				r.Response.Flush()
+				lastConnected = connected
+				first = false
+			} else {
+				if _, err := r.Response.Writer.Write([]byte("event: heartbeat\ndata: {}\n\n")); err != nil {
+					return
+				}
+				r.Response.Flush()
+			}
+		}
+	}
 }
 
 func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {

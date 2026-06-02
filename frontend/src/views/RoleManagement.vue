@@ -27,8 +27,7 @@
                 <th>{{ $t('role_name') }}</th>
                 <th>{{ $t('role_description') }}</th>
                 <th>{{ $t('role_scope', '作用域') }}</th>
-                <th>{{ $t('role_status') }}</th>
-                <th>{{ $t('user_created_at') }}</th>
+                                <th>{{ $t('user_created_at') }}</th>
                 <th class="text-end">{{ $t('role_actions') }}</th>
               </tr>
             </thead>
@@ -59,17 +58,13 @@
                   </span>
                   <span v-if="r.is_builtin" class="badge text-bg-secondary ms-1">{{ $t('role_system_builtin', '系统内置') }}</span>
                 </td>
-                <td>
-                  <span class="badge" :class="r.status === 1 ? 'text-bg-success' : 'text-bg-danger'">
-                    {{ r.status === 1 ? $t('user_active') : $t('user_disabled') }}
-                  </span>
-                </td>
-                <td>{{ new Date(r.CreatedAt).toLocaleString() }}</td>
+
+                <td>{{ new Date(r.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
                 <td class="text-end">
                   <button class="btn btn-sm btn-outline-success me-2" @click="openDetailsModal(r)" :title="$t('common_view_details', '查看详情')">
                     <i class="bi bi-eye"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-info me-2" @click="openPermModal(r)" :disabled="r.is_builtin" :title="$t('role_config_perm', '配置权限')" v-permission="'role:edit'">
+                  <button class="btn btn-sm me-2" :class="r.has_permissions ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermModal(r)" :disabled="r.is_builtin" :title="$t('role_config_perm', '配置权限')" v-permission="'role:edit'">
                     <i class="bi bi-shield-check"></i>
                   </button>
                   <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_edit', '编辑')" v-permission="'role:edit'">
@@ -183,7 +178,7 @@
                   </div>
                   <div class="col-12">
                     <label class="text-muted small mb-1">{{ $t('user_created_at') }}</label>
-                    <div class="fw-medium">{{ new Date(currentRoleDetails.CreatedAt).toLocaleString() }}</div>
+                    <div class="fw-medium">{{ new Date(currentRoleDetails.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</div>
                   </div>
                 </div>
               </div>
@@ -233,8 +228,7 @@ const form = ref({
   name: '',
   description: '',
   data_scope: 5,
-  status: 1,
-  project_id: 0,
+    project_id: 0,
   is_inherited: false
 })
 
@@ -296,8 +290,7 @@ const openCreateModal = () => {
     name: '',
     description: '',
     data_scope: 5,
-    status: 1,
-    project_id: 0,
+        project_id: 0,
     is_inherited: false
   }
   roleModal.show()
@@ -312,8 +305,7 @@ const openEditModal = (item) => {
     name: item.name,
     description: item.description,
     data_scope: item.data_scope,
-    status: item.status,
-    project_id: item.project_id || 0,
+        project_id: item.project_id || 0,
     is_inherited: item.is_inherited || false
   }
   roleModal.show()

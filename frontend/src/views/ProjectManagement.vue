@@ -24,8 +24,7 @@
                 <th>{{ $t('project_name') }}</th>
                 <th>{{ $t('project_admin', '管理员') }}</th>
                 <th>{{ $t('project_description') }}</th>
-                <th>{{ $t('project_status') }}</th>
-                <th>{{ $t('user_created_at') }}</th>
+                                <th>{{ $t('user_created_at') }}</th>
                 <th class="text-end">{{ $t('project_actions') }}</th>
               </tr>
             </thead>
@@ -45,15 +44,14 @@
                 <td>{{ p.name }}</td>
                 <td>{{ p.admins || $t('common_none', '暂无') }}</td>
                 <td>{{ p.description }}</td>
-                <td>
-                  <span class="badge" :class="p.status === 1 ? 'text-bg-success' : 'text-bg-danger'">
-                    {{ p.status === 1 ? $t('user_active') : $t('user_disabled') }}
-                  </span>
-                </td>
-                <td>{{ new Date(p.CreatedAt).toLocaleString() }}</td>
+
+                <td>{{ new Date(p.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
                 <td class="text-end">
                   <button class="btn btn-sm btn-outline-success me-2" @click="openDetailsModal(p)" :title="$t('common_view_details', '查看详情')">
                     <i class="bi bi-eye"></i>
+                  </button>
+                  <button class="btn btn-sm me-2" :class="(p.permission_ids && p.permission_ids.length > 0) ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermissionModal(p)" :title="$t('project_permission_config', '权限配置')" v-permission="'project:edit'">
+                    <i class="bi bi-shield-check"></i>
                   </button>
                   <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(p)" :title="$t('project_edit', '编辑')" v-permission="'project:edit'">
                     <i class="bi bi-pencil"></i>
@@ -65,6 +63,32 @@
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Project Permission Modal -->
+    <div class="modal fade" id="projectPermissionModal" tabindex="-1" ref="projectPermissionModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ $t('project_permission_config', '权限配置') }} - {{ form.name }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div v-if="projectPermissionOptions.length === 0" class="text-muted small mb-3">
+              {{ $t('project_permission_empty', '暂无可分配权限') }}
+            </div>
+            <PermissionDualMode
+              :allPermissions="projectPermissionOptions"
+              v-model="form.permission_ids"
+              :title="$t('project_permission_limit', '项目最大权限集')"
+            />
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('common_cancel', '取消') }}</button>
+            <button type="button" class="btn btn-primary" @click="saveProjectPermission">{{ $t('project_save', '保存') }}</button>
+          </div>
         </div>
       </div>
     </div>
@@ -102,7 +126,7 @@
                   </div>
                   <div class="col-6">
                     <label class="text-muted small mb-1">{{ $t('user_created_at', '创建时间') }}</label>
-                    <div class="fw-medium">{{ new Date(currentProjectDetails.CreatedAt).toLocaleString() }}</div>
+                    <div class="fw-medium">{{ new Date(currentProjectDetails.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</div>
                   </div>
                 </div>
               </div>
@@ -146,29 +170,7 @@
                 <label class="form-label">{{ $t('project_description') }}</label>
                 <textarea v-model="form.description" class="form-control" rows="3"></textarea>
               </div>
-              <div class="d-flex justify-content-between align-items-center mb-3">
-                <h6 class="text-primary mb-0"><i class="bi bi-shield-check me-2"></i>{{ $t('project_permission_limit', '项目最大权限集') }}</h6>
-                <div class="btn-group btn-group-sm">
-                  <button type="button" class="btn btn-outline-primary" @click="selectAllProjectPermissions">{{ $t('common_select_all', '全选') }}</button>
-                  <button type="button" class="btn btn-outline-secondary" @click="clearProjectPermissions">{{ $t('common_clear', '清空') }}</button>
-                </div>
-              </div>
-              <div v-if="projectPermissionOptions.length === 0" class="text-muted small mb-3">
-                {{ $t('project_permission_empty', '暂无可分配权限') }}
-              </div>
-              <div class="row">
-                <div class="col-md-6 mb-3" v-for="(permissions, module) in groupedProjectPermissionOptions" :key="module">
-                  <div class="border rounded p-3 h-100">
-                    <div class="fw-bold text-muted small mb-2 text-uppercase">{{ module }}</div>
-                    <div class="form-check" v-for="permission in permissions" :key="permission.ID">
-                      <input class="form-check-input" type="checkbox" :id="'project-perm-' + permission.ID" :value="permission.ID" v-model="form.permission_ids">
-                      <label class="form-check-label small" :for="'project-perm-' + permission.ID">
-                        {{ permission.name }}
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
+
 
             </form>
           </div>
@@ -185,6 +187,7 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
 import axios from 'axios'
+import PermissionDualMode from '../components/PermissionDualMode.vue'
 import { Modal } from 'bootstrap'
 import { useI18n } from 'vue-i18n'
 
@@ -195,6 +198,9 @@ const loading = ref(false)
 const projectModalRef = ref(null)
 let projectModal = null
 const projectDetailsModalRef = ref(null)
+const projectPermissionModalRef = ref(null)
+let projectPermissionModal = null
+
 let projectDetailsModal = null
 
 const filterKeyword = ref('')
@@ -208,8 +214,7 @@ const form = ref({
   code: '',
   name: '',
   description: '',
-  status: 1,
-  admin_user_id: '',
+    admin_user_id: '',
   permission_ids: []
 })
 
@@ -222,15 +227,37 @@ const groupedProjectPermissionOptions = computed(() => {
   return groups
 })
 
-const selectAllProjectPermissions = () => {
-  form.value.permission_ids = projectPermissionOptions.value.map(permission => permission.ID)
-}
 
-const clearProjectPermissions = () => {
-  form.value.permission_ids = []
-}
 
-const loadProjects = async () => {
+const openPermissionModal = (item) => {
+    form.value = {
+      id: item.ID,
+      name: item.name,
+      permission_ids: item.permission_ids || []
+    }
+    projectPermissionModal.show()
+  }
+
+  const saveProjectPermission = async () => {
+    try {
+      // Use the project update endpoint with just the permission_ids, or a specific permission endpoint
+      // based on original code, it was probably calling PUT /api/projects/:id
+      const res = await axios.put(`/api/projects/${form.value.id}`, {
+        permission_ids: form.value.permission_ids
+      })
+      if (res.data.code === 0) {
+        projectPermissionModal.hide()
+        loadProjects()
+      } else {
+        alert(res.data.message || '保存失败')
+      }
+    } catch (error) {
+      console.error("Failed to save project permissions:", error)
+      alert('保存失败，请检查网络或联系管理员')
+    }
+  }
+
+  const loadProjects = async () => {
   loading.value = true
   try {
     const res = await axios.get('/api/projects', { params: { keyword: filterKeyword.value } })
@@ -269,6 +296,7 @@ const loadProjectPermissionOptions = async () => {
 onMounted(() => {
   projectModal = new Modal(projectModalRef.value)
   projectDetailsModal = new Modal(projectDetailsModalRef.value)
+  projectPermissionModal = new Modal(projectPermissionModalRef.value)
   loadProjects()
   loadUsers()
   loadProjectPermissionOptions()
@@ -286,8 +314,7 @@ const openCreateModal = () => {
     code: '',
     name: '',
     description: '',
-    status: 1,
-    admin_user_id: '',
+        admin_user_id: '',
     permission_ids: []
   }
   projectModal.show()
@@ -300,18 +327,14 @@ const openEditModal = (item) => {
     code: item.code,
     name: item.name,
     description: item.description,
-    status: item.status,
-    admin_user_id: item.admin_user_id || '',
+        admin_user_id: item.admin_user_id || '',
     permission_ids: item.permission_ids || []
   }
   projectModal.show()
 }
 
 const saveProject = async () => {
-  if (form.value.permission_ids.length === 0) {
-    alert(t('project_permission_required', '请至少选择一个项目权限'))
-    return
-  }
+
   try {
     let res
     if (isEditing.value) {

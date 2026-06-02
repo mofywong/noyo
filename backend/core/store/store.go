@@ -112,7 +112,6 @@ func InitDefaultData() {
 			Password:           hashedPassword,
 			DisplayName:        "超级管理员",
 			Role:               "admin",
-			Status:             1,
 			MustChangePassword: true,
 		}
 		DB.Create(&defaultAdmin)
@@ -219,7 +218,6 @@ func InitPermissions() {
 		Description: "系统默认全局角色：管理租户和系统级信息，不进入租户业务数据",
 		DataScope:   1,
 		IsBuiltin:   true,
-		Status:      1,
 		IsInherited: false,
 	}
 	DB.Where("tenant_id = ? AND project_id = ? AND code = ?", 0, 0, "super_admin").
@@ -245,7 +243,6 @@ func InitPermissions() {
 		Description: "系统默认全局角色：拥有租户下的所有权限",
 		DataScope:   1,
 		IsBuiltin:   true,
-		Status:      1,
 		IsInherited: false,
 	}
 	DB.Where("tenant_id = ? AND project_id = ? AND code = ?", 0, 0, "tenant_admin").
@@ -260,7 +257,6 @@ func InitPermissions() {
 		Description: "系统默认全局角色：拥有所在项目的所有权限",
 		DataScope:   2,
 		IsBuiltin:   true,
-		Status:      1,
 		IsInherited: false,
 	}
 	DB.Where("tenant_id = ? AND project_id = ? AND code = ?", 0, 0, "project_admin").

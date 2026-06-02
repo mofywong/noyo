@@ -62,10 +62,10 @@ func (s *Server) handleCreateApp(r *ghttp.Request) {
 	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{
 		"ID":          app.ID,
 		"app_id":      app.AppID,
-		"AppKey":      rawAppKey, // Return the raw key — this is the only time it's visible
+		"AppKey":      rawAppKey, // Return the raw key 鈥?this is the only time it's visible
 		"name":        app.Name,
 		"description": app.Description,
-		"status":      app.Status,
+		
 		"rate_limit":  app.RateLimit,
 		"CreatedAt":   app.CreatedAt,
 	}})
@@ -91,7 +91,6 @@ func (s *Server) handleUpdateApp(r *ghttp.Request) {
 
 	app.Name = update.Name
 	app.Description = update.Description
-	app.Status = update.Status
 	app.RateLimit = update.RateLimit
 
 	if err := store.DB.Save(&app).Error; err != nil {
@@ -114,7 +113,7 @@ func (s *Server) handleDeleteApp(r *ghttp.Request) {
 		return
 	}
 
-	if err := store.DB.Delete(&app).Error; err != nil {
+	if err := store.DB.Unscoped().Delete(&app).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to delete app"})
 		return
 	}
@@ -147,6 +146,6 @@ func (s *Server) handleResetAppKey(r *ghttp.Request) {
 	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{
 		"ID":     app.ID,
 		"app_id": app.AppID,
-		"AppKey": rawAppKey, // Return the raw key — this is the only time it's visible
+		"AppKey": rawAppKey, // Return the raw key 鈥?this is the only time it's visible
 	}, "message": "Key reset successfully"})
 }

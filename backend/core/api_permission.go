@@ -119,19 +119,25 @@ func (s *Server) handleGetRolePermissions(r *ghttp.Request) {
 }
 
 func permissionAssignableToRole(permission store.Permission, targetRole store.Role, authCtx *AuthContext) bool {
-	if authCtx == nil || authCtx.IsSystemAdmin {
+	if authCtx == nil {
 		return false
 	}
-	if permission.Module == "tenant" || permission.Module == "system" {
+	if authCtx.IsSystemAdmin {
+		return true
+	}
+	if permission.Module == "system" {
 		return false
 	}
-	if authCtx.IsProjectAdmin && permission.Module == "project" {
+	if targetRole.ProjectID > 0 && permission.Module != "project" {
 		return false
 	}
-	if targetRole.ProjectID > 0 && authCtx.IsProjectAdmin && permission.Module == "project" {
-		return false
+	if authCtx.IsTenantAdmin {
+		return true
 	}
-	return true
+	if permission.Module == "project" {
+		return true
+	}
+	return false
 }
 
 func validateAssignablePermissionIDs(tx *gorm.DB, permissionIDs []uint, targetRole store.Role, authCtx *AuthContext) error {
@@ -148,10 +154,10 @@ func validateAssignablePermissionIDs(tx *gorm.DB, permissionIDs []uint, targetRo
 	}
 	for _, permission := range perms {
 		if !permissionAssignableToRole(permission, targetRole, authCtx) {
-			return fmt.Errorf("permission %s is outside assignable scope", permission.Code)
+			return fmt.Errorf("所选权限 [%s] 超出了可分配的模块范围，请检查是否跨越了项目或租户层级限制", permission.Name)
 		}
 		if !permissionWithinAssignmentLimit(tx, permission.ID, targetRole, authCtx) {
-			return fmt.Errorf("permission %s is outside permission limit", permission.Code)
+			return fmt.Errorf("所选权限 [%s] 超过了当前系统授予的最大权限边界限制", permission.Name)
 		}
 	}
 	return nil
@@ -225,7 +231,7 @@ func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 	})
 
 	if err != nil {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Failed to update role permissions: " + err.Error()})
+		r.Response.WriteJson(g.Map{"code": 403, "message": "保存角色权限失败: " + err.Error()})
 		return
 	}
 

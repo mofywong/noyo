@@ -66,20 +66,19 @@
                   <button class="btn btn-sm btn-outline-success me-2" @click="openDetailsModal(user)" :title="$t('common_view_details', '查看详情')">
                     <i class="bi bi-eye"></i>
                   </button>
+                  <button class="btn btn-sm me-2" :class="(user.tenant_roles?.length > 0 || user.projects?.length > 0) ? 'btn-primary text-white' : 'btn-outline-secondary'" @click="openRolesModal(user)" :title="$t('user_assign_roles', '分配角色')" :disabled="isRoleModificationDisabled(user)" v-permission="'user:edit'">
+                    <i class="bi bi-shield-check"></i>
+                  </button>
                   <button class="btn btn-sm btn-outline-info me-2" @click="openPositionsModal(user)" :title="$t('user_assign_positions', '分配岗位')" v-permission="'user:edit'">
                     <i class="bi bi-person-badge"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-secondary me-2" @click="openRolesModal(user)" :title="$t('user_assign_roles', '分配角色')" :disabled="isRoleModificationDisabled(user)" v-permission="'user:edit'">
-                    <i class="bi bi-shield-lock"></i>
-                  </button>
-
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(user)" v-permission="'user:edit'">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-warning me-2" @click="openResetPasswordModal(user)" v-permission="'user:edit'">
+                  <button class="btn btn-sm btn-outline-warning me-2" @click="openResetPasswordModal(user)" :title="$t('reset_password', '重置密码')" v-permission="'user:edit'">
                     <i class="bi bi-key"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="deleteUser(user)" :disabled="isUserDeletionDisabled(user)" v-permission="'user:delete'">
+                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(user)" :title="$t('user_edit', '编辑')" v-permission="'user:edit'">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-danger" @click="deleteUser(user)" :disabled="isUserDeletionDisabled(user)" :title="$t('user_delete', '删除')" v-permission="'user:delete'">
                     <i class="bi bi-trash"></i>
                   </button>
                 </td>
@@ -138,37 +137,6 @@
                 </div>
               </div>
 
-              <hr />
-              <div class="d-flex justify-content-between align-items-center mb-2">
-                <label class="form-label mb-0 fw-bold">{{ $t('user_project_role_config', '项目与角色配置') }}</label>
-                <button type="button" class="btn btn-sm btn-outline-primary" @click="addProjectRoleRow">
-                  <i class="bi bi-plus"></i> {{ $t('project_add', '添加项目') }}
-                </button>
-              </div>
-              <div v-if="form.user_projects.length === 0" class="text-muted small mb-3">
-                {{ $t('user_no_assigned_projects', '暂无分配项目，您可以稍后添加。') }}
-              </div>
-              <div v-for="(pr, index) in form.user_projects" :key="index" class="row mb-2 align-items-end">
-                <div class="col-md-5" v-if="!currentProjectId">
-                  <label class="form-label small text-muted">{{ $t('user_select_project', '选择项目') }}</label>
-                  <select v-model="pr.project_id" class="form-select form-select-sm" required>
-                    <option :value="0" disabled>{{ $t('user_please_select_project', '请选择项目') }}</option>
-                    <option v-for="p in allProjects" :key="p.ID" :value="p.ID">{{ p.name }}</option>
-                  </select>
-                </div>
-                <div :class="currentProjectId ? 'col-md-10' : 'col-md-5'">
-                  <label class="form-label small text-muted">{{ $t('user_project_role', '项目角色') }}</label>
-                  <select v-model="pr.role_id" class="form-select form-select-sm" required>
-                    <option :value="0" disabled>{{ $t('user_please_select_role', '请选择角色') }}</option>
-                    <option v-for="r in getRolesForProject(pr.project_id)" :key="r.ID" :value="r.ID">{{ r.name }}</option>
-                  </select>
-                </div>
-                <div class="col-md-2">
-                  <button type="button" class="btn btn-sm btn-outline-danger w-100" @click="removeProjectRoleRow(index)">
-                    <i class="bi bi-trash"></i>
-                  </button>
-                </div>
-              </div>
             </form>
           </div>
           <div class="modal-footer">
@@ -434,8 +402,7 @@ const form = ref({
   display_name: '',
   email: '',
   role: '',
-  status: 1,
-  user_projects: []
+  status: 1
 })
 
 const getFormNameLabel = () => {
@@ -503,13 +470,6 @@ const isUserDeletionDisabled = (user) => {
   if (user.is_system_admin) return true;
   if (user.projects && user.projects.some(p => p.role_code === 'tenant_admin')) return true;
   return false;
-}
-
-const addProjectRoleRow = () => {
-  form.value.user_projects.push({ project_id: currentProjectId.value || 0, role_id: 0 });
-}
-const removeProjectRoleRow = (index) => {
-  form.value.user_projects.splice(index, 1);
 }
 
 const resetUser = ref({})
@@ -601,8 +561,7 @@ const openCreateModal = () => {
     display_name: '',
     email: '',
     role: '',
-    status: 1,
-    user_projects: []
+    status: 1
   }
   userModal.show()
 }
@@ -615,16 +574,7 @@ const openEditModal = async (user) => {
     display_name: user.display_name,
     email: user.email,
     role: user.role,
-    status: user.status,
-    user_projects: []
-  }
-  try {
-    const res = await axios.get(`/api/users/${user.id}/projects`)
-    if (res.data.code === 0) {
-      form.value.user_projects = res.data.data || []
-    }
-  } catch(e) {
-    console.error("Failed to fetch user projects", e)
+    status: user.status
   }
   userModal.show()
 }
@@ -634,45 +584,19 @@ const saveUser = async () => {
     alert(t('auth_password_mismatch', '两次输入的密码不一致！'))
     return
   }
-  for (let i = 0; i < form.value.user_projects.length; i++) {
-    const pr = form.value.user_projects[i]
-    if (!pr.project_id || !pr.role_id) {
-      alert(t('user_project_role_required', '请完整选择项目和对应的角色。'))
-      return
-    }
-  }
-
   try {
     let res
-    let userId = form.value.id
     if (isEditing.value) {
-      res = await axios.put(`/api/users/${userId}`, form.value)
+      res = await axios.put(`/api/users/${form.value.id}`, form.value)
     } else {
       res = await axios.post('/api/users', form.value)
-      if (res.data.code === 0) {
-        const data = res.data.data
-        if (data?.existing) {
-          const bind = confirm(
-            t('user_bind_existing_confirm',
-              `用户「${form.value.username}」已存在于当前租户中，无需重复创建。\n是否直接将该用户绑定到所选项目？`)
-          )
-          if (bind) {
-            userId = data.id
-          } else {
-            return
-          }
-        } else {
-          userId = data?.id
-        }
+      if (res.data.code === 0 && res.data.data?.existing) {
+         // User already exists in tenant. We can still let them proceed or just ignore.
+         // Actually, binding logic is moved to list.
       }
     }
 
     if (res.data.code === 0) {
-      if (userId) {
-        await axios.put(`/api/users/${userId}/projects`, {
-          projects: form.value.user_projects
-        })
-      }
       userModal.hide()
       loadUsers()
     } else {

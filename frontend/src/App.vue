@@ -164,23 +164,31 @@ const updatePluginStatus = async (name, enabled) => {
   }
 };
 
-const fetchMqttStatus = async () => {
-  try {
-    const res = await axios.get('/api/extension/cascade/status');
-    const data = res.data || {};
-    mqttStatus.value = {
-      connected: data.connected === true,
-      status: data.status || 'disconnected',
-      mode: data.mode || '',
-      broker: data.broker || '',
-      gatewayCode: data.gateway_code || '',
-      ts: data.ts || null
-    };
-  } catch (e) {
+let mqttStatusSSE = null;
+
+const initMqttStatusSSE = () => {
+  if (mqttStatusSSE) return;
+  mqttStatusSSE = new EventSource('/api/extension/cascade/stream');
+  mqttStatusSSE.addEventListener('status', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      mqttStatus.value = {
+        connected: data.connected === true,
+        status: data.status || 'disconnected',
+        mode: data.mode || '',
+        broker: data.broker || '',
+        gatewayCode: data.gateway_code || '',
+        ts: data.ts || null
+      };
+    } catch (err) {
+      console.error("Failed to parse MQTT SSE data", err);
+    }
+  });
+  mqttStatusSSE.onerror = () => {
     if (mqttStatus.value) {
       mqttStatus.value = { ...mqttStatus.value, connected: false, status: 'disconnected' };
     }
-  }
+  };
 };
 
 // Navigation
@@ -238,8 +246,7 @@ onMounted(() => {
   if (authStore.isLoggedIn) {
     checkLicense();
     fetchPlugins();
-    fetchMqttStatus();
-    mqttStatusTimer = setInterval(fetchMqttStatus, 3000);
+    initMqttStatusSSE();
 
     if (authStore.user && authStore.user.must_change_password) {
       forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
@@ -249,9 +256,9 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  if (mqttStatusTimer) {
-    clearInterval(mqttStatusTimer);
-    mqttStatusTimer = null;
+  if (mqttStatusSSE) {
+    mqttStatusSSE.close();
+    mqttStatusSSE = null;
   }
 });
 
@@ -259,18 +266,15 @@ watch(() => authStore.isLoggedIn, (loggedIn) => {
   if (loggedIn) {
     checkLicense();
     fetchPlugins();
-    fetchMqttStatus();
-    if (!mqttStatusTimer) {
-      mqttStatusTimer = setInterval(fetchMqttStatus, 3000);
-    }
+    initMqttStatusSSE();
     if (authStore.user && authStore.user.must_change_password) {
       forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
       forcePasswordModal.show();
     }
   } else {
-    if (mqttStatusTimer) {
-      clearInterval(mqttStatusTimer);
-      mqttStatusTimer = null;
+    if (mqttStatusSSE) {
+      mqttStatusSSE.close();
+      mqttStatusSSE = null;
     }
     plugins.value = [];
     mqttStatus.value = null;
