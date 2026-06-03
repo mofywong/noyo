@@ -65,6 +65,9 @@ func (ctx *AuthContext) ProjectIDsForTenantQuery() ([]uint, bool) {
 		return []uint{}, true
 	}
 	if ctx.IsTenantAdmin {
+		if ctx.ProjectID > 0 {
+			return []uint{ctx.ProjectID}, true
+		}
 		return nil, false
 	}
 	if ctx.ProjectID > 0 {
@@ -161,6 +164,9 @@ func (ctx *AuthContext) CanAssignRole(role store.Role, targetProjectID uint) boo
 	}
 	if !ctx.CanAccessProject(targetProjectID) {
 		return false
+	}
+	if role.IsBuiltin && role.Code == RoleCodeProjectAdmin {
+		return ctx.CanManageProject(targetProjectID)
 	}
 	if ctx.IsTenantAdmin {
 		return role.Code != RoleCodeTenantAdmin && (role.ProjectID == 0 || role.ProjectID == targetProjectID)
@@ -388,7 +394,10 @@ func applyPermissionLimits(ctx *AuthContext, baseCodes map[string]bool) map[stri
 
 	tenantLimit := permissionLimitCodeSet("tenant", ctx.TenantID, 0)
 	filteredCodes := intersectPermissionCodes(baseCodes, tenantLimit)
-	if ctx.IsTenantAdmin || !ctx.UsesProjectLimits {
+	if ctx.IsTenantAdmin && ctx.ProjectID == 0 {
+		return filteredCodes
+	}
+	if !ctx.UsesProjectLimits && ctx.ProjectID == 0 {
 		return filteredCodes
 	}
 

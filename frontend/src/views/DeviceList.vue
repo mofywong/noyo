@@ -86,6 +86,7 @@
               </th>
               <th>{{ $t('dev_code') }}</th>
               <th>{{ $t('dev_name') }}</th>
+              <th v-if="showProjectColumn">{{ $t('project_name') }}</th>
               <th>{{ $t('dev_tags') }}</th>
               <th>{{ $t('dev_online_status') }}</th>
               <th>{{ $t('dev_product') }}</th>
@@ -101,10 +102,10 @@
           </thead>
           <tbody>
             <tr v-if="loading" class="text-center">
-              <td colspan="12" class="py-4 text-muted">{{ $t('loading') }}</td>
+              <td :colspan="showProjectColumn ? 12 : 11" class="py-4 text-muted">{{ $t('loading') }}</td>
             </tr>
             <tr v-else-if="filteredDevices.length === 0" class="text-center">
-              <td colspan="12" class="py-4 text-muted">{{ $t('dev_no_devices') }}</td>
+              <td :colspan="showProjectColumn ? 12 : 11" class="py-4 text-muted">{{ $t('dev_no_devices') }}</td>
             </tr>
             <tr 
               v-for="device in paginatedDevices" 
@@ -116,6 +117,9 @@
               </td>
               <td class="font-monospace fw-bold text-primary text-truncate" style="max-width: 150px;" :title="device.code" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.code }}</td>
               <td class="text-truncate" style="max-width: 150px;" :title="device.name" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.name || '-' }}</td>
+              <td v-if="showProjectColumn">
+                <span class="badge text-bg-light border">{{ device.project_name || '-' }}</span>
+              </td>
               <td class="device-tags-cell">
                 <div v-if="device.tags && device.tags.length" class="device-tag-chip-list">
                   <span
@@ -887,6 +891,7 @@ const products = ref([]);
 const loading = ref(false);
 const showCreateModal = ref(false);
 const showDiscoveryModal = ref(false);
+const showProjectColumn = computed(() => Number(localStorage.getItem('current_project_id') || 0) === 0);
 const newDevice = ref({ code: '', name: '', product_code: '', parent_code: '', enabled: true, config: {} });
 const currentSchema = ref(null);
 const isEditing = ref(false);

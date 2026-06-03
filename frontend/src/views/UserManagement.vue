@@ -271,10 +271,6 @@
                     <div class="fw-medium">{{ currentUserDetails.email || $t('user_not_provided', '未提供') }}</div>
                   </div>
                   <div class="col-6">
-                    <label class="text-muted small mb-1">{{ $t('user_status', '状态') }}</label>
-                    <div><span class="badge" :class="currentUserDetails.status === 1 ? 'text-bg-success' : 'text-bg-danger'">{{ currentUserDetails.status === 1 ? $t('user_enabled', '启用') : $t('user_disabled', '禁用') }}</span></div>
-                  </div>
-                  <div class="col-6">
                     <label class="text-muted small mb-1">{{ $t('user_last_login') }}</label>
                     <div class="fw-medium">{{ currentUserDetails.last_login_at || $t('user_never') }}</div>
                   </div>
@@ -401,8 +397,7 @@ const form = ref({
   confirm_password: '',
   display_name: '',
   email: '',
-  role: '',
-  status: 1
+  role: ''
 })
 
 const getFormNameLabel = () => {
@@ -560,8 +555,7 @@ const openCreateModal = () => {
     confirm_password: '',
     display_name: '',
     email: '',
-    role: '',
-    status: 1
+    role: ''
   }
   userModal.show()
 }
@@ -573,8 +567,7 @@ const openEditModal = async (user) => {
     username: user.username,
     display_name: user.display_name,
     email: user.email,
-    role: user.role,
-    status: user.status
+    role: user.role
   }
   userModal.show()
 }

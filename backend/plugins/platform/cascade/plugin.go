@@ -381,10 +381,25 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
 		return
 	}
+	projectNames := map[uint]string{}
+	if tenantID > 0 {
+		var projects []store.Project
+		query := store.DB.Model(&store.Project{}).Where("tenant_id = ?", tenantID)
+		if projectID > 0 {
+			query = query.Where("id = ?", projectID)
+		}
+		if err := query.Find(&projects).Error; err == nil {
+			for _, project := range projects {
+				projectNames[project.ID] = project.Name
+			}
+		}
+	}
 
 	type gatewayItem struct {
 		SN          string `json:"sn"`
 		Name        string `json:"name"`
+		ProjectID   uint   `json:"projectId"`
+		ProjectName string `json:"projectName"`
 		ProductCode string `json:"productCode"`
 		Enabled     bool   `json:"enabled"`
 		Status      string `json:"status"`
@@ -416,6 +431,8 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 		items = append(items, gatewayItem{
 			SN:          dev.Code,
 			Name:        dev.Name,
+			ProjectID:   dev.ProjectID,
+			ProjectName: projectNames[dev.ProjectID],
 			ProductCode: dev.ProductCode,
 			Enabled:     dev.Enabled,
 			Status:      statusStr,

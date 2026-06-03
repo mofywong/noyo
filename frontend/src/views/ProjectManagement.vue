@@ -116,10 +116,6 @@
                     <label class="text-muted small mb-1">{{ $t('project_admin', '管理员') }}</label>
                     <div class="fw-medium text-primary">{{ currentProjectDetails.admins || $t('common_none', '暂无') }}</div>
                   </div>
-                  <div class="col-6">
-                    <label class="text-muted small mb-1">{{ $t('project_status', '状态') }}</label>
-                    <div><span class="badge" :class="currentProjectDetails.status === 1 ? 'text-bg-success' : 'text-bg-danger'">{{ currentProjectDetails.status === 1 ? $t('user_enabled', '启用') : $t('user_disabled', '禁用') }}</span></div>
-                  </div>
                   <div class="col-12">
                     <label class="text-muted small mb-1">{{ $t('project_description', '项目描述') }}</label>
                     <div class="fw-medium">{{ currentProjectDetails.description || $t('common_none', '暂无描述') }}</div>

@@ -77,6 +77,10 @@
               <span class="gateway-meta-label">SN</span>
               <code class="gateway-sn">{{ gw.sn }}</code>
             </div>
+            <div v-if="showProjectLabel" class="gateway-meta-row">
+              <span class="gateway-meta-label">{{ $t('project_name') }}</span>
+              <span class="gateway-meta-value">{{ gw.projectName || '-' }}</span>
+            </div>
             <div class="gateway-meta-row">
               <span class="gateway-meta-label">{{ gt('updated_at') }}</span>
               <span class="gateway-meta-value">{{ formatTime(gw.updatedAt) }}</span>
@@ -245,6 +249,7 @@ const selectedPluginName = ref('');
 const selectedWorkspaceView = ref('marketplace');
 const gatewayPlugins = ref([]);
 const gt = (key, params) => gatewayText(locale.value, key, params);
+const showProjectLabel = computed(() => Number(localStorage.getItem('current_project_id') || 0) === 0);
 const onlineCount = computed(() => gateways.value.filter((gw) => gw.online).length);
 const enabledCount = computed(() => gateways.value.filter((gw) => gw.enabled).length);
 const marketplaceGatewayPlugins = computed(() => gatewayPlugins.value.filter((plugin) => plugin.name !== 'license_auth'));

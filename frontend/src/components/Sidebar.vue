@@ -17,7 +17,7 @@
     <!-- Project Selector (Moved to Top of Sidebar) -->
     <div class="px-3 mb-3" v-if="authStore.isLoggedIn && userProjects.length > 0">
       <select class="form-select form-select-sm" v-model="currentProjectId" @change="switchProject">
-        <option v-if="canUseAllProjects" :value="0">{{ $t('project_all') }}</option>
+        <option v-if="canUseAllProjects" :value="0">{{ tenantScopeOptionLabel }}</option>
         <option v-for="p in userProjects" :key="p.ID" :value="p.ID">{{ p.name }}</option>
       </select>
     </div>
@@ -56,7 +56,7 @@
         </a>
       </template>
 
-      <template v-if="authStore.hasPermission('plugin:list')">
+      <template v-if="showActivePluginMenus">
         <div class="nav-category mt-2">{{ $t('sidebar_active_plugins') }}</div>
         <div id="plugin-nav-list">
           <div v-if="loading" class="px-4 py-2 text-muted small">{{ $t('loading') }}</div>
@@ -160,7 +160,9 @@ const requiresProjectContext = computed(() => {
   return allowedProjectIds.length > 0 && !authStore.isTenantAdmin && !authStore.isSystemAdmin;
 });
 
-const canUseAllProjects = computed(() => !requiresProjectContext.value);
+const canUseAllProjects = computed(() => authStore.isTenantAdmin && !requiresProjectContext.value);
+const tenantScopeOptionLabel = computed(() => tenantName.value || t('scope_tenant', '租户'));
+const showActivePluginMenus = computed(() => authStore.hasPermission('plugin:list') && Number(currentProjectId.value || 0) > 0);
 
 const persistProjectContext = (projectId) => {
   currentProjectId.value = Number(projectId || 0);

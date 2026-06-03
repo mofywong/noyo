@@ -80,9 +80,21 @@ func (s *Server) handleListProducts(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
+	type ProductResponse struct {
+		store.Product
+		ProjectName string `json:"project_name"`
+	}
+	projectNames := projectNameMap(tenantID)
+	productResponses := make([]ProductResponse, 0, len(products))
+	for _, product := range products {
+		productResponses = append(productResponses, ProductResponse{
+			Product:     product,
+			ProjectName: projectNames[product.ProjectID],
+		})
+	}
 	r.Response.WriteJson(g.Map{
 		"code":     0,
-		"data":     products,
+		"data":     productResponses,
 		"total":    total,
 		"page":     page,
 		"pageSize": pageSize,
@@ -291,6 +303,7 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 		Status          string             `json:"status"` // "running", "stopped"
 		Online          bool               `json:"online"`
 		LastActive      time.Time          `json:"last_active"`
+		ProjectName     string             `json:"project_name"`
 		Tags            []store.DeviceTag  `json:"tags"`
 		AIHealthScore   *float64           `json:"ai_health_score,omitempty"`
 		AIHealthDetails map[string]float64 `json:"ai_health_details,omitempty"`
@@ -308,6 +321,7 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
+	projectNames := projectNameMap(tenantID)
 
 	for _, d := range devices {
 		status := "stopped"
@@ -404,6 +418,7 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 			Status:          status,
 			Online:          online,
 			LastActive:      lastActive,
+			ProjectName:     projectNames[d.ProjectID],
 			Tags:            tagsByDevice[d.Code],
 			AIHealthScore:   healthScore,
 			AIHealthDetails: healthDetails,
@@ -1602,6 +1617,19 @@ func isProtocolPluginMeta(protocolName string) bool {
 		}
 	}
 	return false
+}
+
+func projectNameMap(tenantID uint) map[uint]string {
+	names := map[uint]string{}
+	if tenantID == 0 {
+		return names
+	}
+	var projects []store.Project
+	store.DB.Model(&store.Project{}).Where("tenant_id = ?", tenantID).Find(&projects)
+	for _, project := range projects {
+		names[project.ID] = project.Name
+	}
+	return names
 }
 
 func canAccessProduct(r *ghttp.Request, product *store.Product) bool {

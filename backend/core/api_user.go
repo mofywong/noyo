@@ -176,7 +176,7 @@ func (s *Server) handleListUsers(r *ghttp.Request) {
 	allowedProjectIDs := authCtx.AllowedProjectIDs
 
 	projectID := r.Get("project_id").Uint()
-	if projectID == 0 && isProjectScoped {
+	if projectID == 0 {
 		projectID = r.GetCtxVar("project_id").Uint()
 	}
 
@@ -332,7 +332,7 @@ func (s *Server) handleCreateUser(r *ghttp.Request) {
 		DisplayName string `json:"display_name"`
 		Email       string `json:"email"`
 		Role        string `json:"role"`
-		Status      int    `json:"status"`
+		Status      *int   `json:"status"`
 	}
 
 	var req CreateRequest
@@ -383,6 +383,11 @@ func (s *Server) handleCreateUser(r *ghttp.Request) {
 		return
 	}
 
+	status := 1
+	if req.Status != nil {
+		status = *req.Status
+	}
+
 	newUser := store.User{
 		TenantID:    tenantID,
 		Username:    req.Username,
@@ -390,7 +395,7 @@ func (s *Server) handleCreateUser(r *ghttp.Request) {
 		DisplayName: req.DisplayName,
 		Email:       req.Email,
 		Role:        req.Role,
-		Status:      req.Status,
+		Status:      status,
 	}
 
 	if err := store.SaveUser(&newUser); err != nil {

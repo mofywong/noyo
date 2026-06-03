@@ -13,6 +13,7 @@
             <tr>
               <th class="ps-4 d-none d-md-table-cell">{{ $t('prod_code') }}</th>
               <th>{{ $t('prod_name') }}</th>
+              <th v-if="showProjectColumn" class="d-none d-lg-table-cell">{{ $t('project_name') }}</th>
               <th class="d-none d-lg-table-cell">{{ $t('prod_protocol') }}</th>
               <th>{{ $t('prod_tsl_status') }}</th>
               <th class="d-none d-xl-table-cell" style="font-size: 0.8rem; color: #6c757d;">
@@ -24,14 +25,17 @@
           </thead>
           <tbody>
             <tr v-if="loading" class="text-center">
-              <td colspan="6" class="py-4 text-muted">{{ $t('loading') }}</td>
+              <td :colspan="showProjectColumn ? 7 : 6" class="py-4 text-muted">{{ $t('loading') }}</td>
             </tr>
             <tr v-else-if="products.length === 0" class="text-center">
-              <td colspan="6" class="py-4 text-muted">{{ $t('prod_no_products') }}</td>
+              <td :colspan="showProjectColumn ? 7 : 6" class="py-4 text-muted">{{ $t('prod_no_products') }}</td>
             </tr>
             <tr v-for="product in products" :key="product.code">
               <td class="ps-4 font-monospace d-none d-md-table-cell">{{ product.code }}</td>
               <td class="fw-bold">{{ product.name }}</td>
+              <td v-if="showProjectColumn" class="d-none d-lg-table-cell">
+                <span class="badge text-bg-light border">{{ product.project_name || '-' }}</span>
+              </td>
               <td class="d-none d-lg-table-cell">
                 <span v-if="product.protocol_name" class="badge bg-info bg-opacity-10 text-info">{{ getPluginTitle(product.protocol_name) }}</span>
                 <span v-else class="badge bg-secondary bg-opacity-10 text-secondary">{{ $t('prod_subdevice_only') }}</span>
@@ -250,6 +254,7 @@ const showCreateModal = ref(false);
 const showTSLModal = ref(false);
 const isEditing = ref(false);
 const protocols = ref([]);
+const showProjectColumn = computed(() => Number(localStorage.getItem('current_project_id') || 0) === 0);
 
 // 分页状态
 const page = ref(1);

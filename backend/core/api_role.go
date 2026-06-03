@@ -36,6 +36,7 @@ func (s *Server) handleGetRoles(r *ghttp.Request) {
 	}
 
 	db := store.DB.Model(&store.Role{})
+	includeProjectAdminBuiltin := false
 	if authCtx.IsTenantAdmin {
 		if projectID > 0 {
 			if !projectBelongsToTenant(projectID, authCtx.TenantID) {
@@ -69,12 +70,22 @@ func (s *Server) handleGetRoles(r *ghttp.Request) {
 			allowedProjectIDs,
 			true,
 		)
+		if includeBuiltin {
+			includeProjectAdminBuiltin = true
+		}
 	}
 
 	var roles []store.Role
 	if err := db.Order("project_id asc, created_at desc").Find(&roles).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch roles"})
 		return
+	}
+	if includeProjectAdminBuiltin {
+		var projectAdminRole store.Role
+		if err := store.DB.Where("tenant_id = ? AND project_id = ? AND is_builtin = ? AND code = ?", 0, 0, true, RoleCodeProjectAdmin).
+			First(&projectAdminRole).Error; err == nil {
+			roles = append(roles, projectAdminRole)
+		}
 	}
 
 	type RoleResponse struct {

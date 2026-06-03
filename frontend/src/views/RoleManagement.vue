@@ -160,14 +160,6 @@
                       <span v-if="currentRoleDetails.is_builtin" class="badge text-bg-secondary ms-1">{{ $t('role_system_builtin', '系统内置') }}</span>
                     </div>
                   </div>
-                  <div class="col-6">
-                    <label class="text-muted small mb-1">{{ $t('role_status') }}</label>
-                    <div>
-                      <span class="badge" :class="currentRoleDetails.status === 1 ? 'text-bg-success' : 'text-bg-danger'">
-                        {{ currentRoleDetails.status === 1 ? $t('user_active') : $t('user_disabled') }}
-                      </span>
-                    </div>
-                  </div>
                   <div class="col-12">
                     <label class="text-muted small mb-1">{{ $t('role_data_permission', '数据权限') }}</label>
                     <div>
