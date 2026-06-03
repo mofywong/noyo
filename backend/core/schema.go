@@ -146,6 +146,15 @@ func GetPluginConfigSchema(plugin IManagedPlugin) *PluginConfigSchema {
 
 // UpdatePluginConfig updates the plugin's config from a map
 func UpdatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{}) error {
+	return updatePluginConfig(plugin, newConfig, 0, 0)
+}
+
+// UpdatePluginConfigForScope updates the plugin config for a tenant/project scope.
+func UpdatePluginConfigForScope(plugin IManagedPlugin, newConfig map[string]interface{}, tenantID, projectID uint) error {
+	return updatePluginConfig(plugin, newConfig, tenantID, projectID)
+}
+
+func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{}, tenantID, projectID uint) error {
 	// 1. Handle Enabled status
 	var enabled bool
 
@@ -245,7 +254,22 @@ func UpdatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{})
 		configToSave = configField.Interface()
 	}
 
-	if err := store.SavePlugin(plugin.GetMeta().Name, enabled, configToSave); err != nil {
+	name := plugin.GetMeta().Name
+	if tenantID > 0 && projectID > 0 {
+		if err := store.SavePluginForScope(name, tenantID, projectID, enabled, configToSave); err != nil {
+			return fmt.Errorf("failed to save scoped plugin config to db: %w", err)
+		}
+		anyEnabled, err := store.AnyScopedPluginEnabled(name)
+		if err != nil {
+			return fmt.Errorf("failed to resolve scoped plugin status: %w", err)
+		}
+		if err := store.SavePlugin(name, anyEnabled, configToSave); err != nil {
+			return fmt.Errorf("failed to save plugin config to db: %w", err)
+		}
+		return nil
+	}
+
+	if err := store.SavePlugin(name, enabled, configToSave); err != nil {
 		return fmt.Errorf("failed to save plugin config to db: %w", err)
 	}
 

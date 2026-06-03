@@ -414,9 +414,9 @@ func (s *Server) handleGetProfile(r *ghttp.Request) {
 		return
 	}
 
-	authCtx, err := ResolveUserAuthContext(user.ID, 0, 0)
-	if err != nil {
-		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
+	authCtx := requestAuthContext(r)
+	if authCtx == nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
 	var tenantName string

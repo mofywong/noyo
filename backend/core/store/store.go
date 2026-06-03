@@ -41,6 +41,10 @@ func InitDB(dsn string) error {
 	sqlDB.SetMaxOpenConns(100)          // Max open connections
 	sqlDB.SetConnMaxLifetime(time.Hour) // Connection max lifetime
 
+	if err := migratePluginScopeSchema(); err != nil {
+		return fmt.Errorf("failed to migrate plugin scope schema: %w", err)
+	}
+
 	// AutoMigrate models
 	err = DB.AutoMigrate(
 		&User{},
@@ -70,6 +74,8 @@ func InitDB(dsn string) error {
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
+	_ = DB.Migrator().DropIndex(&AppRole{}, "idx_app_role")
+	DB.Exec("UPDATE apps SET status = 1 WHERE status IS NULL")
 
 	// Initialize default super admin, tenant, project, and permissions
 	InitDefaultData()

@@ -160,14 +160,7 @@ func (s *Server) handleDeleteTenant(r *ghttp.Request) {
 	id := r.Get("id").Uint()
 
 	err := store.DB.Transaction(func(tx *gorm.DB) error {
-		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.User{})
-		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.Role{})
-		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.Project{})
-		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.App{})
-		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.UserRoleBinding{})
-		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.ScopePermissionLimit{})
-		tx.Unscoped().Where("tenant_id = ?", id).Delete(&store.AuditLog{})
-		return tx.Unscoped().Delete(&store.Tenant{}, id).Error
+		return deleteTenantCascade(tx, id)
 	})
 
 	if err != nil {

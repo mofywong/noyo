@@ -46,6 +46,16 @@ export const useAuthStore = defineStore('auth', {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       localStorage.removeItem('user_info');
+      localStorage.removeItem('current_project_id');
+    },
+
+    async refreshProfile() {
+      const response = await axios.get('/api/auth/profile');
+      if (response.data.code === 0) {
+        this.user = response.data.data;
+        localStorage.setItem('user_info', JSON.stringify(this.user));
+      }
+      return response.data;
     },
 
     async changePassword(oldPassword, newPassword) {

@@ -115,7 +115,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { QUICK_MODE_MODULES, inferQuickModeLevel, getCodesForLevel } from '../utils/permissionQuickMode'
+import { getAvailableQuickModeModules, inferQuickModeLevel, getCodesForLevel } from '../utils/permissionQuickMode'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -138,13 +138,7 @@ const selectedPermCodes = ref([])
 const quickLevels = ref({})
 
 const activeModules = computed(() => {
-  const allowedCodes = new Set(props.allPermissions.map(p => p.code))
-  return QUICK_MODE_MODULES.filter(mod => {
-    if (props.hiddenModules && props.hiddenModules.includes(mod.module)) return false
-    // 只要该模块下的任意一个权限码在 allPermissions 中存在，就显示该模块
-    const allModCodes = [...mod.readonly, ...mod.edit, ...mod.full]
-    return allModCodes.some(c => allowedCodes.has(c))
-  })
+  return getAvailableQuickModeModules(props.allPermissions, props.hiddenModules || [])
 })
 
 const MODULE_ORDER = [
@@ -184,7 +178,7 @@ watch(normalizedPermissions, (newVal) => {
 
 // Sync selectedPermCodes -> quickLevels AND emit back to parent
 watch(selectedPermCodes, (newCodes) => {
-  QUICK_MODE_MODULES.forEach(modConfig => {
+  activeModules.value.forEach(modConfig => {
     quickLevels.value[modConfig.module] = inferQuickModeLevel(modConfig, newCodes, quickLevels.value[modConfig.module])
   })
   
@@ -215,8 +209,7 @@ const onQuickLevelChange = (modConfig, level) => {
 }
 
 const setAllQuickMode = (level) => {
-  QUICK_MODE_MODULES.forEach(mod => {
-    if (props.hiddenModules && props.hiddenModules.includes(mod.module)) return;
+  activeModules.value.forEach(mod => {
     if (mod.levels.includes(level)) {
       onQuickLevelChange(mod, level)
     } else if (level === 'full' && mod.levels.includes('edit')) {

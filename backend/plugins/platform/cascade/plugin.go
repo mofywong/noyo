@@ -374,7 +374,9 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 	}
 
 	coreServer, _ := p.ctx.GetCoreServer().(*core.Server)
-	devices, _, err := store.ListDevices(0, 0, 0, 0)
+	tenantID := r.GetCtxVar("tenant_id").Uint()
+	projectID := r.GetCtxVar("project_id").Uint()
+	devices, _, err := store.ListDevices(0, 0, tenantID, projectID)
 	if err != nil {
 		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
 		return
@@ -637,12 +639,34 @@ func (p *CascadePlugin) remotePluginEngine(r *ghttp.Request, gwSn string) (*plat
 		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway sn is required"})
 		return nil, false
 	}
+	if !p.ensureGatewayInRequestScope(r, gwSn) {
+		return nil, false
+	}
 	engine, ok := p.PlatformEngine.(*platformEngineImpl)
 	if !ok || engine == nil {
 		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": "platform engine not available"})
 		return nil, false
 	}
 	return engine, true
+}
+
+func (p *CascadePlugin) ensureGatewayInRequestScope(r *ghttp.Request, gwSn string) bool {
+	device, err := store.GetDevice(gwSn)
+	if err != nil || device == nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 404, "message": "gateway not found"})
+		return false
+	}
+	tenantID := r.GetCtxVar("tenant_id").Uint()
+	if tenantID > 0 && device.TenantID != tenantID {
+		r.Response.WriteJson(map[string]interface{}{"code": 403, "message": "gateway is outside current tenant"})
+		return false
+	}
+	projectID := r.GetCtxVar("project_id").Uint()
+	if projectID > 0 && device.ProjectID != projectID {
+		r.Response.WriteJson(map[string]interface{}{"code": 403, "message": "gateway is outside current project"})
+		return false
+	}
+	return true
 }
 
 func decodeRemotePluginSummary(data interface{}) (*remotePluginSummary, error) {

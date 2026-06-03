@@ -53,6 +53,9 @@
                   <button class="btn btn-sm btn-outline-warning me-2" @click="resetAppKey(a)" title="重置密钥" v-permission="'app:reset-key'">
                     <i class="bi bi-key"></i>
                   </button>
+                  <button class="btn btn-sm btn-outline-info me-2" @click="openRolesModal(a)" title="App Roles" v-permission="'app:edit'">
+                    <i class="bi bi-shield-lock"></i>
+                  </button>
                   <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(a)" v-permission="'app:edit'">
                     <i class="bi bi-pencil"></i>
                   </button>
@@ -98,6 +101,56 @@
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
             <button type="button" class="btn btn-primary" @click="saveApp">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- App Role Modal -->
+    <div class="modal fade" id="appRoleModal" tabindex="-1" ref="appRoleModalRef">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">App Roles - {{ currentAppForRoles?.name || '' }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <div class="text-muted small">Assign app roles by project scope.</div>
+              <button type="button" class="btn btn-sm btn-outline-primary" @click="addAppRoleRow">
+                <i class="bi bi-plus-lg me-1"></i>Add
+              </button>
+            </div>
+            <div v-if="appRoleAssignments.length === 0" class="text-center text-muted py-4 border rounded">
+              No app role assignments.
+            </div>
+            <div v-for="(assignment, index) in appRoleAssignments" :key="index" class="row g-2 align-items-center mb-2">
+              <div class="col-md-5">
+                <select class="form-select" v-model.number="assignment.project_id">
+                  <option :value="0">Tenant scope</option>
+                  <option v-for="project in availableProjects" :key="project.ID" :value="project.ID">
+                    {{ project.name || project.code || project.ID }}
+                  </option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <select class="form-select" v-model.number="assignment.role_id">
+                  <option :value="0">Select role</option>
+                  <option v-for="role in availableRoles" :key="role.ID" :value="role.ID">
+                    {{ role.name || role.code }}
+                  </option>
+                </select>
+              </div>
+              <div class="col-md-1 text-end">
+                <button type="button" class="btn btn-outline-danger" @click="removeAppRoleRow(index)">
+                  <i class="bi bi-x-lg"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" @click="saveAppRoles">Save Roles</button>
           </div>
         </div>
       </div>
@@ -157,18 +210,25 @@ const loading = ref(false)
 
 const appModalRef = ref(null)
 let appModal = null
+const appRoleModalRef = ref(null)
+let appRoleModal = null
 
 const isEditing = ref(false)
 const form = ref({
   id: 0,
   name: '',
   description: '',
-  rate_limit: 0
+  rate_limit: 0,
+  status: 1
 })
 
 const newAppInfo = ref({ app_id: '', AppKey: '' })
 const appSuccessModalRef = ref(null)
 let appSuccessModal = null
+const currentAppForRoles = ref(null)
+const appRoleAssignments = ref([])
+const availableProjects = ref([])
+const availableRoles = ref([])
 
 const goToGuide = () => {
   router.push('/settings/apps/guide')
@@ -198,20 +258,84 @@ const loadApps = async () => {
 
 onMounted(() => {
   appModal = new Modal(appModalRef.value)
+  appRoleModal = new Modal(appRoleModalRef.value)
   appSuccessModal = new Modal(appSuccessModalRef.value)
   loadApps()
 })
 
 const openCreateModal = () => {
   isEditing.value = false
-  form.value = { id: 0, name: '', description: '', rate_limit: 0 }
+  form.value = { id: 0, name: '', description: '', rate_limit: 0, status: 1 }
   appModal.show()
 }
 
 const openEditModal = (item) => {
   isEditing.value = true
-  form.value = { id: item.ID, name: item.name, description: item.description, rate_limit: item.rate_limit }
+  form.value = { id: item.ID, name: item.name, description: item.description, rate_limit: item.rate_limit, status: item.status ?? 1 }
   appModal.show()
+}
+
+const normalizeRole = (role) => {
+  return role.Role || role
+}
+
+const loadAppRoleOptions = async () => {
+  const [projectsRes, rolesRes] = await Promise.all([
+    axios.get('/api/auth/projects'),
+    axios.get('/api/roles', { params: { include_builtin: 1 } })
+  ])
+  if (projectsRes.data.code === 0) {
+    availableProjects.value = projectsRes.data.data || []
+  }
+  if (rolesRes.data.code === 0) {
+    availableRoles.value = (rolesRes.data.data || []).map(normalizeRole)
+  }
+}
+
+const loadAppRoles = async () => {
+  if (!currentAppForRoles.value) return
+  const res = await axios.get(`/api/apps/${currentAppForRoles.value.ID}/roles`)
+  if (res.data.code === 0) {
+    appRoleAssignments.value = (res.data.data || []).map((item) => ({
+      project_id: item.project_id || 0,
+      role_id: item.role_id || 0
+    }))
+  } else {
+    appRoleAssignments.value = []
+    alert(res.data.message)
+  }
+}
+
+const openRolesModal = async (item) => {
+  currentAppForRoles.value = item
+  appRoleAssignments.value = []
+  await loadAppRoleOptions()
+  await loadAppRoles()
+  appRoleModal.show()
+}
+
+const addAppRoleRow = () => {
+  appRoleAssignments.value.push({ project_id: 0, role_id: 0 })
+}
+
+const removeAppRoleRow = (index) => {
+  appRoleAssignments.value.splice(index, 1)
+}
+
+const saveAppRoles = async () => {
+  if (!currentAppForRoles.value) return
+  const roles = appRoleAssignments.value
+    .filter((item) => item.role_id > 0)
+    .map((item) => ({
+      project_id: item.project_id || 0,
+      role_id: item.role_id
+    }))
+  const res = await axios.put(`/api/apps/${currentAppForRoles.value.ID}/roles`, { roles })
+  if (res.data.code === 0) {
+    appRoleModal.hide()
+  } else {
+    alert(res.data.message)
+  }
 }
 
 const saveApp = async () => {

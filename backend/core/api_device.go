@@ -59,7 +59,23 @@ func (s *Server) handleListProducts(r *ghttp.Request) {
 	tenantID := r.GetCtxVar("tenant_id").Uint()
 	projectID := r.GetCtxVar("project_id").Uint()
 
-	products, total, err := store.ListProducts(page, pageSize, tenantID, projectID)
+	var projectIDs []uint
+	restrictProjects := false
+	if authCtx := requestAuthContext(r); authCtx != nil {
+		if ids, restricted := authCtx.ProjectIDsForTenantQuery(); restricted && projectID == 0 {
+			projectIDs = ids
+			restrictProjects = true
+		}
+	}
+
+	var products []store.Product
+	var total int64
+	var err error
+	if restrictProjects {
+		products, total, err = store.ListProducts(page, pageSize, tenantID, projectID, projectIDs)
+	} else {
+		products, total, err = store.ListProducts(page, pageSize, tenantID, projectID)
+	}
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
@@ -98,16 +114,23 @@ func (s *Server) handleCreateProduct(r *ghttp.Request) {
 		return
 	}
 
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	if tenantID > 0 {
-		p.TenantID = tenantID
+	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
+	if scopeErr != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
+		return
 	}
+	p.TenantID = tenantID
+	p.ProjectID = projectID
 	if !canAccessProduct(r, &p) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
 
 	// ProtocolName 现在为可选字段，为空表示该产品只能作为子设备使用
+	if err := validateProtocolEnabledForProject(p.ProtocolName, tenantID, projectID); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
 	if err := store.SaveProduct(&p); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
@@ -140,6 +163,12 @@ func (s *Server) handleUpdateProduct(r *ghttp.Request) {
 	}
 	p.TenantID = existing.TenantID
 	p.ProjectID = existing.ProjectID
+	if p.ProtocolName != "" && p.ProtocolName != existing.ProtocolName {
+		if err := validateProtocolEnabledForProject(p.ProtocolName, p.TenantID, p.ProjectID); err != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+			return
+		}
+	}
 	if err := store.UpdateProduct(&p); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
@@ -242,6 +271,18 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
+	}
+	if authCtx := requestAuthContext(r); authCtx != nil {
+		filtered := make([]store.Device, 0, len(devices))
+		scope := currentDeviceTagScope(r)
+		for _, device := range devices {
+			allowed, err := canReadDeviceByTagPermission(authCtx, scope, device.Code)
+			if err == nil && allowed && canAccessDevice(r, &device) {
+				filtered = append(filtered, device)
+			}
+		}
+		devices = filtered
+		total = int64(len(filtered))
 	}
 
 	// Enrich with status
@@ -391,18 +432,13 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 		return
 	}
 
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	if tenantID > 0 {
-		d.TenantID = tenantID
+	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
+	if scopeErr != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
+		return
 	}
-	if authCtx := requestAuthContext(r); authCtx != nil && !authCtx.IsTenantAdmin && !authCtx.IsSystemAdmin {
-		projectID := r.GetCtxVar("project_id").Uint()
-		if projectID == 0 {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "Project context is required"})
-			return
-		}
-		d.ProjectID = projectID
-	}
+	d.TenantID = tenantID
+	d.ProjectID = projectID
 	if !canAccessDevice(r, &d) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
@@ -412,6 +448,10 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 	product, err := store.GetProduct(d.ProductCode)
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Product not found"})
+		return
+	}
+	if product.TenantID != d.TenantID || product.ProjectID != d.ProjectID {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Product is outside current project"})
 		return
 	}
 
@@ -432,9 +472,17 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 			return
 		}
+		if parentDevice.TenantID != d.TenantID || parentDevice.ProjectID != d.ProjectID {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Parent device is outside current project"})
+			return
+		}
 		parentProduct, err := store.GetProduct(parentDevice.ProductCode)
 		if err != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品不存在"})
+			return
+		}
+		if parentProduct.TenantID != d.TenantID || parentProduct.ProjectID != d.ProjectID {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Parent product is outside current project"})
 			return
 		}
 		if parentProduct.ProtocolName == "" {
@@ -513,6 +561,10 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Product not found"})
 		return
 	}
+	if product.TenantID != d.TenantID || product.ProjectID != d.ProjectID {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Product is outside current project"})
+		return
+	}
 	if d.ParentCode == "" {
 		if product.ProtocolName == "" {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "该产品没有绑定协议，只能作为子设备使用"})
@@ -524,9 +576,21 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备不存在"})
 			return
 		}
+		if !canAccessDevice(r, parentDevice) {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+			return
+		}
+		if parentDevice.TenantID != d.TenantID || parentDevice.ProjectID != d.ProjectID {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Parent device is outside current project"})
+			return
+		}
 		parentProduct, err := store.GetProduct(parentDevice.ProductCode)
 		if err != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品不存在"})
+			return
+		}
+		if parentProduct.TenantID != d.TenantID || parentProduct.ProjectID != d.ProjectID {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Parent product is outside current project"})
 			return
 		}
 		if parentProduct.ProtocolName == "" {
@@ -1119,12 +1183,27 @@ func extractGroupNames(config map[string]interface{}) []string {
 }
 
 func (s *Server) handleGetStats(r *ghttp.Request) {
+	authCtx := requestAuthContext(r)
 	// 1. Products Count
 	var totalProducts int64
-	store.DB.Model(&store.Product{}).Count(&totalProducts)
+	productQuery := store.DB.Model(&store.Product{})
+	if authCtx != nil && authCtx.TenantID > 0 {
+		productQuery = productQuery.Where("tenant_id = ?", authCtx.TenantID)
+		if !authCtx.IsTenantAdmin && !authCtx.IsSystemAdmin {
+			if authCtx.ProjectID > 0 {
+				productQuery = productQuery.Where("project_id = ?", authCtx.ProjectID)
+			} else if len(authCtx.AllowedProjectIDs) > 0 {
+				productQuery = productQuery.Where("project_id IN ?", authCtx.AllowedProjectIDs)
+			} else {
+				productQuery = productQuery.Where("1 = 0")
+			}
+		}
+	}
+	productQuery.Count(&totalProducts)
 
 	// 2. Devices Stats - Use Registry cache instead of DB query
 	devices := s.DeviceManager.Registry.GetAllDevices()
+	devices = filterDevicesForAuthContextStats(authCtx, devices)
 	totalDevices := len(devices)
 	runningDevices := 0
 	onlineDevices := 0
@@ -1349,7 +1428,7 @@ func (s *Server) checkDeviceTagPermission(r *ghttp.Request, deviceCode string) e
 	if authCtx == nil {
 		return fmt.Errorf("auth context not found")
 	}
-	if authCtx.SubjectType == "app" || authCtx.IsSystemAdmin || authCtx.IsTenantAdmin {
+	if authCtx.IsSystemAdmin || authCtx.IsTenantAdmin || authCtx.IsProjectAdmin {
 		return nil
 	}
 
@@ -1372,6 +1451,77 @@ func (s *Server) checkDeviceTagPermission(r *ghttp.Request, deviceCode string) e
 	}
 
 	return fmt.Errorf("read-only access to this device due to tag restrictions")
+}
+
+func filterDevicesForAuthContextStats(authCtx *AuthContext, devices []*store.Device) []*store.Device {
+	if authCtx == nil {
+		return []*store.Device{}
+	}
+	if authCtx.IsSystemAdmin && authCtx.TenantID == 0 {
+		return devices
+	}
+	filtered := make([]*store.Device, 0, len(devices))
+	for _, device := range devices {
+		if device == nil {
+			continue
+		}
+		if authCtx.IsSystemAdmin {
+			if device.TenantID == authCtx.TenantID {
+				filtered = append(filtered, device)
+			}
+			continue
+		}
+		if device.TenantID != authCtx.TenantID {
+			continue
+		}
+		if authCtx.IsTenantAdmin || (device.ProjectID > 0 && authCtx.CanAccessProject(device.ProjectID)) {
+			filtered = append(filtered, device)
+		}
+	}
+	return filtered
+}
+
+func hasAnyDeviceTagPermission(authCtx *AuthContext) bool {
+	if authCtx == nil || len(authCtx.RoleIDs) == 0 {
+		return false
+	}
+	var count int64
+	store.DB.Model(&store.RoleDeviceTagPermission{}).Where("role_id IN ?", authCtx.RoleIDs).Count(&count)
+	return count > 0
+}
+
+func canReadDeviceByTagPermission(authCtx *AuthContext, scope store.AccessScope, deviceCode string) (bool, error) {
+	if authCtx == nil {
+		return false, nil
+	}
+	if authCtx.IsSystemAdmin || authCtx.IsTenantAdmin || authCtx.IsProjectAdmin {
+		return true, nil
+	}
+	if len(authCtx.RoleIDs) == 0 {
+		return false, nil
+	}
+	if !hasAnyDeviceTagPermission(authCtx) {
+		return true, nil
+	}
+
+	var bindings []store.DeviceTagBinding
+	if err := store.DB.Where("scope_type = ? AND scope_id = ? AND device_code = ?", scope.Type, scope.ID, deviceCode).Find(&bindings).Error; err != nil {
+		return false, err
+	}
+	if len(bindings) == 0 {
+		return false, nil
+	}
+	tagIDs := make([]uint, 0, len(bindings))
+	for _, binding := range bindings {
+		tagIDs = append(tagIDs, binding.TagID)
+	}
+	var count int64
+	if err := store.DB.Model(&store.RoleDeviceTagPermission{}).
+		Where("role_id IN ? AND tag_id IN ? AND permission IN ?", authCtx.RoleIDs, tagIDs, []string{"read", "write"}).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func canAccessDeviceEvent(r *ghttp.Request, event types.Event) bool {
@@ -1401,6 +1551,59 @@ func canAccessDeviceEvent(r *ghttp.Request, event types.Event) bool {
 	return canAccessDevice(r, device)
 }
 
+func currentTenantProjectScope(r *ghttp.Request) (uint, uint, error) {
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || authCtx.IsSystemAdmin || authCtx.TenantID == 0 {
+		return 0, 0, fmt.Errorf("Tenant context is required")
+	}
+
+	tenantID := r.GetCtxVar("tenant_id").Uint()
+	if tenantID == 0 {
+		tenantID = authCtx.TenantID
+	}
+	if tenantID != authCtx.TenantID {
+		return 0, 0, fmt.Errorf("Tenant is outside allowed scope")
+	}
+
+	projectID := r.GetCtxVar("project_id").Uint()
+	if projectID == 0 {
+		projectID = authCtx.ProjectID
+	}
+	if projectID == 0 {
+		return tenantID, 0, fmt.Errorf("Project context is required")
+	}
+	if !projectBelongsToTenant(projectID, tenantID) || !authCtx.CanManageProject(projectID) {
+		return tenantID, projectID, fmt.Errorf("Project is outside allowed scope")
+	}
+	return tenantID, projectID, nil
+}
+
+func validateProtocolEnabledForProject(protocolName string, tenantID, projectID uint) error {
+	if protocolName == "" {
+		return nil
+	}
+	if !isProtocolPluginMeta(protocolName) {
+		return fmt.Errorf("Protocol plugin is not available")
+	}
+	plugin, err := store.GetPluginForScope(protocolName, tenantID, projectID)
+	if err != nil {
+		return err
+	}
+	if plugin == nil || !plugin.Enabled {
+		return fmt.Errorf("Protocol plugin is not enabled for current project")
+	}
+	return nil
+}
+
+func isProtocolPluginMeta(protocolName string) bool {
+	for _, meta := range pluginMetas {
+		if meta.Name == protocolName && meta.Category == types.PluginCategoryProtocol {
+			return true
+		}
+	}
+	return false
+}
+
 func canAccessProduct(r *ghttp.Request, product *store.Product) bool {
 	authCtx := requestAuthContext(r)
 	if authCtx == nil || product == nil {
@@ -1412,7 +1615,10 @@ func canAccessProduct(r *ghttp.Request, product *store.Product) bool {
 	if product.TenantID != authCtx.TenantID {
 		return false
 	}
-	return product.ProjectID == 0 || authCtx.CanAccessProject(product.ProjectID)
+	if authCtx.IsTenantAdmin {
+		return true
+	}
+	return product.ProjectID > 0 && authCtx.CanAccessProject(product.ProjectID)
 }
 
 func canAccessDevice(r *ghttp.Request, device *store.Device) bool {
@@ -1429,5 +1635,9 @@ func canAccessDevice(r *ghttp.Request, device *store.Device) bool {
 	if authCtx.IsTenantAdmin {
 		return true
 	}
-	return device.ProjectID > 0 && authCtx.CanAccessProject(device.ProjectID)
+	if !(device.ProjectID > 0 && authCtx.CanAccessProject(device.ProjectID)) {
+		return false
+	}
+	allowed, err := canReadDeviceByTagPermission(authCtx, currentDeviceTagScope(r), device.Code)
+	return err == nil && allowed
 }

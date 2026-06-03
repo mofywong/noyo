@@ -251,8 +251,21 @@ func (s *Server) handleUpdateProject(r *ghttp.Request) {
 		return
 	}
 
-	project.Name = update.Name
-	project.Description = update.Description
+	var rawUpdate map[string]json.RawMessage
+	if err := json.Unmarshal(r.GetBody(), &rawUpdate); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
+		return
+	}
+	hasProjectField := func(field string) bool {
+		_, ok := rawUpdate[field]
+		return ok
+	}
+	if hasProjectField("name") {
+		project.Name = update.Name
+	}
+	if hasProjectField("description") {
+		project.Description = update.Description
+	}
 
 	authCtx := requestAuthContext(r)
 	if update.AdminUserID > 0 && (authCtx == nil || !authCtx.IsTenantAdmin) {
@@ -294,13 +307,7 @@ func (s *Server) handleDeleteProject(r *ghttp.Request) {
 		return
 	}
 	err := store.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Unscoped().Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeProject, project.TenantID, project.ID).Delete(&store.ScopePermissionLimit{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Unscoped().Where("project_id = ?", id).Delete(&store.UserRoleBinding{}).Error; err != nil {
-			return err
-		}
-		return tx.Unscoped().Delete(&store.Project{}, id).Error
+		return deleteProjectCascade(tx, project)
 	})
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to delete project"})

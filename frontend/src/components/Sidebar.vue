@@ -17,7 +17,7 @@
     <!-- Project Selector (Moved to Top of Sidebar) -->
     <div class="px-3 mb-3" v-if="authStore.isLoggedIn && userProjects.length > 0">
       <select class="form-select form-select-sm" v-model="currentProjectId" @change="switchProject">
-        <option :value="0">{{ $t('project_all') }}</option>
+        <option v-if="canUseAllProjects" :value="0">{{ $t('project_all') }}</option>
         <option v-for="p in userProjects" :key="p.ID" :value="p.ID">{{ p.name }}</option>
       </select>
     </div>
@@ -155,6 +155,22 @@ const authStore = useAuthStore();
 const userProjects = ref([]);
 const currentProjectId = ref(Number(localStorage.getItem('current_project_id') || 0));
 
+const requiresProjectContext = computed(() => {
+  const allowedProjectIds = authStore.user?.allowed_project_ids || [];
+  return allowedProjectIds.length > 0 && !authStore.isTenantAdmin && !authStore.isSystemAdmin;
+});
+
+const canUseAllProjects = computed(() => !requiresProjectContext.value);
+
+const persistProjectContext = (projectId) => {
+  currentProjectId.value = Number(projectId || 0);
+  if (currentProjectId.value > 0) {
+    localStorage.setItem('current_project_id', currentProjectId.value.toString());
+  } else {
+    localStorage.removeItem('current_project_id');
+  }
+};
+
 const tenantName = computed(() => {
   if (authStore.user && authStore.user.tenant_id > 0) {
     return authStore.user.tenant_name || localStorage.getItem('tenant_name') || ''
@@ -168,14 +184,43 @@ const loadUserProjects = async () => {
     const res = await axios.get('/api/auth/projects');
     if (res.data.code === 0) {
       userProjects.value = res.data.data || [];
+      await normalizeCurrentProject();
     }
   } catch (e) {
     console.error("Failed to load projects", e);
   }
 };
 
-const switchProject = () => {
-  localStorage.setItem('current_project_id', currentProjectId.value);
+const normalizeCurrentProject = async () => {
+  const projectIds = userProjects.value.map(p => Number(p.ID));
+  const selectedProjectId = Number(currentProjectId.value || 0);
+
+  if (requiresProjectContext.value) {
+    if (projectIds.length === 0) {
+      persistProjectContext(0);
+      return;
+    }
+    if (!projectIds.includes(selectedProjectId)) {
+      persistProjectContext(projectIds[0]);
+      await authStore.refreshProfile();
+      window.location.reload();
+    }
+    return;
+  }
+
+  if (selectedProjectId > 0 && !projectIds.includes(selectedProjectId)) {
+    persistProjectContext(0);
+    await authStore.refreshProfile();
+    window.location.reload();
+  }
+};
+
+const switchProject = async () => {
+  if (requiresProjectContext.value && Number(currentProjectId.value) <= 0 && userProjects.value.length > 0) {
+    currentProjectId.value = Number(userProjects.value[0].ID);
+  }
+  persistProjectContext(currentProjectId.value);
+  await authStore.refreshProfile();
   window.location.reload(); // Reload to apply new project scope globally
 };
 
@@ -193,7 +238,7 @@ const route = useRoute();
 const gt = (key, params) => gatewayText(locale.value, key, params);
 
 onMounted(async () => {
-  loadUserProjects();
+  await loadUserProjects();
 });
 
 const currentRouteName = computed(() => route.name);

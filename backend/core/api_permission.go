@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"noyo/core/store"
+	"strconv"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
@@ -163,6 +164,54 @@ func validateAssignablePermissionIDs(tx *gorm.DB, permissionIDs []uint, targetRo
 	return nil
 }
 
+type roleDeviceTagAssignmentInput struct {
+	TagID      uint   `json:"tag_id"`
+	Permission string `json:"permission"`
+}
+
+func validateRoleDeviceTagAssignments(tx *gorm.DB, authCtx *AuthContext, targetRole store.Role, assignments []roleDeviceTagAssignmentInput) error {
+	if len(assignments) == 0 {
+		return nil
+	}
+	if authCtx == nil || authCtx.TenantID == 0 {
+		return fmt.Errorf("tenant context is required")
+	}
+	if targetRole.TenantID != authCtx.TenantID {
+		return fmt.Errorf("role is outside tenant scope")
+	}
+	if targetRole.ProjectID > 0 && !authCtx.CanManageProject(targetRole.ProjectID) {
+		return fmt.Errorf("role project is outside allowed scope")
+	}
+
+	tagIDs := make([]uint, 0, len(assignments))
+	seenTags := make(map[uint]bool, len(assignments))
+	for _, assignment := range assignments {
+		if assignment.TagID == 0 {
+			return fmt.Errorf("device tag is required")
+		}
+		if assignment.Permission != "read" && assignment.Permission != "write" {
+			return fmt.Errorf("invalid device tag permission")
+		}
+		if seenTags[assignment.TagID] {
+			return fmt.Errorf("duplicate device tag assignment")
+		}
+		seenTags[assignment.TagID] = true
+		tagIDs = append(tagIDs, assignment.TagID)
+	}
+
+	scopeID := strconv.FormatUint(uint64(authCtx.TenantID), 10)
+	var count int64
+	if err := tx.Model(&store.DeviceTag{}).
+		Where("scope_type = ? AND scope_id = ? AND id IN ?", "tenant", scopeID, tagIDs).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count != int64(len(tagIDs)) {
+		return fmt.Errorf("one or more device tags are outside tenant scope")
+	}
+	return nil
+}
+
 func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 	roleID := r.Get("id").Uint()
 	if roleID == 0 {
@@ -188,11 +237,8 @@ func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 	}
 
 	var req struct {
-		PermissionIDs []uint `json:"permission_ids"`
-		DeviceTags    []struct {
-			TagID      uint   `json:"tag_id"`
-			Permission string `json:"permission"`
-		} `json:"device_tags"`
+		PermissionIDs []uint                         `json:"permission_ids"`
+		DeviceTags    []roleDeviceTagAssignmentInput `json:"device_tags"`
 	}
 
 	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
@@ -202,6 +248,9 @@ func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 
 	err := store.DB.Transaction(func(tx *gorm.DB) error {
 		if err := validateAssignablePermissionIDs(tx, req.PermissionIDs, targetRole, authCtx); err != nil {
+			return err
+		}
+		if err := validateRoleDeviceTagAssignments(tx, authCtx, targetRole, req.DeviceTags); err != nil {
 			return err
 		}
 

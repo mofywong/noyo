@@ -98,7 +98,7 @@ func GetProduct(code string) (*Product, error) {
 }
 
 // ListProducts retrieves products with pagination
-func ListProducts(page, pageSize int, tenantID, projectID uint) ([]Product, int64, error) {
+func ListProducts(page, pageSize int, tenantID, projectID uint, allowedProjectIDs ...[]uint) ([]Product, int64, error) {
 	var products []Product
 	var total int64
 
@@ -108,6 +108,12 @@ func ListProducts(page, pageSize int, tenantID, projectID uint) ([]Product, int6
 	}
 	if projectID > 0 {
 		db = db.Where("project_id = ?", projectID)
+	} else if len(allowedProjectIDs) > 0 {
+		ids := allowedProjectIDs[0]
+		if len(ids) == 0 {
+			return []Product{}, 0, nil
+		}
+		db = db.Where("project_id IN ?", ids)
 	}
 
 	if err := db.Count(&total).Error; err != nil {

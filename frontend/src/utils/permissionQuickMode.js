@@ -171,6 +171,19 @@ export const QUICK_MODE_MODULES = [
   }
 ];
 
+export function getAvailableQuickModeModules(allPermissions, hiddenModules = []) {
+  const allowedCodes = new Set((allPermissions || []).map(p => p.code));
+  return QUICK_MODE_MODULES
+    .filter(mod => !hiddenModules.includes(mod.module))
+    .map(mod => ({
+      ...mod,
+      readonly: mod.readonly.filter(code => allowedCodes.has(code)),
+      edit: mod.edit.filter(code => allowedCodes.has(code)),
+      full: mod.full.filter(code => allowedCodes.has(code))
+    }))
+    .filter(mod => [...mod.readonly, ...mod.edit, ...mod.full].length > 0);
+}
+
 export function inferQuickModeLevel(modConfig, selectedCodes, currentLevel) {
   const { readonly, edit, full } = modConfig;
   

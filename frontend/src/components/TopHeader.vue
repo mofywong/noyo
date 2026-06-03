@@ -221,12 +221,13 @@ const loadProjects = async () => {
   }
 };
 
-const handleProjectChange = () => {
+const handleProjectChange = async () => {
   if (currentProjectId.value !== '') {
     localStorage.setItem('current_project_id', currentProjectId.value.toString());
   } else {
     localStorage.removeItem('current_project_id');
   }
+  await authStore.refreshProfile();
   window.location.reload();
 };
 

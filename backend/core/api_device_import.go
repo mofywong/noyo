@@ -33,6 +33,15 @@ func (s *Server) handleDownloadTemplate(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": fmt.Sprintf("Plugin %s does not support device import", protocolName)})
 		return
 	}
+	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
+	if scopeErr != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
+		return
+	}
+	if err := validateProtocolEnabledForProject(protocolName, tenantID, projectID); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
 
 	// 2. Get Layout
 	lang := r.GetQuery("lang").String()
@@ -46,10 +55,10 @@ func (s *Server) handleDownloadTemplate(r *ghttp.Request) {
 	if productCodesStr != "" {
 		codes := strings.Split(productCodesStr, ",")
 		if len(codes) > 0 {
-			store.DB.Where("code IN ?", codes).Find(&products)
+			store.DB.Where("code IN ? AND tenant_id = ? AND project_id = ?", codes, tenantID, projectID).Find(&products)
 		}
 	} else {
-		store.DB.Where("protocol_name = ?", protocolName).Find(&products)
+		store.DB.Where("protocol_name = ? AND tenant_id = ? AND project_id = ?", protocolName, tenantID, projectID).Find(&products)
 	}
 
 	// Convert store.Product to names/codes for dropdowns
@@ -117,6 +126,15 @@ func (s *Server) handleImportDevices(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": fmt.Sprintf("Plugin %s does not support device import", protocolName)})
 		return
 	}
+	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
+	if scopeErr != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
+		return
+	}
+	if err := validateProtocolEnabledForProject(protocolName, tenantID, projectID); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
 
 	// 2. Parse File
 	file, _, err := r.Request.FormFile("file")
@@ -166,13 +184,10 @@ func (s *Server) handleImportDevices(r *ghttp.Request) {
 	errs := res.Errors
 	parentsToRestart := make(map[string]bool)
 
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	authCtx := requestAuthContext(r)
-
 	for _, devModel := range res.Devices {
 		// Verify Product
 		var product store.Product
-		if err := store.DB.Where("code = ?", devModel.ProductCode).First(&product).Error; err != nil {
+		if err := store.DB.Where("code = ? AND tenant_id = ? AND project_id = ?", devModel.ProductCode, tenantID, projectID).First(&product).Error; err != nil {
 			errs = append(errs, fmt.Sprintf("Product %s not found for device %s", devModel.ProductCode, devModel.Name))
 			continue
 		}
@@ -185,16 +200,7 @@ func (s *Server) handleImportDevices(r *ghttp.Request) {
 			ParentCode:  devModel.ParentCode,
 			Enabled:     devModel.Enabled,
 			TenantID:    tenantID,
-		}
-
-		// For non-admin users, enforce project context
-		if authCtx != nil && !authCtx.IsTenantAdmin && !authCtx.IsSystemAdmin {
-			projectID := r.GetCtxVar("project_id").Uint()
-			if projectID == 0 {
-				errs = append(errs, fmt.Sprintf("Project context is required for device %s", devModel.Name))
-				continue
-			}
-			device.ProjectID = projectID
+			ProjectID:   projectID,
 		}
 
 		// Merge Config

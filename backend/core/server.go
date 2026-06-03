@@ -278,11 +278,19 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 		IsUnauthorized          bool                `json:"isUnauthorized"`
 	}
 
+	requestedType := r.GetQuery("type").String()
+	enabledParam := strings.ToLower(r.GetQuery("enabled").String())
+	enabledOnly := enabledParam == "1" || enabledParam == "true" || enabledParam == "yes"
+	authCtx := requestAuthContext(r)
+
 	summary := make([]PluginSummary, 0)
 
 	for _, meta := range pluginMetas {
 		if meta.Name == "license_auth" {
 			continue // Hide license_auth plugin from the marketplace
+		}
+		if requestedType != "" && meta.Category != requestedType {
+			continue
 		}
 
 		isPro := meta.Name == "ai_predict" || meta.Name == "ai_copilot" || strings.EqualFold(meta.Name, "script") || meta.Name == "cascade" || meta.Name == "gb28181" || meta.Name == "webrtc"
@@ -302,10 +310,7 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 
 		if p != nil {
 			schema := GetPluginConfigSchema(p)
-			status := "stopped"
-			if p.IsEnabled() {
-				status = "running"
-			}
+			status := pluginStatusForRequest(p, meta.Name, authCtx)
 
 			ps = PluginSummary{
 				Name:           meta.Name,
@@ -325,11 +330,12 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 			}
 		} else {
 			// Plugin is not instantiated (could be unauthorized pro plugin)
+			status := pluginStatusForRequest(nil, meta.Name, authCtx)
 			ps = PluginSummary{
 				Name:           meta.Name,
 				Title:          meta.Title,
 				Description:    meta.Description,
-				Status:         "stopped",
+				Status:         status,
 				Category:       meta.Category,
 				Icon:           iconStr,
 				Schema:         nil,
@@ -338,6 +344,9 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 			}
 		}
 
+		if enabledOnly && ps.Status != "running" {
+			continue
+		}
 		summary = append(summary, ps)
 	}
 
@@ -345,6 +354,23 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 		"code": 0,
 		"data": summary,
 	})
+}
+
+func pluginStatusForRequest(plugin IManagedPlugin, name string, authCtx *AuthContext) string {
+	if plugin == nil {
+		return "stopped"
+	}
+	enabled := plugin.IsEnabled()
+	if authCtx != nil && authCtx.TenantID > 0 && authCtx.ProjectID > 0 {
+		enabled = false
+		if scoped, err := store.GetPluginForScope(name, authCtx.TenantID, authCtx.ProjectID); err == nil && scoped != nil {
+			enabled = scoped.Enabled
+		}
+	}
+	if enabled {
+		return "running"
+	}
+	return "stopped"
 }
 
 func (s *Server) handleGetPlugin(r *ghttp.Request) {
@@ -374,6 +400,17 @@ func (s *Server) handleGetPluginSchemas(r *ghttp.Request) {
 	if !ok {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Plugin is not a protocol plugin"})
 		return
+	}
+	if authCtx := requestAuthContext(r); authCtx != nil && authCtx.TenantID > 0 {
+		tenantID, projectID, scopeErr := currentTenantProjectScope(r)
+		if scopeErr != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
+			return
+		}
+		if err := validateProtocolEnabledForProject(name, tenantID, projectID); err != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+			return
+		}
 	}
 
 	// Get Schemas
@@ -430,8 +467,19 @@ func (s *Server) handleUpdatePluginConfig(r *ghttp.Request) {
 		return
 	}
 
-	// Update Config (Persist to file)
-	if err := UpdatePluginConfig(p, newConfig); err != nil {
+	// Update Config (Persist to DB)
+	var err error
+	if authCtx := requestAuthContext(r); authCtx != nil && authCtx.TenantID > 0 {
+		tenantID, projectID, scopeErr := currentTenantProjectScope(r)
+		if scopeErr != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
+			return
+		}
+		err = UpdatePluginConfigForScope(p, newConfig, tenantID, projectID)
+	} else {
+		err = UpdatePluginConfig(p, newConfig)
+	}
+	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}

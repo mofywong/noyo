@@ -111,6 +111,8 @@ func (s *Server) registerAPIRoutes() {
 			permissionPUT(appGroup, "/:id", "app:edit", s.handleUpdateApp)
 			permissionDELETE(appGroup, "/:id", "app:delete", s.handleDeleteApp)
 			permissionPOST(appGroup, "/:id/reset-key", "app:reset-key", s.handleResetAppKey)
+			permissionGET(appGroup, "/:id/roles", "app:list", s.handleGetAppRoles)
+			permissionPUT(appGroup, "/:id/roles", "app:edit", s.handleSetAppRoles)
 
 			auditGroup := protected.Group("/audit-logs")
 			permissionGET(auditGroup, "/", "audit:list", s.handleListAuditLogs)
@@ -133,7 +135,7 @@ func (s *Server) registerAPIRoutes() {
 
 			protected.Group("/projects", func(projectGroup *ghttp.RouterGroup) {
 				projectGroup.Middleware(TenantMiddleware())
-				projectGroup.GET("/permission-options", s.handleGetProjectPermissionOptions)
+				permissionGET(projectGroup, "/permission-options", "project:edit", s.handleGetProjectPermissionOptions)
 				permissionGET(projectGroup, "/", "project:list", s.handleGetProjects)
 				permissionPOST(projectGroup, "/", "project:create", s.handleCreateProject)
 				permissionPUT(projectGroup, "/:id", "project:edit", s.handleUpdateProject)

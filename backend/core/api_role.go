@@ -16,6 +16,12 @@ func isReservedAdminRoleCode(code string) bool {
 	return code == RoleCodeSuperAdmin || code == RoleCodeTenantAdmin || code == RoleCodeProjectAdmin
 }
 
+func applyRoleUpdate(role *store.Role, update store.Role) {
+	role.Name = update.Name
+	role.Description = update.Description
+	role.DataScope = update.DataScope
+}
+
 func (s *Server) handleGetRoles(r *ghttp.Request) {
 	authCtx := requestAuthContext(r)
 	if authCtx == nil || authCtx.TenantID == 0 {
@@ -132,10 +138,10 @@ func (s *Server) handleCreateRole(r *ghttp.Request) {
 		if !authCtx.IsTenantAdmin {
 			if authCtx.ProjectID > 0 {
 				role.ProjectID = authCtx.ProjectID
-			} else if len(authCtx.AllowedProjectIDs) > 0 {
+			} else if len(authCtx.AllowedProjectIDs) == 1 {
 				role.ProjectID = authCtx.AllowedProjectIDs[0]
 			} else {
-				r.Response.WriteJson(g.Map{"code": 403, "message": "No project access"})
+				r.Response.WriteJson(g.Map{"code": 400, "message": "Project context is required"})
 				return
 			}
 		}
@@ -146,7 +152,7 @@ func (s *Server) handleCreateRole(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 403, "message": "Only tenant admins can create tenant common roles"})
 			return
 		}
-		} else {
+	} else {
 		if !projectBelongsToTenant(role.ProjectID, authCtx.TenantID) || !authCtx.CanManageProject(role.ProjectID) {
 			r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
 			return
@@ -194,10 +200,7 @@ func (s *Server) handleUpdateRole(r *ghttp.Request) {
 		return
 	}
 
-	role.Name = update.Name
-	role.Description = update.Description
-	role.DataScope = update.DataScope
-	role.IsInherited = role.ProjectID == 0
+	applyRoleUpdate(&role, update)
 
 	if err := store.DB.Save(&role).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to update role: " + err.Error()})

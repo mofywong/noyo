@@ -56,12 +56,14 @@ app.directive('permission', {
 // Configure global Axios interceptors
 axios.interceptors.request.use((config) => {
   const authStore = useAuthStore()
+  const requestPath = (config.url || '').split('?')[0]
+  const isAuthProjectsRequest = requestPath === '/api/auth/projects'
   if (authStore.token) {
     config.headers.Authorization = `Bearer ${authStore.token}`
   }
   
   const projectId = localStorage.getItem('current_project_id')
-  if (projectId) {
+  if (projectId && !isAuthProjectsRequest) {
     config.headers['X-Current-Project-ID'] = projectId
   }
 

@@ -216,7 +216,6 @@ func ResolveUserAuthContext(userID, requestedTenantID, requestedProjectID uint) 
 }
 
 func ResolveAppAuthContext(app store.App, requestedProjectID uint) (*AuthContext, error) {
-	
 	ctx := &AuthContext{
 		SubjectType:     "app",
 		AppID:           app.AppID,
@@ -228,16 +227,27 @@ func ResolveAppAuthContext(app store.App, requestedProjectID uint) (*AuthContext
 		PermissionCodes: make(map[string]bool),
 	}
 
+	if app.Status != 1 {
+		return nil, fmt.Errorf("app disabled")
+	}
+
 	var appRoles []store.AppRole
-	if err := store.DB.Where("app_id = ?", app.ID).Find(&appRoles).Error; err != nil {
+	if err := store.DB.Where("app_id = ? AND tenant_id = ?", app.ID, app.TenantID).Find(&appRoles).Error; err != nil {
 		return nil, err
 	}
 
 	roleBindings := make([]resolvedRoleBinding, 0, len(appRoles))
 	for _, appRole := range appRoles {
 		var role store.Role
-		if err := store.DB.Where("id = ? AND status = ?", appRole.RoleID, 1).First(&role).Error; err == nil {
-			roleBindings = append(roleBindings, resolvedRoleBinding{Role: role, ProjectID: role.ProjectID})
+		if err := store.DB.Where("id = ? AND (tenant_id = ? OR tenant_id = 0)", appRole.RoleID, app.TenantID).First(&role).Error; err == nil {
+			if appRole.ProjectID > 0 {
+				var count int64
+				store.DB.Model(&store.Project{}).Where("id = ? AND tenant_id = ?", appRole.ProjectID, app.TenantID).Count(&count)
+				if count == 0 {
+					continue
+				}
+			}
+			roleBindings = append(roleBindings, resolvedRoleBinding{Role: role, ProjectID: appRole.ProjectID})
 		}
 	}
 	applyRoleBindings(ctx, roleBindings, "")
@@ -262,7 +272,7 @@ func resolveUserRoleBindings(userID, tenantID uint) ([]resolvedRoleBinding, erro
 	resolved := make([]resolvedRoleBinding, 0, len(bindings))
 	for _, binding := range bindings {
 		var role store.Role
-		err := store.DB.Where("id = ? AND status = ? AND (tenant_id = ? OR tenant_id = 0)", binding.RoleID, 1, tenantID).First(&role).Error
+		err := store.DB.Where("id = ? AND (tenant_id = ? OR tenant_id = 0)", binding.RoleID, tenantID).First(&role).Error
 		if err == nil {
 			resolved = append(resolved, resolvedRoleBinding{Role: role, ProjectID: binding.ProjectID})
 		}
@@ -283,7 +293,7 @@ func resolveUserRoleBindings(userID, tenantID uint) ([]resolvedRoleBinding, erro
 		}
 		for _, positionRole := range positionRoles {
 			var role store.Role
-			err := store.DB.Where("id = ? AND status = ? AND (tenant_id = ? OR tenant_id = 0)", positionRole.RoleID, 1, tenantID).First(&role).Error
+			err := store.DB.Where("id = ? AND (tenant_id = ? OR tenant_id = 0)", positionRole.RoleID, tenantID).First(&role).Error
 			if err == nil {
 				resolved = append(resolved, resolvedRoleBinding{Role: role, ProjectID: role.ProjectID})
 			}
@@ -437,7 +447,7 @@ func allProjectIDs(tenantID uint) []uint {
 		return []uint{}
 	}
 	var projects []store.Project
-	store.DB.Where("tenant_id = ? AND status = ?", tenantID, 1).Find(&projects)
+	store.DB.Where("tenant_id = ?", tenantID).Find(&projects)
 	ids := make([]uint, 0, len(projects))
 	for _, project := range projects {
 		ids = append(ids, project.ID)

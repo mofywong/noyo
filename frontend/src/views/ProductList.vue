@@ -373,9 +373,11 @@ const changePageSize = () => {
 
 const fetchProtocols = async () => {
   try {
-    const res = await axios.get('/api/plugins?type=protocol');
+    const res = await axios.get('/api/plugins', {
+      params: { type: 'protocol', enabled: 1 }
+    });
     if (res.data.code === 0) {
-      protocols.value = res.data.data.filter(p => p.category === 'protocol');
+      protocols.value = res.data.data.filter(p => p.category === 'protocol' && p.status === 'running');
     }
   } catch (e) {
     console.error(e);
