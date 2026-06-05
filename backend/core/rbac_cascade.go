@@ -25,11 +25,10 @@ func deleteProjectCascade(tx *gorm.DB, project store.Project) error {
 		if err := tx.Unscoped().Where("role_id IN ?", roleIDs).Delete(&store.RoleDeviceTagPermission{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Unscoped().Where("role_id IN ?", roleIDs).Delete(&store.PositionRole{}).Error; err != nil {
-			return err
-		}
 	}
-
+	if err := tx.Unscoped().Where("project_id = ?", project.ID).Delete(&store.RoleDeviceTagPermission{}).Error; err != nil {
+		return err
+	}
 	var deviceCodes []string
 	if err := tx.Model(&store.Device{}).
 		Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).
@@ -92,36 +91,10 @@ func deleteTenantCascade(tx *gorm.DB, tenantID uint) error {
 		if err := tx.Unscoped().Where("role_id IN ?", roleIDs).Delete(&store.RoleDeviceTagPermission{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Unscoped().Where("role_id IN ?", roleIDs).Delete(&store.PositionRole{}).Error; err != nil {
-			return err
-		}
 		if err := tx.Unscoped().Where("role_id IN ?", roleIDs).Delete(&store.UserRoleBinding{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Unscoped().Where("role_id IN ?", roleIDs).Delete(&store.AppRole{}).Error; err != nil {
-			return err
-		}
-	}
-
-	var userIDs []uint
-	if err := tx.Model(&store.User{}).Where("tenant_id = ?", tenantID).Pluck("id", &userIDs).Error; err != nil {
-		return err
-	}
-	if len(userIDs) > 0 {
-		if err := tx.Unscoped().Where("user_id IN ?", userIDs).Delete(&store.UserPosition{}).Error; err != nil {
-			return err
-		}
-	}
-
-	var positionIDs []uint
-	if err := tx.Model(&store.Position{}).Where("tenant_id = ?", tenantID).Pluck("id", &positionIDs).Error; err != nil {
-		return err
-	}
-	if len(positionIDs) > 0 {
-		if err := tx.Unscoped().Where("position_id IN ?", positionIDs).Delete(&store.UserPosition{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Unscoped().Where("position_id IN ?", positionIDs).Delete(&store.PositionRole{}).Error; err != nil {
 			return err
 		}
 	}
@@ -159,9 +132,6 @@ func deleteTenantCascade(tx *gorm.DB, tenantID uint) error {
 		return err
 	}
 	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.Role{}).Error; err != nil {
-		return err
-	}
-	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.Position{}).Error; err != nil {
 		return err
 	}
 	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.User{}).Error; err != nil {

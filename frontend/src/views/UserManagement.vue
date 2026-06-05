@@ -63,24 +63,23 @@
                 <td>{{ user.last_login_at || $t('user_never') }}</td>
                 <td>{{ user.created_at }}</td>
                 <td class="text-end">
-                  <button class="btn btn-sm btn-outline-success me-2" @click="openDetailsModal(user)" :title="$t('common_view_details', '查看详情')">
-                    <i class="bi bi-eye"></i>
-                  </button>
-                  <button class="btn btn-sm me-2" :class="(user.tenant_roles?.length > 0 || user.projects?.length > 0) ? 'btn-primary text-white' : 'btn-outline-secondary'" @click="openRolesModal(user)" :title="$t('user_assign_roles', '分配角色')" :disabled="isRoleModificationDisabled(user)" v-permission="'user:edit'">
-                    <i class="bi bi-shield-check"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-info me-2" @click="openPositionsModal(user)" :title="$t('user_assign_positions', '分配岗位')" v-permission="'user:edit'">
-                    <i class="bi bi-person-badge"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-warning me-2" @click="openResetPasswordModal(user)" :title="$t('reset_password', '重置密码')" v-permission="'user:edit'">
-                    <i class="bi bi-key"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(user)" :title="$t('user_edit', '编辑')" v-permission="'user:edit'">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="deleteUser(user)" :disabled="isUserDeletionDisabled(user)" :title="$t('user_delete', '删除')" v-permission="'user:delete'">
-                    <i class="bi bi-trash"></i>
-                  </button>
+                  <div class="d-inline-flex align-items-center justify-content-end gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(user)" :title="$t('common_view_details', '查看详情')">
+                      <i class="bi bi-eye"></i>
+                    </button>
+                    <button class="btn btn-sm" :class="hasAssignedRoles(user) ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openRolesModal(user)" :title="$t('user_assign_roles', '分配角色')" :disabled="isRoleModificationDisabled(user)" v-permission="'user:edit'">
+                      <i class="bi bi-shield-check"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning" @click="openResetPasswordModal(user)" :title="$t('reset_password', '重置密码')" v-permission="'user:edit'">
+                      <i class="bi bi-key"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" @click="openEditModal(user)" :title="$t('user_edit', '编辑')" v-permission="'user:edit'">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" @click="deleteUser(user)" :disabled="isUserDeletionDisabled(user)" :title="$t('user_delete', '删除')" v-permission="'user:delete'">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -164,31 +163,6 @@
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('user_cancel') }}</button>
             <button type="button" class="btn btn-danger" @click="resetPassword">{{ $t('user_reset_password') }}</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Assign Positions Modal -->
-    <div class="modal fade" id="positionsModal" tabindex="-1" ref="positionsModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ $t('user_assign_positions_for', '为 {username} 分配岗位').replace('{username}', currentUserToAssign?.username) }}</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-             <div v-if="allPositions.length === 0" class="text-muted">{{ $t('user_no_available_positions', '暂无可用的岗位，请先在岗位管理中添加。') }}</div>
-             <div v-for="p in allPositions" :key="p.ID" class="form-check">
-               <input class="form-check-input" type="checkbox" :value="p.ID" v-model="selectedPositionIds" :id="'pos'+p.ID">
-               <label class="form-check-label" :for="'pos'+p.ID">
-                 {{ p.name }} ({{ p.code }})
-               </label>
-             </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('user_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="savePositions">{{ $t('user_save_assign', '保存分配') }}</button>
           </div>
         </div>
       </div>
@@ -346,8 +320,6 @@ const userModalRef = ref(null)
 let userModal = null
 const resetPasswordModalRef = ref(null)
 let resetPasswordModal = null
-const positionsModalRef = ref(null)
-let positionsModal = null
 const rolesModalRef = ref(null)
 let rolesModal = null
 const userDetailsModalRef = ref(null)
@@ -357,8 +329,6 @@ const currentUserDetails = ref(null)
 const filterProjectId = ref('')
 const filterRoleId = ref('')
 
-const allPositions = ref([])
-const selectedPositionIds = ref([])
 const allRoles = ref([])
 const unifiedRoleAssignments = ref([])
 const allProjects = ref([])
@@ -419,6 +389,9 @@ const getGroupedProjects = (projects) => {
   if (!projects || projects.length === 0) return [];
   const map = new Map();
   projects.forEach(p => {
+    if (!p.role_id || !p.role_name) {
+      return;
+    }
     if (!map.has(p.project_name)) {
       map.set(p.project_name, new Set());
     }
@@ -429,6 +402,12 @@ const getGroupedProjects = (projects) => {
   return Array.from(map.entries()).map(([name, roles]) => {
     return { name, roles: Array.from(roles) };
   });
+}
+
+const hasAssignedRoles = (user) => {
+  const hasTenantRole = user.tenant_roles?.some(r => r.role_id && r.role_name);
+  const hasProjectRole = user.projects?.some(p => p.role_id && p.role_name);
+  return !!(hasTenantRole || hasProjectRole);
 }
 
 const getPermissionsSummary = (user) => {
@@ -495,17 +474,6 @@ const loadUsers = async () => {
   }
 }
 
-const loadAllPositions = async () => {
-  try {
-    const res = await axios.get('/api/positions')
-    if (res.data.code === 0) {
-      allPositions.value = res.data.data || []
-    }
-  } catch (e) {
-    console.error("Failed to load positions:", e)
-  }
-}
-
 const loadAllRoles = async () => {
   try {
     const res = await axios.get('/api/roles', { params: { include_builtin: 1 } })
@@ -536,12 +504,10 @@ const changePage = (p) => {
 onMounted(() => {
   userModal = new Modal(userModalRef.value)
   resetPasswordModal = new Modal(resetPasswordModalRef.value)
-  positionsModal = new Modal(positionsModalRef.value)
   rolesModal = new Modal(rolesModalRef.value)
   userDetailsModal = new Modal(userDetailsModalRef.value)
 
   loadUsers()
-  loadAllPositions()
   loadAllRoles()
   loadAllProjects()
 })
@@ -634,34 +600,6 @@ const resetPassword = async () => {
     }
   } catch (error) {
     alert(t('user_reset_failed'))
-  }
-}
-
-const openPositionsModal = async (user) => {
-  currentUserToAssign.value = user
-  try {
-    const res = await axios.get(`/api/users/${user.id}/positions`)
-    if (res.data.code === 0) {
-      selectedPositionIds.value = res.data.data || []
-      positionsModal.show()
-    }
-  } catch (e) {
-    alert(t('user_load_positions_failed', '加载岗位信息失败'))
-  }
-}
-
-const savePositions = async () => {
-  try {
-    const res = await axios.put(`/api/users/${currentUserToAssign.value.id}/positions`, {
-      position_ids: selectedPositionIds.value
-    })
-    if (res.data.code === 0) {
-      positionsModal.hide()
-    } else {
-      alert(res.data.message)
-    }
-  } catch (e) {
-    alert(t('user_save_positions_failed', '保存岗位分配失败'))
   }
 }
 

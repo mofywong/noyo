@@ -94,9 +94,6 @@
       <a v-if="authStore.hasPermission('role:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'RoleManagement' }" @click.prevent="navigate('/settings/roles')">
         <i class="bi bi-shield-lock"></i> <span>{{ $t('role_management') }}</span>
       </a>
-      <a v-if="authStore.hasPermission('position:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'PositionManagement' }" @click.prevent="navigate('/settings/positions')">
-        <i class="bi bi-person-badge"></i> <span>{{ $t('position_management', 'Position Management') }}</span>
-      </a>
       <a v-if="authStore.hasPermission('app:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AppManagement' }" @click.prevent="navigate('/settings/apps')">
         <i class="bi bi-window-sidebar"></i> <span>{{ $t('app_management', 'App Integration') }}</span>
       </a>

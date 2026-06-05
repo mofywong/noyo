@@ -40,24 +40,26 @@
                 <td>{{ t.phone }}</td>
                 <td>{{ new Date(t.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
                 <td class="text-end">
-                  <button class="btn btn-sm btn-outline-success me-2" @click="openDetailsModal(t)" :title="$t('common_view_details', '查看详情')">
-                    <i class="bi bi-eye"></i>
-                  </button>
-                  <button class="btn btn-sm me-2" :class="(t.permission_ids && t.permission_ids.length > 0) ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermissionModal(t)" :title="$t('tenant_permission_config', '权限配置')" v-permission="'tenant:edit'">
-                    <i class="bi bi-shield-check"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-warning me-2" @click="openResetPasswordModal(t)" :title="$t('reset_password', '重置密码')" v-permission="'tenant:edit'">
-                    <i class="bi bi-key"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-secondary me-2" @click="openChangeAdminModal(t)" :title="$t('tenant_change_admin', '更换管理员')" v-permission="'tenant:edit'">
-                    <i class="bi bi-person-gear"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(t)" :title="$t('tenant_edit', '编辑')" v-permission="'tenant:edit'">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="deleteTenant(t)" :disabled="t.code === 'default'" :title="$t('tenant_delete', '删除')" v-permission="'tenant:delete'">
-                    <i class="bi bi-trash"></i>
-                  </button>
+                  <div class="d-inline-flex align-items-center justify-content-end gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(t)" :title="$t('common_view_details', '查看详情')">
+                      <i class="bi bi-eye"></i>
+                    </button>
+                    <button class="btn btn-sm" :class="(t.permission_ids && t.permission_ids.length > 0) ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermissionModal(t)" :title="$t('tenant_permission_config', '权限配置')" v-permission="'tenant:edit'">
+                      <i class="bi bi-shield-check"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning" @click="openResetPasswordModal(t)" :title="$t('reset_password', '重置密码')" v-permission="'tenant:edit'">
+                      <i class="bi bi-key"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" @click="openChangeAdminModal(t)" :title="$t('tenant_change_admin', '更换管理员')" v-permission="'tenant:edit'">
+                      <i class="bi bi-person-gear"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" @click="openEditModal(t)" :title="$t('tenant_edit', '编辑')" v-permission="'tenant:edit'">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" @click="deleteTenant(t)" :disabled="t.code === 'default'" :title="$t('tenant_delete', '删除')" v-permission="'tenant:delete'">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>

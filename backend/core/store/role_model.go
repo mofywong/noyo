@@ -18,7 +18,8 @@ type Role struct {
 
 type RoleDeviceTagPermission struct {
 	gorm.Model
-	RoleID     uint   `gorm:"uniqueIndex:idx_role_tag;not null" json:"role_id"`
-	TagID      uint   `gorm:"uniqueIndex:idx_role_tag;not null" json:"tag_id"`
+	RoleID     uint   `gorm:"uniqueIndex:idx_role_project_tag;not null" json:"role_id"`
+	ProjectID  uint   `gorm:"uniqueIndex:idx_role_project_tag;not null;default:0;index" json:"project_id"`
+	TagID      uint   `gorm:"uniqueIndex:idx_role_project_tag;not null" json:"tag_id"`
 	Permission string `gorm:"size:16;not null;default:'read'" json:"permission"` // read, write
 }

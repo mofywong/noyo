@@ -41,7 +41,7 @@ func (s *Server) handleCreateApp(r *ghttp.Request) {
 	if tenantID > 0 {
 		app.TenantID = tenantID
 	}
-	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanManageTenantResource(app.TenantID) {
+	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanUseTenantScopedResource(app.TenantID) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
@@ -83,7 +83,7 @@ func (s *Server) handleUpdateApp(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "App not found"})
 		return
 	}
-	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanManageTenantResource(app.TenantID) {
+	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanUseTenantScopedResource(app.TenantID) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
@@ -121,7 +121,7 @@ func (s *Server) handleDeleteApp(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "App not found"})
 		return
 	}
-	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanManageTenantResource(app.TenantID) {
+	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanUseTenantScopedResource(app.TenantID) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
@@ -151,7 +151,7 @@ func (s *Server) handleGetAppRoles(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "App not found"})
 		return
 	}
-	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanManageTenantResource(app.TenantID) {
+	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanUseTenantScopedResource(app.TenantID) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
@@ -173,7 +173,7 @@ func (s *Server) handleSetAppRoles(r *ghttp.Request) {
 	}
 
 	authCtx := requestAuthContext(r)
-	if authCtx == nil || !authCtx.CanManageTenantResource(app.TenantID) {
+	if authCtx == nil || !authCtx.CanUseTenantScopedResource(app.TenantID) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
@@ -235,7 +235,7 @@ func (s *Server) handleResetAppKey(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "App not found"})
 		return
 	}
-	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanManageTenantResource(app.TenantID) {
+	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanUseTenantScopedResource(app.TenantID) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}

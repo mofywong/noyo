@@ -135,6 +135,46 @@ func replaceUserTenantRoleBindings(tx *gorm.DB, authCtx *AuthContext, user store
 	return tx.Model(&store.User{}).Where("id = ?", user.ID).Update("role", nextRole).Error
 }
 
+func ensureProjectScopedUserBinding(tx *gorm.DB, authCtx *AuthContext, user store.User) error {
+	if authCtx == nil || authCtx.IsTenantAdmin {
+		return nil
+	}
+	if user.TenantID != authCtx.TenantID {
+		return fmt.Errorf("access denied")
+	}
+
+	projectID := authCtx.ProjectID
+	if projectID == 0 && len(authCtx.AllowedProjectIDs) > 0 {
+		projectID = authCtx.AllowedProjectIDs[0]
+	}
+	if projectID == 0 {
+		return nil
+	}
+	if !authCtx.CanAccessProject(projectID) {
+		return fmt.Errorf("project is outside allowed scope")
+	}
+	if !projectBelongsToTenant(projectID, user.TenantID) {
+		return fmt.Errorf("project is outside tenant scope")
+	}
+
+	var existing int64
+	if err := tx.Model(&store.UserRoleBinding{}).
+		Where("user_id = ? AND tenant_id = ? AND project_id = ?", user.ID, user.TenantID, projectID).
+		Count(&existing).Error; err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+
+	return tx.Create(&store.UserRoleBinding{
+		UserID:    user.ID,
+		RoleID:    0,
+		TenantID:  user.TenantID,
+		ProjectID: projectID,
+	}).Error
+}
+
 func validateUserDeletion(tx *gorm.DB, authCtx *AuthContext, user store.User, currentUserID uint) error {
 	if currentUserID == user.ID {
 		return fmt.Errorf("cannot delete your own account")
@@ -355,6 +395,12 @@ func (s *Server) handleCreateUser(r *ghttp.Request) {
 
 	existingUser, _ := store.GetUserByTenantAndUsername(tenantID, req.Username)
 	if existingUser != nil {
+		if err := store.DB.Transaction(func(tx *gorm.DB) error {
+			return ensureProjectScopedUserBinding(tx, authCtx, *existingUser)
+		}); err != nil {
+			r.Response.WriteJson(g.Map{"code": 403, "message": "Failed to bind user to project: " + err.Error()})
+			return
+		}
 		r.Response.WriteJson(g.Map{"code": 0, "message": "User exists in tenant", "data": g.Map{"id": existingUser.ID, "existing": true}})
 		return
 	}
@@ -398,7 +444,12 @@ func (s *Server) handleCreateUser(r *ghttp.Request) {
 		Status:      status,
 	}
 
-	if err := store.SaveUser(&newUser); err != nil {
+	if err := store.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&newUser).Error; err != nil {
+			return err
+		}
+		return ensureProjectScopedUserBinding(tx, authCtx, newUser)
+	}); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -546,67 +597,6 @@ func (s *Server) handleResetPassword(r *ghttp.Request) {
 	}
 
 	r.Response.WriteJson(g.Map{"code": 0, "message": "User password reset successfully"})
-}
-
-func (s *Server) handleGetUserPositions(r *ghttp.Request) {
-	userID := r.Get("id").Uint()
-	user, err := store.GetUserByID(userID)
-	if err != nil {
-		r.Response.WriteJson(g.Map{"code": 404, "message": "User not found"})
-		return
-	}
-	if authCtx := requestAuthContext(r); authCtx == nil || user.TenantID != authCtx.TenantID || !authCtx.CanManageTenantResource(user.TenantID) && !authCtx.IsProjectAdmin {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
-		return
-	}
-	var mappings []store.UserPosition
-	if err := store.DB.Where("user_id = ?", userID).Find(&mappings).Error; err != nil {
-		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to get user positions"})
-		return
-	}
-	positionIDs := make([]uint, 0)
-	for _, m := range mappings {
-		positionIDs = append(positionIDs, m.PositionID)
-	}
-	r.Response.WriteJson(g.Map{"code": 0, "data": positionIDs})
-}
-
-func (s *Server) handleSetUserPositions(r *ghttp.Request) {
-	userID := r.Get("id").Uint()
-	user, err := store.GetUserByID(userID)
-	if err != nil {
-		r.Response.WriteJson(g.Map{"code": 404, "message": "User not found"})
-		return
-	}
-	authCtx := requestAuthContext(r)
-	if authCtx == nil || user.TenantID != authCtx.TenantID || !authCtx.CanManageTenantResource(user.TenantID) {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
-		return
-	}
-	var req struct {
-		PositionIDs []uint `json:"position_ids"`
-	}
-	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
-		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
-		return
-	}
-
-	tx := store.DB.Begin()
-	tx.Where("user_id = ?", userID).Delete(&store.UserPosition{})
-	for _, pid := range req.PositionIDs {
-		var position store.Position
-		if err := tx.Where("id = ? AND tenant_id = ?", pid, user.TenantID).First(&position).Error; err != nil {
-			tx.Rollback()
-			r.Response.WriteJson(g.Map{"code": 403, "message": "Invalid position"})
-			return
-		}
-		tx.Create(&store.UserPosition{UserID: userID, PositionID: pid})
-	}
-	if err := tx.Commit().Error; err != nil {
-		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to update positions"})
-		return
-	}
-	r.Response.WriteJson(g.Map{"code": 0, "message": "Updated successfully"})
 }
 
 func (s *Server) handleGetUserRoles(r *ghttp.Request) {

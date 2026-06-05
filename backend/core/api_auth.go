@@ -120,6 +120,11 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type AppTokenRequest struct {
+	AppID  string `json:"app_id"`
+	AppKey string `json:"app_key"`
+}
+
 type ChangePasswordRequest struct {
 	OldPassword string `json:"old_password"`
 	NewPassword string `json:"new_password"`
@@ -154,6 +159,44 @@ func permissionCodesFromAuthContext(authCtx *AuthContext) []string {
 		permissions = append(permissions, code)
 	}
 	return permissions
+}
+
+func normalizedTokenExpiries(accessExpiry, refreshExpiry int) (int, int) {
+	if accessExpiry == 0 {
+		accessExpiry = 120
+	}
+	if refreshExpiry == 0 {
+		refreshExpiry = 10080
+	}
+	return accessExpiry, refreshExpiry
+}
+
+func issueAppTokens(app store.App, secret string, accessExpiryMin, refreshExpiryMin int) (string, string, error) {
+	accessExpiryMin, refreshExpiryMin = normalizedTokenExpiries(accessExpiryMin, refreshExpiryMin)
+	return utils.GenerateAppTokens(
+		app.ID,
+		app.TenantID,
+		app.AppID,
+		"app:"+app.Name,
+		secret,
+		accessExpiryMin,
+		refreshExpiryMin,
+	)
+}
+
+func buildAppTokenResponse(app store.App, authCtx *AuthContext, accessToken, refreshToken string, accessExpiryMin, refreshExpiryMin int) g.Map {
+	accessExpiryMin, refreshExpiryMin = normalizedTokenExpiries(accessExpiryMin, refreshExpiryMin)
+	return g.Map{
+		"access_token":        accessToken,
+		"refresh_token":       refreshToken,
+		"token_type":          "Bearer",
+		"expires_in":          accessExpiryMin * 60,
+		"refresh_expires_in":  refreshExpiryMin * 60,
+		"app_id":              app.AppID,
+		"tenant_id":           app.TenantID,
+		"allowed_project_ids": authCtx.AllowedProjectIDs,
+		"permissions":         permissionCodesFromAuthContext(authCtx),
+	}
 }
 
 func buildAuthUserInfo(user *store.User, authCtx *AuthContext, tenantName, tenantLogo string) g.Map {
@@ -329,6 +372,94 @@ func (s *Server) handleGetTenantBySuffix(r *ghttp.Request) {
 	})
 }
 
+// handleIssueAppToken exchanges AppID/AppKey for short-lived app bearer tokens.
+func (s *Server) handleIssueAppToken(r *ghttp.Request) {
+	var req AppTokenRequest
+	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON payload"})
+		return
+	}
+	req.AppID = strings.TrimSpace(req.AppID)
+	if req.AppID == "" || req.AppKey == "" {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "AppID and AppKey are required"})
+		return
+	}
+
+	appTrackerKey := fmt.Sprintf("app:%s", req.AppID)
+	if err := loginTracker.CheckAndRecord(appTrackerKey, false); err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
+		return
+	}
+
+	var app store.App
+	if err := store.DB.Where("app_id = ? AND status = ?", req.AppID, 1).First(&app).Error; err != nil {
+		r.Response.WriteJson(g.Map{"code": 401, "message": "Invalid App credentials"})
+		return
+	}
+	if !utils.CheckPasswordHash(req.AppKey, app.AppKey) {
+		r.Response.WriteJson(g.Map{"code": 401, "message": "Invalid App credentials"})
+		return
+	}
+	loginTracker.CheckAndRecord(appTrackerKey, true)
+
+	authCtx, err := ResolveAppAuthContext(app, 0)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
+		return
+	}
+
+	accessExpiry, refreshExpiry := normalizedTokenExpiries(s.Config.Auth.AccessTokenExpiry, s.Config.Auth.RefreshTokenExpiry)
+	accessToken, refreshToken, err := issueAppTokens(app, s.Config.Auth.JWTSecret, accessExpiry, refreshExpiry)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to generate app tokens"})
+		return
+	}
+
+	r.Response.WriteJson(g.Map{
+		"code": 0,
+		"data": buildAppTokenResponse(app, authCtx, accessToken, refreshToken, accessExpiry, refreshExpiry),
+	})
+}
+
+// handleRefreshAppToken rotates app bearer tokens using an app refresh token.
+func (s *Server) handleRefreshAppToken(r *ghttp.Request) {
+	var req RefreshRequest
+	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON payload"})
+		return
+	}
+
+	claims, err := utils.ParseToken(req.RefreshToken, s.Config.Auth.JWTSecret)
+	if err != nil || claims.SubjectType != "app" || claims.TokenUse != "refresh" || claims.AppDBID == 0 || claims.AppID == "" {
+		r.Response.WriteJson(g.Map{"code": 401, "message": "Invalid or expired app refresh token"})
+		return
+	}
+
+	var app store.App
+	if err := store.DB.Where("id = ? AND app_id = ? AND status = ?", claims.AppDBID, claims.AppID, 1).First(&app).Error; err != nil {
+		r.Response.WriteJson(g.Map{"code": 401, "message": "App no longer active"})
+		return
+	}
+
+	authCtx, err := ResolveAppAuthContext(app, 0)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
+		return
+	}
+
+	accessExpiry, refreshExpiry := normalizedTokenExpiries(s.Config.Auth.AccessTokenExpiry, s.Config.Auth.RefreshTokenExpiry)
+	accessToken, refreshToken, err := issueAppTokens(app, s.Config.Auth.JWTSecret, accessExpiry, refreshExpiry)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to generate app tokens"})
+		return
+	}
+
+	r.Response.WriteJson(g.Map{
+		"code": 0,
+		"data": buildAppTokenResponse(app, authCtx, accessToken, refreshToken, accessExpiry, refreshExpiry),
+	})
+}
+
 // handleRefreshToken issues a new access token given a valid refresh token
 func (s *Server) handleRefreshToken(r *ghttp.Request) {
 	var req RefreshRequest
@@ -339,6 +470,10 @@ func (s *Server) handleRefreshToken(r *ghttp.Request) {
 
 	claims, err := utils.ParseToken(req.RefreshToken, s.Config.Auth.JWTSecret)
 	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 401, "message": "Invalid or expired refresh token"})
+		return
+	}
+	if claims.SubjectType == "app" {
 		r.Response.WriteJson(g.Map{"code": 401, "message": "Invalid or expired refresh token"})
 		return
 	}

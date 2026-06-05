@@ -13,7 +13,6 @@ import UserManagement from '../views/UserManagement.vue'
 import TenantManagement from '../views/TenantManagement.vue'
 import ProjectManagement from '../views/ProjectManagement.vue'
 import RoleManagement from '../views/RoleManagement.vue'
-import PositionManagement from '../views/PositionManagement.vue'
 import AppManagement from '../views/AppManagement.vue'
 import AppIntegrationGuide from '../views/AppIntegrationGuide.vue'
 import AuditLogs from '../views/AuditLogs.vue'
@@ -117,12 +116,6 @@ const routes = [
     name: 'RoleManagement',
     component: RoleManagement,
     meta: { requiresAuth: true, permission: 'role:list' }
-  },
-  {
-    path: '/settings/positions',
-    name: 'PositionManagement',
-    component: PositionManagement,
-    meta: { requiresAuth: true, permission: 'position:list' }
   },
   {
     path: '/settings/apps',

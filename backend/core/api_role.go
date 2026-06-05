@@ -43,12 +43,15 @@ func (s *Server) handleGetRoles(r *ghttp.Request) {
 				r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
 				return
 			}
-			db = db.Where("tenant_id = ? AND is_builtin = ? AND (project_id = ? OR project_id = 0)", authCtx.TenantID, false, projectID)
+			db = db.Where("tenant_id = ? AND is_builtin = ? AND (project_id = ? OR (project_id = 0 AND is_inherited = ?))", authCtx.TenantID, false, projectID, true)
+			if includeBuiltin {
+				includeProjectAdminBuiltin = true
+			}
 		} else {
 			db = db.Where("tenant_id = ? AND is_builtin = ?", authCtx.TenantID, false)
-		}
-		if includeBuiltin {
-			db = db.Or("tenant_id = ? AND project_id = ? AND is_builtin = ? AND code IN ?", 0, 0, true, assignableBuiltinRoleCodes)
+			if includeBuiltin {
+				db = db.Or("tenant_id = ? AND project_id = ? AND is_builtin = ? AND code IN ?", 0, 0, true, assignableBuiltinRoleCodes)
+			}
 		}
 	} else {
 		allowedProjectIDs := authCtx.AllowedProjectIDs
@@ -247,7 +250,6 @@ func (s *Server) handleDeleteRole(r *ghttp.Request) {
 
 		tx.Unscoped().Where("role_id = ?", id).Delete(&store.RolePermission{})
 		tx.Unscoped().Where("role_id = ?", id).Delete(&store.RoleDeviceTagPermission{})
-		tx.Unscoped().Where("role_id = ?", id).Delete(&store.PositionRole{})
 
 		return tx.Unscoped().Delete(&role).Error
 	})

@@ -140,16 +140,6 @@ export const QUICK_MODE_MODULES = [
     full: ['role:delete']
   },
   {
-    module: 'position',
-    group: 'business',
-    icon: 'bi-person-badge',
-    nameKey: 'perm_mod_position',
-    levels: ['none', 'readonly', 'edit', 'full'],
-    readonly: ['position:list'],
-    edit: ['position:create', 'position:edit'],
-    full: ['position:delete']
-  },
-  {
     module: 'app',
     group: 'business',
     icon: 'bi-window-sidebar',

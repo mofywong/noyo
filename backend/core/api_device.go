@@ -13,6 +13,7 @@ import (
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 func (s *Server) RegisterDeviceRoutes(group *ghttp.RouterGroup) {
@@ -563,6 +564,10 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
+	if err := s.checkDeviceTagPermission(r, code); err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
+		return
+	}
 	d.TenantID = oldDevice.TenantID
 	d.ProjectID = oldDevice.ProjectID
 	if err := validatePollingGroupsPreserved(oldDevice.Config, d.Config); err != nil {
@@ -775,6 +780,10 @@ func (s *Server) handleStartDevice(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
+	if err := s.checkDeviceTagPermission(r, code); err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
+		return
+	}
 	device.Enabled = true
 	if err := store.SaveDevice(device); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
@@ -812,6 +821,10 @@ func (s *Server) handleStopDevice(r *ghttp.Request) {
 	}
 	if !canAccessDevice(r, device) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+	if err := s.checkDeviceTagPermission(r, code); err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
 		return
 	}
 	device.Enabled = false
@@ -1447,22 +1460,50 @@ func (s *Server) checkDeviceTagPermission(r *ghttp.Request, deviceCode string) e
 		return nil
 	}
 
+	projectID, err := deviceTagPermissionProjectID(authCtx, deviceCode)
+	if err != nil {
+		return err
+	}
+	hasScopedPermissions, err := hasAnyDeviceTagPermission(authCtx, projectID)
+	if err != nil {
+		return err
+	}
+	if !hasScopedPermissions {
+		allowed, err := hasNonInheritedDevicePermissionFallback(authCtx, projectID)
+		if err != nil {
+			return err
+		}
+		if allowed {
+			return nil
+		}
+		return fmt.Errorf("no device tag write permission for this project")
+	}
+
 	scope := currentDeviceTagScope(r)
 	var bindings []store.DeviceTagBinding
 	if err := store.DB.Where("scope_type = ? AND scope_id = ? AND device_code = ?", scope.Type, scope.ID, deviceCode).Find(&bindings).Error; err != nil {
 		return err
 	}
 	if len(bindings) == 0 {
-		return nil
+		return fmt.Errorf("no device tag write permission for this device")
 	}
 
+	tagIDs := make([]uint, 0, len(bindings))
 	for _, b := range bindings {
-		for _, roleID := range authCtx.RoleIDs {
-			var dtp store.RoleDeviceTagPermission
-			if err := store.DB.Where("role_id = ? AND tag_id = ? AND permission = ?", roleID, b.TagID, "write").First(&dtp).Error; err == nil {
-				return nil
-			}
-		}
+		tagIDs = append(tagIDs, b.TagID)
+	}
+	var count int64
+	query, ok := scopedDeviceTagPermissionQuery(authCtx, projectID)
+	if !ok {
+		return fmt.Errorf("no device tag write permission for this project")
+	}
+	if err := query.
+		Where("role_device_tag_permissions.tag_id IN ? AND role_device_tag_permissions.permission = ?", tagIDs, "write").
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
 	}
 
 	return fmt.Errorf("read-only access to this device due to tag restrictions")
@@ -1496,15 +1537,6 @@ func filterDevicesForAuthContextStats(authCtx *AuthContext, devices []*store.Dev
 	return filtered
 }
 
-func hasAnyDeviceTagPermission(authCtx *AuthContext) bool {
-	if authCtx == nil || len(authCtx.RoleIDs) == 0 {
-		return false
-	}
-	var count int64
-	store.DB.Model(&store.RoleDeviceTagPermission{}).Where("role_id IN ?", authCtx.RoleIDs).Count(&count)
-	return count > 0
-}
-
 func canReadDeviceByTagPermission(authCtx *AuthContext, scope store.AccessScope, deviceCode string) (bool, error) {
 	if authCtx == nil {
 		return false, nil
@@ -1515,8 +1547,16 @@ func canReadDeviceByTagPermission(authCtx *AuthContext, scope store.AccessScope,
 	if len(authCtx.RoleIDs) == 0 {
 		return false, nil
 	}
-	if !hasAnyDeviceTagPermission(authCtx) {
-		return true, nil
+	projectID, err := deviceTagPermissionProjectID(authCtx, deviceCode)
+	if err != nil {
+		return false, err
+	}
+	hasScopedPermissions, err := hasAnyDeviceTagPermission(authCtx, projectID)
+	if err != nil {
+		return false, err
+	}
+	if !hasScopedPermissions {
+		return hasNonInheritedDevicePermissionFallback(authCtx, projectID)
 	}
 
 	var bindings []store.DeviceTagBinding
@@ -1531,9 +1571,97 @@ func canReadDeviceByTagPermission(authCtx *AuthContext, scope store.AccessScope,
 		tagIDs = append(tagIDs, binding.TagID)
 	}
 	var count int64
-	if err := store.DB.Model(&store.RoleDeviceTagPermission{}).
-		Where("role_id IN ? AND tag_id IN ? AND permission IN ?", authCtx.RoleIDs, tagIDs, []string{"read", "write"}).
+	query, ok := scopedDeviceTagPermissionQuery(authCtx, projectID)
+	if !ok {
+		return false, nil
+	}
+	if err := query.
+		Where("role_device_tag_permissions.tag_id IN ? AND role_device_tag_permissions.permission IN ?", tagIDs, []string{"read", "write"}).
 		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func deviceTagPermissionProjectID(authCtx *AuthContext, deviceCode string) (uint, error) {
+	if authCtx == nil {
+		return 0, fmt.Errorf("auth context not found")
+	}
+	if authCtx.ProjectID > 0 {
+		return authCtx.ProjectID, nil
+	}
+	var device store.Device
+	if err := store.DB.Select("project_id").Where("code = ?", deviceCode).First(&device).Error; err != nil {
+		return 0, err
+	}
+	if device.ProjectID > 0 && !authCtx.CanAccessProject(device.ProjectID) {
+		return 0, fmt.Errorf("device project is outside allowed scope")
+	}
+	return device.ProjectID, nil
+}
+
+func roleIDsEffectiveForProject(authCtx *AuthContext, projectID uint) []uint {
+	if authCtx == nil || len(authCtx.RoleIDs) == 0 {
+		return []uint{}
+	}
+	if len(authCtx.RoleProjectIDs) == 0 {
+		return authCtx.RoleIDs
+	}
+	roleIDs := make([]uint, 0, len(authCtx.RoleIDs))
+	for _, roleID := range authCtx.RoleIDs {
+		projectMap := authCtx.RoleProjectIDs[roleID]
+		if projectMap[0] || projectMap[projectID] || projectID == 0 {
+			roleIDs = append(roleIDs, roleID)
+		}
+	}
+	return roleIDs
+}
+
+func scopedDeviceTagPermissionQuery(authCtx *AuthContext, projectID uint) (*gorm.DB, bool) {
+	roleIDs := roleIDsEffectiveForProject(authCtx, projectID)
+	if len(roleIDs) == 0 {
+		return nil, false
+	}
+	query := store.DB.Model(&store.RoleDeviceTagPermission{}).
+		Joins("JOIN roles ON roles.id = role_device_tag_permissions.role_id").
+		Where("role_device_tag_permissions.role_id IN ?", roleIDs)
+	if projectID > 0 {
+		query = query.Where(
+			"(role_device_tag_permissions.project_id = ? OR (role_device_tag_permissions.project_id = ? AND roles.is_inherited = ?))",
+			projectID,
+			0,
+			false,
+		)
+	} else {
+		query = query.Where("role_device_tag_permissions.project_id = ?", 0)
+	}
+	return query, true
+}
+
+func hasAnyDeviceTagPermission(authCtx *AuthContext, projectID uint) (bool, error) {
+	query, ok := scopedDeviceTagPermissionQuery(authCtx, projectID)
+	if !ok {
+		return false, nil
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func hasNonInheritedDevicePermissionFallback(authCtx *AuthContext, projectID uint) (bool, error) {
+	roleIDs := roleIDsEffectiveForProject(authCtx, projectID)
+	if len(roleIDs) == 0 {
+		return false, nil
+	}
+	var count int64
+	query := store.DB.Model(&store.Role{}).
+		Where("id IN ? AND is_inherited = ?", roleIDs, false)
+	if projectID > 0 {
+		query = query.Where("(project_id = ? OR project_id = ?)", 0, projectID)
+	}
+	if err := query.Count(&count).Error; err != nil {
 		return false, err
 	}
 	return count > 0, nil

@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"noyo/core/store"
+	"noyo/core/utils"
 )
 
 const authContextKey = "auth_context"
@@ -29,6 +30,7 @@ type AuthContext struct {
 	IsTenantAdmin      bool
 	IsProjectAdmin     bool
 	RoleIDs            []uint
+	RoleProjectIDs     map[uint]map[uint]bool
 	PermissionCodes    map[string]bool
 	AllowedProjectIDs  []uint
 	UsesProjectLimits  bool
@@ -102,6 +104,16 @@ func (ctx *AuthContext) CanManageTenantResource(tenantID uint) bool {
 		return false
 	}
 	return tenantID > 0 && tenantID == ctx.TenantID && ctx.IsTenantAdmin
+}
+
+func (ctx *AuthContext) CanUseTenantScopedResource(tenantID uint) bool {
+	if ctx == nil {
+		return false
+	}
+	if tenantID == 0 || tenantID != ctx.TenantID {
+		return false
+	}
+	return ctx.IsTenantAdmin || len(ctx.AllowedProjectIDs) > 0
 }
 
 func (ctx *AuthContext) CanManageProject(projectID uint) bool {
@@ -264,6 +276,18 @@ func ResolveAppAuthContext(app store.App, requestedProjectID uint) (*AuthContext
 	return ctx, nil
 }
 
+func resolveAppAuthContextFromClaims(claims *utils.JWTClaims, requestedProjectID uint) (*AuthContext, error) {
+	if claims == nil || claims.SubjectType != "app" || claims.TokenUse != "access" || claims.AppDBID == 0 || claims.AppID == "" {
+		return nil, fmt.Errorf("invalid app access token")
+	}
+
+	var app store.App
+	if err := store.DB.Where("id = ? AND app_id = ?", claims.AppDBID, claims.AppID).First(&app).Error; err != nil {
+		return nil, fmt.Errorf("invalid app access token")
+	}
+	return ResolveAppAuthContext(app, requestedProjectID)
+}
+
 type resolvedRoleBinding struct {
 	Role      store.Role
 	ProjectID uint
@@ -284,34 +308,15 @@ func resolveUserRoleBindings(userID, tenantID uint) ([]resolvedRoleBinding, erro
 		}
 	}
 
-	var userPositions []store.UserPosition
-	if err := store.DB.Where("user_id = ?", userID).Find(&userPositions).Error; err != nil {
-		return nil, err
-	}
-	for _, userPosition := range userPositions {
-		var position store.Position
-		if err := store.DB.Where("id = ? AND tenant_id = ? AND status = ?", userPosition.PositionID, tenantID, 1).First(&position).Error; err != nil {
-			continue
-		}
-		var positionRoles []store.PositionRole
-		if err := store.DB.Where("position_id = ?", position.ID).Find(&positionRoles).Error; err != nil {
-			return nil, err
-		}
-		for _, positionRole := range positionRoles {
-			var role store.Role
-			err := store.DB.Where("id = ? AND (tenant_id = ? OR tenant_id = 0)", positionRole.RoleID, tenantID).First(&role).Error
-			if err == nil {
-				resolved = append(resolved, resolvedRoleBinding{Role: role, ProjectID: role.ProjectID})
-			}
-		}
-	}
-
 	return resolved, nil
 }
 
 func applyRoleBindings(ctx *AuthContext, bindings []resolvedRoleBinding, legacyRole string) {
 	roleIDMap := make(map[uint]bool)
 	projectIDMap := make(map[uint]bool)
+	if ctx.RoleProjectIDs == nil {
+		ctx.RoleProjectIDs = make(map[uint]map[uint]bool)
+	}
 	for _, binding := range bindings {
 		role := binding.Role
 		if !roleIDMap[role.ID] {
@@ -334,6 +339,16 @@ func applyRoleBindings(ctx *AuthContext, bindings []resolvedRoleBinding, legacyR
 				}
 			}
 		}
+		roleProjectID := uint(0)
+		if binding.ProjectID > 0 {
+			roleProjectID = binding.ProjectID
+		} else if role.ProjectID > 0 {
+			roleProjectID = role.ProjectID
+		}
+		if ctx.RoleProjectIDs[role.ID] == nil {
+			ctx.RoleProjectIDs[role.ID] = make(map[uint]bool)
+		}
+		ctx.RoleProjectIDs[role.ID][roleProjectID] = true
 
 		if role.DataScope == 1 {
 			for _, id := range allProjectIDs(ctx.TenantID) {

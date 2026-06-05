@@ -29,6 +29,10 @@ type JWTClaims struct {
 	Role            string `json:"role"`
 	AllowedTenants  []uint `json:"allowed_tenants"`
 	AllowedProjects []uint `json:"allowed_projects"`
+	SubjectType     string `json:"subject_type,omitempty"`
+	TokenUse        string `json:"token_use,omitempty"`
+	AppID           string `json:"app_id,omitempty"`
+	AppDBID         uint   `json:"app_db_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -60,6 +64,55 @@ func GenerateTokens(userID, tenantID uint, username, role string, allowedTenants
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(refreshExpiryMin) * time.Minute)),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 		NotBefore: jwt.NewNumericDate(time.Now()),
+	}
+	refreshT := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
+	refreshToken, err = refreshT.SignedString([]byte(secret))
+	if err != nil {
+		return "", "", err
+	}
+
+	return accessToken, refreshToken, nil
+}
+
+// GenerateAppTokens generates short-lived bearer tokens for application access.
+func GenerateAppTokens(appDBID, tenantID uint, appID, username, secret string, accessExpiryMin, refreshExpiryMin int) (accessToken, refreshToken string, err error) {
+	subject := strconv.FormatUint(uint64(appDBID), 10)
+
+	accessClaims := JWTClaims{
+		TenantID:    tenantID,
+		Username:    username,
+		Role:        "app",
+		SubjectType: "app",
+		TokenUse:    "access",
+		AppID:       appID,
+		AppDBID:     appDBID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   subject,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(accessExpiryMin) * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+		},
+	}
+	accessT := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
+	accessToken, err = accessT.SignedString([]byte(secret))
+	if err != nil {
+		return "", "", err
+	}
+
+	refreshClaims := JWTClaims{
+		TenantID:    tenantID,
+		Username:    username,
+		Role:        "app",
+		SubjectType: "app",
+		TokenUse:    "refresh",
+		AppID:       appID,
+		AppDBID:     appDBID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   subject,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(refreshExpiryMin) * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+		},
 	}
 	refreshT := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
 	refreshToken, err = refreshT.SignedString([]byte(secret))

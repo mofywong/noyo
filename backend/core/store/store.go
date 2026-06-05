@@ -63,9 +63,6 @@ func InitDB(dsn string) error {
 		&DeviceTagBinding{},
 		&SystemConfig{},
 		&GatewayPluginStateModel{},
-		&Position{},
-		&UserPosition{},
-		&PositionRole{},
 		&App{},
 		&AppRole{},
 		&AuditLog{},
@@ -75,7 +72,25 @@ func InitDB(dsn string) error {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
 	_ = DB.Migrator().DropIndex(&AppRole{}, "idx_app_role")
+	_ = DB.Migrator().DropIndex(&RoleDeviceTagPermission{}, "idx_role_tag")
+	DB.Exec(`
+		UPDATE role_device_tag_permissions
+		SET project_id = (
+			SELECT roles.project_id
+			FROM roles
+			WHERE roles.id = role_device_tag_permissions.role_id
+		)
+		WHERE project_id = 0
+		  AND role_id IN (
+			SELECT id
+			FROM roles
+			WHERE project_id > 0
+		  )
+	`)
 	DB.Exec("UPDATE apps SET status = 1 WHERE status IS NULL")
+	if err := purgeLegacyPositionPermissions(); err != nil {
+		return fmt.Errorf("failed to purge legacy position permissions: %w", err)
+	}
 
 	// Initialize default super admin, tenant, project, and permissions
 	InitDefaultData()
@@ -87,6 +102,23 @@ func InitDB(dsn string) error {
 	CleanExpiredBlacklist()
 
 	return nil
+}
+
+func purgeLegacyPositionPermissions() error {
+	var permissionIDs []uint
+	if err := DB.Model(&Permission{}).Where("code LIKE ?", "position:%").Pluck("id", &permissionIDs).Error; err != nil {
+		return err
+	}
+	if len(permissionIDs) == 0 {
+		return nil
+	}
+	if err := DB.Unscoped().Where("permission_id IN ?", permissionIDs).Delete(&RolePermission{}).Error; err != nil {
+		return err
+	}
+	if err := DB.Unscoped().Where("permission_id IN ?", permissionIDs).Delete(&ScopePermissionLimit{}).Error; err != nil {
+		return err
+	}
+	return DB.Unscoped().Where("id IN ?", permissionIDs).Delete(&Permission{}).Error
 }
 
 var superAdminDefaultPermissionCodes = map[string]bool{
@@ -149,11 +181,6 @@ func InitPermissions() {
 		{Code: "role:create", Name: "创建角色", Module: "role", Type: "button"},
 		{Code: "role:edit", Name: "编辑角色", Module: "role", Type: "button"},
 		{Code: "role:delete", Name: "删除角色", Module: "role", Type: "button"},
-		// Positions
-		{Code: "position:list", Name: "岗位列表", Module: "position", Type: "menu"},
-		{Code: "position:create", Name: "创建岗位", Module: "position", Type: "button"},
-		{Code: "position:edit", Name: "编辑岗位", Module: "position", Type: "button"},
-		{Code: "position:delete", Name: "删除岗位", Module: "position", Type: "button"},
 		// Apps
 		{Code: "app:list", Name: "应用列表", Module: "app", Type: "menu"},
 		{Code: "app:create", Name: "创建应用", Module: "app", Type: "button"},
@@ -269,6 +296,8 @@ func InitPermissions() {
 		Assign(projectAdminRole).
 		FirstOrCreate(&projectAdminRole)
 
+	migrateProjectMembershipViewerBindings()
+
 	var perms []Permission
 	if err := DB.Find(&perms).Error; err == nil {
 		for _, perm := range perms {
@@ -322,6 +351,18 @@ func InitPermissions() {
 	}
 	syncRolePermissionAllowlist(superAdminRole.ID, superAdminDefaultPermissionCodes)
 	removePermissionCodesFromOtherRoles(superAdminRole.ID, exclusiveTenantManagementPermissionCodes)
+}
+
+func migrateProjectMembershipViewerBindings() {
+	var viewerRole Role
+	if err := DB.Where("tenant_id = ? AND project_id = ? AND code = ?", 0, 0, "viewer").First(&viewerRole).Error; err != nil {
+		return
+	}
+	DB.Model(&UserRoleBinding{}).
+		Where("role_id = ? AND project_id > ?", viewerRole.ID, 0).
+		Update("role_id", 0)
+	DB.Unscoped().Where("role_id = ?", viewerRole.ID).Delete(&RolePermission{})
+	DB.Unscoped().Delete(&viewerRole)
 }
 
 func syncRolePermissionAllowlist(roleID uint, allowedCodes map[string]bool) {

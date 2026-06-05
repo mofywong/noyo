@@ -104,17 +104,28 @@ func (s *Server) handleGetRolePermissions(r *ghttp.Request) {
 		return
 	}
 
-	var dtps []store.RoleDeviceTagPermission
-	if err := store.DB.Where("role_id = ?", roleID).Find(&dtps).Error; err != nil {
-		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch role device tag permissions"})
+	requestedProjectID := r.Get("project_id").Uint()
+	deviceTagProjectID, hasDeviceTagProjectScope, err := resolveRoleDeviceTagPermissionProjectID(authCtx, targetRole, requestedProjectID)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
 		return
+	}
+
+	var dtps []store.RoleDeviceTagPermission
+	if hasDeviceTagProjectScope {
+		if err := store.DB.Where("role_id = ? AND project_id = ?", roleID, deviceTagProjectID).Find(&dtps).Error; err != nil {
+			r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch role device tag permissions"})
+			return
+		}
 	}
 
 	r.Response.WriteJson(g.Map{
 		"code": 0,
 		"data": g.Map{
-			"permissions": rps,
-			"device_tags": dtps,
+			"permissions":              rps,
+			"device_tags":              dtps,
+			"device_tag_project_id":    deviceTagProjectID,
+			"requires_project_context": targetRole.IsInherited && !hasDeviceTagProjectScope,
 		},
 	})
 }
@@ -127,21 +138,19 @@ func permissionAssignableToRole(permission store.Permission, targetRole store.Ro
 		return true
 	}
 	if permission.Module == "system" {
-		return false
+		return permission.Code == "dashboard:view"
 	}
-	if targetRole.ProjectID > 0 && permission.Module != "project" {
-		return false
+	if targetRole.ProjectID > 0 || targetRole.IsInherited {
+		return permission.Module != "tenant"
 	}
 	if authCtx.IsTenantAdmin {
 		return true
 	}
-	if permission.Module == "project" {
-		return true
-	}
-	return false
+	return permission.Module != "tenant"
 }
 
 func validateAssignablePermissionIDs(tx *gorm.DB, permissionIDs []uint, targetRole store.Role, authCtx *AuthContext) error {
+	permissionIDs = uniquePermissionIDs(permissionIDs)
 	if len(permissionIDs) == 0 {
 		return nil
 	}
@@ -164,14 +173,63 @@ func validateAssignablePermissionIDs(tx *gorm.DB, permissionIDs []uint, targetRo
 	return nil
 }
 
+func replaceRolePermissionIDs(tx *gorm.DB, roleID uint, permissionIDs []uint) error {
+	permissionIDs = uniquePermissionIDs(permissionIDs)
+	if err := tx.Unscoped().Where("role_id = ?", roleID).Delete(&store.RolePermission{}).Error; err != nil {
+		return err
+	}
+	for _, pID := range permissionIDs {
+		rp := store.RolePermission{RoleID: roleID, PermissionID: pID}
+		if err := tx.Create(&rp).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type roleDeviceTagAssignmentInput struct {
 	TagID      uint   `json:"tag_id"`
 	Permission string `json:"permission"`
 }
 
-func validateRoleDeviceTagAssignments(tx *gorm.DB, authCtx *AuthContext, targetRole store.Role, assignments []roleDeviceTagAssignmentInput) error {
+func resolveRoleDeviceTagPermissionProjectID(authCtx *AuthContext, targetRole store.Role, requestedProjectID uint) (uint, bool, error) {
+	if authCtx == nil || authCtx.TenantID == 0 {
+		return 0, false, fmt.Errorf("tenant context is required")
+	}
+	if targetRole.TenantID != authCtx.TenantID {
+		return 0, false, fmt.Errorf("role is outside tenant scope")
+	}
+	if targetRole.ProjectID > 0 {
+		if !authCtx.IsTenantAdmin && !authCtx.CanAccessProject(targetRole.ProjectID) {
+			return 0, false, fmt.Errorf("role project is outside allowed scope")
+		}
+		return targetRole.ProjectID, true, nil
+	}
+	if targetRole.IsInherited {
+		projectID := requestedProjectID
+		if projectID == 0 {
+			projectID = authCtx.ProjectID
+		}
+		if projectID == 0 {
+			return 0, false, nil
+		}
+		if !projectBelongsToTenant(projectID, authCtx.TenantID) {
+			return 0, false, fmt.Errorf("project is outside tenant scope")
+		}
+		if !authCtx.IsTenantAdmin && !authCtx.CanAccessProject(projectID) {
+			return 0, false, fmt.Errorf("project is outside allowed scope")
+		}
+		return projectID, true, nil
+	}
+	return 0, true, nil
+}
+
+func validateRoleDeviceTagAssignments(tx *gorm.DB, authCtx *AuthContext, targetRole store.Role, deviceTagProjectID uint, hasDeviceTagProjectScope bool, assignments []roleDeviceTagAssignmentInput) error {
 	if len(assignments) == 0 {
 		return nil
+	}
+	if !hasDeviceTagProjectScope {
+		return fmt.Errorf("project context is required for inherited role device tag permissions")
 	}
 	if authCtx == nil || authCtx.TenantID == 0 {
 		return fmt.Errorf("tenant context is required")
@@ -181,6 +239,9 @@ func validateRoleDeviceTagAssignments(tx *gorm.DB, authCtx *AuthContext, targetR
 	}
 	if targetRole.ProjectID > 0 && !authCtx.CanManageProject(targetRole.ProjectID) {
 		return fmt.Errorf("role project is outside allowed scope")
+	}
+	if deviceTagProjectID > 0 && !authCtx.CanManageProject(deviceTagProjectID) {
+		return fmt.Errorf("device tag project is outside allowed scope")
 	}
 
 	tagIDs := make([]uint, 0, len(assignments))
@@ -212,6 +273,26 @@ func validateRoleDeviceTagAssignments(tx *gorm.DB, authCtx *AuthContext, targetR
 	return nil
 }
 
+func canEditRoleFunctionPermissions(authCtx *AuthContext, targetRole store.Role) bool {
+	if authCtx == nil {
+		return false
+	}
+	if targetRole.IsInherited && authCtx.ProjectID > 0 {
+		return false
+	}
+	return authCtx.CanManageRole(targetRole)
+}
+
+func canEditRoleDeviceTagPermissions(authCtx *AuthContext, targetRole store.Role, deviceTagProjectID uint, hasDeviceTagProjectScope bool) bool {
+	if authCtx == nil || targetRole.TenantID != authCtx.TenantID {
+		return false
+	}
+	if targetRole.ProjectID > 0 || targetRole.IsInherited {
+		return hasDeviceTagProjectScope && deviceTagProjectID > 0 && authCtx.CanManageProject(deviceTagProjectID)
+	}
+	return authCtx.CanManageRole(targetRole)
+}
+
 func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 	roleID := r.Get("id").Uint()
 	if roleID == 0 {
@@ -231,48 +312,75 @@ func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 	}
 
 	authCtx := requestAuthContext(r)
-	if authCtx == nil || !authCtx.CanManageRole(targetRole) {
+	if authCtx == nil || targetRole.TenantID != authCtx.TenantID {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
 
 	var req struct {
 		PermissionIDs []uint                         `json:"permission_ids"`
+		ProjectID     uint                           `json:"project_id"`
 		DeviceTags    []roleDeviceTagAssignmentInput `json:"device_tags"`
 	}
+
+	var rawReq map[string]json.RawMessage
+	if err := json.Unmarshal(r.GetBody(), &rawReq); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
+		return
+	}
+	_, hasRolePermissionField := rawReq["permission_ids"]
+	_, hasDeviceTagsField := rawReq["device_tags"]
 
 	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
 		return
 	}
+	if !hasRolePermissionField && !hasDeviceTagsField {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "No permission changes supplied"})
+		return
+	}
 
 	err := store.DB.Transaction(func(tx *gorm.DB) error {
-		if err := validateAssignablePermissionIDs(tx, req.PermissionIDs, targetRole, authCtx); err != nil {
-			return err
+		requestedProjectID := req.ProjectID
+		if requestedProjectID == 0 {
+			requestedProjectID = r.Get("project_id").Uint()
 		}
-		if err := validateRoleDeviceTagAssignments(tx, authCtx, targetRole, req.DeviceTags); err != nil {
+		deviceTagProjectID, hasDeviceTagProjectScope, err := resolveRoleDeviceTagPermissionProjectID(authCtx, targetRole, requestedProjectID)
+		if err != nil {
 			return err
 		}
 
-		if err := tx.Where("role_id = ?", roleID).Delete(&store.RolePermission{}).Error; err != nil {
-			return err
-		}
+		canEditFunctions := canEditRoleFunctionPermissions(authCtx, targetRole)
+		canEditDeviceTags := canEditRoleDeviceTagPermissions(authCtx, targetRole, deviceTagProjectID, hasDeviceTagProjectScope)
 
-		for _, pID := range req.PermissionIDs {
-			rp := store.RolePermission{RoleID: roleID, PermissionID: pID}
-			if err := tx.Create(&rp).Error; err != nil {
+		if hasRolePermissionField {
+			if !canEditFunctions {
+				return fmt.Errorf("function permissions cannot be modified in the current role context")
+			}
+			if err := validateAssignablePermissionIDs(tx, req.PermissionIDs, targetRole, authCtx); err != nil {
+				return err
+			}
+			if err := replaceRolePermissionIDs(tx, roleID, req.PermissionIDs); err != nil {
 				return err
 			}
 		}
 
-		if err := tx.Where("role_id = ?", roleID).Delete(&store.RoleDeviceTagPermission{}).Error; err != nil {
-			return err
-		}
-
-		for _, dt := range req.DeviceTags {
-			dtp := store.RoleDeviceTagPermission{RoleID: roleID, TagID: dt.TagID, Permission: dt.Permission}
-			if err := tx.Create(&dtp).Error; err != nil {
+		if hasDeviceTagsField {
+			if !canEditDeviceTags {
+				return fmt.Errorf("device tag permissions cannot be modified in the current role context")
+			}
+			if err := validateRoleDeviceTagAssignments(tx, authCtx, targetRole, deviceTagProjectID, hasDeviceTagProjectScope, req.DeviceTags); err != nil {
 				return err
+			}
+			if err := tx.Unscoped().Where("role_id = ? AND project_id = ?", roleID, deviceTagProjectID).Delete(&store.RoleDeviceTagPermission{}).Error; err != nil {
+				return err
+			}
+
+			for _, dt := range req.DeviceTags {
+				dtp := store.RoleDeviceTagPermission{RoleID: roleID, ProjectID: deviceTagProjectID, TagID: dt.TagID, Permission: dt.Permission}
+				if err := tx.Create(&dtp).Error; err != nil {
+					return err
+				}
 			}
 		}
 

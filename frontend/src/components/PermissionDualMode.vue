@@ -142,7 +142,7 @@ const activeModules = computed(() => {
 })
 
 const MODULE_ORDER = [
-  'dashboard', 'plugin', 'product', 'gateway', 'device', 'topology', 'device_tag', 'alarm', 'audit', 'system_logs', 'user', 'tenant', 'project', 'role', 'position', 'app', 'system'
+  'dashboard', 'plugin', 'product', 'gateway', 'device', 'topology', 'device_tag', 'alarm', 'audit', 'system_logs', 'user', 'tenant', 'project', 'role', 'app', 'system'
 ]
 
 const normalizedPermissions = computed(() => {
@@ -235,7 +235,7 @@ const groupedPermissions = computed(() => {
 
   const orderedGroups = {}
   const displayOrder = [
-    'dashboard', 'plugin', 'product', 'gateway', 'device', 'topology', 'device_tag', 'alarm', 'audit', 'system_logs', 'user', 'tenant', 'project', 'role', 'position', 'app', 'system'
+    'dashboard', 'plugin', 'product', 'gateway', 'device', 'topology', 'device_tag', 'alarm', 'audit', 'system_logs', 'user', 'tenant', 'project', 'role', 'app', 'system'
   ]
   for (const mod of displayOrder) {
     if (groups[mod] && groups[mod].length > 0) {
@@ -338,7 +338,6 @@ const translateModule = (module) => {
     'plugin': 'perm_mod_plugin',
     'audit': 'perm_mod_audit',
     'app': 'perm_mod_app',
-    'position': 'perm_mod_position',
     'dashboard': 'perm_mod_dashboard'
   }
   

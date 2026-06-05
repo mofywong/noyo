@@ -61,18 +61,20 @@
 
                 <td>{{ new Date(r.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
                 <td class="text-end">
-                  <button class="btn btn-sm btn-outline-success me-2" @click="openDetailsModal(r)" :title="$t('common_view_details', '查看详情')">
-                    <i class="bi bi-eye"></i>
-                  </button>
-                  <button class="btn btn-sm me-2" :class="r.has_permissions ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermModal(r)" :disabled="r.is_builtin" :title="$t('role_config_perm', '配置权限')" v-permission="'role:edit'">
-                    <i class="bi bi-shield-check"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_edit', '编辑')" v-permission="'role:edit'">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="deleteRole(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_delete', '删除')" v-permission="'role:delete'">
-                    <i class="bi bi-trash"></i>
-                  </button>
+                  <div class="d-inline-flex align-items-center justify-content-end gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(r)" :title="$t('common_view_details', '查看详情')">
+                      <i class="bi bi-eye"></i>
+                    </button>
+                    <button class="btn btn-sm" :class="r.has_permissions ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermModal(r)" :disabled="r.is_builtin" :title="$t('role_config_perm', '配置权限')" v-permission="'role:edit'">
+                      <i class="bi bi-shield-check"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" @click="openEditModal(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_edit', '编辑')" v-permission="'role:edit'">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" @click="deleteRole(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_delete', '删除')" v-permission="'role:delete'">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -261,7 +263,10 @@ const filteredRoles = computed(() => {
   if (filterProjectId.value === -1) {
     return roles.value
   }
-  return roles.value.filter(r => r.project_id === filterProjectId.value)
+  if (filterProjectId.value === 0) {
+    return roles.value.filter(r => r.project_id === 0 && r.is_inherited !== true)
+  }
+  return roles.value.filter(r => r.project_id === filterProjectId.value || (r.project_id === 0 && r.is_inherited === true))
 })
 
 const isRoleReadOnly = (item) => isInheritedRoleReadOnlyForUser(authStore.user, item)

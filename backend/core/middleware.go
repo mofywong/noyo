@@ -2,7 +2,6 @@ package core
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -15,66 +14,11 @@ import (
 // authenticateRequest performs JWT/App authentication and sets context vars.
 // Returns *AuthContext on success, nil on failure (response already written).
 func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
-	// 1. Try App Authentication First
-	appID := r.Header.Get("X-App-ID")
-	appKey := r.Header.Get("X-App-Key")
-	if appID != "" && appKey != "" {
-		// Rate limiting for app auth
-		appTrackerKey := fmt.Sprintf("app:%s", appID)
-		if err := loginTracker.CheckAndRecord(appTrackerKey, false); err != nil {
-			r.Response.WriteJson(map[string]interface{}{
-				"code":    403,
-				"message": err.Error(),
-			})
-			return nil
-		}
-
-		var app store.App
-		if err := store.DB.Where("app_id = ? AND status = ?", appID, 1).First(&app).Error; err != nil {
-			r.Response.WriteJson(map[string]interface{}{
-				"code":    401,
-				"message": "Invalid App Credentials",
-			})
-			return nil
-		}
-
-		// Verify key with bcrypt
-		if !utils.CheckPasswordHash(appKey, app.AppKey) {
-			r.Response.WriteJson(map[string]interface{}{
-				"code":    401,
-				"message": "Invalid App Credentials",
-			})
-			return nil
-		}
-
-		// Clear attempts on success
-		loginTracker.CheckAndRecord(appTrackerKey, true)
-
-		headerProjectID, _ := strconv.ParseUint(r.Header.Get("X-Current-Project-ID"), 10, 64)
-		authCtx, err := ResolveAppAuthContext(app, uint(headerProjectID))
-		if err != nil {
-			r.Response.WriteJson(map[string]interface{}{
-				"code":    403,
-				"message": err.Error(),
-			})
-			return nil
-		}
-		r.SetCtxVar(authContextKey, authCtx)
-		r.SetCtxVar("user_id", uint(0))
-		r.SetCtxVar("tenant_id", authCtx.TenantID)
-		r.SetCtxVar("project_id", authCtx.ProjectID)
-		r.SetCtxVar("username", authCtx.Username)
-		r.SetCtxVar("app_id", app.AppID)
-		r.SetCtxVar("role", authCtx.Role)
-		return authCtx
-	}
-
-	// 2. Try JWT Authentication
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		r.Response.WriteJson(map[string]interface{}{
 			"code":    401,
-			"message": "Missing Authorization header or App Credentials",
+			"message": "Missing Authorization header",
 		})
 		return nil
 	}
@@ -112,6 +56,33 @@ func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 
 	currentTenantID := uint(headerTenantID)
 	currentProjectID := uint(headerProjectID)
+
+	if claims.SubjectType == "app" {
+		authCtx, err := resolveAppAuthContextFromClaims(claims, currentProjectID)
+		if err != nil {
+			r.Response.WriteJson(map[string]interface{}{
+				"code":    401,
+				"message": err.Error(),
+			})
+			return nil
+		}
+		r.SetCtxVar(authContextKey, authCtx)
+		r.SetCtxVar("user_id", uint(0))
+		r.SetCtxVar("tenant_id", authCtx.TenantID)
+		r.SetCtxVar("project_id", authCtx.ProjectID)
+		r.SetCtxVar("username", authCtx.Username)
+		r.SetCtxVar("role", authCtx.Role)
+		r.SetCtxVar("app_id", authCtx.AppID)
+		return authCtx
+	}
+
+	if claims.TokenUse == "refresh" {
+		r.Response.WriteJson(map[string]interface{}{
+			"code":    401,
+			"message": "Refresh token cannot be used for API access",
+		})
+		return nil
+	}
 
 	// M5: Validate requested tenant against AllowedTenants from JWT claims
 	// Empty AllowedTenants means system admin with unrestricted access

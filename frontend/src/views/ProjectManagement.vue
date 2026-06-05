@@ -47,18 +47,20 @@
 
                 <td>{{ new Date(p.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
                 <td class="text-end">
-                  <button class="btn btn-sm btn-outline-success me-2" @click="openDetailsModal(p)" :title="$t('common_view_details', '查看详情')">
-                    <i class="bi bi-eye"></i>
-                  </button>
-                  <button class="btn btn-sm me-2" :class="(p.permission_ids && p.permission_ids.length > 0) ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermissionModal(p)" :title="$t('project_permission_config', '权限配置')" v-permission="'project:edit'">
-                    <i class="bi bi-shield-check"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-primary me-2" @click="openEditModal(p)" :title="$t('project_edit', '编辑')" v-permission="'project:edit'">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="deleteProject(p)" :disabled="p.code === 'default'" :title="$t('project_delete', '删除')" v-permission="'project:delete'">
-                    <i class="bi bi-trash"></i>
-                  </button>
+                  <div class="d-inline-flex align-items-center justify-content-end gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(p)" :title="$t('common_view_details', '查看详情')">
+                      <i class="bi bi-eye"></i>
+                    </button>
+                    <button class="btn btn-sm" :class="(p.permission_ids && p.permission_ids.length > 0) ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermissionModal(p)" :title="$t('project_permission_config', '权限配置')" v-permission="'project:edit'">
+                      <i class="bi bi-shield-check"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" @click="openEditModal(p)" :title="$t('project_edit', '编辑')" v-permission="'project:edit'">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" @click="deleteProject(p)" :disabled="p.code === 'default'" :title="$t('project_delete', '删除')" v-permission="'project:delete'">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>

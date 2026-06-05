@@ -10,6 +10,7 @@ import router from './router'
 import { loader } from '@guolao/vue-monaco-editor'
 import axios from 'axios'
 import { useAuthStore } from './stores/auth'
+import { translateApiResponseMessages } from './utils/apiMessages'
 
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
@@ -143,8 +144,11 @@ const handle401Error = (originalRequest) => {
   })
 }
 
+const currentLocale = () => i18n.global.locale?.value || i18n.global.locale
+
 axios.interceptors.response.use(
   (response) => {
+    translateApiResponseMessages(response.data, currentLocale())
     if (response.data && response.data.code === 401) {
       const url = response.config.url || ''
       if (url === '/api/auth/login' || url === '/api/auth/refresh') {
@@ -155,6 +159,9 @@ axios.interceptors.response.use(
     return response
   },
   (error) => {
+    if (error.response?.data) {
+      translateApiResponseMessages(error.response.data, currentLocale())
+    }
     if (error.response && error.response.status === 401) {
       const url = error.config?.url || ''
       if (url === '/api/auth/login' || url === '/api/auth/refresh') {

@@ -16,17 +16,21 @@
             <PermissionDualMode 
               :allPermissions="allPermissions"
               v-model="formPermissionIds"
-              :isReadOnly="isReadOnly"
+              :isReadOnly="isFunctionPermissionReadOnly"
               :title="$t('role_menu_perm', '菜单权限')"
             />
 
             <!-- ================= 设备标签权限 ================= -->
-            <div class="mt-4 pt-3 border-top">
+            <div v-if="showDeviceTagPermissions" class="mt-4 pt-3 border-top">
               <div class="fw-bold fs-5 text-primary mb-3">
                 <i class="bi bi-tags-fill me-2"></i>{{ $t('role_device_tag_perm', '设备标签权限') }}
               </div>
-              <div v-if="loadingTags" class="text-center py-3">{{ $t('common_loading', '加载中...') }}</div>
-              <div class="card shadow-sm border-0" v-else>
+              <div v-if="requiresProjectContext" class="alert alert-warning d-flex align-items-center gap-2 mb-3">
+                <i class="bi bi-exclamation-triangle"></i>
+                <span>{{ $t('role_select_project_for_tag_perm', 'Select a project before configuring inherited-role device data permissions.') }}</span>
+              </div>
+              <div v-if="loadingTags && !requiresProjectContext" class="text-center py-3">{{ $t('common_loading', '加载中...') }}</div>
+              <div class="card shadow-sm border-0" v-else-if="!requiresProjectContext">
                 <div class="table-responsive">
                   <table class="table table-hover mb-0 align-middle">
                     <thead class="table-light">
@@ -49,7 +53,7 @@
                           <span class="badge bg-secondary bg-opacity-10 text-secondary">{{ t.scope_type === 'global' ? $t('common_global', '全局') : t.scope_type }}</span>
                         </td>
                         <td>
-                          <select class="form-select form-select-sm" v-model="tagPermissions[t.ID]" :disabled="isReadOnly">
+                          <select class="form-select form-select-sm" v-model="tagPermissions[t.ID]" :disabled="isDeviceTagPermissionReadOnly || requiresProjectContext">
                             <option value="">{{ $t('role_perm_none', '无权限') }}</option>
                             <option value="read">{{ $t('role_perm_read', '只读') }}</option>
                             <option value="write">{{ $t('role_perm_write', '读写 (控制)') }}</option>
@@ -69,7 +73,7 @@
         
         <div class="modal-footer bg-light border-top-0">
           <button type="button" class="btn btn-secondary px-4" data-bs-dismiss="modal">{{ $t('common_cancel', '取消') }}</button>
-          <button type="button" class="btn btn-primary px-4" @click="save" :disabled="saving || isReadOnly">
+          <button type="button" class="btn btn-primary px-4" @click="save" :disabled="saving || !canSave">
             <span v-if="saving" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
             <i v-else class="bi bi-check2 me-1"></i>
             {{ $t('common_save', '保存') }}
@@ -106,7 +110,28 @@ const formPermissionIds = ref([])
 
 const tags = ref([])
 const tagPermissions = ref({})
-const isReadOnly = computed(() => isInheritedRoleReadOnlyForUser(authStore.user, role.value))
+const activeProjectId = ref(0)
+const isInheritedProjectRole = computed(() => role.value?.project_id === 0 && role.value?.is_inherited === true)
+const deviceTagProjectId = computed(() => {
+  if (role.value?.project_id > 0) return Number(role.value.project_id)
+  if (isInheritedProjectRole.value) return Number(activeProjectId.value || 0)
+  return 0
+})
+const requiresProjectContext = computed(() => isInheritedProjectRole.value && deviceTagProjectId.value <= 0)
+const showDeviceTagPermissions = computed(() => authStore.user?.is_tenant_admin !== true)
+const isFunctionPermissionReadOnly = computed(() => {
+  if (isInheritedProjectRole.value && deviceTagProjectId.value > 0) return true
+  return isInheritedRoleReadOnlyForUser(authStore.user, role.value)
+})
+const isDeviceTagPermissionReadOnly = computed(() => {
+  if (!showDeviceTagPermissions.value) return true
+  return !role.value
+})
+const canSave = computed(() => {
+  if (!role.value) return false
+  if (!isFunctionPermissionReadOnly.value) return true
+  return showDeviceTagPermissions.value && !isDeviceTagPermissionReadOnly.value && !requiresProjectContext.value
+})
 
 const initModal = () => {
   if (!modalInstance && modalRef.value) {
@@ -117,15 +142,17 @@ const initModal = () => {
 const open = async (roleItem) => {
   initModal()
   role.value = roleItem
+  activeProjectId.value = Number(localStorage.getItem('current_project_id') || 0)
   formPermissionIds.value = []
   tagPermissions.value = {}
   
   modalInstance.show()
   
-  await Promise.all([
-    loadSystemPermissions(),
-    loadDeviceTags()
-  ])
+  const loaders = [loadSystemPermissions()]
+  if (showDeviceTagPermissions.value) {
+    loaders.push(loadDeviceTags())
+  }
+  await Promise.all(loaders)
   
   await loadRolePermissions(roleItem.ID)
 }
@@ -155,6 +182,9 @@ const loadDeviceTags = async () => {
     const res = await axios.get('/api/device-tags')
     if (res.data.code === 0) {
       tags.value = res.data.data || []
+      tags.value.forEach(tag => {
+        tagPermissions.value[tag.ID] = ''
+      })
     }
   } catch(e) {
     console.error(e)
@@ -165,7 +195,11 @@ const loadDeviceTags = async () => {
 
 const loadRolePermissions = async (roleId) => {
   try {
-    const res = await axios.get(`/api/roles/${roleId}/permissions`)
+    const params = {}
+    if (deviceTagProjectId.value > 0) {
+      params.project_id = deviceTagProjectId.value
+    }
+    const res = await axios.get(`/api/roles/${roleId}/permissions`, { params })
     if (res.data.code === 0) {
       const data = res.data.data
       if (data.permissions) {
@@ -183,21 +217,29 @@ const loadRolePermissions = async (roleId) => {
 }
 
 const save = async () => {
-  if (!role.value || isReadOnly.value) return
+  if (!role.value || !canSave.value) return
   saving.value = true
   
   const deviceTagsPayload = []
-  for (const [tagId, perm] of Object.entries(tagPermissions.value)) {
-    if (perm) {
-      deviceTagsPayload.push({ tag_id: parseInt(tagId), permission: perm })
+  if (showDeviceTagPermissions.value) {
+    for (const [tagId, perm] of Object.entries(tagPermissions.value)) {
+      if (perm) {
+        deviceTagsPayload.push({ tag_id: parseInt(tagId), permission: perm })
+      }
     }
   }
   
   try {
-    const res = await axios.put(`/api/roles/${role.value.ID}/permissions`, {
-      permission_ids: formPermissionIds.value,
-      device_tags: deviceTagsPayload
-    })
+    const payload = {
+      project_id: deviceTagProjectId.value
+    }
+    if (!isFunctionPermissionReadOnly.value) {
+      payload.permission_ids = formPermissionIds.value
+    }
+    if (showDeviceTagPermissions.value) {
+      payload.device_tags = deviceTagsPayload
+    }
+    const res = await axios.put(`/api/roles/${role.value.ID}/permissions`, payload)
     
     if (res.data.code === 0) {
       modalInstance.hide()

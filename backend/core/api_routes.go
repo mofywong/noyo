@@ -29,6 +29,8 @@ func (s *Server) registerAPIRoutes() {
 		group.Group("/auth", func(authGroup *ghttp.RouterGroup) {
 			authGroup.POST("/login", s.handleLogin)
 			authGroup.POST("/refresh", s.handleRefreshToken)
+			authGroup.POST("/app-token", s.handleIssueAppToken)
+			authGroup.POST("/app-refresh", s.handleRefreshAppToken)
 			authGroup.GET("/tenant-info", s.handleGetTenantBySuffix)
 		})
 
@@ -73,8 +75,6 @@ func (s *Server) registerAPIRoutes() {
 				permissionPUT(userGroup, "/:id", "user:edit", s.handleUpdateUser)
 				permissionDELETE(userGroup, "/:id", "user:delete", s.handleDeleteUser)
 				permissionPOST(userGroup, "/:id/reset-password", "user:edit", s.handleResetPassword)
-				permissionGET(userGroup, "/:id/positions", "user:list", s.handleGetUserPositions)
-				permissionPUT(userGroup, "/:id/positions", "user:edit", s.handleSetUserPositions)
 				permissionGET(userGroup, "/:id/roles", "user:list", s.handleGetUserRoles)
 				permissionPUT(userGroup, "/:id/roles", "user:edit", s.handleSetUserRoles)
 				permissionGET(userGroup, "/:id/projects", "user:list", s.handleGetUserProjects)
@@ -94,15 +94,6 @@ func (s *Server) registerAPIRoutes() {
 			protected.Group("/permissions", func(permGroup *ghttp.RouterGroup) {
 				permissionGET(permGroup, "/", "role:list", s.handleGetSystemPermissions)
 			})
-
-			positionGroup := protected.Group("/positions")
-			positionGroup.Middleware(TenantMiddleware())
-			permissionGET(positionGroup, "/", "position:list", s.handleListPositions)
-			permissionPOST(positionGroup, "/", "position:create", s.handleCreatePosition)
-			permissionPUT(positionGroup, "/:id", "position:edit", s.handleUpdatePosition)
-			permissionDELETE(positionGroup, "/:id", "position:delete", s.handleDeletePosition)
-			permissionGET(positionGroup, "/:id/roles", "position:list", s.handleGetPositionRoles)
-			permissionPUT(positionGroup, "/:id/roles", "position:edit", s.handleSetPositionRoles)
 
 			appGroup := protected.Group("/apps")
 			appGroup.Middleware(TenantMiddleware())
