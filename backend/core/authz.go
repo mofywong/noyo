@@ -32,16 +32,61 @@ type AuthContext struct {
 	RoleIDs            []uint
 	RoleProjectIDs     map[uint]map[uint]bool
 	PermissionCodes    map[string]bool
+	ProjectPermissions map[uint]map[string]bool
+	DeviceTagAccess    map[uint]map[uint]string
 	AllowedProjectIDs  []uint
 	UsesProjectLimits  bool
 	MustChangePassword bool
+	AppRateLimit       int
 }
 
 func (ctx *AuthContext) HasPermission(code string) bool {
 	if ctx == nil {
 		return false
 	}
+	if ctx.SubjectType == "app" {
+		if ctx.ProjectID > 0 {
+			return ctx.HasProjectPermission(code, ctx.ProjectID)
+		}
+		for _, permissions := range ctx.ProjectPermissions {
+			if permissions[code] {
+				return true
+			}
+		}
+		return false
+	}
 	return ctx.PermissionCodes[code]
+}
+
+func (ctx *AuthContext) HasProjectPermission(code string, projectID uint) bool {
+	if ctx == nil {
+		return false
+	}
+	if ctx.SubjectType != "app" {
+		return ctx.HasPermission(code)
+	}
+	return projectID > 0 && ctx.ProjectPermissions[projectID] != nil && ctx.ProjectPermissions[projectID][code]
+}
+
+func (ctx *AuthContext) AppTagPermission(projectID, tagID uint) string {
+	if ctx == nil || ctx.SubjectType != "app" || projectID == 0 || tagID == 0 {
+		return ""
+	}
+	if ctx.DeviceTagAccess[projectID] == nil {
+		return ""
+	}
+	return ctx.DeviceTagAccess[projectID][tagID]
+}
+
+func (ctx *AuthContext) HasAppTagPermission(projectID, tagID uint, required string) bool {
+	permission := ctx.AppTagPermission(projectID, tagID)
+	if permission == "" {
+		return false
+	}
+	if required == "read" {
+		return permission == "read" || permission == "write"
+	}
+	return permission == "write"
 }
 
 func (ctx *AuthContext) CanAccessProject(projectID uint) bool {
@@ -235,44 +280,86 @@ func ResolveUserAuthContext(userID, requestedTenantID, requestedProjectID uint) 
 
 func ResolveAppAuthContext(app store.App, requestedProjectID uint) (*AuthContext, error) {
 	ctx := &AuthContext{
-		SubjectType:     "app",
-		AppID:           app.AppID,
-		AppDBID:         app.ID,
-		Username:        "app:" + app.Name,
-		TenantID:        app.TenantID,
-		ProjectID:       requestedProjectID,
-		Role:            "viewer",
-		PermissionCodes: make(map[string]bool),
+		SubjectType:        "app",
+		AppID:              app.AppID,
+		AppDBID:            app.ID,
+		Username:           "app:" + app.Name,
+		TenantID:           app.TenantID,
+		ProjectID:          requestedProjectID,
+		Role:               "app",
+		PermissionCodes:    make(map[string]bool),
+		ProjectPermissions: make(map[uint]map[string]bool),
+		DeviceTagAccess:    make(map[uint]map[uint]string),
+		UsesProjectLimits:  true,
+		AppRateLimit:       app.RateLimit,
 	}
 
 	if app.Status != 1 {
 		return nil, fmt.Errorf("app disabled")
 	}
 
-	var appRoles []store.AppRole
-	if err := store.DB.Where("app_id = ? AND tenant_id = ?", app.ID, app.TenantID).Find(&appRoles).Error; err != nil {
+	var projectAccess []store.AppProjectAccess
+	if err := store.DB.Where("app_id = ? AND tenant_id = ?", app.ID, app.TenantID).Find(&projectAccess).Error; err != nil {
 		return nil, err
 	}
-
-	roleBindings := make([]resolvedRoleBinding, 0, len(appRoles))
-	for _, appRole := range appRoles {
-		var role store.Role
-		if err := store.DB.Where("id = ? AND (tenant_id = ? OR tenant_id = 0)", appRole.RoleID, app.TenantID).First(&role).Error; err == nil {
-			if appRole.ProjectID > 0 {
-				var count int64
-				store.DB.Model(&store.Project{}).Where("id = ? AND tenant_id = ?", appRole.ProjectID, app.TenantID).Count(&count)
-				if count == 0 {
-					continue
-				}
-			}
-			roleBindings = append(roleBindings, resolvedRoleBinding{Role: role, ProjectID: appRole.ProjectID})
+	allowedProjectSet := make(map[uint]bool, len(projectAccess))
+	for _, access := range projectAccess {
+		if access.ProjectID == 0 {
+			continue
 		}
+		var count int64
+		if err := store.DB.Model(&store.Project{}).Where("id = ? AND tenant_id = ?", access.ProjectID, app.TenantID).Count(&count).Error; err != nil {
+			return nil, err
+		}
+		if count == 0 {
+			continue
+		}
+		allowedProjectSet[access.ProjectID] = true
+		ctx.AllowedProjectIDs = append(ctx.AllowedProjectIDs, access.ProjectID)
+		ctx.ProjectPermissions[access.ProjectID] = make(map[string]bool)
 	}
-	applyRoleBindings(ctx, roleBindings, "")
 	if requestedProjectID > 0 && !ctx.CanAccessProject(requestedProjectID) {
 		return nil, fmt.Errorf("project is outside app allowed scope")
 	}
-	loadPermissions(ctx)
+
+	var appPermissions []store.AppPermission
+	if err := store.DB.Where("app_id = ? AND tenant_id = ?", app.ID, app.TenantID).Find(&appPermissions).Error; err != nil {
+		return nil, err
+	}
+	tenantLimit := permissionLimitCodeSet(permissionLimitScopeTenant, app.TenantID, 0)
+	for _, appPermission := range appPermissions {
+		if !allowedProjectSet[appPermission.ProjectID] {
+			continue
+		}
+		var permission store.Permission
+		if err := store.DB.First(&permission, appPermission.PermissionID).Error; err != nil {
+			continue
+		}
+		projectLimit := permissionLimitCodeSet(permissionLimitScopeProject, app.TenantID, appPermission.ProjectID)
+		if !tenantLimit[permission.Code] || !projectLimit[permission.Code] {
+			continue
+		}
+		ctx.ProjectPermissions[appPermission.ProjectID][permission.Code] = true
+		ctx.PermissionCodes[permission.Code] = true
+	}
+
+	var tagPermissions []store.AppDeviceTagPermission
+	if err := store.DB.Where("app_id = ? AND tenant_id = ?", app.ID, app.TenantID).Find(&tagPermissions).Error; err != nil {
+		return nil, err
+	}
+	for _, tagPermission := range tagPermissions {
+		if !allowedProjectSet[tagPermission.ProjectID] || tagPermission.TagID == 0 {
+			continue
+		}
+		if tagPermission.Permission != "read" && tagPermission.Permission != "write" {
+			continue
+		}
+		if ctx.DeviceTagAccess[tagPermission.ProjectID] == nil {
+			ctx.DeviceTagAccess[tagPermission.ProjectID] = make(map[uint]string)
+		}
+		ctx.DeviceTagAccess[tagPermission.ProjectID][tagPermission.TagID] = tagPermission.Permission
+	}
+
 	return ctx, nil
 }
 

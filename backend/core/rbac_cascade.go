@@ -53,6 +53,15 @@ func deleteProjectCascade(tx *gorm.DB, project store.Project) error {
 	if err := tx.Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.AppRole{}).Error; err != nil {
 		return err
 	}
+	if err := tx.Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.AppProjectAccess{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.AppPermission{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.AppDeviceTagPermission{}).Error; err != nil {
+		return err
+	}
 	if err := tx.Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.Role{}).Error; err != nil {
 		return err
 	}
@@ -107,6 +116,15 @@ func deleteTenantCascade(tx *gorm.DB, tenantID uint) error {
 		if err := tx.Unscoped().Where("app_id IN ?", appIDs).Delete(&store.AppRole{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Unscoped().Where("app_id IN ?", appIDs).Delete(&store.AppProjectAccess{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("app_id IN ?", appIDs).Delete(&store.AppPermission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("app_id IN ?", appIDs).Delete(&store.AppDeviceTagPermission{}).Error; err != nil {
+			return err
+		}
 	}
 
 	scopeID := strconv.FormatUint(uint64(tenantID), 10)
@@ -126,6 +144,15 @@ func deleteTenantCascade(tx *gorm.DB, tenantID uint) error {
 		return err
 	}
 	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.AppRole{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.AppProjectAccess{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.AppPermission{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.AppDeviceTagPermission{}).Error; err != nil {
 		return err
 	}
 	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.App{}).Error; err != nil {

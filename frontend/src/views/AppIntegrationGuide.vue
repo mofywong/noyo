@@ -20,6 +20,14 @@
           </div>
         </div>
 
+        <div class="alert alert-secondary d-flex align-items-start gap-3 mb-4">
+          <i class="bi bi-diagram-3-fill fs-4"></i>
+          <div>
+            <div class="fw-semibold">{{ t('app_guide_access_scope_title') }}</div>
+            <div>{{ t('app_guide_access_scope') }}</div>
+          </div>
+        </div>
+
         <section class="guide-section">
           <h6 class="fw-bold"><i class="bi bi-1-circle text-primary me-2"></i>{{ t('app_guide_token_step_title') }}</h6>
           <p class="text-muted">{{ t('app_guide_token_step_desc') }}</p>

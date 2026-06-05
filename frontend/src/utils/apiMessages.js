@@ -13,6 +13,30 @@ const exactMessages = {
     en: 'Access denied to this project',
     zh: '无权访问该项目'
   },
+  'tenant is outside allowed scope': {
+    en: 'Tenant is outside allowed scope',
+    zh: '租户超出可访问范围'
+  },
+  'Tenant is outside allowed scope': {
+    en: 'Tenant is outside allowed scope',
+    zh: '租户超出可访问范围'
+  },
+  'project is outside allowed scope': {
+    en: 'Project is outside allowed scope',
+    zh: '项目超出可访问范围'
+  },
+  'Project is outside allowed scope': {
+    en: 'Project is outside allowed scope',
+    zh: '项目超出可访问范围'
+  },
+  'project is outside tenant scope': {
+    en: 'Project is outside tenant scope',
+    zh: '项目不属于当前租户范围'
+  },
+  'project is outside app allowed scope': {
+    en: 'Project is outside app allowed scope',
+    zh: '项目超出应用授权范围'
+  },
   'Invalid JSON': {
     en: 'Invalid JSON',
     zh: '请求数据格式无效'
@@ -85,6 +109,10 @@ const exactMessages = {
     en: 'App no longer active',
     zh: '应用已停用或不存在'
   },
+  'app disabled': {
+    en: 'App is disabled',
+    zh: '应用已停用'
+  },
   'Failed to generate app tokens': {
     en: 'Failed to generate app tokens',
     zh: '生成应用令牌失败'
@@ -145,6 +173,10 @@ const exactMessages = {
     en: 'Tenant context is required',
     zh: '需要租户上下文'
   },
+  'tenant and project context are required': {
+    en: 'Tenant and project context are required',
+    zh: '需要租户和项目上下文'
+  },
   'Role ID is required': {
     en: 'Role ID is required',
     zh: '角色 ID 必填'
@@ -181,17 +213,73 @@ const exactMessages = {
     en: 'Permissions updated successfully',
     zh: '权限保存成功'
   },
-  'App roles updated successfully': {
-    en: 'App roles updated successfully',
-    zh: '应用角色保存成功'
+  'App access updated successfully': {
+    en: 'App access updated successfully',
+    zh: '应用授权保存成功'
   },
   'Key reset successfully': {
     en: 'Key reset successfully',
     zh: '密钥重置成功'
   },
-  'role cannot be assigned to this app scope': {
-    en: 'Role cannot be assigned to this app scope',
-    zh: '角色不能分配到当前应用范围'
+  'Rate limit exceeded': {
+    en: 'Rate limit exceeded',
+    zh: '请求过于频繁，请稍后再试'
+  },
+  'permission is outside allowed scope': {
+    en: 'Permission is outside allowed scope',
+    zh: '权限超出可授权范围'
+  },
+  'device tag permission is outside allowed scope': {
+    en: 'Device tag permission is outside allowed scope',
+    zh: '设备标签权限超出可授权范围'
+  },
+  'duplicate project access': {
+    en: 'Duplicate project access',
+    zh: '存在重复的项目授权'
+  },
+  'duplicate device tag assignment': {
+    en: 'Duplicate device tag assignment',
+    zh: '存在重复的设备标签授权'
+  },
+  'project is required': {
+    en: 'Project is required',
+    zh: '项目必填'
+  },
+  'tenant, project and device tag are required': {
+    en: 'Tenant, project and device tag are required',
+    zh: '租户、项目和设备标签必填'
+  },
+  'device tag is outside tenant scope': {
+    en: 'Device tag is outside tenant scope',
+    zh: '设备标签不属于当前租户范围'
+  },
+  'invalid device tag permission': {
+    en: 'Invalid device tag permission',
+    zh: '设备标签权限无效'
+  },
+  'auth context not found': {
+    en: 'Auth context not found',
+    zh: '未找到认证上下文'
+  },
+  'no device tag write permission for this project': {
+    en: 'No device tag write permission for this project',
+    zh: '当前项目没有设备标签写权限'
+  },
+  'no device tag write permission for this device': {
+    en: 'No device tag write permission for this device',
+    zh: '当前设备没有设备标签写权限'
+  },
+  'device project is outside allowed scope': {
+    en: 'Device project is outside allowed scope',
+    zh: '设备所属项目超出可访问范围'
+  },
+  'Protocol plugin is not available': {
+    en: 'Protocol plugin is not available',
+    zh: '协议插件不可用'
+  },
+  'Protocol plugin is not enabled for current project': {
+    en: 'Protocol plugin is not enabled for current project',
+    zh: '当前项目未启用该协议插件'
   },
   'function permissions cannot be modified in the current role context': {
     en: 'Function permissions cannot be modified in the current role context',
@@ -220,9 +308,13 @@ const prefixMessages = {
     en: 'Failed to update app: ',
     zh: '更新应用失败：'
   },
-  'Failed to update app roles: ': {
-    en: 'Failed to update app roles: ',
-    zh: '更新应用角色失败：'
+  'Failed to update app access: ': {
+    en: 'Failed to update app access: ',
+    zh: '更新应用授权失败：'
+  },
+  'permission denied: ': {
+    en: 'Permission denied: ',
+    zh: '权限不足：'
   },
   'Failed to create role: ': {
     en: 'Failed to create role: ',

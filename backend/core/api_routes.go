@@ -102,8 +102,9 @@ func (s *Server) registerAPIRoutes() {
 			permissionPUT(appGroup, "/:id", "app:edit", s.handleUpdateApp)
 			permissionDELETE(appGroup, "/:id", "app:delete", s.handleDeleteApp)
 			permissionPOST(appGroup, "/:id/reset-key", "app:reset-key", s.handleResetAppKey)
-			permissionGET(appGroup, "/:id/roles", "app:list", s.handleGetAppRoles)
-			permissionPUT(appGroup, "/:id/roles", "app:edit", s.handleSetAppRoles)
+			permissionGET(appGroup, "/access-options", "app:edit", s.handleGetAppAccessOptions)
+			permissionGET(appGroup, "/:id/access", "app:list", s.handleGetAppAccess)
+			permissionPUT(appGroup, "/:id/access", "app:edit", s.handleSetAppAccess)
 
 			auditGroup := protected.Group("/audit-logs")
 			permissionGET(auditGroup, "/", "audit:list", s.handleListAuditLogs)

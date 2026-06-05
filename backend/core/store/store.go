@@ -65,6 +65,9 @@ func InitDB(dsn string) error {
 		&GatewayPluginStateModel{},
 		&App{},
 		&AppRole{},
+		&AppProjectAccess{},
+		&AppPermission{},
+		&AppDeviceTagPermission{},
 		&AuditLog{},
 		&TokenBlacklist{},
 	)

@@ -2,7 +2,6 @@ package core
 
 import (
 	"encoding/json"
-	"fmt"
 	"noyo/core/store"
 	"noyo/core/utils"
 	"strings"
@@ -130,6 +129,15 @@ func (s *Server) handleDeleteApp(r *ghttp.Request) {
 		if err := tx.Unscoped().Where("app_id = ?", app.ID).Delete(&store.AppRole{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Unscoped().Where("app_id = ?", app.ID).Delete(&store.AppProjectAccess{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("app_id = ?", app.ID).Delete(&store.AppPermission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("app_id = ?", app.ID).Delete(&store.AppDeviceTagPermission{}).Error; err != nil {
+			return err
+		}
 		return tx.Unscoped().Delete(&app).Error
 	})
 	if err != nil {
@@ -137,95 +145,6 @@ func (s *Server) handleDeleteApp(r *ghttp.Request) {
 		return
 	}
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Deleted successfully"})
-}
-
-type appRoleAssignmentInput struct {
-	ProjectID uint `json:"project_id"`
-	RoleID    uint `json:"role_id"`
-}
-
-func (s *Server) handleGetAppRoles(r *ghttp.Request) {
-	id := r.Get("id").Uint()
-	var app store.App
-	if err := store.DB.First(&app, id).Error; err != nil {
-		r.Response.WriteJson(g.Map{"code": 404, "message": "App not found"})
-		return
-	}
-	if authCtx := requestAuthContext(r); authCtx == nil || !authCtx.CanUseTenantScopedResource(app.TenantID) {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
-		return
-	}
-
-	var appRoles []store.AppRole
-	if err := store.DB.Where("app_id = ? AND tenant_id = ?", app.ID, app.TenantID).Find(&appRoles).Error; err != nil {
-		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch app roles"})
-		return
-	}
-	r.Response.WriteJson(g.Map{"code": 0, "data": appRoles, "total": len(appRoles)})
-}
-
-func (s *Server) handleSetAppRoles(r *ghttp.Request) {
-	id := r.Get("id").Uint()
-	var app store.App
-	if err := store.DB.First(&app, id).Error; err != nil {
-		r.Response.WriteJson(g.Map{"code": 404, "message": "App not found"})
-		return
-	}
-
-	authCtx := requestAuthContext(r)
-	if authCtx == nil || !authCtx.CanUseTenantScopedResource(app.TenantID) {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
-		return
-	}
-
-	var req struct {
-		Roles []appRoleAssignmentInput `json:"roles"`
-	}
-	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
-		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
-		return
-	}
-
-	err := store.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Unscoped().Where("app_id = ?", app.ID).Delete(&store.AppRole{}).Error; err != nil {
-			return err
-		}
-		seen := make(map[string]bool, len(req.Roles))
-		for _, assignment := range req.Roles {
-			if assignment.RoleID == 0 {
-				continue
-			}
-			if assignment.ProjectID > 0 && !projectBelongsToTenant(assignment.ProjectID, app.TenantID) {
-				return fmt.Errorf("project is outside tenant scope")
-			}
-			var role store.Role
-			if err := tx.Where("id = ? AND (tenant_id = ? OR tenant_id = 0)", assignment.RoleID, app.TenantID).First(&role).Error; err != nil {
-				return fmt.Errorf("role is outside tenant scope")
-			}
-			if !authCtx.CanAssignRole(role, assignment.ProjectID) {
-				return fmt.Errorf("role cannot be assigned to this app scope")
-			}
-			key := fmt.Sprintf("%d:%d", assignment.ProjectID, assignment.RoleID)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			if err := tx.Create(&store.AppRole{
-				AppID:     app.ID,
-				RoleID:    role.ID,
-				TenantID:  app.TenantID,
-				ProjectID: assignment.ProjectID,
-			}).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Failed to update app roles: " + err.Error()})
-		return
-	}
-	r.Response.WriteJson(g.Map{"code": 0, "message": "App roles updated successfully"})
 }
 
 func (s *Server) handleResetAppKey(r *ghttp.Request) {

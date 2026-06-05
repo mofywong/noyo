@@ -4,12 +4,51 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gogf/gf/v2/net/ghttp"
 
 	"noyo/core/store"
 	"noyo/core/utils"
 )
+
+type appRateBucket struct {
+	WindowStart time.Time
+	Count       int
+}
+
+var appRateLimiter = struct {
+	sync.Mutex
+	Buckets map[string]appRateBucket
+}{Buckets: make(map[string]appRateBucket)}
+
+func allowAppRequest(appID string, limit int) bool {
+	if limit <= 0 || appID == "" {
+		return true
+	}
+	now := time.Now()
+	appRateLimiter.Lock()
+	defer appRateLimiter.Unlock()
+
+	bucket := appRateLimiter.Buckets[appID]
+	if bucket.WindowStart.IsZero() || now.Sub(bucket.WindowStart) >= time.Second {
+		bucket = appRateBucket{WindowStart: now, Count: 0}
+	}
+	if bucket.Count >= limit {
+		appRateLimiter.Buckets[appID] = bucket
+		return false
+	}
+	bucket.Count++
+	appRateLimiter.Buckets[appID] = bucket
+	return true
+}
+
+func resetAppRateLimiterForTest() {
+	appRateLimiter.Lock()
+	defer appRateLimiter.Unlock()
+	appRateLimiter.Buckets = make(map[string]appRateBucket)
+}
 
 // authenticateRequest performs JWT/App authentication and sets context vars.
 // Returns *AuthContext on success, nil on failure (response already written).
@@ -63,6 +102,13 @@ func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 			r.Response.WriteJson(map[string]interface{}{
 				"code":    401,
 				"message": err.Error(),
+			})
+			return nil
+		}
+		if !allowAppRequest(authCtx.AppID, authCtx.AppRateLimit) {
+			r.Response.WriteStatusExit(429, map[string]interface{}{
+				"code":    429,
+				"message": "Rate limit exceeded",
 			})
 			return nil
 		}
@@ -249,6 +295,7 @@ func PermissionMiddleware(permissionCode string) func(*ghttp.Request) {
 			})
 			return
 		}
+		r.SetCtxVar("required_permission", permissionCode)
 		if !authCtx.HasPermission(permissionCode) {
 			r.Response.WriteJson(map[string]interface{}{
 				"code":    403,

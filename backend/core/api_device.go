@@ -1456,6 +1456,24 @@ func (s *Server) checkDeviceTagPermission(r *ghttp.Request, deviceCode string) e
 	if authCtx == nil {
 		return fmt.Errorf("auth context not found")
 	}
+	if authCtx.SubjectType == "app" {
+		projectID, err := deviceTagPermissionProjectID(authCtx, deviceCode)
+		if err != nil {
+			return err
+		}
+		requiredPermission := r.GetCtxVar("required_permission").String()
+		if requiredPermission != "" && !authCtx.HasProjectPermission(requiredPermission, projectID) {
+			return fmt.Errorf("permission denied: %s", requiredPermission)
+		}
+		allowed, err := canWriteDeviceByTagPermission(authCtx, currentDeviceTagScope(r), deviceCode)
+		if err != nil {
+			return err
+		}
+		if allowed {
+			return nil
+		}
+		return fmt.Errorf("read-only access to this device due to tag restrictions")
+	}
 	if authCtx.IsSystemAdmin || authCtx.IsTenantAdmin || authCtx.IsProjectAdmin {
 		return nil
 	}
@@ -1541,6 +1559,16 @@ func canReadDeviceByTagPermission(authCtx *AuthContext, scope store.AccessScope,
 	if authCtx == nil {
 		return false, nil
 	}
+	if authCtx.SubjectType == "app" {
+		projectID, err := deviceTagPermissionProjectID(authCtx, deviceCode)
+		if err != nil {
+			return false, err
+		}
+		if !authCtx.HasProjectPermission("device:list", projectID) {
+			return false, nil
+		}
+		return appCanAccessDeviceByTagPermission(authCtx, scope, deviceCode, "read")
+	}
 	if authCtx.IsSystemAdmin || authCtx.IsTenantAdmin || authCtx.IsProjectAdmin {
 		return true, nil
 	}
@@ -1581,6 +1609,72 @@ func canReadDeviceByTagPermission(authCtx *AuthContext, scope store.AccessScope,
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func canWriteDeviceByTagPermission(authCtx *AuthContext, scope store.AccessScope, deviceCode string) (bool, error) {
+	if authCtx == nil {
+		return false, nil
+	}
+	if authCtx.SubjectType == "app" {
+		return appCanAccessDeviceByTagPermission(authCtx, scope, deviceCode, "write")
+	}
+	if authCtx.IsSystemAdmin || authCtx.IsTenantAdmin || authCtx.IsProjectAdmin {
+		return true, nil
+	}
+	projectID, err := deviceTagPermissionProjectID(authCtx, deviceCode)
+	if err != nil {
+		return false, err
+	}
+	hasScopedPermissions, err := hasAnyDeviceTagPermission(authCtx, projectID)
+	if err != nil {
+		return false, err
+	}
+	if !hasScopedPermissions {
+		return hasNonInheritedDevicePermissionFallback(authCtx, projectID)
+	}
+
+	var bindings []store.DeviceTagBinding
+	if err := store.DB.Where("scope_type = ? AND scope_id = ? AND device_code = ?", scope.Type, scope.ID, deviceCode).Find(&bindings).Error; err != nil {
+		return false, err
+	}
+	if len(bindings) == 0 {
+		return false, nil
+	}
+	tagIDs := make([]uint, 0, len(bindings))
+	for _, binding := range bindings {
+		tagIDs = append(tagIDs, binding.TagID)
+	}
+	var count int64
+	query, ok := scopedDeviceTagPermissionQuery(authCtx, projectID)
+	if !ok {
+		return false, nil
+	}
+	if err := query.
+		Where("role_device_tag_permissions.tag_id IN ? AND role_device_tag_permissions.permission = ?", tagIDs, "write").
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func appCanAccessDeviceByTagPermission(authCtx *AuthContext, scope store.AccessScope, deviceCode, required string) (bool, error) {
+	projectID, err := deviceTagPermissionProjectID(authCtx, deviceCode)
+	if err != nil {
+		return false, err
+	}
+	var bindings []store.DeviceTagBinding
+	if err := store.DB.Where("scope_type = ? AND scope_id = ? AND device_code = ?", scope.Type, scope.ID, deviceCode).Find(&bindings).Error; err != nil {
+		return false, err
+	}
+	if len(bindings) == 0 {
+		return false, nil
+	}
+	for _, binding := range bindings {
+		if authCtx.HasAppTagPermission(projectID, binding.TagID, required) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func deviceTagPermissionProjectID(authCtx *AuthContext, deviceCode string) (uint, error) {

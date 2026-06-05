@@ -31,7 +31,7 @@
               <tr v-if="loading">
                 <td colspan="7" class="text-center py-4">
                   <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                    <span class="visually-hidden">{{ t('loading') }}</span>
                   </div>
                 </td>
               </tr>
@@ -51,7 +51,7 @@
                 <td>{{ new Date(a.CreatedAt).toLocaleString() }}</td>
                 <td class="text-end">
                   <div class="d-inline-flex align-items-center justify-content-end gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" @click="openRolesModal(a)" :title="t('app_roles')" v-permission="'app:edit'">
+                    <button class="btn btn-sm btn-outline-secondary" @click="openAccessModal(a)" :title="t('app_access')" v-permission="'app:edit'">
                       <i class="bi bi-shield-lock"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-warning" @click="resetAppKey(a)" :title="t('app_reset_key')" v-permission="'app:reset-key'">
@@ -60,7 +60,7 @@
                     <button class="btn btn-sm btn-outline-primary" @click="openEditModal(a)" :title="t('app_edit')" v-permission="'app:edit'">
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" @click="deleteApp(a)" :title="t('common_delete', 'Delete')" v-permission="'app:delete'">
+                    <button class="btn btn-sm btn-outline-danger" @click="deleteApp(a)" :title="t('common_delete')" v-permission="'app:delete'">
                       <i class="bi bi-trash"></i>
                     </button>
                   </div>
@@ -107,50 +107,85 @@
       </div>
     </div>
 
-    <div class="modal fade" id="appRoleModal" tabindex="-1" ref="appRoleModalRef">
-      <div class="modal-dialog modal-lg">
+    <div class="modal fade" id="appAccessModal" tabindex="-1" ref="appAccessModalRef">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ t('app_roles_title', { name: currentAppForRoles?.name || '' }) }}</h5>
+            <div>
+              <h5 class="modal-title">{{ t('app_access_title', { name: currentAppForAccess?.name || '' }) }}</h5>
+              <div class="text-muted small mt-1">{{ t('app_access_hint') }}</div>
+            </div>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
-          <div class="modal-body">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-              <div class="text-muted small">{{ t('app_roles_hint') }}</div>
-              <button type="button" class="btn btn-sm btn-outline-primary" @click="addAppRoleRow">
-                <i class="bi bi-plus-lg me-1"></i>{{ t('app_add_role') }}
-              </button>
+          <div class="modal-body bg-light">
+            <div v-if="accessLoading" class="text-center py-5">
+              <div class="spinner-border text-primary" role="status"></div>
             </div>
-            <div v-if="appRoleAssignments.length === 0" class="text-center text-muted py-4 border rounded">
-              {{ t('app_no_role_assignments') }}
+            <div v-else-if="availableProjects.length === 0" class="text-center text-muted py-5 bg-white border rounded">
+              {{ t('app_access_no_projects') }}
             </div>
-            <div v-for="(assignment, index) in appRoleAssignments" :key="index" class="row g-2 align-items-center mb-2">
-              <div class="col-md-5">
-                <select class="form-select" v-model.number="assignment.project_id">
-                  <option :value="0">{{ t('scope_tenant') }}</option>
-                  <option v-for="project in availableProjects" :key="project.ID" :value="project.ID">
-                    {{ project.name || project.code || project.ID }}
-                  </option>
-                </select>
-              </div>
-              <div class="col-md-6">
-                <select class="form-select" v-model.number="assignment.role_id">
-                  <option :value="0">{{ t('app_select_role') }}</option>
-                  <option v-for="role in availableRoles" :key="role.ID" :value="role.ID">
-                    {{ role.name || role.code }}
-                  </option>
-                </select>
-              </div>
-              <div class="col-md-1 text-end">
-                <button type="button" class="btn btn-outline-danger" @click="removeAppRoleRow(index)">
-                  <i class="bi bi-x-lg"></i>
-                </button>
-              </div>
+            <div v-else class="app-access-grid">
+              <section v-for="project in availableProjects" :key="project.ID" class="app-project-card">
+                <div class="app-project-header">
+                  <div>
+                    <div class="fw-semibold">{{ project.name || project.code || project.ID }}</div>
+                    <div class="text-muted small">{{ t('project_code') }}: {{ project.code || project.ID }}</div>
+                  </div>
+                  <div class="form-check form-switch m-0">
+                    <input class="form-check-input" type="checkbox" role="switch" :id="`app-project-${project.ID}`" :checked="isProjectEnabled(project.ID)" @change="toggleProject(project.ID, $event.target.checked)">
+                    <label class="form-check-label small" :for="`app-project-${project.ID}`">{{ t('app_project_enabled') }}</label>
+                  </div>
+                </div>
+
+                <div v-if="isProjectEnabled(project.ID)" class="app-project-body">
+                  <div class="access-panel">
+                    <div class="access-panel-title">
+                      <i class="bi bi-grid-3x3-gap text-primary"></i>
+                      {{ t('app_function_permissions') }}
+                    </div>
+                    <div v-if="permissionsForProject(project.ID).length === 0" class="text-muted small py-3">
+                      {{ t('app_no_permissions_available') }}
+                    </div>
+                    <div v-else class="permission-groups">
+                      <div v-for="group in groupedPermissions(project.ID)" :key="group.module" class="permission-group">
+                        <div class="permission-group-title">{{ moduleLabel(group.module) }}</div>
+                        <label v-for="permission in group.permissions" :key="permission.ID" class="permission-check">
+                          <input type="checkbox" class="form-check-input" :checked="projectAccess(project.ID).permission_ids.includes(permission.ID)" @change="togglePermission(project.ID, permission.ID, $event.target.checked)">
+                          <span>{{ permission.name || permission.code }}</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="access-panel">
+                    <div class="access-panel-title">
+                      <i class="bi bi-tags text-primary"></i>
+                      {{ t('app_device_tag_permissions') }}
+                    </div>
+                    <div v-if="deviceTags.length === 0" class="text-muted small py-3">
+                      {{ t('app_no_device_tags') }}
+                    </div>
+                    <div v-else class="tag-permission-list">
+                      <div v-for="tag in deviceTags" :key="tag.ID" class="tag-permission-row">
+                        <div class="tag-name">
+                          <span class="tag-swatch" :style="{ backgroundColor: tag.color || tag.Color || '#0d6efd' }"></span>
+                          <span>{{ tag.name || tag.Name }}</span>
+                        </div>
+                        <select class="form-select form-select-sm tag-select" :value="tagPermission(project.ID, tag.ID)" @change="setTagPermission(project.ID, tag.ID, $event.target.value)">
+                          <option value="">{{ t('app_permission_none') }}</option>
+                          <option value="read">{{ t('app_permission_read') }}</option>
+                          <option value="write">{{ t('app_permission_write') }}</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('role_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveAppRoles">{{ t('app_save_roles') }}</button>
+            <button type="button" class="btn btn-primary" @click="saveAppAccess">{{ t('app_save_access') }}</button>
           </div>
         </div>
       </div>
@@ -173,7 +208,7 @@
               <div class="input-group">
                 <input type="text" class="form-control" readonly :value="newAppInfo.app_id">
                 <button class="btn btn-outline-secondary" @click="copyToClipboard(newAppInfo.app_id)">
-                  <i class="bi bi-clipboard"></i> {{ t('common_copy', 'Copy') }}
+                  <i class="bi bi-clipboard"></i> {{ t('common_copy') }}
                 </button>
               </div>
             </div>
@@ -182,7 +217,7 @@
               <div class="input-group">
                 <input type="text" class="form-control" readonly :value="newAppInfo.AppKey">
                 <button class="btn btn-outline-secondary" @click="copyToClipboard(newAppInfo.AppKey)">
-                  <i class="bi bi-clipboard"></i> {{ t('common_copy', 'Copy') }}
+                  <i class="bi bi-clipboard"></i> {{ t('common_copy') }}
                 </button>
               </div>
             </div>
@@ -208,28 +243,23 @@ const { t } = useI18n()
 
 const apps = ref([])
 const loading = ref(false)
+const accessLoading = ref(false)
 
 const appModalRef = ref(null)
 let appModal = null
-const appRoleModalRef = ref(null)
-let appRoleModal = null
-
-const isEditing = ref(false)
-const form = ref({
-  id: 0,
-  name: '',
-  description: '',
-  rate_limit: 0,
-  status: 1
-})
-
-const newAppInfo = ref({ app_id: '', AppKey: '' })
+const appAccessModalRef = ref(null)
+let appAccessModal = null
 const appSuccessModalRef = ref(null)
 let appSuccessModal = null
-const currentAppForRoles = ref(null)
-const appRoleAssignments = ref([])
+
+const isEditing = ref(false)
+const form = ref({ id: 0, name: '', description: '', rate_limit: 0, status: 1 })
+const newAppInfo = ref({ app_id: '', AppKey: '' })
+const currentAppForAccess = ref(null)
+const appAccessProjects = ref([])
 const availableProjects = ref([])
-const availableRoles = ref([])
+const permissionsByProject = ref({})
+const deviceTags = ref([])
 
 const goToGuide = () => {
   router.push('/settings/apps/guide')
@@ -250,8 +280,6 @@ const loadApps = async () => {
     if (res.data.code === 0) {
       apps.value = res.data.data || []
     }
-  } catch (error) {
-    console.error('Failed to load apps:', error)
   } finally {
     loading.value = false
   }
@@ -259,7 +287,7 @@ const loadApps = async () => {
 
 onMounted(() => {
   appModal = new Modal(appModalRef.value)
-  appRoleModal = new Modal(appRoleModalRef.value)
+  appAccessModal = new Modal(appAccessModalRef.value)
   appSuccessModal = new Modal(appSuccessModalRef.value)
   loadApps()
 })
@@ -276,66 +304,115 @@ const openEditModal = (item) => {
   appModal.show()
 }
 
-const normalizeRole = (role) => {
-  return role.Role || role
+const normalizeProjectAccess = (item) => ({
+  project_id: item.project_id || 0,
+  permission_ids: [...new Set(item.permission_ids || [])],
+  device_tag_permissions: (item.device_tag_permissions || []).filter((tag) => tag.tag_id && tag.permission)
+})
+
+const loadAppAccessOptions = async () => {
+  const res = await axios.get('/api/apps/access-options')
+  if (res.data.code !== 0) throw new Error(res.data.message)
+  const data = res.data.data || {}
+  availableProjects.value = data.projects || []
+  deviceTags.value = data.device_tags || []
+  permissionsByProject.value = {}
+  for (const row of data.permissions_by_project || []) {
+    permissionsByProject.value[row.project_id] = row.permissions || []
+  }
 }
 
-const loadAppRoleOptions = async () => {
-  const [projectsRes, rolesRes] = await Promise.all([
-    axios.get('/api/auth/projects'),
-    axios.get('/api/roles', { params: { include_builtin: 1 } })
-  ])
-  if (projectsRes.data.code === 0) {
-    availableProjects.value = projectsRes.data.data || []
-  }
-  if (rolesRes.data.code === 0) {
-    availableRoles.value = (rolesRes.data.data || []).map(normalizeRole)
+const loadAppAccess = async () => {
+  const res = await axios.get(`/api/apps/${currentAppForAccess.value.ID}/access`)
+  if (res.data.code !== 0) throw new Error(res.data.message)
+  appAccessProjects.value = ((res.data.data || {}).projects || []).map(normalizeProjectAccess)
+}
+
+const openAccessModal = async (item) => {
+  currentAppForAccess.value = item
+  appAccessProjects.value = []
+  accessLoading.value = true
+  appAccessModal.show()
+  try {
+    await loadAppAccessOptions()
+    await loadAppAccess()
+  } catch (error) {
+    alert(error.response?.data?.message || error.message || t('app_access_load_failed'))
+  } finally {
+    accessLoading.value = false
   }
 }
 
-const loadAppRoles = async () => {
-  if (!currentAppForRoles.value) return
-  const res = await axios.get(`/api/apps/${currentAppForRoles.value.ID}/roles`)
-  if (res.data.code === 0) {
-    appRoleAssignments.value = (res.data.data || []).map((item) => ({
-      project_id: item.project_id || 0,
-      role_id: item.role_id || 0
-    }))
+const projectAccess = (projectId) => {
+  let access = appAccessProjects.value.find((item) => item.project_id === projectId)
+  if (!access) {
+    access = { project_id: projectId, permission_ids: [], device_tag_permissions: [] }
+    appAccessProjects.value.push(access)
+  }
+  return access
+}
+
+const isProjectEnabled = (projectId) => appAccessProjects.value.some((item) => item.project_id === projectId)
+
+const toggleProject = (projectId, enabled) => {
+  if (enabled) {
+    projectAccess(projectId)
   } else {
-    appRoleAssignments.value = []
-    alert(res.data.message)
+    appAccessProjects.value = appAccessProjects.value.filter((item) => item.project_id !== projectId)
   }
 }
 
-const openRolesModal = async (item) => {
-  currentAppForRoles.value = item
-  appRoleAssignments.value = []
-  await loadAppRoleOptions()
-  await loadAppRoles()
-  appRoleModal.show()
+const permissionsForProject = (projectId) => permissionsByProject.value[projectId] || []
+
+const groupedPermissions = (projectId) => {
+  const groups = new Map()
+  for (const permission of permissionsForProject(projectId)) {
+    const module = permission.module || permission.Module || 'other'
+    if (!groups.has(module)) groups.set(module, [])
+    groups.get(module).push(permission)
+  }
+  return Array.from(groups.entries()).map(([module, permissions]) => ({ module, permissions }))
 }
 
-const addAppRoleRow = () => {
-  appRoleAssignments.value.push({ project_id: 0, role_id: 0 })
+const moduleLabel = (module) => t(`perm_mod_${module}`, module)
+
+const togglePermission = (projectId, permissionId, checked) => {
+  const access = projectAccess(projectId)
+  if (checked && !access.permission_ids.includes(permissionId)) {
+    access.permission_ids.push(permissionId)
+  }
+  if (!checked) {
+    access.permission_ids = access.permission_ids.filter((id) => id !== permissionId)
+  }
 }
 
-const removeAppRoleRow = (index) => {
-  appRoleAssignments.value.splice(index, 1)
+const tagPermission = (projectId, tagId) => {
+  const access = projectAccess(projectId)
+  return access.device_tag_permissions.find((item) => item.tag_id === tagId)?.permission || ''
 }
 
-const saveAppRoles = async () => {
-  if (!currentAppForRoles.value) return
-  const roles = appRoleAssignments.value
-    .filter((item) => item.role_id > 0)
-    .map((item) => ({
-      project_id: item.project_id || 0,
-      role_id: item.role_id
-    }))
-  const res = await axios.put(`/api/apps/${currentAppForRoles.value.ID}/roles`, { roles })
-  if (res.data.code === 0) {
-    appRoleModal.hide()
-  } else {
-    alert(res.data.message)
+const setTagPermission = (projectId, tagId, permission) => {
+  const access = projectAccess(projectId)
+  access.device_tag_permissions = access.device_tag_permissions.filter((item) => item.tag_id !== tagId)
+  if (permission) {
+    access.device_tag_permissions.push({ tag_id: tagId, permission })
+  }
+}
+
+const saveAppAccess = async () => {
+  if (!currentAppForAccess.value) return
+  const projects = appAccessProjects.value
+    .filter((item) => item.project_id > 0)
+    .map((item) => normalizeProjectAccess(item))
+  try {
+    const res = await axios.put(`/api/apps/${currentAppForAccess.value.ID}/access`, { projects })
+    if (res.data.code === 0) {
+      appAccessModal.hide()
+    } else {
+      alert(res.data.message)
+    }
+  } catch (error) {
+    alert(error.response?.data?.message || t('app_access_save_failed'))
   }
 }
 
@@ -347,7 +424,6 @@ const saveApp = async () => {
     } else {
       res = await axios.post('/api/apps', form.value)
     }
-
     if (res.data.code === 0) {
       appModal.hide()
       loadApps()
@@ -393,3 +469,108 @@ const resetAppKey = async (item) => {
   }
 }
 </script>
+
+<style scoped>
+.app-access-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.app-project-card {
+  background: #fff;
+  border: 1px solid #dfe3ea;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.app-project-header {
+  align-items: center;
+  background: #f8fafc;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem;
+}
+
+.app-project-body {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  padding: 1rem;
+}
+
+.access-panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.access-panel-title {
+  align-items: center;
+  display: flex;
+  font-weight: 600;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.permission-groups {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.permission-group {
+  background: #fbfcfe;
+  border: 1px solid #edf0f5;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.permission-group-title {
+  color: #6b7280;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.permission-check {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.4rem;
+  margin: 0 1rem 0.5rem 0;
+}
+
+.tag-permission-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.tag-permission-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.tag-name {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.tag-swatch {
+  border-radius: 50%;
+  display: inline-block;
+  height: 0.7rem;
+  width: 0.7rem;
+}
+
+.tag-select {
+  width: 8.5rem;
+}
+
+@media (max-width: 992px) {
+  .app-project-body {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
