@@ -15,8 +15,10 @@
       <div class="spinner-border text-primary" role="status"></div>
     </div>
 
-    <div v-else-if="gateways.length === 0" class="alert alert-info">
-      {{ gt('no_gateways') }}
+    <div v-else-if="gateways.length === 0" class="empty-state text-center py-5 text-muted">
+      <i class="bi bi-hdd-network-fill d-block mb-3" style="font-size: 4rem; opacity: 0.3;"></i>
+      <h4 class="mb-2 fw-bold">{{ gt('no_gateways') || '暂无网关' }}</h4>
+      <p class="mb-0">您还没有添加任何网关设备，或级联服务未开启</p>
     </div>
 
     <div v-else>
@@ -309,10 +311,10 @@ const fetchGateways = async (options = {}) => {
         }
       }
     } else {
-      showToast('danger', gt('gateway_load_failed'));
+      gateways.value = [];
     }
   } catch (e) {
-    showToast('danger', gt('gateway_load_failed'));
+    gateways.value = [];
   } finally {
     if (!silent) loading.value = false;
   }

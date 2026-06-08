@@ -293,7 +293,7 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 			continue
 		}
 
-		isPro := meta.Name == "ai_predict" || meta.Name == "ai_copilot" || strings.EqualFold(meta.Name, "script") || meta.Name == "cascade" || meta.Name == "gb28181" || meta.Name == "webrtc"
+		isPro := meta.Name == "ai_predict" || meta.Name == "ai_copilot" || strings.EqualFold(meta.Name, "script") || meta.Name == "gb28181" || meta.Name == "webrtc" || meta.Name == "voice_assistant" || meta.Name == "yolo_pro"
 		isAllowed := s.Manager.IsAllowed(meta)
 		isUnauthorized := isPro && !isAllowed
 

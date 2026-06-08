@@ -9,7 +9,8 @@ const isLoaded = ref(false);
 const extensions = ref({
   routes: [],
   menus: [],
-  deviceActions: []
+  deviceActions: [],
+  globalWidgets: []
 });
 
 /**
@@ -35,6 +36,9 @@ export async function loadPlugins() {
       }
       if (pluginManifest.deviceActions) {
         extensions.value.deviceActions.push(...pluginManifest.deviceActions);
+      }
+      if (pluginManifest.globalWidgets) {
+        extensions.value.globalWidgets.push(...pluginManifest.globalWidgets);
       }
     }
   }

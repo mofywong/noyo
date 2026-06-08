@@ -39,7 +39,7 @@
       <slot name="custom"></slot>
 
       <template v-if="!hasCustomContent">
-        <div v-if="!schema?.fields || schema.fields.length === 0" class="alert alert-info">
+        <div v-if="!schema?.fields || schema.fields.filter(f => f.name !== 'enabled').length === 0" class="alert alert-info">
           {{ noConfigText }}
         </div>
 

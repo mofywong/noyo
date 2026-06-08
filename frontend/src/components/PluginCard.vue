@@ -22,7 +22,7 @@
       
       <h5 class="card-title fw-bold mb-1">
         {{ plugin.title ? (plugin.title[locale] || plugin.title['en'] || plugin.name) : plugin.name }}
-        <span v-if="plugin.isPro" class="badge bg-danger ms-1" style="font-size: 0.6rem; vertical-align: middle;">PRO</span>
+        <span v-if="plugin.isPro" class="badge bg-danger text-white ms-1" style="font-size: 0.6rem; vertical-align: middle;">PRO</span>
       </h5>
       <p class="card-text text-muted small flex-grow-1">
         {{ plugin.description ? (plugin.description[locale] || plugin.description['en'] || '') : $t('plugin_desc_default', { category: plugin.category ? plugin.category.toUpperCase() : 'PLUGIN', name: plugin.name }) }}

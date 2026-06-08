@@ -5,6 +5,7 @@ import (
 	_ "noyo/plugins/pro/platform/ai_copilot"
 	_ "noyo/plugins/pro/platform/ai_predict"
 	_ "noyo/plugins/pro/platform/license_auth"
+	_ "noyo/plugins/pro/platform/voice_assistant"
 	_ "noyo/plugins/pro/platform/webrtc"
 	_ "noyo/plugins/pro/platform/yolo_pro"
 	_ "noyo/plugins/pro/protocol/gb28181"

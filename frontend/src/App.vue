@@ -27,8 +27,12 @@
             @configure="openPluginConfig"
             @update-status="updatePluginStatus"
           />
-          <!-- Global AI Copilot Floating Widget -->
-          <GlobalAiCopilot />
+          <!-- Global Widgets from Plugins -->
+          <component 
+            v-for="(Widget, index) in pluginExtensions.globalWidgets" 
+            :key="'widget-'+index" 
+            :is="Widget" 
+          />
         </div>
       </div>
       </div>
@@ -80,9 +84,9 @@ import axios from 'axios';
 import Sidebar from './components/Sidebar.vue';
 import TopHeader from './components/TopHeader.vue';
 import ToastContainer from './components/ToastContainer.vue';
-import GlobalAiCopilot from './components/common/GlobalAiCopilot.vue';
 import { useToast } from './composables/useToast';
 import { gatewayActionText, gatewayText } from './utils/gatewayLocale';
+import { usePlugins } from './plugins/registry';
 import { Modal } from 'bootstrap';
 import { useAuthStore } from './stores/auth';
 
@@ -91,6 +95,7 @@ const { showToast } = useToast();
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const { extensions: pluginExtensions } = usePlugins();
 const gt = (key, params) => gatewayText(locale.value, key, params);
 
 // State

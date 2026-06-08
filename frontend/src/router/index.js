@@ -165,12 +165,24 @@ const router = createRouter({
   routes
 })
 
+function getFallbackRoute(authStore) {
+  for (const r of routes) {
+    if (r.meta?.requiresAuth && r.meta?.permission) {
+      if (authStore.hasPermission(r.meta.permission)) {
+        return { name: r.name }
+      }
+    }
+  }
+  return false // No accessible routes
+}
+
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
 
   if (to.name === 'Login') {
     if (authStore.isLoggedIn) {
-      return next('/')
+      const fallback = getFallbackRoute(authStore)
+      return next(fallback || '/')
     }
     return next()
   }
@@ -180,7 +192,11 @@ router.beforeEach((to, from, next) => {
   }
 
   if (to.meta?.permission && !authStore.hasPermission(to.meta.permission)) {
-    return next('/')
+    const fallback = getFallbackRoute(authStore)
+    if (fallback && fallback.name !== to.name) {
+      return next(fallback)
+    }
+    return next(false)
   }
 
   next()
