@@ -13,6 +13,8 @@ import (
 	"noyo/core/tsdb"
 	"noyo/core/types"
 
+	// "runtime"
+
 	"os"
 	"os/signal"
 	"strings"
@@ -20,6 +22,8 @@ import (
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
+
+	// ort "github.com/yalue/onnxruntime_go"
 	"go.uber.org/zap"
 )
 
@@ -114,10 +118,42 @@ func (s *Server) Run() error {
 		defer s.TSDB.Stop()
 	}
 
+	// Global ONNX Runtime Initialization
+	// if !ort.IsInitialized() {
+	// 	var initErr error
+	// 	initialized := false
+	// 	var dlls []string
+	// 	switch runtime.GOOS {
+	// 	case "windows":
+	// 		dlls = []string{"lib/onnxruntime.dll", "lib/onnxruntime-cuda.dll", "lib/onnxruntime-gpu.dll", "lib/onnxruntime-cpu.dll"}
+	// 	case "darwin":
+	// 		dlls = []string{"lib/libonnxruntime.dylib"}
+	// 	case "linux":
+	// 		dlls = []string{"lib/libonnxruntime.so", "lib/libonnxruntime-cuda.so", "lib/libonnxruntime-gpu.so", "lib/libonnxruntime-cpu.so"}
+	// 	default:
+	// 		dlls = []string{"lib/libonnxruntime.so"}
+	// 	}
+	// 	for _, libPath := range dlls {
+	// 		ort.SetSharedLibraryPath(libPath)
+	// 		if err := ort.InitializeEnvironment(); err == nil {
+	// 			initialized = true
+	// 			s.Logger.Info("ONNX environment globally initialized", zap.String("library", libPath))
+	// 			break
+	// 		} else {
+	// 			initErr = err
+	// 			s.Logger.Debug("Failed to globally initialize ONNX environment", zap.String("library", libPath), zap.Error(err))
+	// 		}
+	// 	}
+	// 	if !initialized {
+	// 		s.Logger.Warn("Failed to globally initialize ONNX environment with any library", zap.Error(initErr))
+	// 	}
+	// }
+
 	// Initialize Web Server (so plugins can register routes)
 	s.WebServer = g.Server()
 	s.WebServer.SetRouteOverWrite(true) // Enable route overwrite for plugin reload
 	s.WebServer.SetPort(s.Config.Server.Port)
+	s.WebServer.SetDumpRouterMap(false) // Disable printing the route table on startup
 
 	s.registerAPIRoutes()
 
