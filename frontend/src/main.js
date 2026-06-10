@@ -59,13 +59,18 @@ axios.interceptors.request.use((config) => {
   const authStore = useAuthStore()
   const requestPath = (config.url || '').split('?')[0]
   const isAuthProjectsRequest = requestPath === '/api/auth/projects'
-  if (authStore.token) {
+  const isSetupRequest = requestPath.startsWith('/api/setup/')
+  if (authStore.token && !isSetupRequest) {
     config.headers.Authorization = `Bearer ${authStore.token}`
   }
   
   const projectId = localStorage.getItem('current_project_id')
-  if (projectId && !isAuthProjectsRequest) {
+  if (projectId && !isAuthProjectsRequest && !isSetupRequest) {
     config.headers['X-Current-Project-ID'] = projectId
+  }
+
+  if (isSetupRequest) {
+    return config
   }
 
   if (authStore.user && authStore.user.tenant_id > 0) {

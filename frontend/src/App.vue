@@ -1,6 +1,6 @@
 <template>
   <div :data-bs-theme="currentTheme === 'system' ? systemTheme : currentTheme">
-    <template v-if="route.name !== 'Login'">
+    <template v-if="!isStandalonePage">
       <Sidebar 
         :is-open="sidebarOpen" 
         :current-plugin="currentPluginName"
@@ -124,6 +124,8 @@ const copyToClipboard = async (text) => {
 
 // Computed
 const currentPluginName = computed(() => route.params.name);
+const isStandalonePage = computed(() => route.name === 'Login' || route.name === 'Setup');
+const shouldLoadShellData = computed(() => authStore.isLoggedIn && !isStandalonePage.value);
 
 const pageTitle = computed(() => {
   const name = route.name;
@@ -196,6 +198,24 @@ const initMqttStatusSSE = () => {
   };
 };
 
+const closeMqttStatusSSE = () => {
+  if (mqttStatusSSE) {
+    mqttStatusSSE.close();
+    mqttStatusSSE = null;
+  }
+};
+
+const loadShellData = () => {
+  checkLicense();
+  fetchPlugins();
+  initMqttStatusSSE();
+
+  if (authStore.user && authStore.user.must_change_password) {
+    forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
+    forcePasswordModal.show();
+  }
+};
+
 // Navigation
 const handleNavigate = (target) => {
   // Map old view names to route names if necessary, or assume target.view matches route names (lowercase/uppercase?)
@@ -248,39 +268,20 @@ onMounted(() => {
     locale.value = savedLang;
   }
 
-  if (authStore.isLoggedIn) {
-    checkLicense();
-    fetchPlugins();
-    initMqttStatusSSE();
-
-    if (authStore.user && authStore.user.must_change_password) {
-      forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
-      forcePasswordModal.show();
-    }
+  if (shouldLoadShellData.value) {
+    loadShellData();
   }
 });
 
 onBeforeUnmount(() => {
-  if (mqttStatusSSE) {
-    mqttStatusSSE.close();
-    mqttStatusSSE = null;
-  }
+  closeMqttStatusSSE();
 });
 
-watch(() => authStore.isLoggedIn, (loggedIn) => {
-  if (loggedIn) {
-    checkLicense();
-    fetchPlugins();
-    initMqttStatusSSE();
-    if (authStore.user && authStore.user.must_change_password) {
-      forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
-      forcePasswordModal.show();
-    }
+watch(shouldLoadShellData, (enabled) => {
+  if (enabled) {
+    loadShellData();
   } else {
-    if (mqttStatusSSE) {
-      mqttStatusSSE.close();
-      mqttStatusSSE = null;
-    }
+    closeMqttStatusSSE();
     plugins.value = [];
     mqttStatus.value = null;
   }

@@ -21,10 +21,17 @@ import Logs from '../views/Logs.vue'
 import License from '../views/License.vue'
 import AlarmCenter from '../views/AlarmCenter.vue'
 import Login from '../views/Login.vue'
+import SetupWizard from '../views/SetupWizard.vue'
 import { loadPlugins, usePlugins } from '../plugins/registry.js'
 import { useAuthStore } from '../stores/auth.js'
+import axios from 'axios'
 
 const routes = [
+  {
+    path: '/setup',
+    name: 'Setup',
+    component: SetupWizard
+  },
   {
     path: '/',
     name: 'Dashboard',
@@ -165,6 +172,33 @@ const router = createRouter({
   routes
 })
 
+let setupStatusCache = null
+let setupStatusPromise = null
+
+export function clearSetupStatusCache() {
+  setupStatusCache = null
+  setupStatusPromise = null
+}
+
+async function getSetupStatus(force = false) {
+  if (!force && setupStatusCache) {
+    return setupStatusCache
+  }
+  if (!force && setupStatusPromise) {
+    return setupStatusPromise
+  }
+  setupStatusPromise = axios.get('/api/setup/status').then((res) => {
+    if (res.data?.code === 0) {
+      setupStatusCache = res.data.data
+      return setupStatusCache
+    }
+    throw new Error(res.data?.message || 'Failed to load setup status')
+  }).finally(() => {
+    setupStatusPromise = null
+  })
+  return setupStatusPromise
+}
+
 function getFallbackRoute(authStore) {
   for (const r of routes) {
     if (r.meta?.requiresAuth && r.meta?.permission) {
@@ -176,8 +210,32 @@ function getFallbackRoute(authStore) {
   return false // No accessible routes
 }
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
+
+  let setupStatus = null
+  try {
+    setupStatus = await getSetupStatus()
+  } catch (error) {
+    if (to.name === 'Setup') {
+      return next()
+    }
+  }
+
+  if (setupStatus && !setupStatus.initialized) {
+    if (to.name !== 'Setup') {
+      return next({ name: 'Setup' })
+    }
+    return next()
+  }
+
+  if (to.name === 'Setup') {
+    if (authStore.isLoggedIn) {
+      const fallback = getFallbackRoute(authStore)
+      return next(fallback || '/')
+    }
+    return next('/login')
+  }
 
   if (to.name === 'Login') {
     if (authStore.isLoggedIn) {

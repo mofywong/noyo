@@ -10,4 +10,7 @@ type Config struct {
 
 	GatewaySn   string `json:"gateway_sn" yaml:"gateway_sn"`     // Required for gateway mode
 	GatewayName string `json:"gateway_name" yaml:"gateway_name"` // Gateway name to report on registration
+
+	TenantName  string `json:"tenant_name" yaml:"tenant_name"`
+	ProjectName string `json:"project_name" yaml:"project_name"`
 }

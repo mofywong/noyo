@@ -19,9 +19,35 @@ type ConfigField struct {
 	Options     []map[string]string `json:"options"`     // List of options for select type (value, label)
 }
 
+// PluginSetupField describes a plugin field that can be collected during first-run setup.
+type PluginSetupField struct {
+	Name        string              `json:"name"`
+	Type        string              `json:"type"`
+	Title       map[string]string   `json:"title,omitempty"`
+	Description map[string]string   `json:"description,omitempty"`
+	Value       interface{}         `json:"value,omitempty"`
+	Options     []map[string]string `json:"options,omitempty"`
+	Required    bool                `json:"required,omitempty"`
+	Sensitive   bool                `json:"sensitive,omitempty"`
+}
+
+// PluginSetupSchema lets plugins contribute optional fields to the first-run setup wizard.
+type PluginSetupSchema struct {
+	PluginName  string             `json:"plugin_name"`
+	Title       map[string]string  `json:"title"`
+	Description map[string]string  `json:"description,omitempty"`
+	Modes       []string           `json:"modes,omitempty"`
+	Fields      []PluginSetupField `json:"fields"`
+}
+
 // IConfigSchemaProvider allows plugins to provide dynamic configuration schema
 type IConfigSchemaProvider interface {
 	GetConfigSchema() *PluginConfigSchema
+}
+
+// ISetupSchemaProvider allows plugins to contribute first-run setup fields.
+type ISetupSchemaProvider interface {
+	GetSetupSchema(mode string) *PluginSetupSchema
 }
 
 // PluginConfigSchema describes the configuration structure of a plugin

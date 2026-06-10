@@ -579,11 +579,13 @@ func (e *gatewayEngineImpl) sendRegisterRequest() {
 
 	req := map[string]interface{}{
 		"gateway_name": e.config.GatewayName,
+		"tenant_name":  e.config.TenantName,
+		"project_name": e.config.ProjectName,
 	}
 	reqBytes, _ := json.Marshal(req)
 
 	e.client.Publish(topic, 1, false, reqBytes)
-	e.logger.Info("Sent register request", zap.String("name", e.config.GatewayName))
+	e.logger.Info("Sent register request", zap.String("name", e.config.GatewayName), zap.String("tenant", e.config.TenantName), zap.String("project", e.config.ProjectName))
 }
 
 func (e *gatewayEngineImpl) handleRegisterResponse(client mqtt.Client, msg mqtt.Message) {

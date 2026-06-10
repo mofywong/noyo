@@ -34,6 +34,11 @@ func (s *Server) registerAPIRoutes() {
 			authGroup.GET("/tenant-info", s.handleGetTenantBySuffix)
 		})
 
+		group.Group("/setup", func(setupGroup *ghttp.RouterGroup) {
+			setupGroup.GET("/status", s.handleGetSetupStatus)
+			setupGroup.POST("/apply", s.handleApplySetup)
+		})
+
 		group.Group("/", func(protected *ghttp.RouterGroup) {
 			protected.Middleware(AuthMiddleware(s.Config.Auth.JWTSecret), AuditMiddleware())
 

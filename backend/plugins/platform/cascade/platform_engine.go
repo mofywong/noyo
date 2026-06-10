@@ -567,6 +567,8 @@ func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.
 
 	var req struct {
 		GatewayName string `json:"gateway_name"`
+		TenantName  string `json:"tenant_name"`
+		ProjectName string `json:"project_name"`
 	}
 	_ = json.Unmarshal(msg.Payload(), &req)
 
@@ -575,7 +577,39 @@ func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.
 		gwName = "Auto-registered Gateway " + gwSn
 	}
 
-	e.logger.Info("Handling register request", zap.String("gw_sn", gwSn), zap.String("name", gwName))
+	e.logger.Info("Handling register request", zap.String("gw_sn", gwSn), zap.String("name", gwName), zap.String("tenant_name", req.TenantName), zap.String("project_name", req.ProjectName))
+
+	var targetTenantID uint = 0
+	var targetProjectID uint = 0
+
+	if req.TenantName != "" && req.ProjectName != "" {
+		var tenant store.Tenant
+		if err := store.DB.Where("name = ?", req.TenantName).First(&tenant).Error; err != nil {
+			e.logger.Warn("Tenant not found during gateway registration", zap.String("tenant_name", req.TenantName))
+			respBytes, _ := json.Marshal(map[string]string{
+				"status":  "error",
+				"message": "Tenant not found: " + req.TenantName,
+			})
+			respTopic := fmt.Sprintf("noyo/cascade/gw/%s/register/response", gwSn)
+			client.Publish(respTopic, 1, false, respBytes)
+			return
+		}
+
+		var project store.Project
+		if err := store.DB.Where("name = ? AND tenant_id = ?", req.ProjectName, tenant.ID).First(&project).Error; err != nil {
+			e.logger.Warn("Project not found during gateway registration", zap.String("project_name", req.ProjectName), zap.Uint("tenant_id", tenant.ID))
+			respBytes, _ := json.Marshal(map[string]string{
+				"status":  "error",
+				"message": "Project not found: " + req.ProjectName,
+			})
+			respTopic := fmt.Sprintf("noyo/cascade/gw/%s/register/response", gwSn)
+			client.Publish(respTopic, 1, false, respBytes)
+			return
+		}
+
+		targetTenantID = tenant.ID
+		targetProjectID = project.ID
+	}
 
 	resp := struct {
 		Status  string `json:"status"`
@@ -595,6 +629,8 @@ func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.
 			Name:        gwName,
 			ProductCode: "noyo-gw",
 			Enabled:     false, // Pending registration approval
+			TenantID:    targetTenantID,
+			ProjectID:   targetProjectID,
 		}
 		if err := store.SaveDevice(newDev); err != nil {
 			e.logger.Error("Failed to auto-register gateway device", zap.Error(err))
@@ -602,6 +638,13 @@ func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.
 	} else if gwDevice.Enabled {
 		resp.Status = "success"
 		resp.Message = "approved"
+	} else {
+		// Device exists but not enabled, update tenant/project if they were provided
+		if targetTenantID > 0 && (gwDevice.TenantID != targetTenantID || gwDevice.ProjectID != targetProjectID) {
+			gwDevice.TenantID = targetTenantID
+			gwDevice.ProjectID = targetProjectID
+			store.SaveDevice(gwDevice)
+		}
 	}
 
 	respBytes, _ := json.Marshal(resp)

@@ -241,6 +241,67 @@ func (p *CascadePlugin) GetConfigSchema() *core.PluginConfigSchema {
 	}
 }
 
+func (p *CascadePlugin) GetSetupSchema(mode string) *core.PluginSetupSchema {
+	if mode == core.SetupModeGatewayStandalone {
+		return nil
+	}
+
+	meta := p.GetMeta()
+	if meta == nil {
+		return nil
+	}
+
+	fields := []core.PluginSetupField{
+		{
+			Name:        "mqtt_url",
+			Type:        "string",
+			Title:       map[string]string{"en": "Cascade MQTT URL", "zh": "级联 MQTT 地址"},
+			Description: map[string]string{"en": "Shared broker used by platform and managed gateways, e.g. tcp://127.0.0.1:1883.", "zh": "平台与托管网关共用的级联 Broker，例如 tcp://127.0.0.1:1883。"},
+			Required:    mode == core.SetupModeGatewayManaged,
+		},
+		{
+			Name:  "username",
+			Type:  "string",
+			Title: map[string]string{"en": "MQTT Username", "zh": "MQTT 用户名"},
+		},
+		{
+			Name:      "password",
+			Type:      "password",
+			Title:     map[string]string{"en": "MQTT Password", "zh": "MQTT 密码"},
+			Sensitive: true,
+		},
+	}
+
+	if mode == core.SetupModeGatewayManaged {
+		fields = append(fields,
+			core.PluginSetupField{
+				Name:  "gateway_sn",
+				Type:  "string",
+				Title: map[string]string{"en": "Platform Gateway SN", "zh": "平台注册网关 SN"},
+				Description: map[string]string{
+					"en": "Must match the gateway device code that the platform pre-registered under the target project.",
+					"zh": "必须与平台在目标项目下预登记的网关设备编码一致，平台据此完成项目绑定。",
+				},
+				Required: true,
+			},
+			core.PluginSetupField{
+				Name:        "gateway_name",
+				Type:        "string",
+				Title:       map[string]string{"en": "Gateway Display Name", "zh": "网关显示名称"},
+				Description: map[string]string{"en": "Used only as the reported display name during registration.", "zh": "仅作为注册上报时的显示名称。"},
+			},
+		)
+	}
+
+	return &core.PluginSetupSchema{
+		PluginName:  meta.Name,
+		Title:       meta.Title,
+		Description: meta.Description,
+		Modes:       []string{mode},
+		Fields:      fields,
+	}
+}
+
 // Init implements IPlatformPlugin Init lifecycle
 func (p *CascadePlugin) Init(ctx platform.Context) error {
 	if err := p.BasePlatformPlugin.Init(ctx); err != nil {
