@@ -104,16 +104,17 @@ func ListProducts(page, pageSize int, tenantID, projectID uint, allowedProjectID
 
 	db := DB.Model(&Product{})
 	if tenantID > 0 {
-		db = db.Where("tenant_id = ?", tenantID)
+		db = db.Where("tenant_id IN (?, 0)", tenantID)
 	}
 	if projectID > 0 {
-		db = db.Where("project_id = ?", projectID)
+		db = db.Where("project_id IN (?, 0)", projectID)
 	} else if len(allowedProjectIDs) > 0 {
 		ids := allowedProjectIDs[0]
 		if len(ids) == 0 {
-			return []Product{}, 0, nil
+			db = db.Where("project_id = 0")
+		} else {
+			db = db.Where("project_id IN (?) OR project_id = 0", ids)
 		}
-		db = db.Where("project_id IN ?", ids)
 	}
 
 	if err := db.Count(&total).Error; err != nil {

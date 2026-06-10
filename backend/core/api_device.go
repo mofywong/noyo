@@ -174,6 +174,10 @@ func (s *Server) handleUpdateProduct(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
+	if existing.TenantID == 0 {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Cannot modify global product"})
+		return
+	}
 	p.TenantID = existing.TenantID
 	p.ProjectID = existing.ProjectID
 	if p.ProtocolName != "" && p.ProtocolName != existing.ProtocolName {
@@ -228,6 +232,10 @@ func (s *Server) handleDeleteProduct(r *ghttp.Request) {
 	}
 	if !canAccessProduct(r, product) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
+		return
+	}
+	if product.TenantID == 0 {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Cannot delete global product"})
 		return
 	}
 	if err := store.DeleteProduct(code); err != nil {
@@ -466,7 +474,7 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Product not found"})
 		return
 	}
-	if product.TenantID != d.TenantID || product.ProjectID != d.ProjectID {
+	if (product.TenantID != 0 && product.TenantID != d.TenantID) || (product.ProjectID != 0 && product.ProjectID != d.ProjectID) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Product is outside current project"})
 		return
 	}
@@ -497,7 +505,7 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品不存在"})
 			return
 		}
-		if parentProduct.TenantID != d.TenantID || parentProduct.ProjectID != d.ProjectID {
+		if (parentProduct.TenantID != 0 && parentProduct.TenantID != d.TenantID) || (parentProduct.ProjectID != 0 && parentProduct.ProjectID != d.ProjectID) {
 			r.Response.WriteJson(g.Map{"code": 403, "message": "Parent product is outside current project"})
 			return
 		}
@@ -581,7 +589,7 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Product not found"})
 		return
 	}
-	if product.TenantID != d.TenantID || product.ProjectID != d.ProjectID {
+	if (product.TenantID != 0 && product.TenantID != d.TenantID) || (product.ProjectID != 0 && product.ProjectID != d.ProjectID) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Product is outside current project"})
 		return
 	}
@@ -609,7 +617,7 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品不存在"})
 			return
 		}
-		if parentProduct.TenantID != d.TenantID || parentProduct.ProjectID != d.ProjectID {
+		if (parentProduct.TenantID != 0 && parentProduct.TenantID != d.TenantID) || (parentProduct.ProjectID != 0 && parentProduct.ProjectID != d.ProjectID) {
 			r.Response.WriteJson(g.Map{"code": 403, "message": "Parent product is outside current project"})
 			return
 		}
@@ -1861,6 +1869,10 @@ func canAccessProduct(r *ghttp.Request, product *store.Product) bool {
 	}
 	if authCtx.IsSystemAdmin {
 		return authCtx.TenantID == 0 || product.TenantID == authCtx.TenantID
+	}
+	// Allow read access to global products
+	if product.TenantID == 0 {
+		return true
 	}
 	if product.TenantID != authCtx.TenantID {
 		return false

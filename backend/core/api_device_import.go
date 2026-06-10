@@ -55,10 +55,10 @@ func (s *Server) handleDownloadTemplate(r *ghttp.Request) {
 	if productCodesStr != "" {
 		codes := strings.Split(productCodesStr, ",")
 		if len(codes) > 0 {
-			store.DB.Where("code IN ? AND tenant_id = ? AND project_id = ?", codes, tenantID, projectID).Find(&products)
+			store.DB.Where("code IN ? AND tenant_id IN (?, 0) AND project_id IN (?, 0)", codes, tenantID, projectID).Find(&products)
 		}
 	} else {
-		store.DB.Where("protocol_name = ? AND tenant_id = ? AND project_id = ?", protocolName, tenantID, projectID).Find(&products)
+		store.DB.Where("protocol_name = ? AND tenant_id IN (?, 0) AND project_id IN (?, 0)", protocolName, tenantID, projectID).Find(&products)
 	}
 
 	// Convert store.Product to names/codes for dropdowns
@@ -187,7 +187,7 @@ func (s *Server) handleImportDevices(r *ghttp.Request) {
 	for _, devModel := range res.Devices {
 		// Verify Product
 		var product store.Product
-		if err := store.DB.Where("code = ? AND tenant_id = ? AND project_id = ?", devModel.ProductCode, tenantID, projectID).First(&product).Error; err != nil {
+		if err := store.DB.Where("code = ? AND tenant_id IN (?, 0) AND project_id IN (?, 0)", devModel.ProductCode, tenantID, projectID).First(&product).Error; err != nil {
 			errs = append(errs, fmt.Sprintf("Product %s not found for device %s", devModel.ProductCode, devModel.Name))
 			continue
 		}

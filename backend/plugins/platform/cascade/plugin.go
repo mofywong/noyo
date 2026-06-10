@@ -249,6 +249,9 @@ func (p *CascadePlugin) Init(ctx platform.Context) error {
 	p.Logger = ctx.GetLogger()
 	p.ctx = ctx
 
+	// Ensure gateway product exists unconditionally
+	EnsureGatewayProduct(p.Logger)
+
 	// Load Configuration
 	if cfgMap := ctx.GetConfig(); cfgMap != nil {
 		if err := gconv.Scan(cfgMap, &p.Config); err != nil {

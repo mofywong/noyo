@@ -83,8 +83,7 @@ func (e *platformEngineImpl) Start() error {
 		return fmt.Errorf("platform engine failed to connect to mqtt broker: %w", token.Error())
 	}
 
-	// Auto-create gateway product if not exists
-	e.ensureGatewayProduct()
+	// Auto-create gateway product logic moved to plugin Init
 
 	// Reset all cascade devices to offline on startup
 	e.resetAllCascadeDevicesOffline()
@@ -94,7 +93,7 @@ func (e *platformEngineImpl) Start() error {
 	return nil
 }
 
-func (e *platformEngineImpl) ensureGatewayProduct() {
+func EnsureGatewayProduct(logger *zap.Logger) {
 	const gwProductCode = "noyo-gw"
 	expectedName := "Noyo边缘网关"
 	expectedConfig := `{"tsl":{"properties":[{"identifier":"sys_cpu","name":"系统CPU","dataType":{"type":"double","specs":{"unit":"%"}},"accessMode":"r"},{"identifier":"sys_mem_percent","name":"系统内存","dataType":{"type":"double","specs":{"unit":"%"}},"accessMode":"r"},{"identifier":"sys_mem_total","name":"系统总内存","dataType":{"type":"double","specs":{"unit":"MB"}},"accessMode":"r"},{"identifier":"sys_mem_used","name":"系统已用内存","dataType":{"type":"double","specs":{"unit":"MB"}},"accessMode":"r"},{"identifier":"sys_disk_percent","name":"系统磁盘","dataType":{"type":"double","specs":{"unit":"%"}},"accessMode":"r"},{"identifier":"sys_disk_total","name":"系统总磁盘","dataType":{"type":"double","specs":{"unit":"GB"}},"accessMode":"r"},{"identifier":"sys_disk_used","name":"系统已用磁盘","dataType":{"type":"double","specs":{"unit":"GB"}},"accessMode":"r"},{"identifier":"svc_cpu","name":"服务CPU","dataType":{"type":"double","specs":{"unit":"%"}},"accessMode":"r"},{"identifier":"svc_mem","name":"服务内存","dataType":{"type":"double","specs":{"unit":"MB"}},"accessMode":"r"},{"identifier":"sys_uptime","name":"运行时间","dataType":{"type":"int","specs":{"unit":"s"}},"accessMode":"r"},{"identifier":"sys_ip","name":"IP地址","dataType":{"type":"text","specs":{"length":"64"}},"accessMode":"r"},{"identifier":"sys_os","name":"操作系统","dataType":{"type":"text","specs":{"length":"64"}},"accessMode":"r"},{"identifier":"sys_arch","name":"系统架构","dataType":{"type":"text","specs":{"length":"64"}},"accessMode":"r"},{"identifier":"gw_version","name":"网关版本","dataType":{"type":"text","specs":{"length":"64"}},"accessMode":"r"},{"identifier":"gw_go_version","name":"Go版本","dataType":{"type":"text","specs":{"length":"64"}},"accessMode":"r"},{"identifier":"gw_goroutine","name":"协程数","dataType":{"type":"int","specs":{"unit":"个"}},"accessMode":"r"}]}}`
@@ -107,15 +106,15 @@ func (e *platformEngineImpl) ensureGatewayProduct() {
 			p.ProtocolName = "cascade" // 设置为 cascade 协议，避免直连设备无协议的报错
 			p.Config = expectedConfig
 			if err := store.SaveProduct(p); err != nil {
-				e.logger.Error("Failed to update default gateway product", zap.Error(err))
+				logger.Error("Failed to update default gateway product", zap.Error(err))
 			} else {
-				e.logger.Info("Updated default gateway product", zap.String("code", gwProductCode))
+				logger.Info("Updated default gateway product", zap.String("code", gwProductCode))
 			}
 		}
 		return // already exists
 	}
 
-	e.logger.Info("Creating default gateway product", zap.String("code", gwProductCode))
+	logger.Info("Creating default gateway product", zap.String("code", gwProductCode))
 	newProd := &store.Product{
 		Code:         gwProductCode,
 		Name:         expectedName,
@@ -123,7 +122,7 @@ func (e *platformEngineImpl) ensureGatewayProduct() {
 		Config:       expectedConfig,
 	}
 	if err := store.SaveProduct(newProd); err != nil {
-		e.logger.Error("Failed to create default gateway product", zap.Error(err))
+		logger.Error("Failed to create default gateway product", zap.Error(err))
 	}
 }
 
