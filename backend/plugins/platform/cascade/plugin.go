@@ -242,7 +242,8 @@ func (p *CascadePlugin) GetConfigSchema() *core.PluginConfigSchema {
 }
 
 func (p *CascadePlugin) GetSetupSchema(mode string) *core.PluginSetupSchema {
-	if mode == core.SetupModeGatewayStandalone {
+	mode = core.NormalizeSetupMode(mode)
+	if mode == core.SetupModeLocalProject {
 		return nil
 	}
 
@@ -257,7 +258,7 @@ func (p *CascadePlugin) GetSetupSchema(mode string) *core.PluginSetupSchema {
 			Type:        "string",
 			Title:       map[string]string{"en": "Cascade MQTT URL", "zh": "级联 MQTT 地址"},
 			Description: map[string]string{"en": "Shared broker used by platform and managed gateways, e.g. tcp://127.0.0.1:1883.", "zh": "平台与托管网关共用的级联 Broker，例如 tcp://127.0.0.1:1883。"},
-			Required:    mode == core.SetupModeGatewayManaged,
+			Required:    mode == core.SetupModePlatformGateway,
 		},
 		{
 			Name:  "username",
@@ -272,7 +273,7 @@ func (p *CascadePlugin) GetSetupSchema(mode string) *core.PluginSetupSchema {
 		},
 	}
 
-	if mode == core.SetupModeGatewayManaged {
+	if mode == core.SetupModePlatformGateway {
 		fields = append(fields,
 			core.PluginSetupField{
 				Name:  "gateway_sn",

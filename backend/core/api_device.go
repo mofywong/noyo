@@ -293,13 +293,18 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
+	s.Logger.Info("ListDevices fetched from DB", zap.Int("count", len(devices)), zap.Uint("reqTenantID", tenantID), zap.Uint("reqProjectID", projectID))
+
 	if authCtx := requestAuthContext(r); authCtx != nil {
 		filtered := make([]store.Device, 0, len(devices))
 		scope := currentDeviceTagScope(r)
 		for _, device := range devices {
 			allowed, err := canReadDeviceByTagPermission(authCtx, scope, device.Code)
-			if err == nil && allowed && canAccessDevice(r, &device) {
+			canAccess := canAccessDevice(r, &device)
+			if err == nil && allowed && canAccess {
 				filtered = append(filtered, device)
+			} else {
+				s.Logger.Info("Device filtered out", zap.String("code", device.Code), zap.Bool("allowed", allowed), zap.Bool("canAccess", canAccess), zap.Error(err))
 			}
 		}
 		devices = filtered
@@ -1798,7 +1803,19 @@ func canAccessDeviceEvent(r *ghttp.Request, event types.Event) bool {
 
 func currentTenantProjectScope(r *ghttp.Request) (uint, uint, error) {
 	authCtx := requestAuthContext(r)
-	if authCtx == nil || authCtx.IsSystemAdmin || authCtx.TenantID == 0 {
+	if authCtx == nil {
+		return 0, 0, fmt.Errorf("Tenant context is required")
+	}
+
+	isGateway := false
+	var gatewayTenantID, gatewayProjectID uint
+	if state, err := store.LoadSetupState(); err == nil {
+		isGateway = IsSingleProjectSetupMode(state.Mode)
+		gatewayTenantID = state.TenantID
+		gatewayProjectID = state.ProjectID
+	}
+
+	if !isGateway && (authCtx.IsSystemAdmin || authCtx.TenantID == 0) {
 		return 0, 0, fmt.Errorf("Tenant context is required")
 	}
 
@@ -1806,7 +1823,11 @@ func currentTenantProjectScope(r *ghttp.Request) (uint, uint, error) {
 	if tenantID == 0 {
 		tenantID = authCtx.TenantID
 	}
-	if tenantID != authCtx.TenantID {
+	if isGateway && tenantID == 0 {
+		tenantID = gatewayTenantID
+	}
+
+	if !isGateway && tenantID != authCtx.TenantID {
 		return 0, 0, fmt.Errorf("Tenant is outside allowed scope")
 	}
 
@@ -1814,12 +1835,18 @@ func currentTenantProjectScope(r *ghttp.Request) (uint, uint, error) {
 	if projectID == 0 {
 		projectID = authCtx.ProjectID
 	}
+	if isGateway && projectID == 0 {
+		projectID = gatewayProjectID
+	}
+
 	if projectID == 0 {
 		return tenantID, 0, fmt.Errorf("Project context is required")
 	}
-	if !projectBelongsToTenant(projectID, tenantID) || !authCtx.CanManageProject(projectID) {
+
+	if !isGateway && (!projectBelongsToTenant(projectID, tenantID) || !authCtx.CanManageProject(projectID)) {
 		return tenantID, projectID, fmt.Errorf("Project is outside allowed scope")
 	}
+
 	return tenantID, projectID, nil
 }
 

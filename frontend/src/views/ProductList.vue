@@ -236,6 +236,7 @@ import { useI18n } from 'vue-i18n';
 import SchemaForm from '../components/SchemaForm.vue';
 import ScriptProductConfig from '../components/script/ScriptProductConfig.vue';
 import TSLEditor from '../components/tsl/TSLEditor.vue';
+import { isSingleProjectMode } from '../utils/systemMode.js';
 
 const { t, locale } = useI18n();
 
@@ -254,7 +255,11 @@ const showCreateModal = ref(false);
 const showTSLModal = ref(false);
 const isEditing = ref(false);
 const protocols = ref([]);
-const showProjectColumn = computed(() => Number(localStorage.getItem('current_project_id') || 0) === 0);
+const showProjectColumn = computed(() => {
+  const mode = localStorage.getItem('system_mode') || '';
+  if (isSingleProjectMode(mode)) return false;
+  return Number(localStorage.getItem('current_project_id') || 0) === 0;
+});
 
 // 分页状态
 const page = ref(1);

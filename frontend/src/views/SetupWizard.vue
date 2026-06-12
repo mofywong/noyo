@@ -170,16 +170,16 @@
               <div class="setup-panel-head">
                 <div>
                   <h3>{{ tx('projectTitle') }}</h3>
-                  <p>{{ modeNeedsProject ? tx('projectGatewayDesc') : tx('projectPlatformDesc') }}</p>
+                  <p>{{ modeNeedsTenant ? tx('projectGatewayDesc') : tx('projectPlatformDesc') }}</p>
                 </div>
               </div>
 
-              <div v-if="modeNeedsProject" class="form-grid">
+              <div v-if="modeNeedsTenant" class="form-grid">
                 <label class="field-block">
                   <span>{{ tx('tenantName') }}</span>
                   <input v-model.trim="form.local_project.tenant_name" type="text" class="setup-input">
                 </label>
-                <label class="field-block">
+                <label v-if="modeNeedsProject" class="field-block">
                   <span>{{ tx('projectName') }}</span>
                   <input v-model.trim="form.local_project.project_name" type="text" class="setup-input">
                 </label>
@@ -300,6 +300,7 @@ import { useI18n } from 'vue-i18n'
 import axios from 'axios'
 import { clearSetupStatusCache } from '../router'
 import { useAuthStore } from '../stores/auth'
+import { SYSTEM_MODES, isSingleProjectMode } from '../utils/systemMode'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -315,7 +316,7 @@ const setupCopy = {
     brandSubtitle: '首次部署向导',
     wizardKicker: 'Deployment',
     title: '初始化配置',
-    subtitle: '选择 Noyo 的运行边界，创建第一个管理员，并按需配置级联连接。',
+    subtitle: '选择 Noyo 的部署用途，创建第一个管理员，并按需配置级联连接。',
     deploymentProfile: '部署配置',
     currentMode: '当前模式',
     runtime: '运行模式',
@@ -328,7 +329,7 @@ const setupCopy = {
     pluginsCaption: '连接参数',
     loading: '正在读取初始化状态...',
     runtimeTitle: '选择部署模式',
-    runtimeDesc: '网关是单项目运行；托管网关的项目归属由平台侧预登记网关决定。',
+    runtimeDesc: '平台模式用于上级管理，网关和本地项目模式用于边缘侧或小项目现场。',
     httpPort: 'HTTP 服务端口',
     adminTitle: '管理员账号',
     adminDesc: '该账号会成为初始化完成后的第一个登录账号。',
@@ -337,8 +338,8 @@ const setupCopy = {
     password: '密码',
     confirmPassword: '确认密码',
     projectTitle: '项目边界',
-    projectGatewayDesc: '网关模式会初始化一个本地租户和一个本地项目，避免引入平台多项目复杂度。',
-    projectPlatformDesc: '平台模式保留完整多租户、多项目模型，项目可在初始化后创建。',
+    projectGatewayDesc: '该模式会初始化一个隐藏租户和一个本地项目，用于承载项目内权限与设备数据。',
+    projectPlatformDesc: '该模式不固定本地项目，项目可在初始化后创建。',
     tenantName: '本地租户名称',
     projectName: '本地项目名称',
     projectPlatformEmpty: '平台模式不在初始化时固定项目，后续通过系统管理创建租户和项目。',
@@ -348,22 +349,26 @@ const setupCopy = {
     prev: '上一步',
     next: '下一步',
     finish: '完成初始化',
-    platformLabel: '平台模式',
-    platformDesc: '完整多租户、多项目 RBAC 管理，承载网关注册与设备统一纳管。',
-    standaloneLabel: '独立网关',
-    standaloneDesc: '单项目本地运行，不注册平台，保留本地登录、角色、审计和插件配置。',
-    managedLabel: '托管网关',
-    managedDesc: '单项目本地网关，通过级联 Broker 注册到平台预绑定的项目。',
-    platformBullets: ['多租户', '多项目', '统一纳管'],
-    standaloneBullets: ['单项目', '本地自治', '离线可用'],
-    managedBullets: ['单项目', '平台注册', '项目预绑定'],
+    multiTenantPlatformLabel: '多租户运营平台',
+    multiTenantPlatformDesc: '面向平台运营或集团化场景，保留完整租户隔离与多项目 RBAC。',
+    multiProjectPlatformLabel: '多项目管理平台',
+    multiProjectPlatformDesc: '面向单一组织管理多个项目，页面隐藏租户但底层保留默认租户边界。',
+    platformGatewayLabel: '平台接入网关',
+    platformGatewayDesc: '边缘侧单项目网关，通过级联 Broker 接入上级平台。',
+    localProjectLabel: '本地单项目管理',
+    localProjectDesc: '小项目本地独立运行，不接平台，单点完成接入与设备管理。',
+    multiTenantPlatformBullets: ['多租户', '多项目', '平台运营'],
+    multiProjectPlatformBullets: ['单组织', '多项目', '隐藏租户'],
+    platformGatewayBullets: ['单项目', '接入平台', '级联必填'],
+    localProjectBullets: ['单项目', '本地自治', '不接平台'],
     validationPasswordMismatch: '两次输入的管理员密码不一致',
     validationPasswordRequired: '管理员密码不能为空',
     validationUsernameRequired: '管理员用户名不能为空',
     validationPort: 'HTTP 端口必须在 1 到 65535 之间',
-    validationLocalScope: '网关模式需要填写本地租户和本地项目名称',
-    validationGatewaySN: '托管网关模式需要填写平台预登记网关 SN',
-    validationCascadeMqtt: '托管网关模式需要填写级联 MQTT 地址',
+    validationTenantName: '该模式需要填写默认组织名称',
+    validationLocalScope: '该模式需要填写默认组织和本地项目名称',
+    validationGatewaySN: '平台接入网关需要填写平台预登记网关 SN',
+    validationCascadeMqtt: '平台接入网关需要填写级联 MQTT 地址',
     cascadeMqttTitle: '级联 MQTT 地址',
     cascadeMqttDesc: '平台与托管网关共用的级联 Broker，例如 tcp://127.0.0.1:1883。',
     platformGatewaySnTitle: '平台注册网关 SN',
@@ -378,7 +383,7 @@ const setupCopy = {
     brandSubtitle: 'First-run setup',
     wizardKicker: 'Deployment',
     title: 'Initial Setup',
-    subtitle: 'Choose the runtime boundary, create the first admin, and configure cascade connectivity when needed.',
+    subtitle: 'Choose the deployment profile, create the first admin, and configure cascade connectivity when needed.',
     deploymentProfile: 'Deployment Profile',
     currentMode: 'Current Mode',
     runtime: 'Runtime',
@@ -391,7 +396,7 @@ const setupCopy = {
     pluginsCaption: 'Connection',
     loading: 'Loading setup status...',
     runtimeTitle: 'Choose Runtime Mode',
-    runtimeDesc: 'Gateways run as a single project. Managed gateway project ownership is decided by the platform pre-registration.',
+    runtimeDesc: 'Platform modes manage upstream scopes. Gateway and local project modes run at the edge or a small site.',
     httpPort: 'HTTP Server Port',
     adminTitle: 'Administrator Account',
     adminDesc: 'This account becomes the first login account after setup.',
@@ -400,8 +405,8 @@ const setupCopy = {
     password: 'Password',
     confirmPassword: 'Confirm Password',
     projectTitle: 'Project Boundary',
-    projectGatewayDesc: 'Gateway modes initialize one local tenant and one local project to avoid platform-level multi-project overhead.',
-    projectPlatformDesc: 'Platform mode keeps the full multi-tenant and multi-project model; projects can be created after setup.',
+    projectGatewayDesc: 'This mode initializes one hidden tenant and one local project for project permissions and device data.',
+    projectPlatformDesc: 'This mode does not pin a local project during setup. Projects can be created after setup.',
     tenantName: 'Local Tenant Name',
     projectName: 'Local Project Name',
     projectPlatformEmpty: 'Platform mode does not pin a project during setup. Create tenants and projects later in system management.',
@@ -411,22 +416,26 @@ const setupCopy = {
     prev: 'Previous',
     next: 'Next',
     finish: 'Finish Setup',
-    platformLabel: 'Platform',
-    platformDesc: 'Full multi-tenant, multi-project RBAC for gateway registration and unified device management.',
-    standaloneLabel: 'Standalone Gateway',
-    standaloneDesc: 'Single-project local operation without platform registration, keeping local login, roles, audit, and plugin controls.',
-    managedLabel: 'Managed Gateway',
-    managedDesc: 'Single-project local gateway that registers through cascade to the project pre-bound on the platform.',
-    platformBullets: ['Multi-tenant', 'Multi-project', 'Unified'],
-    standaloneBullets: ['Single project', 'Local control', 'Offline-ready'],
-    managedBullets: ['Single project', 'Platform registration', 'Project pre-bound'],
+    multiTenantPlatformLabel: 'Multi-Tenant Operations Platform',
+    multiTenantPlatformDesc: 'For platform operators or group deployments that need tenant isolation and multi-project RBAC.',
+    multiProjectPlatformLabel: 'Multi-Project Management Platform',
+    multiProjectPlatformDesc: 'For one organization managing multiple projects. Tenant scope is hidden but kept internally.',
+    platformGatewayLabel: 'Platform-Connected Gateway',
+    platformGatewayDesc: 'Single-project edge gateway that connects to an upstream platform through cascade.',
+    localProjectLabel: 'Local Single-Project Management',
+    localProjectDesc: 'For small local projects that manage access and devices without connecting to a platform.',
+    multiTenantPlatformBullets: ['Multi-tenant', 'Multi-project', 'Operations'],
+    multiProjectPlatformBullets: ['Single organization', 'Multi-project', 'Tenant hidden'],
+    platformGatewayBullets: ['Single project', 'Platform-connected', 'Cascade required'],
+    localProjectBullets: ['Single project', 'Local control', 'No platform'],
     validationPasswordMismatch: 'The two administrator passwords do not match',
     validationPasswordRequired: 'Administrator password is required',
     validationUsernameRequired: 'Administrator username is required',
     validationPort: 'HTTP port must be between 1 and 65535',
-    validationLocalScope: 'Gateway modes require local tenant and project names',
-    validationGatewaySN: 'Managed gateway mode requires the platform pre-registered gateway SN',
-    validationCascadeMqtt: 'Managed gateway mode requires the cascade MQTT URL',
+    validationTenantName: 'This mode requires a default organization name',
+    validationLocalScope: 'This mode requires default organization and local project names',
+    validationGatewaySN: 'Platform-connected gateway requires the platform pre-registered gateway SN',
+    validationCascadeMqtt: 'Platform-connected gateway requires the cascade MQTT URL',
     cascadeMqttTitle: 'Cascade MQTT URL',
     cascadeMqttDesc: 'Shared broker used by platform and managed gateways, e.g. tcp://127.0.0.1:1883.',
     platformGatewaySnTitle: 'Platform Gateway SN',
@@ -452,7 +461,7 @@ const pluginForms = reactive({})
 const setupHiddenFieldNames = new Set(['mode'])
 
 const form = reactive({
-  mode: 'platform',
+  mode: SYSTEM_MODES.MULTI_TENANT_PLATFORM,
   server: {
     port: 8999,
   },
@@ -462,7 +471,7 @@ const form = reactive({
     password: '',
   },
   local_project: {
-    tenant_name: 'Local Gateway',
+    tenant_name: 'Default Organization',
     project_name: 'Default Project',
   },
 })
@@ -478,37 +487,51 @@ const steps = computed(() => [
 ])
 
 const modeUi = computed(() => ({
-  platform: {
-    label: tx('platformLabel'),
-    description: tx('platformDesc'),
-    bullets: setupCopy[currentLang.value].platformBullets,
+  [SYSTEM_MODES.MULTI_TENANT_PLATFORM]: {
+    label: tx('multiTenantPlatformLabel'),
+    description: tx('multiTenantPlatformDesc'),
+    bullets: setupCopy[currentLang.value].multiTenantPlatformBullets,
     icon: 'bi bi-cloud-check',
     visualClass: 'mode-visual platform',
   },
-  gateway_standalone: {
-    label: tx('standaloneLabel'),
-    description: tx('standaloneDesc'),
-    bullets: setupCopy[currentLang.value].standaloneBullets,
-    icon: 'bi bi-hdd-network',
-    visualClass: 'mode-visual gateway-standalone',
+  [SYSTEM_MODES.MULTI_PROJECT_PLATFORM]: {
+    label: tx('multiProjectPlatformLabel'),
+    description: tx('multiProjectPlatformDesc'),
+    bullets: setupCopy[currentLang.value].multiProjectPlatformBullets,
+    icon: 'bi bi-kanban',
+    visualClass: 'mode-visual platform',
   },
-  gateway_managed: {
-    label: tx('managedLabel'),
-    description: tx('managedDesc'),
-    bullets: setupCopy[currentLang.value].managedBullets,
+  [SYSTEM_MODES.PLATFORM_GATEWAY]: {
+    label: tx('platformGatewayLabel'),
+    description: tx('platformGatewayDesc'),
+    bullets: setupCopy[currentLang.value].platformGatewayBullets,
     icon: 'bi bi-diagram-3',
     visualClass: 'mode-visual gateway-managed',
+  },
+  [SYSTEM_MODES.LOCAL_PROJECT]: {
+    label: tx('localProjectLabel'),
+    description: tx('localProjectDesc'),
+    bullets: setupCopy[currentLang.value].localProjectBullets,
+    icon: 'bi bi-hdd-network',
+    visualClass: 'mode-visual gateway-standalone',
   },
 }))
 
 const activeStepIndex = computed(() => steps.value.findIndex(step => step.id === activeStep.value))
 const runtimeModes = computed(() => setupStatus.value?.runtime_modes || [])
 const pluginSteps = computed(() => (setupStatus.value?.plugin_steps || []).filter(plugin => plugin.plugin_name === 'cascade'))
-const modeNeedsProject = computed(() => form.mode === 'gateway_standalone' || form.mode === 'gateway_managed')
+const modeNeedsTenant = computed(() => form.mode === SYSTEM_MODES.MULTI_PROJECT_PLATFORM || isSingleProjectMode(form.mode))
+const modeNeedsProject = computed(() => isSingleProjectMode(form.mode))
+const modeNeedsCascadeRegistration = computed(() => form.mode === SYSTEM_MODES.PLATFORM_GATEWAY)
 const runtimeModeCards = computed(() => {
   const values = runtimeModes.value.length > 0
     ? runtimeModes.value.map(item => item.value)
-    : ['platform', 'gateway_standalone', 'gateway_managed']
+    : [
+        SYSTEM_MODES.MULTI_TENANT_PLATFORM,
+        SYSTEM_MODES.MULTI_PROJECT_PLATFORM,
+        SYSTEM_MODES.PLATFORM_GATEWAY,
+        SYSTEM_MODES.LOCAL_PROJECT,
+      ]
   return values.map(value => ({
     value,
     ...(modeUi.value[value] || {
@@ -641,11 +664,15 @@ const validateBeforeSubmit = () => {
     activeStep.value = 'admin'
     return tx('validationPasswordMismatch')
   }
-  if (modeNeedsProject.value && (!form.local_project.tenant_name.trim() || !form.local_project.project_name.trim())) {
+  if (modeNeedsTenant.value && !form.local_project.tenant_name.trim()) {
+    activeStep.value = 'project'
+    return tx('validationTenantName')
+  }
+  if (modeNeedsProject.value && !form.local_project.project_name.trim()) {
     activeStep.value = 'project'
     return tx('validationLocalScope')
   }
-  if (form.mode === 'gateway_managed') {
+  if (modeNeedsCascadeRegistration.value) {
     const cascade = pluginForms.cascade || {}
     if (!String(cascade.gateway_sn || '').trim()) {
       activeStep.value = 'plugins'

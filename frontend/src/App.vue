@@ -210,6 +210,12 @@ const loadShellData = () => {
   fetchPlugins();
   initMqttStatusSSE();
 
+  axios.get('/api/setup/status').then(res => {
+    if (res.data && res.data.code === 0) {
+      authStore.setSystemMode(res.data.data.mode);
+    }
+  }).catch(e => {});
+
   if (authStore.user && authStore.user.must_change_password) {
     forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
     forcePasswordModal.show();

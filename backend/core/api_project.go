@@ -141,13 +141,27 @@ func (s *Server) handleGetProjects(r *ghttp.Request) {
 
 func (s *Server) handleGetAccessibleProjects(r *ghttp.Request) {
 	authCtx := requestAuthContext(r)
-	if authCtx == nil || authCtx.TenantID == 0 || authCtx.IsSystemAdmin {
+	if authCtx == nil {
 		r.Response.WriteJson(g.Map{"code": 0, "data": []store.Project{}, "total": 0})
 		return
 	}
 
-	db := store.DB.Model(&store.Project{}).Where("tenant_id = ?", authCtx.TenantID)
-	if projectIDs, restricted := authCtx.ProjectIDsForTenantQuery(); restricted {
+	isGateway := false
+	if state, err := store.LoadSetupState(); err == nil {
+		isGateway = IsSingleProjectSetupMode(state.Mode)
+	}
+
+	if (authCtx.TenantID == 0 || authCtx.IsSystemAdmin) && !isGateway {
+		r.Response.WriteJson(g.Map{"code": 0, "data": []store.Project{}, "total": 0})
+		return
+	}
+
+	db := store.DB.Model(&store.Project{})
+	if !isGateway || authCtx.TenantID != 0 {
+		db = db.Where("tenant_id = ?", authCtx.TenantID)
+	}
+
+	if projectIDs, restricted := authCtx.ProjectIDsForTenantQuery(); restricted && (!isGateway || authCtx.TenantID != 0) {
 		if len(projectIDs) == 0 {
 			r.Response.WriteJson(g.Map{"code": 0, "data": []store.Project{}, "total": 0})
 			return

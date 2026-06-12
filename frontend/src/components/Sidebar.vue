@@ -15,10 +15,15 @@
     </div>
 
     <!-- Project Selector (Moved to Top of Sidebar) -->
-    <div class="px-3 mb-3" v-if="authStore.isLoggedIn && userProjects.length > 0">
-      <select class="form-select form-select-sm" v-model="currentProjectId" @change="switchProject">
-        <option v-if="canUseAllProjects" :value="0">{{ tenantScopeOptionLabel }}</option>
-        <option v-for="p in userProjects" :key="p.ID" :value="p.ID">{{ p.name }}</option>
+    <div class="px-3 mb-3" v-if="authStore.isLoggedIn && (isGatewayRuntime || userProjects.length > 0)">
+      <template v-if="isGatewayRuntime">
+        <div class="px-3 py-2 text-primary small fw-bold text-truncate text-center">
+          <i class="bi bi-boxes me-1"></i> {{ currentProjectName || $t('scope_project', '项目') }}
+        </div>
+      </template>
+      <select v-else class="form-select form-select-sm" v-model="currentProjectId" @change="switchProject">
+        <option v-if="canUseAllProjects" :value="0">🏢 {{ tenantScopeOptionLabel }}</option>
+        <option v-for="p in userProjects" :key="p.ID" :value="p.ID">📁 {{ p.name }}</option>
       </select>
     </div>
     
@@ -64,7 +69,7 @@
             {{ $t('no_active_plugins') }}
           </div>
           <div v-else>
-            <div v-for="group in groupedPlugins" :key="group.category">
+            <div v-for="group in groupedPlugins" :key="group.title">
                <div class="nav-category mt-2">{{ group.title }}</div>
                <a v-for="plugin in group.items" :key="plugin.name" 
                  href="#"
@@ -85,10 +90,10 @@
       <a v-if="authStore.hasPermission('user:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'UserManagement' }" @click.prevent="navigate('/settings/users')">
         <i class="bi bi-people"></i> <span>{{ $t('user_management', 'User Management') }}</span>
       </a>
-      <a v-if="authStore.hasPermission('tenant:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'TenantManagement' }" @click.prevent="navigate('/settings/tenants')">
+      <a v-if="!hideTenantManagement && authStore.hasPermission('tenant:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'TenantManagement' }" @click.prevent="navigate('/settings/tenants')">
         <i class="bi bi-building"></i> <span>{{ $t('tenant_management') }}</span>
       </a>
-      <a v-if="authStore.hasPermission('project:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'ProjectManagement' }" @click.prevent="navigate('/settings/projects')">
+      <a v-if="!isGatewayRuntime && authStore.hasPermission('project:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'ProjectManagement' }" @click.prevent="navigate('/settings/projects')">
         <i class="bi bi-folder"></i> <span>{{ $t('project_management') }}</span>
       </a>
       <a v-if="authStore.hasPermission('role:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'RoleManagement' }" @click.prevent="navigate('/settings/roles')">
@@ -145,6 +150,7 @@ import axios from 'axios';
 import { usePlugins } from '../plugins/registry.js';
 import { gatewayText } from '../utils/gatewayLocale';
 import { useAuthStore } from '../stores/auth.js';
+import { hidesTenantManagement, isSingleProjectMode } from '../utils/systemMode.js';
 
 const { extensions } = usePlugins();
 const authStore = useAuthStore();
@@ -159,7 +165,7 @@ const requiresProjectContext = computed(() => {
 
 const canUseAllProjects = computed(() => authStore.isTenantAdmin && !requiresProjectContext.value);
 const tenantScopeOptionLabel = computed(() => tenantName.value || t('scope_tenant', '租户'));
-const showActivePluginMenus = computed(() => authStore.hasPermission('plugin:list') && Number(currentProjectId.value || 0) > 0);
+const showActivePluginMenus = computed(() => authStore.hasPermission('plugin:list') && (isGatewayRuntime.value || Number(currentProjectId.value || 0) > 0));
 
 const persistProjectContext = (projectId) => {
   currentProjectId.value = Number(projectId || 0);
@@ -175,6 +181,20 @@ const tenantName = computed(() => {
     return authStore.user.tenant_name || localStorage.getItem('tenant_name') || ''
   }
   return ''
+});
+
+const currentProjectName = computed(() => {
+  if (isGatewayRuntime.value) {
+    if (userProjects.value && userProjects.value.length > 0) {
+      return userProjects.value[0].name;
+    }
+    return authStore.user?.tenant_name || t('scope_project', '项目');
+  }
+  if (userProjects.value && userProjects.value.length > 0) {
+    const p = userProjects.value.find(proj => Number(proj.ID) === Number(currentProjectId.value));
+    return p ? p.name : '';
+  }
+  return '';
 });
 
 const loadUserProjects = async () => {
@@ -265,8 +285,10 @@ const cascadeMode = computed(() => {
 });
 
 const isGatewayRuntime = computed(() => {
-  return cascadePlugin.value?.status === 'running' && cascadeMode.value === 'gateway';
+  return isSingleProjectMode(authStore.systemMode);
 });
+
+const hideTenantManagement = computed(() => hidesTenantManagement(authStore.systemMode));
 
 const extensionMenus = computed(() => {
   return extensions.value.menus || [];

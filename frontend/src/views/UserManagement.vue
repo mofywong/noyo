@@ -260,30 +260,32 @@
                   <div class="card-body p-3">
                     <div class="text-muted small mb-2 fw-bold">{{ $t('user_global_roles', '全局角色') }}</div>
                     <div v-if="currentUserDetails.tenant_roles && currentUserDetails.tenant_roles.length > 0" class="d-flex flex-wrap gap-2">
-                      <span v-for="r in currentUserDetails.tenant_roles" :key="r.role_id" class="badge text-bg-primary px-3 py-2">
-                        <i class="bi bi-globe me-1"></i> {{ r.role_name }}
+                      <span v-for="roleName in Array.from(new Set(currentUserDetails.tenant_roles.map(r => isGatewayMode && (r.role_code === 'tenant_admin' || r.role_code === 'super_admin' || r.role_code === 'gateway_admin') ? $t('role_super_admin', '超级管理员') : r.role_name)))" :key="roleName" class="badge text-bg-primary px-3 py-2">
+                        <i class="bi bi-globe me-1"></i> {{ roleName }}
                       </span>
                     </div>
                     <div v-else class="text-muted small">{{ $t('user_no_global_roles', '无全局角色') }}</div>
                   </div>
                 </div>
 
-                <div class="card border-0 shadow-sm">
-                  <div class="card-body p-3">
-                    <div class="text-muted small mb-2 fw-bold">{{ $t('user_project_permissions', '项目权限') }}</div>
-                    <div v-if="currentUserDetails.projects && currentUserDetails.projects.length > 0">
-                      <ul class="list-group list-group-flush">
-                        <li v-for="p in getGroupedProjects(currentUserDetails.projects)" :key="p.name" class="list-group-item px-0 d-flex justify-content-between align-items-center bg-transparent">
-                          <span><i class="bi bi-folder text-info me-2"></i>{{ p.name }}</span>
-                          <span class="text-end">
-                            <span v-for="role in p.roles" :key="role" class="badge text-bg-light text-dark border ms-1">{{ role }}</span>
-                          </span>
-                        </li>
-                      </ul>
+                <template v-if="!(isGatewayMode && currentUserDetails.tenant_roles?.some(r => ['tenant_admin', 'super_admin', 'gateway_admin'].includes(r.role_code)))">
+                  <div class="card border-0 shadow-sm">
+                    <div class="card-body p-3">
+                      <div class="text-muted small mb-2 fw-bold">{{ $t('user_project_permissions', '项目权限') }}</div>
+                      <div v-if="currentUserDetails.projects && currentUserDetails.projects.length > 0">
+                        <ul class="list-group list-group-flush">
+                          <li v-for="p in getGroupedProjects(currentUserDetails.projects)" :key="p.name" class="list-group-item px-0 d-flex justify-content-between align-items-center bg-transparent">
+                            <span><i class="bi bi-folder text-info me-2"></i>{{ p.name }}</span>
+                            <span class="text-end">
+                              <span v-for="role in p.roles" :key="role" class="badge text-bg-light text-dark border ms-1">{{ role }}</span>
+                            </span>
+                          </li>
+                        </ul>
+                      </div>
+                      <div v-else class="text-muted small">{{ $t('user_no_project_permissions', '无项目权限') }}</div>
                     </div>
-                    <div v-else class="text-muted small">{{ $t('user_no_project_permissions', '无项目权限') }}</div>
                   </div>
-                </div>
+                </template>
               </div>
             </div>
           </div>
@@ -298,11 +300,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { Modal } from 'bootstrap'
 import { useAuthStore } from '../stores/auth'
 import { useI18n } from 'vue-i18n'
+import { isSingleProjectMode } from '../utils/systemMode'
 
 const authStore = useAuthStore()
 const currentUser = authStore.user
@@ -410,14 +413,41 @@ const hasAssignedRoles = (user) => {
   return !!(hasTenantRole || hasProjectRole);
 }
 
+const isGatewayMode = computed(() => {
+  return isSingleProjectMode(localStorage.getItem('system_mode') || '');
+});
+
 const getPermissionsSummary = (user) => {
   const items = [];
+  const addedTexts = new Set();
+  let isSuperAdmin = false;
   if (user.tenant_roles) {
     const tenantName = authStore.user?.tenant_name || localStorage.getItem('tenant_name') || '租户';
-    user.tenant_roles.forEach(r => items.push({ text: `${tenantName} - ${r.role_name}`, type: 'primary' }));
+    user.tenant_roles.forEach(r => {
+      let roleName = r.role_name;
+      if (isGatewayMode.value && (r.role_code === 'tenant_admin' || r.role_code === 'super_admin' || r.role_code === 'gateway_admin')) {
+        roleName = t('role_super_admin', '超级管理员');
+        isSuperAdmin = true;
+      }
+      const text = isGatewayMode.value ? roleName : `${tenantName} - ${roleName}`;
+      if (!addedTexts.has(text)) {
+        addedTexts.add(text);
+        items.push({ text, type: 'primary' });
+      }
+    });
+  }
+  
+  if (isGatewayMode.value && isSuperAdmin) {
+    return items;
   }
   const grouped = getGroupedProjects(user.projects);
-  grouped.forEach(p => items.push({ text: `${p.name} - ${p.roles.join('、')}`, type: 'info' }));
+  grouped.forEach(p => {
+    const text = isGatewayMode.value ? p.roles.join('、') : `${p.name} - ${p.roles.join('、')}`;
+    if (!addedTexts.has(text)) {
+      addedTexts.add(text);
+      items.push({ text, type: 'info' });
+    }
+  });
   return items;
 }
 
@@ -430,10 +460,7 @@ const isRoleModificationDisabled = (user) => {
   if (user.is_system_admin) {
     return true;
   }
-  if (user.tenant_roles && user.tenant_roles.some(r => r.role_code === 'super_admin')) {
-    return true;
-  }
-  if (user.projects && user.projects.some(p => p.role_code === 'tenant_admin')) {
+  if (user.tenant_roles && user.tenant_roles.some(r => r.role_code === 'super_admin' || r.role_code === 'tenant_admin')) {
     return true;
   }
   return false;

@@ -54,7 +54,7 @@ func resetAppRateLimiterForTest() {
 // Returns *AuthContext on success, nil on failure (response already written).
 func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
+	if authHeader == "" { tokenParam := r.Get("token").String(); if tokenParam != "" { authHeader = "Bearer " + tokenParam } }; if authHeader == "" {
 		r.Response.WriteJson(map[string]interface{}{
 			"code":    401,
 			"message": "Missing Authorization header",
@@ -167,7 +167,7 @@ func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 	r.SetCtxVar("role", authCtx.Role)
 	r.SetCtxVar("app_id", "")
 
-	// M2: Enforce MustChangePassword — only allow password change endpoint
+	// M2: Enforce MustChangePassword 鈥?only allow password change endpoint
 	if authCtx.MustChangePassword && r.URL.Path != "/api/auth/password" {
 		r.Response.WriteJson(map[string]interface{}{
 			"code":    403,
@@ -325,7 +325,7 @@ func requestAuthContext(r *ghttp.Request) *AuthContext {
 func TenantMiddleware() ghttp.HandlerFunc {
 	return func(r *ghttp.Request) {
 		authCtx := requestAuthContext(r)
-		if authCtx == nil || authCtx.IsSystemAdmin {
+		if authCtx == nil || (authCtx.IsSystemAdmin && authCtx.TenantID == 0) {
 			r.Response.WriteJson(map[string]interface{}{
 				"code":    403,
 				"message": "Access denied: Tenant context required",

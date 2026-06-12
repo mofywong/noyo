@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="alarm-center container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_alarms', '告警中心') }}</h2>
@@ -455,7 +455,7 @@ watch(() => route.query, (newQuery) => {
 
 const setupEventStream = () => {
   if (eventSource) return;
-  eventSource = new EventSource('/api/devices/stream');
+  eventSource = new EventSource('/api/devices/stream?token=' + localStorage.getItem('access_token'));
   
   eventSource.addEventListener('event.reported', (e) => {
     try {

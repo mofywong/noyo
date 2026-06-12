@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="gateway-management-page">
     <div class="gateway-page-header">
       <div>
@@ -396,7 +396,7 @@ const teardownGatewayStatusStream = () => {
 const setupGatewayStatusStream = () => {
   if (typeof EventSource === 'undefined') return;
   teardownGatewayStatusStream();
-  gatewayEventSource = new EventSource('/api/devices/stream');
+  gatewayEventSource = new EventSource('/api/devices/stream?token=' + localStorage.getItem('access_token'));
 
   const handleGatewayStatusEvent = () => {
     resetGatewayStatusHeartbeat();

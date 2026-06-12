@@ -249,14 +249,13 @@ func InitPermissions() {
 	superAdminRole := Role{
 		TenantID:    0,
 		ProjectID:   0,
-		Code:        "super_admin",
+		Code:        "admin",
 		Name:        "超级管理员",
 		Description: "系统默认全局角色：管理租户和系统级信息，不进入租户业务数据",
-		DataScope:   1,
+		DataScope:   1, // All data
 		IsBuiltin:   true,
-		IsInherited: false,
 	}
-	DB.Where("tenant_id = ? AND project_id = ? AND code = ?", 0, 0, "super_admin").
+	DB.Where("tenant_id = ? AND project_id = ? AND code = ?", 0, 0, "admin").
 		Assign(superAdminRole).
 		FirstOrCreate(&superAdminRole)
 

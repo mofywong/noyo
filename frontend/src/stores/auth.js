@@ -6,12 +6,14 @@ import {
   isSystemAdminUser,
   isTenantAdminUser,
 } from '../utils/authIdentity.js';
+import { normalizeSystemMode } from '../utils/systemMode.js';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     token: localStorage.getItem('access_token') || '',
     refreshToken: localStorage.getItem('refresh_token') || '',
     user: JSON.parse(localStorage.getItem('user_info') || 'null'),
+    systemMode: normalizeSystemMode(localStorage.getItem('system_mode') || ''),
   }),
   getters: {
     isLoggedIn: (state) => !!state.token,
@@ -56,6 +58,12 @@ export const useAuthStore = defineStore('auth', {
         localStorage.setItem('user_info', JSON.stringify(this.user));
       }
       return response.data;
+    },
+
+    setSystemMode(mode) {
+      const normalizedMode = normalizeSystemMode(mode);
+      this.systemMode = normalizedMode;
+      localStorage.setItem('system_mode', normalizedMode);
     },
 
     async changePassword(oldPassword, newPassword) {

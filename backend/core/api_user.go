@@ -309,7 +309,7 @@ func (s *Server) handleListUsers(r *ghttp.Request) {
 				RoleName: b.RoleName,
 				RoleCode: b.RoleCode,
 			})
-			if b.RoleCode == "super_admin" {
+			if b.RoleCode == "admin" {
 				userIsSystemAdmin[b.UserID] = true
 			}
 			if b.RoleCode == "tenant_admin" {

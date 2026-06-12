@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="card border-0 shadow-sm h-100">
     <div class="card-header bg-transparent border-0 py-3">
       <div v-if="selectedDevices.length > 0" class="d-flex align-items-center p-2 rounded bg-secondary bg-opacity-10">
@@ -859,6 +859,7 @@ import DeviceDiscoveryModal from '../components/device/DeviceDiscoveryModal.vue'
 import DeviceDataModal from '../components/device/DeviceDataModal.vue';
 import Sparkline from '../components/Sparkline.vue';
 import { usePlugins } from '../plugins/registry.js';
+import { isSingleProjectMode } from '../utils/systemMode.js';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { LineChart, BarChart, ScatterChart } from 'echarts/charts';
@@ -891,7 +892,11 @@ const products = ref([]);
 const loading = ref(false);
 const showCreateModal = ref(false);
 const showDiscoveryModal = ref(false);
-const showProjectColumn = computed(() => Number(localStorage.getItem('current_project_id') || 0) === 0);
+const showProjectColumn = computed(() => {
+  const mode = localStorage.getItem('system_mode') || '';
+  if (isSingleProjectMode(mode)) return false;
+  return Number(localStorage.getItem('current_project_id') || 0) === 0;
+});
 const newDevice = ref({ code: '', name: '', product_code: '', parent_code: '', enabled: true, config: {} });
 const currentSchema = ref(null);
 const isEditing = ref(false);
@@ -997,7 +1002,7 @@ const setupSSE = () => {
     sseReconnectTimer = null;
   }
 
-  eventSource = new EventSource('/api/devices/stream');
+  eventSource = new EventSource('/api/devices/stream?token=' + localStorage.getItem('access_token'));
 
   // 后端发送的初始连接确认事件
   eventSource.addEventListener('connected', () => {

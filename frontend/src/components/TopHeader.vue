@@ -51,6 +51,14 @@
         </div>
       </div>
 
+      <!-- 当前模式显示 -->
+      <div v-if="authStore.systemMode" class="badge d-flex align-items-center gap-1 px-2 py-1 shadow-sm" 
+           :class="systemModeBadgeClass"
+           style="font-size: 0.75rem;">
+        <i class="bi" :class="systemModeIcon"></i>
+        <span class="fw-bold">{{ systemModeName }}</span>
+      </div>
+
       <div
         v-if="mqttStatus"
         class="mqtt-status-pill"
@@ -143,7 +151,7 @@
           <div class="modal-body">
             <div class="mb-2"><strong>{{ $t('user_username', '用户名') }}:</strong> {{ authStore.user?.username }}</div>
             <div class="mb-2"><strong>{{ getDisplayNameLabel(authStore.user) }}:</strong> {{ authStore.user?.display_name || '-' }}</div>
-            <div class="mb-2"><strong>{{ $t('user_role', '角色') }}:</strong> {{ authStore.user?.role || '-' }}</div>
+            <div class="mb-2"><strong>{{ $t('user_role', '角色') }}:</strong> {{ userRoleDisplay || '-' }}</div>
             <div class="mb-2"><strong>{{ $t('user_email', '邮箱') }}:</strong> {{ authStore.user?.email || '-' }}</div>
             <div class="mb-0"><strong>{{ $t('user_phone', '电话') }}:</strong> {{ authStore.user?.phone || '-' }}</div>
           </div>
@@ -165,6 +173,7 @@ import axios from 'axios';
 import { gatewayText } from '../utils/gatewayLocale';
 import GB28181PlayerWidget from '@/plugins/pro/protocol/gb28181/GB28181PlayerWidget.vue';
 import { useAuthStore } from '../stores/auth.js';
+import { isSingleProjectMode, SYSTEM_MODES, systemModeLabel } from '../utils/systemMode.js';
 
 defineProps({
   title: String,
@@ -177,6 +186,15 @@ defineEmits(['toggleSidebar', 'setTheme', 'setLanguage']);
 const { t, locale } = useI18n();
 const authStore = useAuthStore();
 const router = useRouter();
+
+const systemModeName = computed(() => systemModeLabel(authStore.systemMode));
+const systemModeIcon = computed(() => isSingleProjectMode(authStore.systemMode) ? 'bi-hdd-network' : 'bi-cloud');
+const systemModeBadgeClass = computed(() => ({
+  'bg-primary text-white': authStore.systemMode === SYSTEM_MODES.MULTI_TENANT_PLATFORM,
+  'bg-secondary text-white': authStore.systemMode === SYSTEM_MODES.MULTI_PROJECT_PLATFORM,
+  'bg-success text-white': authStore.systemMode === SYSTEM_MODES.PLATFORM_GATEWAY,
+  'bg-info text-dark': authStore.systemMode === SYSTEM_MODES.LOCAL_PROJECT,
+}));
 
 const languageEnglish = computed(() => gatewayText(locale.value, 'language_english'));
 const languageChinese = computed(() => gatewayText(locale.value, 'language_chinese'));
@@ -364,7 +382,7 @@ const fetchRecentEvents = async () => {
 
 const setupEventStream = () => {
   if (eventSource) return;
-  eventSource = new EventSource('/api/devices/stream');
+  eventSource = new EventSource('/api/devices/stream?token=' + localStorage.getItem('access_token'));
   
   eventSource.addEventListener('event.reported', (e) => {
     try {
@@ -504,6 +522,16 @@ onMounted(async () => {
   if (authStore.user && authStore.user.tenant_id > 0) {
     await loadProjects();
   }
+});
+
+const userRoleDisplay = computed(() => {
+  if (!authStore.user) return '';
+  if (authStore.user.tenant_roles && authStore.user.tenant_roles.length > 0) {
+     const isGateway = isSingleProjectMode(authStore.systemMode);
+     const roleNames = authStore.user.tenant_roles.map(r => isGateway && (r.role_code === 'tenant_admin' || r.role_code === 'super_admin') ? t('role_super_admin', '超级管理员') : r.role_name);
+     return Array.from(new Set(roleNames)).join(', ');
+  }
+  return authStore.user.role;
 });
 
 const getDisplayNameLabel = (user) => {

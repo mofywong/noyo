@@ -3,7 +3,7 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('role_management') }}</h2>
       <div class="d-flex align-items-center gap-2">
-        <select v-model="filterProjectId" class="form-select form-select-sm" style="width: 220px;">
+        <select v-if="!isGatewayMode" v-model="filterProjectId" class="form-select form-select-sm" style="width: 220px;">
           <option :value="-1">{{ $t('role_all', '全部角色') }}</option>
           <option :value="0">{{ $t('role_tenant_public', '租户级公共角色') }}</option>
           <option v-for="p in projects" :key="p.ID" :value="p.ID">
@@ -26,8 +26,8 @@
                 <th>{{ $t('role_code') }}</th>
                 <th>{{ $t('role_name') }}</th>
                 <th>{{ $t('role_description') }}</th>
-                <th>{{ $t('role_scope', '作用域') }}</th>
-                                <th>{{ $t('user_created_at') }}</th>
+                <th v-if="!isGatewayMode">{{ $t('role_scope', '作用域') }}</th>
+                <th>{{ $t('user_created_at') }}</th>
                 <th class="text-end">{{ $t('role_actions') }}</th>
               </tr>
             </thead>
@@ -44,19 +44,23 @@
               </tr>
               <tr v-for="r in filteredRoles" :key="r.ID" v-else>
                 <td><strong>{{ r.code }}</strong></td>
-                <td>{{ r.name }}</td>
-                <td>{{ r.description }}</td>
                 <td>
-                  <span v-if="r.project_id === 0 && !r.is_inherited" class="badge text-bg-success">
-                    {{ $t('role_tenant_level', '租户级') }}
-                  </span>
-                  <span v-else-if="r.project_id === 0 && r.is_inherited" class="badge text-bg-info">
-                    {{ $t('role_project_level', '项目级') }}
-                  </span>
-                  <span v-else class="badge text-bg-primary">
-                    {{ $t('role_project_exclusive', '项目专属') }} ({{ projectMap[r.project_id] || 'ID: ' + r.project_id }})
-                  </span>
+                  {{ r.name }}
                   <span v-if="r.is_builtin" class="badge text-bg-secondary ms-1">{{ $t('role_system_builtin', '系统内置') }}</span>
+                </td>
+                <td>{{ r.description }}</td>
+                <td v-if="!isGatewayMode">
+                  <template v-if="!isGatewayMode">
+                    <span v-if="r.project_id === 0 && !r.is_inherited" class="badge text-bg-success">
+                      {{ $t('role_tenant_level', '租户级') }}
+                    </span>
+                    <span v-else-if="r.project_id === 0 && r.is_inherited" class="badge text-bg-info">
+                      {{ $t('role_project_level', '项目级') }}
+                    </span>
+                    <span v-else class="badge text-bg-primary">
+                      {{ $t('role_project_exclusive', '项目专属') }} ({{ projectMap[r.project_id] || 'ID: ' + r.project_id }})
+                    </span>
+                  </template>
                 </td>
 
                 <td>{{ new Date(r.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
@@ -107,9 +111,9 @@
               </div>
               
 
-              <!-- 仅租户管理员可选择角色归属项目 -->
-              <div class="mb-3" v-if="isTenantAdmin">
-                <label class="form-label">{{ $t('role_scope_label', '角色作用域') }}</label>
+              <!-- 租户管理员选择角色范围 -->
+              <div class="mb-3" v-if="!isGatewayMode && isTenantAdmin && !isProjectAdmin && !form.id">
+                <label class="form-label">{{ $t('role_scope', '角色范围') }}</label>
                 <select v-model="form.is_inherited" class="form-select" :disabled="isEditing">
                   <option :value="false">{{ $t('role_tenant_level', '租户级') }}</option>
                   <option :value="true">{{ $t('role_project_level', '项目级') }}</option>
@@ -198,10 +202,15 @@ import { useI18n } from 'vue-i18n'
 import RolePermissions from './RolePermissions.vue'
 import { useAuthStore } from '../stores/auth'
 import { isInheritedRoleReadOnlyForUser } from '../utils/authIdentity'
+import { isSingleProjectMode } from '../utils/systemMode'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
 const isTenantAdmin = computed(() => authStore.user?.is_tenant_admin === true)
+
+const isGatewayMode = computed(() => {
+  return isSingleProjectMode(localStorage.getItem('system_mode') || '');
+});
 
 const roles = ref([])
 const projects = ref([])

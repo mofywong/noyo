@@ -11,7 +11,7 @@ import (
 const authContextKey = "auth_context"
 
 const (
-	RoleCodeSuperAdmin   = "super_admin"
+	RoleCodeSuperAdmin   = "admin"
 	RoleCodeTenantAdmin  = "tenant_admin"
 	RoleCodeProjectAdmin = "project_admin"
 	RoleCodeViewer       = "viewer"
@@ -44,6 +44,9 @@ func (ctx *AuthContext) HasPermission(code string) bool {
 	if ctx == nil {
 		return false
 	}
+	if ctx.IsSystemAdmin {
+		return true
+	}
 	if ctx.SubjectType == "app" {
 		if ctx.ProjectID > 0 {
 			return ctx.HasProjectPermission(code, ctx.ProjectID)
@@ -61,6 +64,9 @@ func (ctx *AuthContext) HasPermission(code string) bool {
 func (ctx *AuthContext) HasProjectPermission(code string, projectID uint) bool {
 	if ctx == nil {
 		return false
+	}
+	if ctx.IsSystemAdmin {
+		return true
 	}
 	if ctx.SubjectType != "app" {
 		return ctx.HasPermission(code)
@@ -109,7 +115,7 @@ func (ctx *AuthContext) CanAccessProject(projectID uint) bool {
 
 func (ctx *AuthContext) ProjectIDsForTenantQuery() ([]uint, bool) {
 	if ctx == nil || ctx.IsSystemAdmin {
-		return []uint{}, true
+		return nil, false
 	}
 	if ctx.IsTenantAdmin {
 		if ctx.ProjectID > 0 {
@@ -246,10 +252,10 @@ func ResolveUserAuthContext(userID, requestedTenantID, requestedProjectID uint) 
 	tenantID := user.TenantID
 	projectID := requestedProjectID
 	if user.TenantID == 0 {
-		// System users stay in global scope; stale tenant/project headers must
+		// System users stay in global scope; stale tenant headers must
 		// not block global account flows such as required password changes.
+		// However, we MUST preserve requestedProjectID so APIs can filter lists.
 		tenantID = 0
-		projectID = 0
 	} else if requestedTenantID > 0 && requestedTenantID != user.TenantID {
 		return nil, fmt.Errorf("tenant is outside allowed scope")
 	}
@@ -490,7 +496,7 @@ func applyPermissionLimits(ctx *AuthContext, baseCodes map[string]bool) map[stri
 	if ctx == nil {
 		return map[string]bool{}
 	}
-	if ctx.TenantID == 0 {
+	if ctx.TenantID == 0 || ctx.IsSystemAdmin {
 		return baseCodes
 	}
 

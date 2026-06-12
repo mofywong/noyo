@@ -20,9 +20,14 @@ import (
 )
 
 const (
-	SetupModePlatform          = "platform"
-	SetupModeGatewayStandalone = "gateway_standalone"
-	SetupModeGatewayManaged    = "gateway_managed"
+	SetupModeMultiTenantPlatform  = "multi_tenant_platform"
+	SetupModeMultiProjectPlatform = "multi_project_platform"
+	SetupModePlatformGateway      = "platform_gateway"
+	SetupModeLocalProject         = "local_project"
+
+	legacySetupModePlatform          = "platform"
+	legacySetupModeGatewayStandalone = "gateway_standalone"
+	legacySetupModeGatewayManaged    = "gateway_managed"
 
 	gatewayAdminRoleCode = "gateway_admin"
 )
@@ -124,23 +129,23 @@ func (s *Server) buildSetupStatus(mode string) setupStatusResponse {
 	if err != nil {
 		state = &store.SetupState{}
 	}
+	stateMode := normalizeSetupMode(state.Mode)
 	if mode == "" {
-		mode = state.Mode
+		mode = stateMode
 	}
-	if mode == "" {
-		mode = SetupModePlatform
-	}
+	mode = normalizeSetupMode(mode)
 
 	status := setupStatusResponse{
 		Initialized: state.Initialized,
-		Mode:        state.Mode,
+		Mode:        stateMode,
 		TenantID:    state.TenantID,
 		ProjectID:   state.ProjectID,
 		CompletedAt: state.CompletedAt,
 		RuntimeModes: []setupRuntimeMode{
-			{Value: SetupModePlatform, Label: "平台模式", Description: "完整多租户、多项目 RBAC 管理。"},
-			{Value: SetupModeGatewayStandalone, Label: "独立网关模式", Description: "单租户、单项目、本地独立运行，不注册到平台。"},
-			{Value: SetupModeGatewayManaged, Label: "托管网关模式", Description: "单项目本地网关，通过级联插件注册到平台。"},
+			{Value: SetupModeMultiTenantPlatform, Label: "多租户运营平台", Description: "面向平台运营或集团化场景，保留完整租户隔离与多项目 RBAC。"},
+			{Value: SetupModeMultiProjectPlatform, Label: "多项目管理平台", Description: "面向单一组织的多项目管理，底层使用隐藏默认租户承载权限边界。"},
+			{Value: SetupModePlatformGateway, Label: "平台接入网关", Description: "边缘侧单项目网关，通过级联 MQTT 接入上级平台。"},
+			{Value: SetupModeLocalProject, Label: "本地单项目管理", Description: "小项目本地独立运行，单项目完成接入与设备管理。"},
 		},
 		PluginSteps: collectSetupPluginSchemas(s.Manager, mode),
 	}
@@ -184,13 +189,11 @@ func isFirstRunSetupPlugin(plugin IManagedPlugin) bool {
 }
 
 func (s *Server) applyInitialSetup(req setupApplyRequest) error {
-	mode := strings.TrimSpace(req.Mode)
-	if mode == "" {
-		mode = SetupModePlatform
-	}
+	mode := normalizeSetupMode(req.Mode)
 	if !isValidSetupMode(mode) {
 		return fmt.Errorf("unsupported setup mode: %s", mode)
 	}
+	req.Mode = mode
 	mergeSetupPluginPayloads(&req)
 
 	state, err := store.LoadSetupState()
@@ -205,7 +208,7 @@ func (s *Server) applyInitialSetup(req setupApplyRequest) error {
 		return err
 	}
 
-	if mode == SetupModeGatewayManaged {
+	if mode == SetupModePlatformGateway {
 		if err := verifyGatewayRegistration(req.Gateway, req.LocalProject); err != nil {
 			return err
 		}
@@ -222,7 +225,7 @@ func (s *Server) applyInitialSetup(req setupApplyRequest) error {
 		}
 
 		var tenantID, projectID uint
-		if isGatewaySetupMode(mode) {
+		if isSingleProjectSetupMode(mode) {
 			tenant, project, err := createGatewayLocalScope(tx, req.LocalProject)
 			if err != nil {
 				return err
@@ -230,18 +233,32 @@ func (s *Server) applyInitialSetup(req setupApplyRequest) error {
 			tenantID = tenant.ID
 			projectID = project.ID
 
-			admin, err := configureInitialAdminInTx(tx, req.Admin, tenantID, RoleCodeTenantAdmin)
+			admin, err := configureInitialAdminInTx(tx, req.Admin, tenantID, RoleCodeSuperAdmin)
 			if err != nil {
 				return err
 			}
 			if err := bootstrapGatewayAdminRBAC(tx, admin.ID, tenantID, projectID); err != nil {
 				return err
 			}
+		} else if mode == SetupModeMultiProjectPlatform {
+			tenant, err := createHiddenDefaultTenantScope(tx, req.LocalProject)
+			if err != nil {
+				return err
+			}
+			tenantID = tenant.ID
+
+			admin, err := configureInitialAdminInTx(tx, req.Admin, tenantID, RoleCodeSuperAdmin)
+			if err != nil {
+				return err
+			}
+			if err := bootstrapMultiProjectPlatformAdminRBAC(tx, admin.ID, tenantID); err != nil {
+				return err
+			}
 		} else if err := configurePlatformAdminInTx(tx, req.Admin); err != nil {
 			return err
 		}
 
-		if mode == SetupModeGatewayManaged {
+		if mode == SetupModePlatformGateway {
 			cascadeConfig := cascadeGatewayConfig(req.Gateway, req.LocalProject)
 			if err := savePluginConfigInTx(tx, "cascade", 0, 0, true, cascadeConfig); err != nil {
 				return err
@@ -250,7 +267,7 @@ func (s *Server) applyInitialSetup(req setupApplyRequest) error {
 				return err
 			}
 			pluginsToReload = append(pluginsToReload, "cascade")
-		} else if mode == SetupModePlatform && strings.TrimSpace(req.Gateway.MQTTURL) != "" {
+		} else if isPlatformSetupMode(mode) && strings.TrimSpace(req.Gateway.MQTTURL) != "" {
 			cascadeConfig := cascadePlatformConfig(req.Gateway)
 			if err := savePluginConfigInTx(tx, "cascade", 0, 0, true, cascadeConfig); err != nil {
 				return err
@@ -323,11 +340,45 @@ func mergeSetupPluginPayloads(req *setupApplyRequest) {
 }
 
 func isValidSetupMode(mode string) bool {
-	return mode == SetupModePlatform || mode == SetupModeGatewayStandalone || mode == SetupModeGatewayManaged
+	switch mode {
+	case SetupModeMultiTenantPlatform, SetupModeMultiProjectPlatform, SetupModePlatformGateway, SetupModeLocalProject:
+		return true
+	default:
+		return false
+	}
 }
 
-func isGatewaySetupMode(mode string) bool {
-	return mode == SetupModeGatewayStandalone || mode == SetupModeGatewayManaged
+func normalizeSetupMode(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case "", legacySetupModePlatform, SetupModeMultiTenantPlatform:
+		return SetupModeMultiTenantPlatform
+	case legacySetupModeGatewayManaged, SetupModePlatformGateway:
+		return SetupModePlatformGateway
+	case legacySetupModeGatewayStandalone, SetupModeLocalProject:
+		return SetupModeLocalProject
+	case SetupModeMultiProjectPlatform:
+		return SetupModeMultiProjectPlatform
+	default:
+		return strings.TrimSpace(mode)
+	}
+}
+
+func NormalizeSetupMode(mode string) string {
+	return normalizeSetupMode(mode)
+}
+
+func isPlatformSetupMode(mode string) bool {
+	mode = normalizeSetupMode(mode)
+	return mode == SetupModeMultiTenantPlatform || mode == SetupModeMultiProjectPlatform
+}
+
+func isSingleProjectSetupMode(mode string) bool {
+	mode = normalizeSetupMode(mode)
+	return mode == SetupModePlatformGateway || mode == SetupModeLocalProject
+}
+
+func IsSingleProjectSetupMode(mode string) bool {
+	return isSingleProjectSetupMode(mode)
 }
 
 func validateSetupRequest(req setupApplyRequest, mode string) error {
@@ -340,12 +391,12 @@ func validateSetupRequest(req setupApplyRequest, mode string) error {
 	if err := validatePasswordStrength(req.Admin.Password); err != nil {
 		return err
 	}
-	if mode == SetupModeGatewayManaged {
+	if mode == SetupModePlatformGateway {
 		if strings.TrimSpace(req.Gateway.SN) == "" {
-			return fmt.Errorf("gateway SN is required for managed gateway mode")
+			return fmt.Errorf("gateway SN is required for platform gateway mode")
 		}
 		if strings.TrimSpace(req.Gateway.MQTTURL) == "" {
-			return fmt.Errorf("MQTT URL is required for managed gateway mode")
+			return fmt.Errorf("MQTT URL is required for platform gateway mode")
 		}
 	}
 	return nil
@@ -378,6 +429,18 @@ func createGatewayLocalScope(tx *gorm.DB, req setupLocalProjectRequest) (*store.
 		return nil, nil, err
 	}
 	return tenant, project, nil
+}
+
+func createHiddenDefaultTenantScope(tx *gorm.DB, req setupLocalProjectRequest) (*store.Tenant, error) {
+	tenant := &store.Tenant{
+		Code:        "default",
+		Name:        valueOrDefaultString(req.TenantName, "Default Organization"),
+		LoginSuffix: "default",
+	}
+	if err := tx.Create(tenant).Error; err != nil {
+		return nil, err
+	}
+	return tenant, nil
 }
 
 func configureInitialAdminInTx(tx *gorm.DB, req setupAdminRequest, tenantID uint, role string) (*store.User, error) {
@@ -432,6 +495,18 @@ func configurePlatformAdminInTx(tx *gorm.DB, req setupAdminRequest) error {
 func bootstrapGatewayAdminRBAC(tx *gorm.DB, userID, tenantID, projectID uint) error {
 	if err := tx.Unscoped().Where("user_id = ?", userID).Delete(&store.UserRoleBinding{}).Error; err != nil {
 		return err
+	}
+
+	var superAdminRole store.Role
+	if err := tx.Where("code = ? AND tenant_id = ? AND project_id = ?", RoleCodeSuperAdmin, 0, 0).First(&superAdminRole).Error; err == nil {
+		if err := tx.Create(&store.UserRoleBinding{
+			UserID:    userID,
+			RoleID:    superAdminRole.ID,
+			TenantID:  0,
+			ProjectID: 0,
+		}).Error; err != nil {
+			return err
+		}
 	}
 
 	var tenantAdminRole store.Role
@@ -503,6 +578,44 @@ func bootstrapGatewayAdminRBAC(tx *gorm.DB, userID, tenantID, projectID uint) er
 		return err
 	}
 	return replaceScopePermissionLimit(tx, permissionLimitScopeProject, tenantID, projectID, permissionIDs)
+}
+
+func bootstrapMultiProjectPlatformAdminRBAC(tx *gorm.DB, userID, tenantID uint) error {
+	if err := tx.Unscoped().Where("user_id = ?", userID).Delete(&store.UserRoleBinding{}).Error; err != nil {
+		return err
+	}
+
+	var superAdminRole store.Role
+	if err := tx.Where("code = ? AND tenant_id = ? AND project_id = ?", RoleCodeSuperAdmin, 0, 0).First(&superAdminRole).Error; err != nil {
+		return err
+	}
+	if err := tx.Create(&store.UserRoleBinding{
+		UserID:    userID,
+		RoleID:    superAdminRole.ID,
+		TenantID:  0,
+		ProjectID: 0,
+	}).Error; err != nil {
+		return err
+	}
+
+	var tenantAdminRole store.Role
+	if err := tx.Where("code = ? AND tenant_id = ? AND project_id = ?", RoleCodeTenantAdmin, 0, 0).First(&tenantAdminRole).Error; err != nil {
+		return err
+	}
+	if err := tx.Create(&store.UserRoleBinding{
+		UserID:    userID,
+		RoleID:    tenantAdminRole.ID,
+		TenantID:  tenantID,
+		ProjectID: 0,
+	}).Error; err != nil {
+		return err
+	}
+
+	permissionIDs, err := allPermissionIDs(tx)
+	if err != nil {
+		return err
+	}
+	return replaceScopePermissionLimit(tx, permissionLimitScopeTenant, tenantID, 0, permissionIDs)
 }
 
 func allPermissionIDs(tx *gorm.DB) ([]uint, error) {

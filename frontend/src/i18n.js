@@ -630,6 +630,29 @@ dev_tags: 'Tags',
             save_success: 'Saved successfully, plugin restarted to take effect',
             save_failed: 'Failed to save configuration'
         },
+        // WebRTC
+        webrtc: {
+            config_title: 'WebRTC Configuration',
+            stun_server_url: 'STUN Server',
+            stun_server_url_tip: 'Used for WebRTC ICE candidates and media IP discovery. Leave empty for default public servers.',
+            turn_server_url: 'TURN Server',
+            turn_server_url_tip: 'TURN server address for NAT traversal. Optional if platform and frontend are in the same LAN.',
+            turn_username: 'TURN Username',
+            turn_password: 'TURN Password',
+            optional: 'Optional',
+            media_port_min: 'ICE Min Port',
+            media_port_max: 'ICE Max Port',
+            fetch_failed: 'Failed to fetch configuration',
+            save_success: 'Saved successfully, plugin restarted to take effect',
+            save_failed: 'Failed to save configuration',
+            test_stun: 'Test STUN/TURN',
+            testing: 'Testing...',
+            no_stun_turn: 'Please enter STUN or TURN server',
+            stun_success: 'STUN test success',
+            turn_success: 'TURN test success',
+            stun_fail: 'STUN/TURN test failed, unable to get public/relay address',
+            test_error: 'Test error'
+        },
         // Auth & User Management
         auth_login_title: 'Noyo IoT',
         auth_login_subtitle: 'Sign in to your account',
@@ -1759,6 +1782,29 @@ dev_tags: '标签',
             fetch_failed: '获取配置失败',
             save_success: '保存成功，插件已重启生效',
             save_failed: '保存失败'
+        },
+        // WebRTC
+        webrtc: {
+            config_title: 'WebRTC 配置',
+            stun_server_url: 'STUN 服务器',
+            stun_server_url_tip: '用于 WebRTC ICE 候选和媒体 IP 自动发现。留空使用默认公共服务器。',
+            turn_server_url: 'TURN 服务器',
+            turn_server_url_tip: '用于内网穿透的 TURN 服务器地址。若平台和前端在同一局域网，可不填。',
+            turn_username: 'TURN 用户名',
+            turn_password: 'TURN 密码',
+            optional: '可选',
+            media_port_min: 'ICE 最小端口',
+            media_port_max: 'ICE 最大端口',
+            fetch_failed: '获取配置失败',
+            save_success: '保存成功，插件已重启生效',
+            save_failed: '保存配置失败',
+            test_stun: '测试 STUN/TURN',
+            testing: '测试中...',
+            no_stun_turn: '请先填写 STUN 或 TURN 服务器地址',
+            stun_success: 'STUN 测试成功',
+            turn_success: 'TURN 测试成功',
+            stun_fail: 'STUN/TURN 测试失败，未能获取公网/中继地址',
+            test_error: '测试异常'
         }
     }
 }
