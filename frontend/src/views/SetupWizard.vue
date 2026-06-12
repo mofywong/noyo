@@ -492,14 +492,14 @@ const modeUi = computed(() => ({
     description: tx('multiTenantPlatformDesc'),
     bullets: setupCopy[currentLang.value].multiTenantPlatformBullets,
     icon: 'bi bi-cloud-check',
-    visualClass: 'mode-visual platform',
+    visualClass: 'mode-visual platform-multi',
   },
   [SYSTEM_MODES.MULTI_PROJECT_PLATFORM]: {
     label: tx('multiProjectPlatformLabel'),
     description: tx('multiProjectPlatformDesc'),
     bullets: setupCopy[currentLang.value].multiProjectPlatformBullets,
     icon: 'bi bi-kanban',
-    visualClass: 'mode-visual platform',
+    visualClass: 'mode-visual platform-single',
   },
   [SYSTEM_MODES.PLATFORM_GATEWAY]: {
     label: tx('platformGatewayLabel'),
@@ -728,16 +728,28 @@ const submitSetup = async () => {
       plugins,
     }
 
+    const oldPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80')
+    const newPort = String(payload.server.port)
+    const portChanged = oldPort !== newPort
+
     const res = await axios.post('/api/setup/apply', payload)
     if (res.data.code !== 0) {
       throw new Error(res.data.message || tx('setupFailed'))
     }
 
-    successMsg.value = res.data.message || tx('setupCompleted')
     clearSetupStatusCache()
     authStore.logout()
     localStorage.removeItem('current_tenant_id')
-    await router.replace('/login')
+
+    if (portChanged) {
+      successMsg.value = `${tx('setupCompleted')} 端口已变更为 ${newPort}，后台服务重启中，将在3秒后自动跳转...`
+      setTimeout(() => {
+        window.location.href = `${window.location.protocol}//${window.location.hostname}:${newPort}/login`
+      }, 3000)
+    } else {
+      successMsg.value = res.data.message || tx('setupCompleted')
+      await router.replace('/login')
+    }
   } catch (error) {
     errorMsg.value = error.response?.data?.message || error.message || tx('setupFailed')
   } finally {
@@ -1087,7 +1099,7 @@ onMounted(loadSetupStatus)
 
 .mode-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -1095,7 +1107,7 @@ onMounted(loadSetupStatus)
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.62);
-  min-height: 294px;
+  min-height: 260px;
   padding: 12px;
   cursor: pointer;
   display: grid;
@@ -1115,7 +1127,7 @@ onMounted(loadSetupStatus)
 }
 
 .mode-visual {
-  height: 118px;
+  height: 90px;
   position: relative;
   overflow: hidden;
   border-radius: 8px;
@@ -1125,16 +1137,20 @@ onMounted(loadSetupStatus)
   background-position: center;
 }
 
-.mode-visual.platform {
-  background-image: url('/mode_platform.png');
+.mode-visual.platform-multi {
+  background-image: url('/mode_multi_tenant.png');
+}
+
+.mode-visual.platform-single {
+  background-image: url('/mode_multi_project.png');
 }
 
 .mode-visual.gateway-standalone {
-  background-image: url('/mode_standalone.png');
+  background-image: url('/mode_local_project.png');
 }
 
 .mode-visual.gateway-managed {
-  background-image: url('/mode_managed.png');
+  background-image: url('/mode_edge_gateway.png');
 }
 
 .mode-copy {
@@ -1357,6 +1373,10 @@ onMounted(loadSetupStatus)
 
   .setup-summary {
     margin-top: 0;
+  }
+
+  .mode-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

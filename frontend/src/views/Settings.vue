@@ -174,9 +174,20 @@ const fetchConfig = async () => {
 const saveConfig = async () => {
   saving.value = true;
   try {
+    const oldPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+    const newPort = String(form.value.server.port);
+    const portChanged = oldPort !== newPort;
+
     const res = await axios.post(`${props.remoteApiBase}/config`, form.value);
     if (res.data.code === 0) {
-      showToast('success', res.data.message || t('log_config_success'));
+      if (portChanged) {
+        showToast('success', `${res.data.message || t('log_config_success')} 端口已变更，后台服务重启中，将在3秒后自动跳转...`);
+        setTimeout(() => {
+          window.location.href = `${window.location.protocol}//${window.location.hostname}:${newPort}/login`;
+        }, 3000);
+      } else {
+        showToast('success', res.data.message || t('log_config_success'));
+      }
     } else {
       showToast('danger', res.data.message);
     }

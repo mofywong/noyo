@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -106,6 +107,11 @@ func (s *Server) handleApplySetup(r *ghttp.Request) {
 		return
 	}
 
+	portChanged := false
+	if req.Server.Port > 0 && s.Config != nil && s.Config.Server.Port != req.Server.Port {
+		portChanged = true
+	}
+
 	if err := s.applyInitialSetup(req); err != nil {
 		if errors.Is(err, errSetupAlreadyInitialized) {
 			r.Response.WriteJson(g.Map{"code": 409, "message": err.Error()})
@@ -117,9 +123,17 @@ func (s *Server) handleApplySetup(r *ghttp.Request) {
 
 	r.Response.WriteJson(g.Map{
 		"code":    0,
-		"message": "Initial setup completed. Restart the service if the HTTP port was changed.",
+		"message": "Initial setup completed.",
 		"data":    s.buildSetupStatus(req.Mode),
 	})
+
+	if portChanged {
+		go func() {
+			s.Logger.Info("HTTP port changed in setup, exiting process to allow daemon restart...")
+			time.Sleep(2 * time.Second)
+			os.Exit(0)
+		}()
+	}
 }
 
 var errSetupAlreadyInitialized = errors.New("setup has already been completed")
