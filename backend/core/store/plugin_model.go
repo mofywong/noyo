@@ -144,6 +144,9 @@ func GetPluginForScope(name string, tenantID, projectID uint) (*PluginModel, err
 	result := DB.Where("name = ? AND tenant_id = ? AND project_id = ?", name, tenantID, projectID).First(&plugin)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			if tenantID != 0 || projectID != 0 {
+				return GetPluginForScope(name, 0, 0)
+			}
 			return nil, nil
 		}
 		return nil, result.Error

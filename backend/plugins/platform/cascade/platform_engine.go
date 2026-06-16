@@ -50,6 +50,7 @@ func (e *platformEngineImpl) Start() error {
 	e.logger.Info("Platform MQTT ClientID", zap.String("client_id", clientID))
 	opts.SetUsername(e.config.Username)
 	opts.SetPassword(e.config.Password)
+	applyMQTTTLSOptions(opts, e.config)
 	opts.SetAutoReconnect(true)
 	opts.SetMaxReconnectInterval(1 * time.Second)
 	opts.SetKeepAlive(60 * time.Second)   // 增加到 60s，避免系统负载高时 PING 超时触发 LWT

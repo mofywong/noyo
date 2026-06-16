@@ -1,6 +1,7 @@
 package core
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,7 +31,9 @@ const (
 	legacySetupModeGatewayStandalone = "gateway_standalone"
 	legacySetupModeGatewayManaged    = "gateway_managed"
 
-	gatewayAdminRoleCode = "gateway_admin"
+	gatewayAdminRoleCode           = "admin"
+	defaultHiddenTenantName        = "Default Organization"
+	defaultSingleProjectTenantName = "Local Project"
 )
 
 type setupAdminRequest struct {
@@ -49,11 +52,13 @@ type setupLocalProjectRequest struct {
 }
 
 type setupGatewayRequest struct {
-	SN       string `json:"gateway_sn"`
-	Name     string `json:"gateway_name"`
-	MQTTURL  string `json:"mqtt_url"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	SN                 string `json:"gateway_sn"`
+	Name               string `json:"gateway_name"`
+	MQTTURL            string `json:"mqtt_url"`
+	EnableTLS          bool   `json:"enable_tls"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
 }
 
 type setupMQTTAPIRequest struct {
@@ -254,6 +259,9 @@ func (s *Server) applyInitialSetup(req setupApplyRequest) error {
 			if err := bootstrapGatewayAdminRBAC(tx, admin.ID, tenantID, projectID); err != nil {
 				return err
 			}
+			if err := store.EnsureVoiceAssistantScope(tx, tenantID, projectID); err != nil {
+				return err
+			}
 		} else if mode == SetupModeMultiProjectPlatform {
 			tenant, err := createHiddenDefaultTenantScope(tx, req.LocalProject)
 			if err != nil {
@@ -266,6 +274,9 @@ func (s *Server) applyInitialSetup(req setupApplyRequest) error {
 				return err
 			}
 			if err := bootstrapMultiProjectPlatformAdminRBAC(tx, admin.ID, tenantID); err != nil {
+				return err
+			}
+			if err := store.EnsureVoiceAssistantScope(tx, tenantID, 0); err != nil {
 				return err
 			}
 		} else if err := configurePlatformAdminInTx(tx, req.Admin); err != nil {
@@ -337,6 +348,8 @@ func mergeSetupPluginPayloads(req *setupApplyRequest) {
 		req.Gateway.SN = stringFromSetupConfig(cfg, "gateway_sn", req.Gateway.SN)
 		req.Gateway.Name = stringFromSetupConfig(cfg, "gateway_name", req.Gateway.Name)
 		req.Gateway.MQTTURL = stringFromSetupConfig(cfg, "mqtt_url", req.Gateway.MQTTURL)
+		req.Gateway.EnableTLS = boolFromSetupConfig(cfg, "enable_tls", req.Gateway.EnableTLS)
+		req.Gateway.InsecureSkipVerify = boolFromSetupConfig(cfg, "insecure_skip_verify", req.Gateway.InsecureSkipVerify)
 		req.Gateway.Username = stringFromSetupConfig(cfg, "username", req.Gateway.Username)
 		req.Gateway.Password = stringFromSetupConfig(cfg, "password", req.Gateway.Password)
 	}
@@ -427,7 +440,7 @@ func (s *Server) effectiveConfig() *config.GlobalConfig {
 func createGatewayLocalScope(tx *gorm.DB, req setupLocalProjectRequest) (*store.Tenant, *store.Project, error) {
 	tenant := &store.Tenant{
 		Code:        "local_gateway",
-		Name:        valueOrDefaultString(req.TenantName, "Local Gateway"),
+		Name:        defaultSingleProjectTenantName,
 		LoginSuffix: "local",
 	}
 	if err := tx.Create(tenant).Error; err != nil {
@@ -448,7 +461,7 @@ func createGatewayLocalScope(tx *gorm.DB, req setupLocalProjectRequest) (*store.
 func createHiddenDefaultTenantScope(tx *gorm.DB, req setupLocalProjectRequest) (*store.Tenant, error) {
 	tenant := &store.Tenant{
 		Code:        "default",
-		Name:        valueOrDefaultString(req.TenantName, "Default Organization"),
+		Name:        valueOrDefaultString(req.TenantName, defaultHiddenTenantName),
 		LoginSuffix: "default",
 	}
 	if err := tx.Create(tenant).Error; err != nil {
@@ -472,7 +485,7 @@ func configureInitialAdminInTx(tx *gorm.DB, req setupAdminRequest, tenantID uint
 	}
 	admin.TenantID = tenantID
 	admin.Username = valueOrDefaultString(req.Username, "admin")
-	admin.DisplayName = valueOrDefaultString(req.DisplayName, "Administrator")
+	admin.DisplayName = valueOrDefaultString(req.DisplayName, "超级管理员")
 	admin.Password = hashed
 	admin.Role = role
 	admin.Status = 1
@@ -558,8 +571,8 @@ func bootstrapGatewayAdminRBAC(tx *gorm.DB, userID, tenantID, projectID uint) er
 			TenantID:    tenantID,
 			ProjectID:   projectID,
 			Code:        gatewayAdminRoleCode,
-			Name:        "Local Gateway Admin",
-			Description: "Full local permissions for gateway standalone or managed mode.",
+			Name:        "超级管理员",
+			Description: "拥有系统的最高权限",
 			DataScope:   1,
 			IsBuiltin:   false,
 		}
@@ -642,27 +655,31 @@ func allPermissionIDs(tx *gorm.DB) ([]uint, error) {
 
 func cascadeGatewayConfig(req setupGatewayRequest, localProject setupLocalProjectRequest) map[string]interface{} {
 	return map[string]interface{}{
-		"enabled":      true,
-		"mode":         "gateway",
-		"mqtt_url":     strings.TrimSpace(req.MQTTURL),
-		"username":     strings.TrimSpace(req.Username),
-		"password":     req.Password,
-		"gateway_sn":   strings.TrimSpace(req.SN),
-		"gateway_name": valueOrDefaultString(req.Name, strings.TrimSpace(req.SN)),
-		"tenant_name":  localProject.TenantName,
-		"project_name": localProject.ProjectName,
+		"enabled":              true,
+		"mode":                 "gateway",
+		"mqtt_url":             strings.TrimSpace(req.MQTTURL),
+		"enable_tls":           req.EnableTLS,
+		"insecure_skip_verify": req.InsecureSkipVerify,
+		"username":             strings.TrimSpace(req.Username),
+		"password":             req.Password,
+		"gateway_sn":           strings.TrimSpace(req.SN),
+		"gateway_name":         valueOrDefaultString(req.Name, strings.TrimSpace(req.SN)),
+		"tenant_name":          defaultSingleProjectTenantName,
+		"project_name":         localProject.ProjectName,
 	}
 }
 
 func cascadePlatformConfig(req setupGatewayRequest) map[string]interface{} {
 	return map[string]interface{}{
-		"enabled":      true,
-		"mode":         "platform",
-		"mqtt_url":     strings.TrimSpace(req.MQTTURL),
-		"username":     strings.TrimSpace(req.Username),
-		"password":     req.Password,
-		"gateway_sn":   "",
-		"gateway_name": "",
+		"enabled":              true,
+		"mode":                 "platform",
+		"mqtt_url":             strings.TrimSpace(req.MQTTURL),
+		"enable_tls":           req.EnableTLS,
+		"insecure_skip_verify": req.InsecureSkipVerify,
+		"username":             strings.TrimSpace(req.Username),
+		"password":             req.Password,
+		"gateway_sn":           "",
+		"gateway_name":         "",
 	}
 }
 
@@ -848,6 +865,12 @@ func verifyGatewayRegistration(gateway setupGatewayRequest, localProject setupLo
 	opts.SetClientID(clientID)
 	opts.SetUsername(gateway.Username)
 	opts.SetPassword(gateway.Password)
+	if gateway.EnableTLS || gateway.InsecureSkipVerify || strings.HasPrefix(strings.ToLower(strings.TrimSpace(gateway.MQTTURL)), "tls://") {
+		opts.SetTLSConfig(&tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: gateway.InsecureSkipVerify,
+		})
+	}
 	opts.SetConnectTimeout(5 * time.Second)
 
 	client := mqtt.NewClient(opts)
@@ -877,7 +900,7 @@ func verifyGatewayRegistration(gateway setupGatewayRequest, localProject setupLo
 
 	reqPayload := map[string]string{
 		"gateway_name": gateway.Name,
-		"tenant_name":  localProject.TenantName,
+		"tenant_name":  defaultSingleProjectTenantName,
 		"project_name": localProject.ProjectName,
 	}
 	payloadBytes, _ := json.Marshal(reqPayload)

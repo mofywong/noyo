@@ -170,16 +170,12 @@
               <div class="setup-panel-head">
                 <div>
                   <h3>{{ tx('projectTitle') }}</h3>
-                  <p>{{ modeNeedsTenant ? tx('projectGatewayDesc') : tx('projectPlatformDesc') }}</p>
+                  <p>{{ modeNeedsProject ? tx('projectGatewayDesc') : tx('projectPlatformDesc') }}</p>
                 </div>
               </div>
 
-              <div v-if="modeNeedsTenant" class="form-grid">
+              <div v-if="modeNeedsProject" class="form-grid">
                 <label class="field-block">
-                  <span>{{ tx('tenantName') }}</span>
-                  <input v-model.trim="form.local_project.tenant_name" type="text" class="setup-input">
-                </label>
-                <label v-if="modeNeedsProject" class="field-block">
                   <span>{{ tx('projectName') }}</span>
                   <input v-model.trim="form.local_project.project_name" type="text" class="setup-input">
                 </label>
@@ -467,7 +463,7 @@ const form = reactive({
   },
   admin: {
     username: 'admin',
-    display_name: 'Administrator',
+    display_name: '超级管理员',
     password: '',
   },
   local_project: {
@@ -520,7 +516,6 @@ const modeUi = computed(() => ({
 const activeStepIndex = computed(() => steps.value.findIndex(step => step.id === activeStep.value))
 const runtimeModes = computed(() => setupStatus.value?.runtime_modes || [])
 const pluginSteps = computed(() => (setupStatus.value?.plugin_steps || []).filter(plugin => plugin.plugin_name === 'cascade'))
-const modeNeedsTenant = computed(() => form.mode === SYSTEM_MODES.MULTI_PROJECT_PLATFORM || isSingleProjectMode(form.mode))
 const modeNeedsProject = computed(() => isSingleProjectMode(form.mode))
 const modeNeedsCascadeRegistration = computed(() => form.mode === SYSTEM_MODES.PLATFORM_GATEWAY)
 const runtimeModeCards = computed(() => {
@@ -664,10 +659,6 @@ const validateBeforeSubmit = () => {
     activeStep.value = 'admin'
     return tx('validationPasswordMismatch')
   }
-  if (modeNeedsTenant.value && !form.local_project.tenant_name.trim()) {
-    activeStep.value = 'project'
-    return tx('validationTenantName')
-  }
   if (modeNeedsProject.value && !form.local_project.project_name.trim()) {
     activeStep.value = 'project'
     return tx('validationLocalScope')
@@ -717,11 +708,16 @@ const submitSetup = async () => {
         display_name: form.admin.display_name,
         password: form.admin.password,
       },
-      local_project: { ...form.local_project },
+      local_project: {
+        tenant_name: '',
+        project_name: modeNeedsProject.value ? form.local_project.project_name : '',
+      },
       gateway: {
         gateway_sn: cascade.gateway_sn || '',
         gateway_name: cascade.gateway_name || '',
         mqtt_url: cascade.mqtt_url || '',
+        enable_tls: Boolean(cascade.enable_tls),
+        insecure_skip_verify: Boolean(cascade.insecure_skip_verify),
         username: cascade.username || '',
         password: cascade.password || '',
       },

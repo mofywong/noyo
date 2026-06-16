@@ -62,6 +62,7 @@ func (e *gatewayEngineImpl) Start() error {
 	opts.SetClientID(fmt.Sprintf("noyo-gw-cascade-%s", e.config.GatewaySn))
 	opts.SetUsername(e.config.Username)
 	opts.SetPassword(e.config.Password)
+	applyMQTTTLSOptions(opts, e.config)
 	opts.SetAutoReconnect(true)
 	opts.SetKeepAlive(60 * time.Second)   // 增加到 60s，避免系统负载高时 PING 超时触发 LWT
 	opts.SetPingTimeout(20 * time.Second) // 增加 PING 超时容忍度

@@ -50,6 +50,8 @@ func init() {
 		DefaultYaml: `
 mode: "platform"
 mqtt_url: "tcp://127.0.0.1:1883"
+enable_tls: false
+insecure_skip_verify: false
 username: "admin"
 password: "password"
 gateway_sn: "GW-AUTO-001"
@@ -210,6 +212,20 @@ func (p *CascadePlugin) GetConfigSchema() *core.PluginConfigSchema {
 				Value:       p.Config.MqttUrl,
 			},
 			{
+				Name:        "enable_tls",
+				Type:        "switch",
+				Title:       map[string]string{"en": "Enable TLS", "zh": "是否启用TLS"},
+				Description: map[string]string{"en": "Enable TLS encryption for the MQTT connection.", "zh": "启用 MQTT TLS 加密连接。"},
+				Value:       p.Config.EnableTLS,
+			},
+			{
+				Name:        "insecure_skip_verify",
+				Type:        "switch",
+				Title:       map[string]string{"en": "Skip Certificate Verification", "zh": "是否跳过证书验证"},
+				Description: map[string]string{"en": "Skip server certificate verification when TLS is enabled.", "zh": "启用后不验证服务端证书。"},
+				Value:       p.Config.InsecureSkipVerify,
+			},
+			{
 				Name:        "username",
 				Type:        "string",
 				Title:       map[string]string{"en": "Username", "zh": "MQTT用户名"},
@@ -259,6 +275,18 @@ func (p *CascadePlugin) GetSetupSchema(mode string) *core.PluginSetupSchema {
 			Title:       map[string]string{"en": "Cascade MQTT URL", "zh": "级联 MQTT 地址"},
 			Description: map[string]string{"en": "Shared broker used by platform and managed gateways, e.g. tcp://127.0.0.1:1883.", "zh": "平台与托管网关共用的级联 Broker，例如 tcp://127.0.0.1:1883。"},
 			Required:    mode == core.SetupModePlatformGateway,
+		},
+		{
+			Name:        "enable_tls",
+			Type:        "switch",
+			Title:       map[string]string{"en": "Enable TLS", "zh": "是否启用TLS"},
+			Description: map[string]string{"en": "Enable TLS encryption for the cascade MQTT connection.", "zh": "启用级联 MQTT TLS 加密连接。"},
+		},
+		{
+			Name:        "insecure_skip_verify",
+			Type:        "switch",
+			Title:       map[string]string{"en": "Skip Certificate Verification", "zh": "是否跳过证书验证"},
+			Description: map[string]string{"en": "Skip server certificate verification when TLS is enabled.", "zh": "启用后不验证服务端证书。"},
 		},
 		{
 			Name:  "username",

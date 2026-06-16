@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -142,6 +143,33 @@ var exclusiveTenantManagementPermissionCodes = map[string]bool{
 	"tenant:delete": true,
 }
 
+const (
+	VoiceAssistantUserName    = "voice_assistant"
+	VoiceAssistantRoleCode    = "voice_assistant"
+	VoiceAssistantDisplayName = "语音助手"
+	VoiceAssistantRoleName    = "语音助手角色"
+)
+
+var VoiceAssistantDefaultReadPermissionCodes = []string{
+	"dashboard:view",
+	"user:list",
+	"role:list",
+	"tenant:list",
+	"project:list",
+	"app:list",
+	"product:list",
+	"device:list",
+	"device:topology",
+	"device_tag:list",
+	"audit:list",
+	"gateway:list",
+	"alarm:list",
+	"plugin:list",
+	"system:config",
+	"system:logs",
+	"system:license",
+}
+
 func InitDefaultData() {
 	// Initialize default super admin
 	var userCount int64
@@ -160,6 +188,10 @@ func InitDefaultData() {
 
 	// Initialize default system permissions
 	InitPermissions()
+
+	if state, err := LoadSetupState(); err == nil && state.Initialized && state.TenantID > 0 {
+		_ = EnsureVoiceAssistantScope(DB, state.TenantID, state.ProjectID)
+	}
 }
 
 func InitPermissions() {
@@ -298,6 +330,50 @@ func InitPermissions() {
 		Assign(projectAdminRole).
 		FirstOrCreate(&projectAdminRole)
 
+	voiceAssistantRole := Role{
+		TenantID:    0,
+		ProjectID:   0,
+		Code:        VoiceAssistantRoleCode,
+		Name:        VoiceAssistantRoleName,
+		Description: "系统内置虚拟角色，用于限制语音助手操作权限。",
+		DataScope:   5,
+		IsBuiltin:   true,
+		IsInherited: false,
+	}
+	DB.Where("tenant_id = ? AND project_id = ? AND code = ?", 0, 0, VoiceAssistantRoleCode).
+		Assign(voiceAssistantRole).
+		FirstOrCreate(&voiceAssistantRole)
+	_ = ensureVoiceAssistantDefaultReadPermissions(DB, voiceAssistantRole.ID)
+
+	var voiceAssistantUser User
+	if err := DB.Where("tenant_id = ? AND username = ?", 0, VoiceAssistantUserName).First(&voiceAssistantUser).Error; err != nil {
+		hashedPassword, _ := utils.HashPassword(fmt.Sprintf("voice-assistant-%d", time.Now().UnixNano()))
+		voiceAssistantUser = User{
+			TenantID:           0,
+			Username:           VoiceAssistantUserName,
+			Password:           hashedPassword,
+			DisplayName:        VoiceAssistantDisplayName,
+			Role:               VoiceAssistantRoleCode,
+			Status:             1,
+			MustChangePassword: false,
+		}
+		DB.Create(&voiceAssistantUser)
+	} else {
+		DB.Model(&voiceAssistantUser).Updates(map[string]interface{}{
+			"display_name":         VoiceAssistantDisplayName,
+			"role":                 VoiceAssistantRoleCode,
+			"status":               1,
+			"must_change_password": false,
+		})
+	}
+	DB.Where("user_id = ? AND role_id = ? AND tenant_id = ? AND project_id = ?", voiceAssistantUser.ID, voiceAssistantRole.ID, 0, 0).
+		FirstOrCreate(&UserRoleBinding{}, UserRoleBinding{
+			UserID:    voiceAssistantUser.ID,
+			RoleID:    voiceAssistantRole.ID,
+			TenantID:  0,
+			ProjectID: 0,
+		})
+
 	migrateProjectMembershipViewerBindings()
 
 	var perms []Permission
@@ -353,6 +429,109 @@ func InitPermissions() {
 	}
 	syncRolePermissionAllowlist(superAdminRole.ID, superAdminDefaultPermissionCodes)
 	removePermissionCodesFromOtherRoles(superAdminRole.ID, exclusiveTenantManagementPermissionCodes)
+}
+
+func EnsureVoiceAssistantScope(tx *gorm.DB, tenantID, projectID uint) error {
+	if tenantID == 0 {
+		return nil
+	}
+	if tx == nil {
+		tx = DB
+	}
+
+	role := Role{
+		TenantID:    tenantID,
+		ProjectID:   projectID,
+		Code:        VoiceAssistantRoleCode,
+		Name:        VoiceAssistantRoleName,
+		Description: "可配置虚拟角色，用于限制当前范围内的语音助手操作权限。",
+		DataScope:   5,
+		IsBuiltin:   false,
+		IsInherited: false,
+	}
+	if err := tx.Where("tenant_id = ? AND project_id = ? AND code = ?", tenantID, projectID, VoiceAssistantRoleCode).
+		Assign(role).
+		FirstOrCreate(&role).Error; err != nil {
+		return err
+	}
+	if err := ensureVoiceAssistantDefaultReadPermissions(tx, role.ID); err != nil {
+		return err
+	}
+
+	var user User
+	if err := tx.Where("tenant_id = ? AND username = ?", tenantID, VoiceAssistantUserName).First(&user).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		hashed, hashErr := utils.HashPassword(fmt.Sprintf("voice-assistant-%d", time.Now().UnixNano()))
+		if hashErr != nil {
+			return hashErr
+		}
+		user = User{
+			TenantID:           tenantID,
+			Username:           VoiceAssistantUserName,
+			Password:           hashed,
+			DisplayName:        VoiceAssistantDisplayName,
+			Role:               VoiceAssistantRoleCode,
+			Status:             1,
+			MustChangePassword: false,
+		}
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+	} else {
+		user.DisplayName = VoiceAssistantDisplayName
+		user.Role = VoiceAssistantRoleCode
+		user.Status = 1
+		user.MustChangePassword = false
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
+	}
+
+	return tx.Where("user_id = ? AND role_id = ? AND tenant_id = ? AND project_id = ?", user.ID, role.ID, tenantID, projectID).
+		FirstOrCreate(&UserRoleBinding{}, UserRoleBinding{
+			UserID:    user.ID,
+			RoleID:    role.ID,
+			TenantID:  tenantID,
+			ProjectID: projectID,
+		}).Error
+}
+
+func ensureVoiceAssistantDefaultReadPermissions(tx *gorm.DB, roleID uint) error {
+	if tx == nil {
+		tx = DB
+	}
+	if roleID == 0 {
+		return nil
+	}
+
+	seedKey := fmt.Sprintf("voice_assistant_default_read_permissions_seeded_v2:%d", roleID)
+	var marker SystemConfig
+	if err := tx.Where("key = ?", seedKey).First(&marker).Error; err == nil {
+		return nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	var permissions []Permission
+	if err := tx.Where("code IN ?", VoiceAssistantDefaultReadPermissionCodes).Find(&permissions).Error; err != nil {
+		return err
+	}
+	for _, permission := range permissions {
+		if err := tx.Where("role_id = ? AND permission_id = ?", roleID, permission.ID).
+			FirstOrCreate(&RolePermission{}, RolePermission{
+				RoleID:       roleID,
+				PermissionID: permission.ID,
+			}).Error; err != nil {
+			return err
+		}
+	}
+
+	return tx.Where("key = ?", seedKey).FirstOrCreate(&SystemConfig{
+		Key:   seedKey,
+		Value: "true",
+	}).Error
 }
 
 func migrateProjectMembershipViewerBindings() {
