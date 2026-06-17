@@ -62,6 +62,9 @@ func InitDB(dsn string) error {
 		&Device{},
 		&DeviceTag{},
 		&DeviceTagBinding{},
+		&Rule{},
+		&RuleGroup{},
+		&RuleExecLog{},
 		&SystemConfig{},
 		&GatewayPluginStateModel{},
 		&App{},
@@ -126,14 +129,22 @@ func purgeLegacyPositionPermissions() error {
 }
 
 var superAdminDefaultPermissionCodes = map[string]bool{
-	"tenant:list":    true,
-	"tenant:create":  true,
-	"tenant:edit":    true,
-	"tenant:delete":  true,
-	"dashboard:view": true,
-	"audit:list":     true,
-	"system:logs":    true,
-	"system:license": true,
+	"tenant:list":       true,
+	"tenant:create":     true,
+	"tenant:edit":       true,
+	"tenant:delete":     true,
+	"dashboard:view":    true,
+	"audit:list":        true,
+	"system:logs":       true,
+	"system:license":    true,
+	"rule:list":         true,
+	"rule:detail":       true,
+	"rule:create":       true,
+	"rule:edit":         true,
+	"rule:delete":       true,
+	"rule:enable":       true,
+	"rule:log":          true,
+	"rule_group:manage": true,
 }
 
 var exclusiveTenantManagementPermissionCodes = map[string]bool{
@@ -248,6 +259,15 @@ func InitPermissions() {
 		// Alarm
 		{Code: "alarm:list", Name: "告警列表", Module: "alarm", Type: "menu"},
 		{Code: "alarm:handle", Name: "处理告警", Module: "alarm", Type: "button"},
+		// Rules
+		{Code: "rule:list", Name: "规则列表", Module: "rule", Type: "menu"},
+		{Code: "rule:detail", Name: "规则详情", Module: "rule", Type: "button"},
+		{Code: "rule:create", Name: "创建规则", Module: "rule", Type: "button"},
+		{Code: "rule:edit", Name: "编辑规则", Module: "rule", Type: "button"},
+		{Code: "rule:delete", Name: "删除规则", Module: "rule", Type: "button"},
+		{Code: "rule:enable", Name: "启用规则", Module: "rule", Type: "button"},
+		{Code: "rule:log", Name: "规则日志", Module: "rule", Type: "button"},
+		{Code: "rule_group:manage", Name: "规则分组管理", Module: "rule", Type: "button"},
 		// History
 		{Code: "history:delete", Name: "删除历史记录", Module: "history", Type: "button"},
 		// Audit
@@ -418,7 +438,7 @@ func InitPermissions() {
 					})
 			}
 
-			if perm.Module == "user" || perm.Module == "role" || perm.Module == "product" || perm.Module == "device" || perm.Module == "device_tag" || perm.Module == "gateway" || perm.Module == "alarm" || perm.Module == "plugin" {
+			if perm.Module == "user" || perm.Module == "role" || perm.Module == "product" || perm.Module == "device" || perm.Module == "device_tag" || perm.Module == "gateway" || perm.Module == "alarm" || perm.Module == "rule" || perm.Module == "plugin" {
 				DB.Where("role_id = ? AND permission_id = ?", projectAdminRole.ID, perm.ID).
 					FirstOrCreate(&RolePermission{
 						RoleID:       projectAdminRole.ID,

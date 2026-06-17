@@ -50,6 +50,9 @@
       <a v-if="authStore.hasPermission('device:topology')" href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTopology' }" @click.prevent="navigate('/topology')">
         <i class="bi bi-diagram-2"></i> <span>{{ $t('sidebar_topology') }}</span>
       </a>
+      <a v-if="authStore.hasPermission('rule:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'RuleEngine' }" @click.prevent="navigate('/rules')">
+        <i class="bi bi-diagram-3"></i> <span>{{ $t('sidebar_rules') }}</span>
+      </a>
       <a v-if="authStore.hasPermission('alarm:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AlarmCenter' }" @click.prevent="navigate('/alarms')">
         <i class="bi bi-bell-fill"></i> <span>{{ $t('sidebar_alarms', '告警中心') }}</span>
       </a>

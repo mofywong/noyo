@@ -16,6 +16,7 @@
     "test:device-tags-ui": "node scripts/device-tags-ui.test.mjs",
     "test:rbac-admin-ui": "node scripts/rbac-admin-ui.test.mjs",
     "test:rbac-project-context-ui": "node scripts/rbac-project-context-ui.test.mjs",
+    "test:rule-engine-ui": "node scripts/rule-engine-ui.test.mjs",
     "test:setup-wizard-ui": "node scripts/setup-wizard-ui.test.mjs"
   },
   "dependencies": {

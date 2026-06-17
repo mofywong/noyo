@@ -15,5 +15,6 @@ type Event struct {
 	Type      EventType
 	Topic     string // e.g., device code or specific topic
 	Payload   interface{}
+	Metadata  map[string]interface{}
 	Timestamp int64
 }

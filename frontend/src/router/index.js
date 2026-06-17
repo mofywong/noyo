@@ -5,6 +5,7 @@ import ProductList from '../views/ProductList.vue'
 import DeviceList from '../views/DeviceList.vue'
 import DeviceTags from '../views/DeviceTags.vue'
 import DeviceTopology from '../views/DeviceTopology.vue'
+import RuleEngine from '../views/RuleEngine.vue'
 import GatewayManagement from '../views/GatewayManagement.vue'
 import GatewayPlugins from '../views/GatewayPlugins.vue'
 import GatewayPluginConfig from '../views/GatewayPluginConfig.vue'
@@ -67,6 +68,12 @@ const routes = [
     name: 'DeviceTopology',
     component: DeviceTopology,
     meta: { requiresAuth: true, permission: 'device:topology' }
+  },
+  {
+    path: '/rules',
+    name: 'RuleEngine',
+    component: RuleEngine,
+    meta: { requiresAuth: true, permission: 'rule:list' }
   },
   {
     path: '/gateways',

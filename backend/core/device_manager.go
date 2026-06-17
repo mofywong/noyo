@@ -4,12 +4,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
-	"strings"
 	"noyo/core/protocol"
 	"noyo/core/store"
 	"noyo/core/tsdb"
 	"noyo/core/types"
+	"os"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -360,19 +361,37 @@ func (dm *DeviceManager) GetLatestData(deviceCode string) map[string]interface{}
 
 // UpdateLatestData updates the latest data for a device
 func (dm *DeviceManager) UpdateLatestData(deviceCode string, data map[string]interface{}) {
-	rt := dm.getRuntime(deviceCode)
-
-	rt.mu.Lock()
-	if rt.Properties == nil {
-		rt.Properties = make(map[string]interface{})
-	}
-	for k, v := range data {
-		rt.Properties[k] = v
-	}
-	rt.mu.Unlock()
+	dm.mergeLatestData(deviceCode, data)
 
 	// Also mark as online (async)
 	go dm.UpdateStatus(deviceCode, nil)
+}
+
+func (dm *DeviceManager) mergeLatestData(deviceCode string, data map[string]interface{}) map[string]interface{} {
+	rt := dm.getRuntime(deviceCode)
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.Properties == nil {
+		rt.Properties = make(map[string]interface{})
+	}
+	changed := make(map[string]interface{})
+	for k, v := range data {
+		if old, exists := rt.Properties[k]; !exists || !propertyValuesEqual(old, v) {
+			changed[k] = v
+		}
+		rt.Properties[k] = v
+	}
+	return changed
+}
+
+func propertyValuesEqual(left, right interface{}) bool {
+	if reflect.DeepEqual(left, right) {
+		return true
+	}
+	leftNum, leftOK := numericValue(left)
+	rightNum, rightOK := numericValue(right)
+	return leftOK && rightOK && leftNum == rightNum
 }
 
 // SetDeviceProperties sets properties for a device
@@ -517,7 +536,8 @@ func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, para
 // ReportDeviceProperties handles data reporting
 func (dm *DeviceManager) ReportDeviceProperties(meta DeviceMeta, properties map[string]interface{}) error {
 	// 1. Update Local Cache
-	dm.UpdateLatestData(meta.DeviceCode, properties)
+	changedProperties := dm.mergeLatestData(meta.DeviceCode, properties)
+	go dm.UpdateStatus(meta.DeviceCode, nil)
 
 	// 2. Persist to TSDB
 	if dm.TSDB != nil {
@@ -540,6 +560,7 @@ func (dm *DeviceManager) ReportDeviceProperties(meta DeviceMeta, properties map[
 		Type:      types.EventPropertyReported,
 		Topic:     meta.DeviceCode,
 		Payload:   properties,
+		Metadata:  map[string]interface{}{"changedProperties": changedProperties},
 		Timestamp: time.Now().UnixMilli(),
 	})
 

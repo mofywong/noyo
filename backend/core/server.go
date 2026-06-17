@@ -34,6 +34,7 @@ type Server struct {
 	Manager         *PluginManager
 	DeviceManager   *DeviceManager
 	DispatchService *DispatchService
+	RuleEngine      *RuleEngine
 	TSDB            *tsdb.TSDBManager
 	WebServer       *ghttp.Server
 	uiFS            fs.FS
@@ -102,6 +103,7 @@ func NewServer() (*Server, error) {
 	s.DispatchService = NewDispatchService(s.Manager, s.DeviceManager.Registry, s.DeviceManager.EventBus, logger)
 	s.TSDB = tsdb.NewManager(cfg.TSDB, logger)
 	s.DeviceManager.TSDB = s.TSDB // Inject TSDB into DeviceManager
+	s.RuleEngine = NewRuleEngine(s)
 
 	return s, nil
 }
@@ -226,6 +228,11 @@ func (s *Server) Run() error {
 	if err := s.DeviceManager.StartAll(); err != nil {
 		s.Logger.Error("Failed to start devices", zap.Error(err))
 	}
+	if s.RuleEngine != nil {
+		if err := s.RuleEngine.Start(); err != nil {
+			s.Logger.Error("Failed to start rule engine", zap.Error(err))
+		}
+	}
 
 	// 3. Start Web Server
 	s.WebServer.Start() // Non-blocking start
@@ -237,6 +244,10 @@ func (s *Server) Run() error {
 	<-quit
 
 	s.Logger.Info("Shutting down server...")
+	if s.RuleEngine != nil {
+		s.RuleEngine.Stop()
+	}
+	s.DeviceManager.StopAll()
 	s.Manager.StopPlugins()
 	if s.WebServer != nil {
 		s.WebServer.Shutdown()

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="card border-0 shadow-sm h-100">
     <div class="card-header bg-transparent border-0 py-3">
       <div v-if="selectedDevices.length > 0" class="d-flex align-items-center p-2 rounded bg-secondary bg-opacity-10">
@@ -77,7 +77,7 @@
       </div>
     </div>
     <div class="card-body p-0">
-      <div class="table-responsive" style="min-height: 400px">
+      <div class="table-responsive device-table-wrap" style="min-height: 400px;">
         <table class="table table-hover align-middle mb-0">
           <thead class="bg-light">
             <tr>
@@ -205,58 +205,63 @@
                 <button v-if="isCameraDevice(device)" class="btn btn-sm btn-outline-primary rounded-circle me-1 d-inline-flex align-items-center justify-content-center" style="width: 28px; height: 28px; padding: 0;" @click.stop="playVideo(device)" title="播放实时视频" v-permission="'device:control'">
                   <i class="bi bi-play-fill fs-6"></i>
                 </button>
-                <div class="dropdown d-inline-block">
-                  <button class="btn btn-sm btn-light border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="viewport" data-bs-popper-config='{"strategy":"fixed"}'>
+                <div class="d-inline-block">
+                  <button class="btn btn-sm btn-light border-0" type="button" :aria-expanded="activeDeviceActionMenu === device.code" @click.stop="openDeviceActionMenu(device, $event)">
                     <i class="bi bi-three-dots-vertical"></i>
                   </button>
-                  <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                  <ul
+                    v-if="activeDeviceActionMenu === device.code"
+                    class="dropdown-menu dropdown-menu-end shadow-sm border-0 show device-action-menu"
+                    :style="{ top: `${deviceActionMenuPosition.top}px`, left: `${deviceActionMenuPosition.left}px` }"
+                    @click.stop
+                  >
                     <li><hr class="dropdown-divider"></li>
                     <li>
-                      <a class="dropdown-item" href="#" @click="openDataModal(device, 'realtime')">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openDataModal(device, 'realtime'))">
                         <i class="bi bi-activity me-2 text-success"></i> {{ $t('dev_data') }}
                       </a>
                     </li>
                     <template v-for="action in extensionDeviceActions" :key="action.name">
                       <li v-if="isActionVisible(action, device)">
-                        <a class="dropdown-item" href="#" @click.prevent="executeAction(action, device)">
+                        <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => executeAction(action, device))">
                           <i :class="[action.icon, action.color, 'me-2']"></i> {{ action.labelKey ? $t(action.labelKey, action.label) : action.label }}
                         </a>
                       </li>
                     </template>
                     <li v-permission="'device:edit'">
-                      <a class="dropdown-item" href="#" @click="openDeviceTagsModal(device)">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openDeviceTagsModal(device))">
                         <i class="bi bi-tags me-2 text-primary"></i> {{ $t('dev_edit_tags') }}
                       </a>
                     </li>
                     <li v-permission="'device:edit'">
-                      <a class="dropdown-item" href="#" @click="openSingleAIModal(device)">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openSingleAIModal(device))">
                         <i class="bi bi-shield-check me-2 text-warning"></i> AI 设备守护 (Device Guardian)
                       </a>
                     </li>
                     <li v-permission="'device:control'">
-                      <a class="dropdown-item" href="#" @click="toggleDevice(device)">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => toggleDevice(device))">
                         <i class="bi me-2" :class="device.enabled ? 'bi-stop-fill text-warning' : 'bi-play-fill text-success'"></i>
                         {{ device.enabled ? $t('stop') : $t('start') }}
                       </a>
                     </li>
                     <li v-if="!device.parent_code || isChildOfCascade(device)" v-permission="'device:create'">
-                      <a class="dropdown-item" href="#" @click="openCreateSubDeviceModal(device)">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openCreateSubDeviceModal(device))">
                         <i class="bi bi-plus-square me-2 text-primary"></i> {{ $t('dev_create_sub') }}
                       </a>
                     </li>
                     <li v-permission="'device:edit'">
-                      <a class="dropdown-item" href="#" @click="openEditModal(device)">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openEditModal(device))">
                         <i class="bi bi-pencil me-2 text-info"></i> {{ $t('dev_edit') }}
                       </a>
                     </li>
                     <li v-if="needsProtocolMapping(device)" v-permission="'device:edit'">
-                      <a class="dropdown-item" href="#" @click="openMappingModal(device)">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openMappingModal(device))">
                         <i class="bi bi-diagram-3 me-2 text-body"></i> {{ $t('tsl_prop_proto_map') }}
                       </a>
                     </li>
                     <li><hr class="dropdown-divider"></li>
                     <li v-permission="'device:delete'">
-                      <a class="dropdown-item text-danger" href="#" @click="deleteDevice(device)">
+                      <a class="dropdown-item text-danger" href="#" @click.prevent="runDeviceMenuAction(() => deleteDevice(device))">
                         <i class="bi bi-trash me-2"></i> {{ $t('dev_delete') }}
                       </a>
                     </li>
@@ -892,6 +897,8 @@ const products = ref([]);
 const loading = ref(false);
 const showCreateModal = ref(false);
 const showDiscoveryModal = ref(false);
+const activeDeviceActionMenu = ref('');
+const deviceActionMenuPosition = ref({ top: 0, left: 0 });
 const showProjectColumn = computed(() => {
   const mode = localStorage.getItem('system_mode') || '';
   if (isSingleProjectMode(mode)) return false;
@@ -1231,6 +1238,26 @@ const currentDataDevice = ref(null);
 const { extensions } = usePlugins();
 const extensionDeviceActions = computed(() => extensions.value.deviceActions || []);
 const activeExtensionModals = ref([]);
+
+const closeDeviceActionMenu = () => {
+  activeDeviceActionMenu.value = '';
+};
+
+const openDeviceActionMenu = (device, event) => {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const menuWidth = 220;
+  const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8));
+  activeDeviceActionMenu.value = activeDeviceActionMenu.value === device.code ? '' : device.code;
+  deviceActionMenuPosition.value = {
+    top: Math.min(rect.bottom + 4, window.innerHeight - 8),
+    left
+  };
+};
+
+const runDeviceMenuAction = (fn) => {
+  closeDeviceActionMenu();
+  fn();
+};
 
 const isActionVisible = (action, device) => {
   if (action.condition && typeof action.condition === 'function') {
@@ -2131,6 +2158,8 @@ onUnmounted(() => {
   if (hideDebounceTimer) clearTimeout(hideDebounceTimer);
   if (healthTooltipTimer) clearTimeout(healthTooltipTimer);
   window.removeEventListener('noyo-data-updated', fetchDevices);
+  window.removeEventListener('click', closeDeviceActionMenu);
+  window.removeEventListener('scroll', closeDeviceActionMenu, true);
   if (sseHeartbeatTimer) clearTimeout(sseHeartbeatTimer);
   if (sseFetchDebounceTimer) clearTimeout(sseFetchDebounceTimer);
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer);
@@ -2305,6 +2334,8 @@ onMounted(() => {
   fetchConfiguredTasks();
   fetchDeviceTags();
   window.addEventListener('noyo-data-updated', fetchDevices);
+  window.addEventListener('click', closeDeviceActionMenu);
+  window.addEventListener('scroll', closeDeviceActionMenu, true);
 
   // 建立SSE连接，支持心跳检测和自动重连
   setupSSE();
@@ -2720,6 +2751,21 @@ const saveBatchAITasks = async () => {
 <style scoped>
 .animation-blink {
   animation: blinker 1.5s linear infinite;
+}
+.device-table-wrap {
+  overflow-x: visible;
+  overflow-y: visible;
+}
+.device-action-menu {
+  position: fixed;
+  display: block;
+  min-width: 220px;
+  z-index: 1080;
+}
+@media (max-width: 1200px) {
+  .device-table-wrap {
+    overflow-x: auto;
+  }
 }
 .device-tags-cell {
   min-width: 120px;
