@@ -1,5 +1,15 @@
 <template>
-  <div class="rule-graph-viewer" v-if="rule">
+  <div class="rule-graph-viewer" v-if="rule" ref="graphViewerRef">
+    <!-- 顶部工具栏 -->
+    <div class="rg-toolbar text-end mb-3">
+      <button class="btn btn-sm btn-outline-info me-2" @click="exportToImage">
+        <i class="bi bi-image"></i> {{ $t('export_image', '导出图片') }}
+      </button>
+      <button class="btn btn-sm btn-outline-danger" @click="exportToPdf">
+        <i class="bi bi-file-pdf"></i> {{ $t('export_pdf', '导出PDF') }}
+      </button>
+    </div>
+
     <!-- 规则概览面板 -->
     <div class="rg-summary">
       <div class="rg-summary__item">
@@ -41,6 +51,17 @@
           <span class="rg-summary__detail" v-if="rule.throttleSec">{{ $t('rule_graph_throttle', { sec: rule.throttleSec }) }}</span>
           <span class="rg-summary__detail" v-if="rule.maxPerHour">{{ $t('rule_graph_max_per_hour', { count: rule.maxPerHour }) }}</span>
         </div>
+      </div>
+    </div>
+
+    <!-- 新增：时间展示独立板块 -->
+    <div class="rg-effective-time-panel" v-if="effectiveNodes.length">
+      <div class="rg-effective-time-panel__header">
+        <i class="bi bi-calendar-check-fill"></i>
+        <span>{{ $t('rule_effective_time') }}</span>
+      </div>
+      <div class="rg-effective-time-panel__body">
+        <RgCard v-for="node in effectiveNodes" :key="node.id" :node="node" />
       </div>
     </div>
 
@@ -95,27 +116,7 @@
         </div>
       </section>
 
-      <!-- 连接线 IF → TIME -->
-      <div class="rg-connector">
-        <div class="rg-connector__line"></div>
-        <div class="rg-connector__dot"></div>
-      </div>
-
-      <!-- === TIME 生效时间 === -->
-      <section class="rg-section rg-section--time">
-        <div class="rg-section__header">
-          <span class="rg-section__pill">
-            <i class="bi bi-calendar-check-fill"></i>
-            <span class="rg-section__kicker">{{ $t('time') }}</span>
-            <span class="rg-section__title">{{ $t('rule_effective_time') }}</span>
-          </span>
-        </div>
-        <div class="rg-time-cards">
-          <RgCard v-for="node in effectiveNodes" :key="node.id" :node="node" />
-        </div>
-      </section>
-
-      <!-- 连接线 TIME → THEN -->
+      <!-- 连接线 IF → THEN (直接连接) -->
       <div class="rg-connector">
         <div class="rg-connector__line"></div>
         <div class="rg-connector__dot"></div>
@@ -133,57 +134,7 @@
 
         <div class="rg-actions">
           <template v-for="(node, i) in actionNodes" :key="node.id">
-            <!-- 并行组 -->
-            <div v-if="node.isParallel" class="rg-parallel-group">
-              <div class="rg-parallel-group__label">
-                <i class="bi bi-cpu"></i>
-                {{ $t('rule_graph_parallel_run') }}
-                <span class="rg-parallel-group__count">({{ node.children.length }})</span>
-              </div>
-              <!-- 分叉入口线 -->
-              <div class="rg-parallel-fork">
-                <div class="rg-parallel-fork__stem"></div>
-                <div class="rg-parallel-fork__rail"></div>
-              </div>
-              <!-- 并行分支 -->
-              <div class="rg-parallel-branches">
-                <div v-for="child in node.children" :key="child.id" class="rg-parallel-branch">
-                  <div class="rg-parallel-branch__line"></div>
-                  <RgCard :node="child" />
-                </div>
-              </div>
-              <!-- 汇聚出口线 -->
-              <div class="rg-parallel-join">
-                <div class="rg-parallel-join__rail"></div>
-                <div class="rg-parallel-join__stem"></div>
-              </div>
-            </div>
-            <!-- 串行组 -->
-            <div v-else-if="node.isSerial" class="rg-serial-group">
-              <div class="rg-serial-group__label">
-                <i class="bi bi-list-ol"></i>
-                {{ $t('rule_graph_serial_run') }}
-                <span class="rg-serial-group__count">({{ node.children.length }})</span>
-              </div>
-              <div class="rg-serial-steps">
-                <template v-for="(child, ci) in node.children" :key="child.id">
-                  <RgCard :node="child" />
-                  <div v-if="ci < node.children.length - 1" class="rg-serial-arrow">
-                    <div class="rg-serial-arrow__line"></div>
-                    <div class="rg-serial-arrow__pulse"></div>
-                  </div>
-                </template>
-              </div>
-            </div>
-            <!-- 延迟节点 -->
-            <div v-else-if="node.isDelay" class="rg-delay-node">
-              <div class="rg-delay-node__icon">
-                <i class="bi bi-hourglass-split"></i>
-              </div>
-              <span class="rg-delay-node__text">{{ $t('rule_graph_delay_wait', { sec: node.delaySec }) }}</span>
-            </div>
-            <!-- 普通动作节点 -->
-            <RgCard v-else :node="node" />
+            <RgActionNode :node="node" :colorIndex="i" />
 
             <!-- 串行步骤间连线 -->
             <div v-if="i < actionNodes.length - 1 && !node.isDelay" class="rg-step-connector">
@@ -200,6 +151,8 @@
 <script>
 import { defineComponent, computed, h, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import html2canvas from 'html2canvas'
+import { jsPDF } from 'jspdf'
 
 /* ============================================
  *  递归卡片节点组件 — 展示单个条件/动作的详情
@@ -245,7 +198,8 @@ const RgConditionGroup = defineComponent({
   props: {
     group: { type: Object, required: true },
     devices: { type: Array, default: () => [] },
-    depth: { type: Number, default: 0 }
+    depth: { type: Number, default: 0 },
+    colorIndex: { type: Number, default: 0 }
   },
   setup(props) {
     const { t } = useI18n()
@@ -350,6 +304,7 @@ const RgConditionGroup = defineComponent({
 
       // 渲染子项
       const itemEls = []
+      let childGroupCount = 0
       allItems.forEach((item, idx) => {
         if (item.type === 'leaf') {
           itemEls.push(h(RgCard, { node: item.node, key: item.key }))
@@ -358,21 +313,14 @@ const RgConditionGroup = defineComponent({
             group: item.group,
             devices: props.devices,
             depth: props.depth + 1,
+            colorIndex: (props.colorIndex + childGroupCount + 1) % 6,
             key: item.key
           }))
-        }
-        // 逻辑钻石分隔符
-        if (idx < allItems.length - 1) {
-          itemEls.push(
-            h('div', {
-              class: ['rg-logic-diamond', isOr ? 'rg-logic-diamond--or' : 'rg-logic-diamond--and'],
-              key: `logic-${idx}`
-            }, [h('span', logicLabel)])
-          )
+          childGroupCount++
         }
       })
 
-      return h('div', { class: ['rg-cond-group', `rg-cond-group--depth-${props.depth}`] }, [
+      return h('div', { class: ['rg-cond-group', `rg-group-color-${props.colorIndex}`] }, [
         headerEl,
         h('div', { class: 'rg-cond-group__items' }, itemEls)
       ])
@@ -380,9 +328,74 @@ const RgConditionGroup = defineComponent({
   }
 })
 
+/* ============================================
+ *  递归动作节点组件 — 支持串行、并行互相嵌套
+ * ============================================ */
+const RgActionNode = defineComponent({
+  name: 'RgActionNode',
+  props: {
+    node: { type: Object, required: true },
+    colorIndex: { type: Number, default: 0 }
+  },
+  setup(props) {
+    const { t } = useI18n()
+    return () => {
+      const node = props.node
+      if (node.isParallel) {
+        return h('div', { class: ['rg-parallel-group', `rg-group-color-${props.colorIndex % 6}`] }, [
+          h('div', { class: 'rg-parallel-group__label' }, [
+            h('i', { class: 'bi bi-cpu' }),
+            t('rule_graph_parallel_run'),
+            h('span', { class: 'rg-parallel-group__count' }, `(${node.children.length})`)
+          ]),
+          h('div', { class: 'rg-parallel-fork' }, [
+            h('div', { class: 'rg-parallel-fork__stem' }),
+            h('div', { class: 'rg-parallel-fork__rail' })
+          ]),
+          h('div', { class: 'rg-parallel-branches' }, node.children.map((child, i) => {
+            return h('div', { class: 'rg-parallel-branch', key: child.id }, [
+              h('div', { class: 'rg-parallel-branch__line' }),
+              h(RgActionNode, { node: child, colorIndex: props.colorIndex + i + 1 })
+            ])
+          })),
+          h('div', { class: 'rg-parallel-join' }, [
+            h('div', { class: 'rg-parallel-join__rail' }),
+            h('div', { class: 'rg-parallel-join__stem' })
+          ])
+        ])
+      } else if (node.isSerial) {
+        return h('div', { class: ['rg-serial-group', `rg-group-color-${props.colorIndex % 6}`] }, [
+          h('div', { class: 'rg-serial-group__label' }, [
+            h('i', { class: 'bi bi-list-ol' }),
+            t('rule_graph_serial_run'),
+            h('span', { class: 'rg-serial-group__count' }, `(${node.children.length})`)
+          ]),
+          h('div', { class: 'rg-serial-steps' }, node.children.map((child, ci) => {
+            const arr = [ h(RgActionNode, { node: child, colorIndex: props.colorIndex + ci + 1, key: child.id }) ]
+            if (ci < node.children.length - 1) {
+              arr.push(h('div', { class: 'rg-serial-arrow', key: child.id + '-arrow' }, [
+                h('div', { class: 'rg-serial-arrow__line' }),
+                h('div', { class: 'rg-serial-arrow__pulse' })
+              ]))
+            }
+            return arr
+          }).flat())
+        ])
+      } else if (node.isDelay) {
+        return h('div', { class: 'rg-delay-node' }, [
+          h('div', { class: 'rg-delay-node__icon' }, [ h('i', { class: 'bi bi-hourglass-split' }) ]),
+          h('span', { class: 'rg-delay-node__text' }, t('rule_graph_delay_wait', { sec: node.delaySec }))
+        ])
+      } else {
+        return h(RgCard, { node })
+      }
+    }
+  }
+})
+
 export default {
   name: 'RuleGraphViewer',
-  components: { RgCard, RgConditionGroup },
+  components: { RgCard, RgConditionGroup, RgActionNode },
   props: {
     rule: { type: Object, default: () => null },
     devices: { type: Array, default: () => [] }
@@ -579,15 +592,52 @@ export default {
       return actions.map((a, i) => buildActionNode(a, `act-${i}`))
     })
 
+    const graphViewerRef = ref(null)
+
+    const exportToImage = async () => {
+      if (!graphViewerRef.value) return
+      const canvas = await html2canvas(graphViewerRef.value, { scale: 2, useCORS: true })
+      const link = document.createElement('a')
+      link.download = `rule-${props.rule?.name || 'graph'}.png`
+      link.href = canvas.toDataURL()
+      link.click()
+    }
+
+    const exportToPdf = async () => {
+      if (!graphViewerRef.value) return
+      const canvas = await html2canvas(graphViewerRef.value, { scale: 2, useCORS: true })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      let pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      
+      if (pdfHeight > pdf.internal.pageSize.getHeight()) {
+        let heightLeft = pdfHeight
+        let position = 0
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight)
+        heightLeft -= pdf.internal.pageSize.getHeight()
+        while (heightLeft >= 0) {
+          position = heightLeft - pdfHeight
+          pdf.addPage()
+          pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight)
+          heightLeft -= pdf.internal.pageSize.getHeight()
+        }
+      } else {
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight)
+      }
+      pdf.save(`rule-${props.rule?.name || 'graph'}.pdf`)
+    }
+
     return {
       triggerNodes, conditionTree, hasConditions,
-      effectiveNodes, actionNodes, statusLabel
+      effectiveNodes, actionNodes, statusLabel,
+      graphViewerRef, exportToImage, exportToPdf
     }
   }
 }
 </script>
 
-<style scoped>
+<style>
 /* ======================================================================
  *  CSS 变量 — 明亮/暗黑双主题
  * ====================================================================== */
@@ -623,6 +673,7 @@ export default {
   flex-direction: column;
   gap: 1.25rem;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  position: relative;
 }
 
 /* === 暗黑主题 === */
@@ -1047,27 +1098,42 @@ export default {
   justify-content: center;
 }
 
+.rg-group-color-0 { --group-color: #f59e0b; --group-bg: rgba(245, 158, 11, 0.06); --group-border: rgba(245, 158, 11, 0.3); }
+.rg-group-color-1 { --group-color: #3b82f6; --group-bg: rgba(59, 130, 246, 0.06); --group-border: rgba(59, 130, 246, 0.3); }
+.rg-group-color-2 { --group-color: #8b5cf6; --group-bg: rgba(139, 92, 246, 0.06); --group-border: rgba(139, 92, 246, 0.3); }
+.rg-group-color-3 { --group-color: #10b981; --group-bg: rgba(16, 185, 129, 0.06); --group-border: rgba(16, 185, 129, 0.3); }
+.rg-group-color-4 { --group-color: #f43f5e; --group-bg: rgba(244, 63, 94, 0.06); --group-border: rgba(244, 63, 94, 0.3); }
+.rg-group-color-5 { --group-color: #06b6d4; --group-bg: rgba(6, 182, 212, 0.06); --group-border: rgba(6, 182, 212, 0.3); }
+
+[data-bs-theme="dark"] .rg-group-color-0 { --group-color: #fbbf24; --group-bg: rgba(251, 191, 36, 0.1); --group-border: rgba(251, 191, 36, 0.35); }
+[data-bs-theme="dark"] .rg-group-color-1 { --group-color: #60a5fa; --group-bg: rgba(96, 165, 250, 0.1); --group-border: rgba(96, 165, 250, 0.35); }
+[data-bs-theme="dark"] .rg-group-color-2 { --group-color: #a78bfa; --group-bg: rgba(167, 139, 250, 0.1); --group-border: rgba(167, 139, 250, 0.35); }
+[data-bs-theme="dark"] .rg-group-color-3 { --group-color: #34d399; --group-bg: rgba(52, 211, 153, 0.1); --group-border: rgba(52, 211, 153, 0.35); }
+[data-bs-theme="dark"] .rg-group-color-4 { --group-color: #fb7185; --group-bg: rgba(251, 113, 133, 0.1); --group-border: rgba(251, 113, 133, 0.35); }
+[data-bs-theme="dark"] .rg-group-color-5 { --group-color: #22d3ee; --group-bg: rgba(34, 211, 238, 0.1); --group-border: rgba(34, 211, 238, 0.35); }
+
 .rg-cond-group {
   position: relative;
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-}
-.rg-cond-group--depth-1,
-.rg-cond-group--depth-2 {
-  padding: 1rem;
-  border: 1.5px dashed var(--rg-condition-border);
+  padding: 1.25rem 1rem 1rem;
+  border: 1.5px dashed var(--group-border, var(--rg-condition-border));
   border-radius: 0.875rem;
-  background: var(--rg-condition-bg);
-  margin: 0.5rem 0;
+  background: var(--group-bg, var(--rg-condition-bg));
+  margin: 1rem 0 0.5rem;
 }
 
 .rg-cond-group__header {
+  position: absolute;
+  top: -0.85rem;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  z-index: 5;
 }
 
 .rg-logic-pill {
@@ -1078,19 +1144,10 @@ export default {
   border-radius: 1rem;
   font-size: 0.72rem;
   font-weight: 700;
+  background: var(--group-bg, rgba(245, 158, 11, 0.1));
+  border: 1px solid var(--group-border, rgba(245, 158, 11, 0.2));
+  color: var(--group-color, #d97706);
 }
-.rg-logic-pill--and {
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  color: #2563eb;
-}
-.rg-logic-pill--or {
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.2);
-  color: #d97706;
-}
-[data-bs-theme="dark"] .rg-logic-pill--and { background: rgba(96, 165, 250, 0.12); border-color: rgba(96, 165, 250, 0.25); color: #60a5fa; }
-[data-bs-theme="dark"] .rg-logic-pill--or  { background: rgba(251, 191, 36, 0.12); border-color: rgba(251, 191, 36, 0.25); color: #fbbf24; }
 
 .rg-logic-pill__label {
   font-weight: 800;
@@ -1248,20 +1305,21 @@ export default {
   flex-direction: column;
   align-items: center;
   padding: 1.25rem;
-  border: 1.5px dashed rgba(99, 102, 241, 0.3);
+  border: 1.5px dashed var(--group-border, rgba(99, 102, 241, 0.3));
   border-radius: 1rem;
-  background: rgba(99, 102, 241, 0.02);
+  background: var(--group-bg, rgba(99, 102, 241, 0.02));
   margin: 0.25rem 0;
 }
 [data-bs-theme="dark"] .rg-parallel-group {
-  border-color: rgba(129, 140, 248, 0.3);
-  background: rgba(129, 140, 248, 0.04);
+  border-color: var(--group-border, rgba(129, 140, 248, 0.3));
+  background: var(--group-bg, rgba(129, 140, 248, 0.04));
 }
 
 .rg-parallel-group__label {
   position: absolute;
   top: -0.6rem;
-  left: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 0.3rem;
@@ -1269,15 +1327,15 @@ export default {
   border-radius: 1rem;
   font-size: 0.7rem;
   font-weight: 700;
-  background: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: var(--group-bg, rgba(99, 102, 241, 0.12));
+  color: var(--group-color, #6366f1);
+  border: 1px solid var(--group-border, rgba(99, 102, 241, 0.2));
   z-index: 5;
 }
 [data-bs-theme="dark"] .rg-parallel-group__label {
-  background: rgba(129, 140, 248, 0.15);
-  color: #818cf8;
-  border-color: rgba(129, 140, 248, 0.25);
+  background: var(--group-bg, rgba(129, 140, 248, 0.15));
+  color: var(--group-color, #818cf8);
+  border-color: var(--group-border, rgba(129, 140, 248, 0.25));
 }
 .rg-parallel-group__count {
   font-weight: 500;
@@ -1342,16 +1400,17 @@ export default {
   flex-direction: column;
   align-items: center;
   padding: 1.25rem;
-  border: 1.5px dashed var(--rg-action-border);
+  border: 1.5px dashed var(--group-border, var(--rg-action-border));
   border-radius: 1rem;
-  background: var(--rg-action-bg);
+  background: var(--group-bg, var(--rg-action-bg));
   margin: 0.25rem 0;
 }
 
 .rg-serial-group__label {
   position: absolute;
   top: -0.6rem;
-  left: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 0.3rem;
@@ -1359,9 +1418,9 @@ export default {
   border-radius: 1rem;
   font-size: 0.7rem;
   font-weight: 700;
-  background: var(--rg-action-bg);
-  color: var(--rg-action);
-  border: 1px solid var(--rg-action-border);
+  background: var(--group-bg, var(--rg-action-bg));
+  color: var(--group-color, var(--rg-action));
+  border: 1px solid var(--group-border, var(--rg-action-border));
   z-index: 5;
 }
 .rg-serial-group__count {
@@ -1425,5 +1484,51 @@ export default {
   .rg-summary__item {
     min-width: auto;
   }
+}
+/* ======================================================================
+ *  新增：生效时间独立板块及导出工具栏
+ * ====================================================================== */
+.rg-toolbar {
+  position: absolute;
+  top: -45px;
+  right: 0;
+  z-index: 10;
+}
+
+.rg-effective-time-panel {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--rg-surface);
+  border: 1px solid var(--rg-border);
+  border-radius: 12px;
+  margin: 1rem auto;
+  width: 100%;
+  max-width: 800px;
+  box-shadow: 0 4px 15px var(--rg-shadow);
+}
+.rg-effective-time-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: #0284c7;
+  white-space: nowrap;
+}
+[data-bs-theme="dark"] .rg-effective-time-panel__header {
+  color: #38bdf8;
+}
+.rg-effective-time-panel__body {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.rg-effective-time-panel__body .rg-card {
+  margin: 0;
+  padding: 0.5rem 1rem;
+  min-width: unset;
+  max-width: unset;
 }
 </style>

@@ -147,7 +147,7 @@
       </div>
     </div>
 
-    <div v-if="showEditor" class="modal fade show d-block rule-modal" tabindex="-1" @click.self="closeEditor">
+    <div v-if="showEditor" class="modal fade show d-block rule-modal" tabindex="-1">
       <div class="modal-dialog modal-xl rule-editor-dialog">
         <div class="modal-content border-0 shadow-lg">
           <div class="modal-header">
@@ -431,7 +431,7 @@
       </div>
     </div>
 
-    <div v-if="showGraph" class="modal fade show d-block rule-modal" tabindex="-1" @click.self="closeRuleGraph">
+    <div v-if="showGraph" class="modal fade show d-block rule-modal" tabindex="-1">
       <div class="modal-dialog modal-xl rule-graph-dialog">
         <div class="modal-content border-0 shadow-lg">
           <div class="modal-header">
@@ -448,7 +448,7 @@
       </div>
     </div>
 
-    <div v-if="showLogs" class="modal fade show d-block rule-modal" tabindex="-1" @click.self="showLogs = false">
+    <div v-if="showLogs" class="modal fade show d-block rule-modal" tabindex="-1">
       <div class="modal-dialog modal-lg">
         <div class="modal-content border-0 shadow-lg">
           <div class="modal-header">
@@ -487,7 +487,7 @@
       </div>
     </div>
 
-    <div v-if="showGroupModal" class="modal fade show d-block rule-modal" tabindex="-1" @click.self="showGroupModal = false">
+    <div v-if="showGroupModal" class="modal fade show d-block rule-modal" tabindex="-1">
       <div class="modal-dialog">
         <div class="modal-content border-0 shadow-lg">
           <div class="modal-header">
