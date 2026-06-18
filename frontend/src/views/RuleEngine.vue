@@ -158,73 +158,77 @@
             <button type="button" class="btn-close" @click="closeEditor"></button>
           </div>
           <div class="modal-body">
-            <div class="row g-4">
-              <div class="col-lg-4">
+            <div class="row g-4 mb-4">
+              <div class="col-12">
                 <div class="rule-panel">
-                  <h6>{{ $t('rule_basic_info') }}</h6>
-                  <label class="form-label">{{ $t('rule_name') }}</label>
-                  <input class="form-control mb-3" v-model.trim="form.name" maxlength="128">
-                  <label class="form-label">{{ $t('description') }}</label>
-                  <textarea class="form-control mb-3" v-model.trim="form.description" rows="3"></textarea>
-                  <label class="form-label">{{ $t('rule_group') }}</label>
-                  <select class="form-select mb-3" v-model="form.group_id">
-                    <option :value="null">{{ $t('rule_no_group') }}</option>
-                    <option v-for="group in groups" :key="group.id || group.ID" :value="group.id || group.ID">{{ group.name }}</option>
-                  </select>
-                  <div class="row g-2">
-                    <div class="col-6">
-                      <label class="form-label">{{ $t('rule_priority') }}</label>
-                      <input class="form-control" type="number" min="1" max="100" v-model.number="form.priority">
-                      <div class="config-help">{{ $t('rule_priority_help') }}</div>
+                  <div class="d-flex align-items-center border-bottom pb-2 mb-3 cursor-pointer" @click="expandedSections.basicInfo = !expandedSections.basicInfo">
+                    <i class="bi me-2" :class="expandedSections.basicInfo ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+                    <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>{{ $t('rule_basic_info') }}</h6>
+                  </div>
+                  <div class="row g-3" v-show="expandedSections.basicInfo">
+                    <div class="col-md-3">
+                      <label class="form-label">{{ $t('rule_name') }}</label>
+                      <input class="form-control" v-model.trim="form.name" maxlength="128">
                     </div>
-                    <div class="col-6">
-                      <label class="form-label">{{ $t('rule_throttle_sec') }}</label>
-                      <input class="form-control" type="number" min="1" v-model.number="form.throttle_sec">
-                      <div class="config-help">{{ $t('rule_throttle_sec_help') }}</div>
-                    </div>
-                    <div class="col-6">
-                      <label class="form-label">{{ $t('rule_max_per_hour') }}</label>
-                      <input class="form-control" type="number" min="1" v-model.number="form.max_per_hour">
-                      <div class="config-help">{{ $t('rule_max_per_hour_help') }}</div>
-                    </div>
-                    <div class="col-6">
-                      <label class="form-label">{{ $t('rule_retry_count') }}</label>
-                      <input class="form-control" type="number" min="0" max="3" v-model.number="form.retry_count">
-                      <div class="config-help">{{ $t('rule_retry_count_help') }}</div>
-                    </div>
-                    <div class="col-12">
-                      <label class="form-label">{{ $t('rule_effective_time') }}</label>
-                      <select class="form-select" v-model="form.effective_time.mode" @change="applyEffectiveModeDefaults">
-                        <option value="always">{{ $t('rule_effective_always') }}</option>
-                        <option value="daily">{{ $t('rule_effective_daily') }}</option>
-                        <option value="weekly">{{ $t('rule_effective_weekly') }}</option>
-                        <option value="monthly">{{ $t('rule_effective_monthly') }}</option>
-                        <option value="workday">{{ $t('rule_effective_workday') }}</option>
-                        <option value="holiday">{{ $t('rule_effective_holiday') }}</option>
-                        <option value="custom">{{ $t('rule_effective_custom') }}</option>
+                    <div class="col-md-3">
+                      <label class="form-label">{{ $t('rule_group') }}</label>
+                      <select class="form-select" v-model="form.group_id">
+                        <option :value="null">{{ $t('rule_no_group') }}</option>
+                        <option v-for="group in groups" :key="group.id || group.ID" :value="group.id || group.ID">{{ group.name }}</option>
                       </select>
                     </div>
-                    <div class="col-12" v-if="form.effective_time.mode !== 'always'">
-                      <div class="d-flex justify-content-between align-items-center mb-2">
-                        <label class="form-label mb-0">{{ $t('rule_effective_windows') }}</label>
-                        <button class="btn btn-outline-primary btn-sm" type="button" @click="addEffectiveWindow">
+                    <div class="col-md-6">
+                      <label class="form-label">{{ $t('description') }}</label>
+                      <input class="form-control" v-model.trim="form.description">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label">{{ $t('rule_priority') }}</label>
+                      <input class="form-control" type="number" min="1" max="100" v-model.number="form.priority">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label">{{ $t('rule_throttle_sec') }}</label>
+                      <input class="form-control" type="number" min="1" v-model.number="form.throttle_sec">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label">{{ $t('rule_max_per_hour') }}</label>
+                      <input class="form-control" type="number" min="1" v-model.number="form.max_per_hour">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label">{{ $t('rule_retry_count') }}</label>
+                      <input class="form-control" type="number" min="0" max="3" v-model.number="form.retry_count">
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label">{{ $t('rule_effective_time') }}</label>
+                      <div class="d-flex gap-2">
+                        <select class="form-select" v-model="form.effective_time.mode" @change="applyEffectiveModeDefaults">
+                          <option value="always">{{ $t('rule_effective_always') }}</option>
+                          <option value="daily">{{ $t('rule_effective_daily') }}</option>
+                          <option value="weekly">{{ $t('rule_effective_weekly') }}</option>
+                          <option value="monthly">{{ $t('rule_effective_monthly') }}</option>
+                          <option value="workday">{{ $t('rule_effective_workday') }}</option>
+                          <option value="holiday">{{ $t('rule_effective_holiday') }}</option>
+                          <option value="custom">{{ $t('rule_effective_custom') }}</option>
+                        </select>
+                        <button v-if="form.effective_time.mode !== 'always'" class="btn btn-outline-primary text-nowrap" type="button" @click="addEffectiveWindow">
                           <i class="bi bi-plus-lg me-1"></i>{{ $t('rule_effective_add_window') }}
                         </button>
                       </div>
+                    </div>
+                    <div class="col-12" v-if="form.effective_time.mode !== 'always'">
                       <div class="row g-2 align-items-end mb-2" v-for="(window, index) in form.effective_time.windows" :key="index">
-                        <div class="col-12" v-if="form.effective_time.mode === 'monthly'">
+                        <div class="col-md-4" v-if="form.effective_time.mode === 'monthly'">
                           <label class="form-label">{{ $t('rule_effective_month_days') }}</label>
                           <input class="form-control" v-model.trim="window.monthDaysText" placeholder="1,15,28" @input="window.monthDays = parseNumberList(window.monthDaysText, 1, 31)">
                         </div>
-                        <div class="col-5">
+                        <div class="col-md-3">
                           <label class="form-label">{{ $t('rule_effective_start') }}</label>
                           <input class="form-control" v-model.trim="window.startTime" placeholder="00:00:00">
                         </div>
-                        <div class="col-5">
+                        <div class="col-md-3">
                           <label class="form-label">{{ $t('rule_effective_end') }}</label>
                           <input class="form-control" v-model.trim="window.endTime" placeholder="24:00:00">
                         </div>
-                        <div class="col-2 text-end">
+                        <div class="col-md-2">
                           <button class="btn btn-outline-danger" type="button" :disabled="form.effective_time.windows.length <= 1" @click="removeEffectiveWindow(index)">
                             <i class="bi bi-trash"></i>
                           </button>
@@ -240,30 +244,36 @@
                         </label>
                       </div>
                     </div>
-                    <div class="col-6" v-if="showsEffectiveMonthDays">
+                    <div class="col-md-6" v-if="showsEffectiveMonthDays">
                       <label class="form-label">{{ $t('rule_effective_month_days') }}</label>
                       <input class="form-control" v-model.trim="effectiveMonthDaysText" placeholder="1,15,28">
                     </div>
-                    <div class="col-6" v-if="showsEffectiveMonths">
+                    <div class="col-md-6" v-if="showsEffectiveMonths">
                       <label class="form-label">{{ $t('rule_effective_months') }}</label>
                       <input class="form-control" v-model.trim="effectiveMonthsText" placeholder="1,6,12">
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div class="col-lg-8">
+            <div class="row">
+              <div class="col-12">
                 <div class="rule-builder">
                   <section class="rule-step">
-                    <div class="rule-step__head">
-                      <div>
-                        <span class="step-kicker">{{ $t('rule_when') }}</span>
-                        <h6>{{ $t('rule_triggers') }}</h6>
+                    <div class="rule-step__head cursor-pointer" @click="expandedSections.triggers = !expandedSections.triggers">
+                      <div class="d-flex align-items-center gap-2">
+                        <i class="bi" :class="expandedSections.triggers ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+                        <div>
+                          <span class="step-kicker">{{ $t('rule_when') }}</span>
+                          <h6 class="mb-0">{{ $t('rule_triggers') }}</h6>
+                        </div>
                       </div>
-                      <button class="btn btn-outline-primary btn-sm" @click="addTrigger">
+                      <button class="btn btn-outline-primary btn-sm" @click.stop="addTrigger">
                         <i class="bi bi-plus-lg me-1"></i>{{ $t('add_trigger') }}
                       </button>
                     </div>
+                    <div v-show="expandedSections.triggers">
                     <article v-for="(trigger, index) in form.triggers" :key="trigger.id" class="builder-item">
                       <div class="builder-line">
                         <div class="col-md-3">
@@ -366,52 +376,75 @@
                           </div>
                         </template>
                         <div class="col text-end">
-                          <button class="btn btn-outline-danger" @click="removeTrigger(index)" :disabled="form.triggers.length === 1">
+                          <button class="btn btn-outline-danger btn-sm" @click="removeTrigger(index)" :disabled="form.triggers.length === 1">
                             <i class="bi bi-trash"></i>
                           </button>
                         </div>
-                      </div>
-                    </article>
+                        </div>
+                      </article>
+                    </div>
                   </section>
 
                   <section class="rule-step">
-                    <div class="rule-step__head">
-                      <div>
-                        <span class="step-kicker">{{ $t('rule_if') }}</span>
-                        <h6>{{ $t('rule_conditions') }}</h6>
+                    <div class="rule-step__head cursor-pointer" @click="expandedSections.conditions = !expandedSections.conditions">
+                      <div class="d-flex align-items-center gap-2">
+                        <i class="bi" :class="expandedSections.conditions ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+                        <div>
+                          <span class="step-kicker">{{ $t('rule_if') }}</span>
+                          <h6 class="mb-0">{{ $t('rule_conditions') }}</h6>
+                        </div>
                       </div>
                     </div>
-                    <RuleConditionGroupEditor
-                      :group="form.conditions"
-                      :devices="devices"
-                      :labels="conditionLabels"
-                      :level="0"
-                    />
+                    <div v-show="expandedSections.conditions">
+                      <RuleConditionGroupEditor
+                        :group="form.conditions"
+                        :devices="devices"
+                        :labels="conditionLabels"
+                        :level="0"
+                      />
+                    </div>
                   </section>
 
                   <section class="rule-step">
-                    <div class="rule-step__head">
-                      <div>
-                        <span class="step-kicker">{{ $t('rule_then') }}</span>
-                        <h6>{{ $t('rule_actions') }}</h6>
+                    <div class="rule-step__head cursor-pointer" @click="expandedSections.actions = !expandedSections.actions">
+                      <div class="d-flex align-items-center gap-2">
+                        <i class="bi" :class="expandedSections.actions ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+                        <div>
+                          <span class="step-kicker">{{ $t('rule_then') }}</span>
+                          <h6 class="mb-0">{{ $t('rule_actions') }}</h6>
+                        </div>
                       </div>
-                      <div class="btn-group btn-group-sm">
+                      <div class="btn-group btn-group-sm" @click.stop>
                         <button class="btn btn-outline-primary" @click="addAction()"><i class="bi bi-plus-lg me-1"></i>{{ $t('rule_add_action') }}</button>
                         <button class="btn btn-outline-primary" @click="addSequenceGroup"><i class="bi bi-list-nested me-1"></i>{{ $t('rule_sequence_group') }}</button>
                         <button class="btn btn-outline-primary" @click="addParallelGroup"><i class="bi bi-diagram-3 me-1"></i>{{ $t('rule_parallel_group') }}</button>
                       </div>
                     </div>
-                    <ActionEditor
-                      v-for="(action, index) in form.actions"
-                      :key="action.id"
-                      :action="action"
-                      :devices="devices"
-                      :level="0"
-                      :labels="actionLabels"
-                      @remove="removeAction(index)"
-                      @add-sub="addSubAction(action)"
-                      @remove-sub="removeSubAction(action, $event)"
-                    />
+                    <div v-show="expandedSections.actions">
+                      <div class="action-group-container" style="--group-color: #fd7e14; --group-bg: rgba(253, 126, 20, 0.03);">
+                        <div class="action-group-container__header d-flex justify-content-between align-items-center mb-3 pb-3">
+                          <div class="d-flex align-items-center gap-2">
+                            <div class="fw-bold group-title" style="color: #fd7e14;">
+                              <i class="bi bi-play-circle me-2"></i>{{ $t('rule_actions_group_root', '主执行动作组') }}
+                            </div>
+                          </div>
+                        </div>
+                        <div class="action-group-body">
+                          <div v-if="form.actions.length === 0" class="builder-empty">{{ $t('rule_no_actions', '无执行动作') }}</div>
+                          <div v-for="(action, index) in form.actions" :key="action.id" class="action-sub-wrapper position-relative">
+                            <ActionEditor
+                              :action="action"
+                              :devices="devices"
+                              :level="0"
+                              :labels="actionLabels"
+                              @remove="removeAction(index)"
+                              @add-sub="addSubAction(action)"
+                              @remove-sub="removeSubAction(action, $event)"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </section>
                 </div>
               </div>
@@ -517,7 +550,7 @@
 </template>
 
 <script>
-import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineComponent, h, onMounted, reactive, ref, watch, provide, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 import axios from 'axios'
 import RuleGraphViewer from '@/components/rule/RuleGraphViewer.vue'
@@ -586,6 +619,16 @@ const RuleConditionGroupEditor = defineComponent({
     level: { type: Number, default: 0 }
   },
   setup(props) {
+    const isExpanded = ref(true)
+    const generateUniqueName = inject('generateUniqueName')
+    const getAllGroupNames = inject('getAllGroupNames')
+    const condColors = ['#6f42c1', '#0dcaf0', '#20c997', '#d63384', '#0d6efd']
+    const groupColor = computed(() => condColors[props.level % condColors.length])
+    const groupBg = computed(() => {
+      const hex = groupColor.value
+      const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16)
+      return `rgba(${r}, ${g}, ${b}, 0.03)`
+    })
     const deviceLabel = (device) => `${device.name || device.code} (${device.code})`
     const optionLabel = (item) => item?.name ? `${item.name} (${optionKey(item)})` : optionKey(item)
     const deviceFor = (code) => props.devices.find(device => device.code === code)
@@ -600,7 +643,8 @@ const RuleConditionGroupEditor = defineComponent({
     }
     const addGroup = () => {
       ensureArrays()
-      props.group.groups.push({ logic: 'and', conditions: [baseCondition()], groups: [] })
+      const name = generateUniqueName ? generateUniqueName(props.labels.conditionGroup) : `${props.labels.conditionGroup} ${Date.now()}`
+      props.group.groups.push({ logic: 'and', conditions: [baseCondition()], groups: [], name })
     }
     const row = (children) => h('div', { class: 'builder-line' }, children)
     const field = (label, child, cls = 'col-md-3') => h('div', { class: cls }, [h('label', { class: 'form-label' }, label), child])
@@ -665,7 +709,7 @@ const RuleConditionGroupEditor = defineComponent({
             ? field(props.labels.end, h('input', { class: 'form-control', type: 'time', ...bind(condition, 'endTime') }), 'col-md-3')
             : null,
           h('div', { class: 'col text-end' }, [
-            h('button', { class: 'btn btn-outline-danger', onClick: () => props.group.conditions.splice(index, 1) }, [h('i', { class: 'bi bi-trash' })])
+            h('button', { class: 'btn btn-outline-danger btn-sm', onClick: () => props.group.conditions.splice(index, 1) }, [h('i', { class: 'bi bi-trash' })])
           ])
         ])
       ])
@@ -673,26 +717,64 @@ const RuleConditionGroupEditor = defineComponent({
     return () => {
       ensureArrays()
       const empty = props.group.conditions.length === 0 && props.group.groups.length === 0
-      return h('div', { class: ['condition-group', props.level > 0 ? 'condition-group--nested' : ''] }, [
-        h('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-2 mb-2' }, [
-          h('div', { class: 'btn-group btn-group-sm' }, [
-            h('button', { class: props.group.logic === 'and' ? 'btn btn-primary' : 'btn btn-outline-primary', onClick: () => { props.group.logic = 'and' } }, props.labels.and),
-            h('button', { class: props.group.logic === 'or' ? 'btn btn-primary' : 'btn btn-outline-primary', onClick: () => { props.group.logic = 'or' } }, props.labels.or)
+      return h('div', { class: ['condition-group-card', props.level > 0 ? 'condition-group-card--nested' : ''], style: { '--group-color': groupColor.value, '--group-bg': groupBg.value } }, [
+        h('div', { class: 'condition-group-card__header d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 pb-3' }, [
+          h('div', { class: 'd-flex align-items-center gap-2' }, [
+            h('button', { class: 'btn btn-sm btn-link text-decoration-none px-0 toggle-btn', onClick: () => { isExpanded.value = !isExpanded.value } }, [
+              h('i', { class: isExpanded.value ? 'bi bi-chevron-down' : 'bi bi-chevron-right', style: { color: groupColor.value } })
+            ]),
+            h('div', { class: 'd-flex align-items-center group-title', style: { color: groupColor.value } }, [
+              h('i', { class: 'bi bi-filter-square me-2 fw-bold' }),
+              h('input', {
+                class: 'form-control form-control-sm border-0 bg-transparent fw-bold p-0',
+                style: { color: groupColor.value, width: '150px', boxShadow: 'none' },
+                value: props.group.name || props.labels.conditionGroup,
+                onFocus: () => { props.group._oldName = props.group.name },
+                onChange: e => {
+                  const desired = e.target.value.trim()
+                  if (!desired) {
+                    e.target.value = props.group._oldName || props.labels.conditionGroup
+                    props.group.name = props.group._oldName || props.labels.conditionGroup
+                    return
+                  }
+                  if (desired !== props.group._oldName) {
+                    const existing = getAllGroupNames ? getAllGroupNames() : new Set()
+                    existing.delete(props.group._oldName)
+                    let finalName = desired
+                    let count = 1
+                    while(existing.has(finalName)) {
+                      finalName = `${desired} ${count}`
+                      count++
+                    }
+                    props.group.name = finalName
+                    e.target.value = finalName
+                  }
+                },
+                placeholder: props.labels.conditionGroup
+              })
+            ]),
+            h('div', { class: 'btn-group btn-group-sm ms-2 bg-body rounded shadow-sm logic-switch' }, [
+              h('button', { class: props.group.logic === 'and' ? 'btn btn-primary' : 'btn btn-outline-secondary', onClick: () => { props.group.logic = 'and' } }, props.labels.and),
+              h('button', { class: props.group.logic === 'or' ? 'btn btn-primary' : 'btn btn-outline-secondary', onClick: () => { props.group.logic = 'or' } }, props.labels.or)
+            ])
           ]),
-          h('div', { class: 'btn-group btn-group-sm' }, [
-            h('button', { class: 'btn btn-outline-primary', onClick: addCondition }, [h('i', { class: 'bi bi-plus-lg me-1' }), props.labels.addCondition]),
-            h('button', { class: 'btn btn-outline-primary', onClick: addGroup }, [h('i', { class: 'bi bi-diagram-3 me-1' }), props.labels.addGroup])
+          h('div', { class: 'btn-group btn-group-sm shadow-sm' }, [
+            h('button', { class: 'btn btn-outline-primary bg-body', onClick: addCondition }, [h('i', { class: 'bi bi-plus-lg me-1' }), props.labels.addCondition]),
+            h('button', { class: 'btn btn-outline-primary bg-body', onClick: addGroup }, [h('i', { class: 'bi bi-diagram-3 me-1' }), props.labels.addGroup])
           ])
         ]),
-        empty ? h('div', { class: 'builder-empty' }, props.labels.noConditions) : null,
-        ...props.group.conditions.map(renderCondition),
-        ...props.group.groups.map((group, index) => h('div', { class: 'builder-item builder-item--nested' }, [
-          h('div', { class: 'd-flex justify-content-between align-items-center mb-2' }, [
-            h('span', { class: 'small text-muted' }, props.labels.conditionGroup),
-            h('button', { class: 'btn btn-outline-danger btn-sm', onClick: () => props.group.groups.splice(index, 1) }, [h('i', { class: 'bi bi-trash' })])
-          ]),
-          h(RuleConditionGroupEditor, { group, devices: props.devices, labels: props.labels, level: props.level + 1 })
-        ]))
+        h('div', { style: { display: isExpanded.value ? 'block' : 'none' }, class: 'condition-group-body' }, [
+          empty ? h('div', { class: 'builder-empty' }, props.labels.noConditions) : null,
+          ...props.group.conditions.map((cond, idx) => h('div', { class: 'condition-item-wrapper position-relative' }, [
+            renderCondition(cond, idx)
+          ])),
+          ...props.group.groups.map((group, index) => h('div', { class: 'builder-item-wrapper position-relative mt-3' }, [
+            h('div', { class: 'd-flex justify-content-end align-items-center mb-2' }, [
+              h('button', { class: 'btn btn-outline-danger btn-sm shadow-sm bg-body', onClick: () => props.group.groups.splice(index, 1) }, [h('i', { class: 'bi bi-trash' })])
+            ]),
+            h(RuleConditionGroupEditor, { group, devices: props.devices, labels: props.labels, level: props.level + 1 })
+          ]))
+        ])
       ])
     }
   }
@@ -708,6 +790,16 @@ const ActionEditor = defineComponent({
   },
   emits: ['remove', 'add-sub', 'remove-sub'],
   setup(props, { emit }) {
+    const isExpanded = ref(true)
+    const generateUniqueName = inject('generateUniqueName')
+    const getAllGroupNames = inject('getAllGroupNames')
+    const actionColors = ['#fd7e14', '#e83e8c', '#6610f2', '#0dcaf0', '#20c997']
+    const groupColor = computed(() => actionColors[props.level % actionColors.length])
+    const groupBg = computed(() => {
+      const hex = groupColor.value
+      const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16)
+      return `rgba(${r}, ${g}, ${b}, 0.03)`
+    })
     const deviceLabel = (device) => `${device.name || device.code} (${device.code})`
     const optionLabel = (item) => item?.name ? `${item.name} (${optionKey(item)})` : optionKey(item)
     const device = computed(() => props.devices.find(d => d.code === props.action.deviceCode))
@@ -720,103 +812,187 @@ const ActionEditor = defineComponent({
       onInput: e => { props.action[key] = e.target.value }
     })
 
-    return () => h('article', { class: ['builder-item', props.level > 0 ? 'builder-item--nested' : ''] }, [
-      row([
-        field(props.labels.type, h('select', {
-          class: 'form-select',
-          value: props.action.type,
-          onChange: e => { props.action.type = e.target.value }
-        }, [
-          h('option', { value: 'set_property' }, props.labels.setProperty),
-          h('option', { value: 'call_service' }, props.labels.callService),
-          h('option', { value: 'notification' }, props.labels.notification),
-          h('option', { value: 'alarm' }, props.labels.alarm),
-          h('option', { value: 'delay' }, props.labels.delay),
-          h('option', { value: 'sequence_group' }, props.labels.sequenceGroup),
-          h('option', { value: 'parallel_group' }, props.labels.parallelGroup)
-        ])),
-        props.action.type === 'set_property' || props.action.type === 'call_service'
-          ? field(props.labels.device, h('select', {
-              class: 'form-select',
-              value: props.action.deviceCode,
-              onChange: e => { props.action.deviceCode = e.target.value }
-            }, [h('option', { value: '' }, props.labels.selectDevice), ...props.devices.map(device => h('option', { value: device.code }, deviceLabel(device)))]), 'col-md-4')
-          : null,
-        props.action.type === 'set_property'
-          ? field(props.labels.property, h('select', {
-              class: 'form-select',
-              value: props.action.propertyKey,
-              onChange: e => { props.action.propertyKey = e.target.value }
-            }, [h('option', { value: '' }, props.labels.selectProperty), ...properties.value.map(prop => h('option', { value: optionKey(prop) }, optionLabel(prop)))]), 'col-md-3')
-          : null,
-        props.action.type === 'set_property'
-          ? field(props.labels.value, h('input', { class: 'form-control', value: props.action.value || '', onInput: e => { props.action.value = e.target.value } }), 'col-md-2')
-          : null,
-        props.action.type === 'call_service'
-          ? field(props.labels.service, h('select', {
-              class: 'form-select',
-              value: props.action.serviceCode,
-              onChange: e => { props.action.serviceCode = e.target.value }
-            }, [h('option', { value: '' }, props.labels.selectService), ...services.value.map(svc => h('option', { value: optionKey(svc) }, optionLabel(svc)))]), 'col-md-4')
-          : null,
-        props.action.type === 'call_service'
-          ? field(props.labels.params, h('textarea', {
-              class: 'form-control',
-              rows: 1,
-              value: JSON.stringify(props.action.serviceParams || {}),
-              onInput: e => {
-                try { props.action.serviceParams = JSON.parse(e.target.value || '{}') } catch (_) {}
-              }
-            }), 'col-md-4')
-          : null,
-        props.action.type === 'notification'
-          ? field(props.labels.title, h('input', { class: 'form-control', ...inputModel('notifyTitle') }), 'col-md-4')
-          : null,
-        props.action.type === 'notification'
-          ? field(props.labels.content, h('input', { class: 'form-control', ...inputModel('notifyContent') }), 'col-md-5')
-          : null,
-        props.action.type === 'alarm'
-          ? field(props.labels.level, h('select', {
-              class: 'form-select',
-              value: props.action.alarmLevel || 'warning',
-              onChange: e => { props.action.alarmLevel = e.target.value }
-            }, [
-              h('option', { value: 'info' }, props.labels.info),
-              h('option', { value: 'warning' }, props.labels.warning),
-              h('option', { value: 'critical' }, props.labels.critical)
-            ]), 'col-md-2')
-          : null,
-        props.action.type === 'alarm'
-          ? field(props.labels.title, h('input', { class: 'form-control', ...inputModel('alarmTitle') }), 'col-md-4')
-          : null,
-        props.action.type === 'alarm'
-          ? field(props.labels.content, h('input', { class: 'form-control', ...inputModel('alarmContent') }), 'col-md-4')
-          : null,
-        props.action.type === 'delay'
-          ? field(props.labels.delaySec, h('input', { class: 'form-control', type: 'number', min: 0, max: 300, value: props.action.delaySec, onInput: e => { props.action.delaySec = Number(e.target.value) } }), 'col-md-3')
-          : null,
-        h('div', { class: 'col text-end' }, [
-          h('button', { class: 'btn btn-outline-danger', onClick: () => emit('remove') }, [h('i', { class: 'bi bi-trash' })])
-        ])
-      ]),
-      props.action.type === 'parallel_group' || props.action.type === 'sequence_group'
-        ? h('div', { class: 'mt-3 ps-3 border-start' }, [
-            h('div', { class: 'd-flex justify-content-between align-items-center mb-2' }, [
-              h('span', { class: 'small text-muted' }, props.action.type === 'sequence_group' ? props.labels.sequenceGroup : props.labels.parallelGroup),
-              h('button', { class: 'btn btn-outline-primary btn-sm', onClick: () => emit('add-sub') }, [h('i', { class: 'bi bi-plus-lg me-1' }), props.labels.addAction])
+    return () => {
+      const isGroup = props.action.type === 'parallel_group' || props.action.type === 'sequence_group'
+      
+      if (isGroup) {
+        return h('div', { class: ['condition-group-card', 'action-group-card', props.level > 0 ? 'condition-group-card--nested' : ''], style: { '--group-color': groupColor.value, '--group-bg': groupBg.value } }, [
+          h('div', { class: 'condition-group-card__header d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 pb-3' }, [
+            h('div', { class: 'd-flex align-items-center gap-2' }, [
+              h('button', { class: 'btn btn-sm btn-link text-decoration-none px-0 toggle-btn', onClick: () => { isExpanded.value = !isExpanded.value } }, [
+                h('i', { class: isExpanded.value ? 'bi bi-chevron-down' : 'bi bi-chevron-right', style: { color: groupColor.value } })
+              ]),
+              h('div', { class: 'd-flex align-items-center group-title', style: { color: groupColor.value } }, [
+                h('i', { class: props.action.type === 'sequence_group' ? 'bi bi-list-nested me-2 fw-bold' : 'bi bi-diagram-3 me-2 fw-bold' }),
+                h('input', {
+                  class: 'form-control form-control-sm border-0 bg-transparent fw-bold p-0',
+                  style: { color: groupColor.value, width: '150px', boxShadow: 'none' },
+                  value: props.action.name,
+                  onFocus: () => { props.action._oldName = props.action.name },
+                  onChange: e => {
+                    const desired = e.target.value.trim()
+                    if (!desired) {
+                      const fallback = props.action.type === 'sequence_group' ? props.labels.sequenceGroup : props.labels.parallelGroup
+                      e.target.value = props.action._oldName || fallback
+                      props.action.name = props.action._oldName || fallback
+                      return
+                    }
+                    if (desired !== props.action._oldName) {
+                      const existing = getAllGroupNames ? getAllGroupNames() : new Set()
+                      existing.delete(props.action._oldName)
+                      let finalName = desired
+                      let count = 1
+                      while(existing.has(finalName)) {
+                        finalName = `${desired} ${count}`
+                        count++
+                      }
+                      props.action.name = finalName
+                      e.target.value = finalName
+                    }
+                  },
+                  placeholder: props.action.type === 'sequence_group' ? props.labels.sequenceGroup : props.labels.parallelGroup
+                })
+              ]),
+              h('div', { class: 'btn-group btn-group-sm ms-2 bg-body rounded shadow-sm logic-switch' }, [
+                h('button', { class: props.action.type === 'sequence_group' ? 'btn btn-primary' : 'btn btn-outline-secondary', onClick: () => { props.action.type = 'sequence_group' } }, props.labels.sequenceGroup),
+                h('button', { class: props.action.type === 'parallel_group' ? 'btn btn-primary' : 'btn btn-outline-secondary', onClick: () => { props.action.type = 'parallel_group' } }, props.labels.parallelGroup)
+              ])
             ]),
-            ...props.action.subActions.map((sub, idx) => h(ActionEditor, {
-              action: sub,
-              devices: props.devices,
-              labels: props.labels,
-              level: props.level + 1,
-              onRemove: () => emit('remove-sub', idx),
-              onAddSub: () => sub.subActions.push(baseAction()),
-              onRemoveSub: subIndex => sub.subActions.splice(subIndex, 1)
-            }))
+            h('div', { class: 'd-flex align-items-center gap-2' }, [
+              h('div', { class: 'btn-group btn-group-sm shadow-sm' }, [
+                h('button', { class: 'btn btn-outline-primary bg-body', onClick: () => emit('add-sub') }, [h('i', { class: 'bi bi-plus-lg me-1' }), props.labels.addAction]),
+                h('button', { class: 'btn btn-outline-primary bg-body', onClick: () => {
+                  if (!props.action.subActions) props.action.subActions = [];
+                  const base = props.labels.sequenceGroup || '串行动作组';
+                  const name = generateUniqueName ? generateUniqueName(base) : `${base} ${Date.now()}`;
+                  props.action.subActions.push({
+                    id: `act_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                    type: 'sequence_group',
+                    name,
+                    subActions: []
+                  });
+                } }, [h('i', { class: 'bi bi-diagram-3 me-1' }), props.labels.addGroup || '添加组'])
+              ]),
+              h('button', { class: 'btn btn-outline-danger btn-sm shadow-sm bg-body', onClick: () => emit('remove') }, [h('i', { class: 'bi bi-trash' })])
+            ])
+          ]),
+          h('div', { style: { display: isExpanded.value ? 'block' : 'none' }, class: 'condition-group-body action-group-body' }, [
+            (!props.action.subActions || props.action.subActions.length === 0) ? h('div', { class: 'builder-empty' }, props.labels.noActions || '无执行动作') : null,
+            ...(props.action.subActions || []).map((sub, idx) => h('div', { class: 'action-sub-wrapper position-relative' }, [
+              h(ActionEditor, {
+                action: sub,
+                devices: props.devices,
+                labels: props.labels,
+                level: props.level + 1,
+                onRemove: () => emit('remove-sub', idx),
+                onAddSub: () => {
+                  if (!sub.subActions) sub.subActions = [];
+                  sub.subActions.push({
+                    id: `act_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                    type: 'set_property',
+                    deviceCode: '',
+                    propertyKey: '',
+                    value: '',
+                    serviceCode: '',
+                    serviceParams: {},
+                    notifyTitle: '',
+                    notifyContent: '',
+                    alarmLevel: 'warning',
+                    alarmTitle: '',
+                    alarmContent: '',
+                    alarmDevice: 'trigger',
+                    delaySec: 1,
+                    subActions: []
+                  });
+                },
+                onRemoveSub: subIndex => sub.subActions.splice(subIndex, 1)
+              })
+            ]))
           ])
-        : null
-    ])
+        ])
+      }
+
+      return h('article', { class: ['builder-item', props.level > 0 ? 'builder-item--nested' : ''] }, [
+        row([
+          field(props.labels.type, h('select', {
+            class: 'form-select',
+            value: props.action.type,
+            onChange: e => { 
+              props.action.type = e.target.value 
+            }
+          }, [
+            h('option', { value: 'set_property' }, props.labels.setProperty),
+            h('option', { value: 'call_service' }, props.labels.callService),
+            h('option', { value: 'notification' }, props.labels.notification),
+            h('option', { value: 'alarm' }, props.labels.alarm),
+            h('option', { value: 'delay' }, props.labels.delay)
+          ])),
+          props.action.type === 'set_property' || props.action.type === 'call_service'
+            ? field(props.labels.device, h('select', {
+                class: 'form-select',
+                value: props.action.deviceCode,
+                onChange: e => { props.action.deviceCode = e.target.value }
+              }, [h('option', { value: '' }, props.labels.selectDevice), ...props.devices.map(device => h('option', { value: device.code }, deviceLabel(device)))]), 'col-md-4')
+            : null,
+          props.action.type === 'set_property'
+            ? field(props.labels.property, h('select', {
+                class: 'form-select',
+                value: props.action.propertyKey,
+                onChange: e => { props.action.propertyKey = e.target.value }
+              }, [h('option', { value: '' }, props.labels.selectProperty), ...properties.value.map(prop => h('option', { value: optionKey(prop) }, optionLabel(prop)))]), 'col-md-3')
+            : null,
+          props.action.type === 'set_property'
+            ? field(props.labels.value, h('input', { class: 'form-control', value: props.action.value || '', onInput: e => { props.action.value = e.target.value } }), 'col-md-2')
+            : null,
+          props.action.type === 'call_service'
+            ? field(props.labels.service, h('select', {
+                class: 'form-select',
+                value: props.action.serviceCode,
+                onChange: e => { props.action.serviceCode = e.target.value }
+              }, [h('option', { value: '' }, props.labels.selectService), ...services.value.map(svc => h('option', { value: optionKey(svc) }, optionLabel(svc)))]), 'col-md-4')
+            : null,
+          props.action.type === 'call_service'
+            ? field(props.labels.params, h('textarea', {
+                class: 'form-control',
+                rows: 1,
+                value: JSON.stringify(props.action.serviceParams || {}),
+                onInput: e => {
+                  try { props.action.serviceParams = JSON.parse(e.target.value || '{}') } catch (_) {}
+                }
+              }), 'col-md-4')
+            : null,
+          props.action.type === 'notification'
+            ? field(props.labels.title, h('input', { class: 'form-control', ...inputModel('notifyTitle') }), 'col-md-4')
+            : null,
+          props.action.type === 'notification'
+            ? field(props.labels.content, h('input', { class: 'form-control', ...inputModel('notifyContent') }), 'col-md-5')
+            : null,
+          props.action.type === 'alarm'
+            ? field(props.labels.level, h('select', {
+                class: 'form-select',
+                value: props.action.alarmLevel || 'warning',
+                onChange: e => { props.action.alarmLevel = e.target.value }
+              }, [
+                h('option', { value: 'info' }, props.labels.info),
+                h('option', { value: 'warning' }, props.labels.warning),
+                h('option', { value: 'critical' }, props.labels.critical)
+              ]), 'col-md-2')
+            : null,
+          props.action.type === 'alarm'
+            ? field(props.labels.title, h('input', { class: 'form-control', ...inputModel('alarmTitle') }), 'col-md-4')
+            : null,
+          props.action.type === 'alarm'
+            ? field(props.labels.content, h('input', { class: 'form-control', ...inputModel('alarmContent') }), 'col-md-4')
+            : null,
+          props.action.type === 'delay'
+            ? field(props.labels.delaySec, h('input', { class: 'form-control', type: 'number', min: 0, max: 300, value: props.action.delaySec, onInput: e => { props.action.delaySec = Number(e.target.value) } }), 'col-md-3')
+            : null,
+          h('div', { class: 'col text-end' }, [
+            h('button', { class: 'btn btn-outline-danger btn-sm shadow-sm bg-body', onClick: () => emit('remove') }, [h('i', { class: 'bi bi-trash' })])
+          ])
+        ])
+      ])
+    }
   }
 })
 
@@ -844,6 +1020,46 @@ export default {
     const groupForm = reactive({ name: '' })
     const analysis = ref(null)
     const form = reactive(defaultForm())
+    const expandedSections = reactive({
+      basicInfo: true,
+      triggers: true,
+      conditions: true,
+      actions: true
+    })
+
+    const getAllGroupNames = () => {
+      const set = new Set()
+      if (form.conditions) {
+        const traverseCond = (g) => {
+          if (g.name) set.add(g.name)
+          if (g.groups) g.groups.forEach(traverseCond)
+        }
+        traverseCond(form.conditions)
+      }
+      
+      const traverseAction = (actions) => {
+        if (!actions) return
+        actions.forEach(a => {
+          if (['sequence_group', 'parallel_group'].includes(a.type)) {
+            if (a.name) set.add(a.name)
+            if (a.subActions) traverseAction(a.subActions)
+          }
+        })
+      }
+      traverseAction(form.actions)
+      return set
+    }
+
+    const generateUniqueName = (base) => {
+      const existing = getAllGroupNames()
+      let count = 1
+      let name = `${base} ${count}`
+      while(existing.has(name)) { count++; name = `${base} ${count}` }
+      return name
+    }
+    
+    provide('getAllGroupNames', getAllGroupNames)
+    provide('generateUniqueName', generateUniqueName)
 
     function defaultForm() {
       return {
@@ -856,7 +1072,7 @@ export default {
         retry_count: 0,
         effective_time: defaultEffectiveTime(),
         triggers: [baseTrigger()],
-        conditions: { logic: 'and', conditions: [], groups: [] },
+        conditions: { logic: 'and', conditions: [], groups: [], name: t('rule_condition_group_root', '主条件组') },
         actions: [baseAction()]
       }
     }
@@ -867,7 +1083,8 @@ export default {
 
     function assignForm(data) {
       Object.assign(form, defaultForm(), data)
-      if (!form.conditions) form.conditions = { logic: 'and', conditions: [], groups: [] }
+      if (!form.conditions) form.conditions = { logic: 'and', conditions: [], groups: [], name: t('rule_condition_group_root', '主条件组') }
+      if (!form.conditions.name) form.conditions.name = t('rule_condition_group_root', '主条件组')
       if (!form.conditions.conditions) form.conditions.conditions = []
       if (!form.conditions.groups) form.conditions.groups = []
       if (!form.effective_time) form.effective_time = defaultEffectiveTime()
@@ -1163,7 +1380,7 @@ export default {
           retry_count: rule.retry_count || 0,
           effective_time: safeParse(rule.effective_time, defaultEffectiveTime()),
           triggers: safeParse(rule.triggers, []),
-          conditions: safeParse(rule.conditions, { logic: 'and', conditions: [], groups: [] }),
+          conditions: safeParse(rule.conditions, { logic: 'and', conditions: [], groups: [], name: t('rule_condition_group_root', '主条件组') }),
           actions: safeParse(rule.actions, [])
         })
       } else {
@@ -1198,11 +1415,11 @@ export default {
     }
 
     function addSequenceGroup() {
-      form.actions.push({ ...baseAction(), id: uid('act'), type: 'sequence_group', subActions: [baseAction(), baseAction()] })
+      form.actions.push({ ...baseAction(), id: uid('act'), type: 'sequence_group', name: generateUniqueName(t('rule_sequence_group')), subActions: [baseAction(), baseAction()] })
     }
 
     function addParallelGroup() {
-      form.actions.push({ ...baseAction(), id: uid('act'), type: 'parallel_group', subActions: [baseAction(), baseAction()] })
+      form.actions.push({ ...baseAction(), id: uid('act'), type: 'parallel_group', name: generateUniqueName(t('rule_parallel_group')), subActions: [baseAction(), baseAction()] })
     }
 
     function applyEffectiveModeDefaults() {
@@ -1395,6 +1612,7 @@ export default {
     onMounted(fetchAll)
 
     return {
+      expandedSections,
       rules, groups, devices, logs, loading, saving, search, statusFilter, groupFilter, showEditor, showLogs, showGraph,
       showGroupModal, editingCode, logRule, graphRule, groupForm, form, analysis, filteredRules, summaryCards,
       validationMessage, executionPreview, weekdayOptions, effectiveMonthDaysText, effectiveMonthsText,
@@ -1411,7 +1629,8 @@ export default {
 }
 </script>
 
-<style scoped>
+<style>
+.cursor-pointer { cursor: pointer; }
 .rule-desc {
   max-width: 280px;
 }
@@ -1647,18 +1866,25 @@ export default {
 .builder-item {
   border: 1px solid var(--bs-border-color);
   border-radius: 8px;
-  padding: 0.75rem;
-  margin-bottom: 0.75rem;
-  background: var(--bs-tertiary-bg);
+  padding: 0.85rem;
+  margin-bottom: 0.85rem;
+  background: var(--bs-body-bg);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+  transition: all 0.2s;
+}
+
+.builder-item:hover {
+  border-color: var(--bs-primary);
+  box-shadow: 0 2px 8px rgba(var(--bs-primary-rgb), 0.08);
 }
 
 .builder-item--nested {
-  background: var(--bs-body-bg);
+  background: var(--bs-tertiary-bg);
 }
 
 .builder-line {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-end;
   gap: 0.5rem;
   padding-bottom: 0.15rem;
@@ -1695,8 +1921,112 @@ export default {
   flex: 0 0 2.75rem;
 }
 
-.condition-group--nested {
-  padding-left: 0.25rem;
+/* === 新增：树状结构条件组与动作组强化 UI === */
+.condition-group-card, .action-group-container {
+  border: 1px solid var(--bs-border-color);
+  border-left: 4px solid var(--group-color, #6f42c1);
+  border-radius: 8px;
+  padding: 1rem 1rem 1rem 1.5rem;
+  background: var(--group-bg, rgba(0,0,0,0.02));
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.condition-group-card--nested, .action-group-container--nested {
+  margin-top: 1rem;
+  margin-left: 1.5rem;
+}
+
+.condition-group-card__header, .action-group-container__header {
+  border-bottom: 1px dashed var(--bs-border-color);
+  margin-bottom: 1rem !important;
+  padding-bottom: 0.75rem !important;
+  position: relative;
+  min-height: 28px;
+  opacity: 1;
+}
+
+.toggle-btn {
+  position: absolute;
+  left: -1.5rem;
+  top: 50%;
+  transform: translate(calc(-50% - 2px), -50%);
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bs-body-bg);
+  border: 1px solid var(--group-color);
+  z-index: 3;
+  padding: 0;
+  transition: all 0.2s;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.toggle-btn:hover {
+  background: var(--bs-tertiary-bg);
+}
+
+.toggle-btn i {
+  font-size: 0.75rem;
+}
+
+.group-title {
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+}
+
+.logic-switch button {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Horizontal branches */
+.condition-item-wrapper::before,
+.builder-item-wrapper::before,
+.action-sub-wrapper::before {
+  content: "";
+  position: absolute;
+  left: -1.5rem;
+  top: 29px;
+  width: 1.5rem;
+  height: 2px;
+  background: var(--group-color);
+  z-index: 0;
+}
+
+.logic-badge {
+  position: absolute;
+  top: 19px;
+  left: -0.75rem;
+  transform: translateX(-50%);
+  z-index: 2;
+  background: var(--group-color);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  text-transform: uppercase;
+}
+
+
+.builder-item--group {
+  padding-bottom: 1rem;
+  border-color: rgba(253, 126, 20, 0.3);
+  border-left: 4px solid #fd7e14;
+  background: var(--bs-body-bg);
+}
+
+.builder-item-wrapper {
+  margin-bottom: 0.75rem;
 }
 
 .builder-empty {
