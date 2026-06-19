@@ -190,6 +190,70 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 			"content":   action.AlarmContent,
 			"level":     action.AlarmLevel,
 		})
+	case RuleActionLLM:
+		if ae.deviceManager != nil && ae.deviceManager.EventBus != nil {
+			responseTopic := fmt.Sprintf("rule.action.llm.response.%s.%d", ctx.Rule.Code, time.Now().UnixNano())
+			responseChan := make(chan string, 1)
+
+			subID := ae.deviceManager.EventBus.SubscribeWithID(types.EventType(responseTopic), func(e types.Event) {
+				if text, ok := e.Payload.(map[string]any)["text"].(string); ok {
+					responseChan <- text
+				} else {
+					responseChan <- ""
+				}
+			})
+			defer ae.deviceManager.EventBus.Unsubscribe(types.EventType(responseTopic), subID)
+
+			ae.deviceManager.EventBus.Publish(types.Event{
+				Type:  types.EventType("rule.action.llm"),
+				Topic: ctx.Rule.Code,
+				Payload: map[string]any{
+					"rule_code":       ctx.Rule.Code,
+					"rule_name":       ctx.Rule.Name,
+					"triggers":        ctx.Rule.Triggers,
+					"conditions":      ctx.Rule.Conditions,
+					"prompt":          action.LLMPrompt,
+					"play_audio":      action.LLMPlayAudio,
+					"include_context": action.LLMIncludeContext,
+					"trigger_time":    time.Now().Format(time.RFC3339),
+					"trigger_event":   ctx.TemplateVars["event"],
+					"response_topic":  responseTopic,
+				},
+				Timestamp: time.Now().UnixMilli(),
+			})
+
+			select {
+			case resText := <-responseChan:
+				if ctx.TemplateVars == nil {
+					ctx.TemplateVars = make(map[string]any)
+				}
+				ctx.TemplateVars["llm_result"] = resText
+			case <-time.After(30 * time.Second):
+				err = fmt.Errorf("llm action timeout")
+			}
+		}
+	case RuleActionVoicePlayback:
+		if ae.deviceManager != nil && ae.deviceManager.EventBus != nil {
+			text := action.VoiceText
+			if text == "" || text == "${llm_result}" {
+				if res, ok := ctx.TemplateVars["llm_result"].(string); ok {
+					text = res
+				}
+			} else {
+				if res, ok := ctx.TemplateVars["llm_result"].(string); ok {
+					text = strings.ReplaceAll(text, "${llm_result}", res)
+				}
+			}
+
+			ae.deviceManager.EventBus.Publish(types.Event{
+				Type:  types.EventType("rule.action.voice_playback"),
+				Topic: ctx.Rule.Code,
+				Payload: map[string]any{
+					"text": text,
+				},
+				Timestamp: time.Now().UnixMilli(),
+			})
+		}
 	default:
 		err = fmt.Errorf("unsupported action type %s", action.Type)
 	}

@@ -61,3 +61,4 @@ go.work.sum
 .env.test.local
 .env.production.local
 docs/*
+.superpowers/*

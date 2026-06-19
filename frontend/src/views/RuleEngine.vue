@@ -475,7 +475,7 @@
             <button type="button" class="btn-close" @click="closeRuleGraph"></button>
           </div>
           <div class="modal-body bg-light">
-            <RuleGraphViewer :rule="graphRule" :devices="devices" />
+            <RuleGraphViewer :rule="graphRule" :devices="devices" @update-rule="handleGraphUpdate" />
           </div>
         </div>
       </div>
@@ -579,6 +579,10 @@ function baseAction() {
     alarmContent: '',
     alarmDevice: 'trigger',
     delaySec: 1,
+    llmPrompt: '',
+    llmPlayAudio: false,
+    llmIncludeContext: false,
+    voiceText: '',
     subActions: []
   }
 }
@@ -925,7 +929,9 @@ const ActionEditor = defineComponent({
             h('option', { value: 'call_service' }, props.labels.callService),
             h('option', { value: 'notification' }, props.labels.notification),
             h('option', { value: 'alarm' }, props.labels.alarm),
-            h('option', { value: 'delay' }, props.labels.delay)
+            h('option', { value: 'delay' }, props.labels.delay),
+            h('option', { value: 'llm' }, props.labels.llm || 'LLM 组件'),
+            h('option', { value: 'voice_playback' }, props.labels.voicePlayback || '语音播放')
           ])),
           props.action.type === 'set_property' || props.action.type === 'call_service'
             ? field(props.labels.device, h('select', {
@@ -986,6 +992,24 @@ const ActionEditor = defineComponent({
             : null,
           props.action.type === 'delay'
             ? field(props.labels.delaySec, h('input', { class: 'form-control', type: 'number', min: 0, max: 300, value: props.action.delaySec, onInput: e => { props.action.delaySec = Number(e.target.value) } }), 'col-md-3')
+            : null,
+          props.action.type === 'llm'
+            ? field(props.labels.llmPrompt || '描述词', h('textarea', { class: 'form-control', rows: 1, ...inputModel('llmPrompt') }), 'col-md-5')
+            : null,
+          props.action.type === 'llm'
+            ? field(props.labels.llmPlayAudio || '扬声器播放', h('div', { class: 'form-check mt-2' }, [
+                h('input', { class: 'form-check-input', type: 'checkbox', id: `playAudio_${props.action.id}`, checked: props.action.llmPlayAudio, onChange: e => { props.action.llmPlayAudio = e.target.checked } }),
+                h('label', { class: 'form-check-label', for: `playAudio_${props.action.id}` }, props.labels.yes || '是')
+              ]), 'col-md-2')
+            : null,
+          props.action.type === 'llm'
+            ? field(props.labels.llmIncludeContext || '携带上下文', h('div', { class: 'form-check mt-2' }, [
+                h('input', { class: 'form-check-input', type: 'checkbox', id: `includeContext_${props.action.id}`, checked: props.action.llmIncludeContext, onChange: e => { props.action.llmIncludeContext = e.target.checked } }),
+                h('label', { class: 'form-check-label', for: `includeContext_${props.action.id}` }, props.labels.yes || '是')
+              ]), 'col-md-3')
+            : null,
+          props.action.type === 'voice_playback'
+            ? field(props.labels.voiceText || '播放文本', h('textarea', { class: 'form-control', rows: 1, ...inputModel('voiceText') }), 'col-md-6')
             : null,
           h('div', { class: 'col text-end' }, [
             h('button', { class: 'btn btn-outline-danger btn-sm shadow-sm bg-body', onClick: () => emit('remove') }, [h('i', { class: 'bi bi-trash' })])
@@ -1527,6 +1551,45 @@ export default {
       graphRule.value = null
     }
 
+    function mapIds(arr) {
+      if (!arr) return arr;
+      return arr.map(item => {
+        if (item._id && !item.id) item.id = item._id.replace(/^node_/, 'act_'); // ensure string format
+        if (item.subActions) item.subActions = mapIds(item.subActions);
+        return item;
+      });
+    }
+
+    async function handleGraphUpdate(updatedRule) {
+      saving.value = true
+      try {
+        const payload = {
+          name: updatedRule.name,
+          description: updatedRule.description,
+          group_id: updatedRule.group_id || null,
+          priority: updatedRule.priority || 0,
+          throttle_sec: updatedRule.throttleSec || updatedRule.throttle_sec || 0,
+          max_per_hour: updatedRule.max_per_hour || 0,
+          retry_count: updatedRule.retry_count || 0,
+          effective_time: updatedRule.effective_time,
+          triggers: (updatedRule.triggers || []).map(t => {
+            if (t._id && !t.id) t.id = t._id;
+            return normalizeTrigger(t);
+          }),
+          conditions: hasConditionNodes(updatedRule.conditions) ? updatedRule.conditions : null,
+          actions: mapIds(updatedRule.actions || []),
+          enable: updatedRule.status === 'enabled'
+        }
+        await axios.put(`/api/rules/${updatedRule.code}`, payload)
+        closeRuleGraph()
+        await fetchAll()
+      } catch (err) {
+        console.error('Failed to save rule from graph:', err)
+      } finally {
+        saving.value = false
+      }
+    }
+
     async function openLogs(rule) {
       logRule.value = rule
       const res = await axios.get(`/api/rules/${rule.code}/logs`, { params: { page: 1, pageSize: 50 } })
@@ -1575,6 +1638,13 @@ export default {
       notification: t('rule_action_notification'),
       alarm: t('rule_action_alarm'),
       delay: t('rule_action_delay'),
+      llm: t('rule_action_llm'),
+      voicePlayback: t('rule_action_voice_playback'),
+      llmPrompt: t('rule_action_llm_prompt'),
+      llmPlayAudio: t('rule_action_llm_play_audio'),
+      llmIncludeContext: t('rule_action_llm_include_context', '携带上下文'),
+      voiceText: t('rule_action_voice_text'),
+      yes: t('yes'),
       sequenceGroup: t('rule_sequence_group'),
       parallelGroup: t('rule_parallel_group'),
       addAction: t('rule_add_action')
@@ -1623,7 +1693,7 @@ export default {
       addSequenceGroup, addParallelGroup, addEffectiveWindow, removeEffectiveWindow, applyEffectiveModeDefaults,
       parseNumberList, syncCronExpression,
       removeAction, addSubAction, removeSubAction, saveRule, toggleRule, deleteRule,
-      openRuleGraph, closeRuleGraph, openLogs, openGroupModal, saveGroup, deleteGroup
+      openRuleGraph, closeRuleGraph, handleGraphUpdate, openLogs, openGroupModal, saveGroup, deleteGroup
     }
   }
 }

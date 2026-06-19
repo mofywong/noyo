@@ -25,6 +25,8 @@ const (
 	RuleActionNotification  = "notification"
 	RuleActionAlarm         = "alarm"
 	RuleActionDelay         = "delay"
+	RuleActionLLM           = "llm"
+	RuleActionVoicePlayback = "voice_playback"
 	RuleActionParallelGroup = "parallel_group"
 	RuleActionSequenceGroup = "sequence_group"
 
@@ -96,7 +98,11 @@ type RuleAction struct {
 	AlarmTitle    string         `json:"alarmTitle,omitempty"`
 	AlarmContent  string         `json:"alarmContent,omitempty"`
 	AlarmDevice   string         `json:"alarmDevice,omitempty"`
-	DelaySec      int            `json:"delaySec,omitempty"`
+	DelaySec          int            `json:"delaySec,omitempty"`
+	LLMPrompt         string         `json:"llmPrompt,omitempty"`
+	LLMPlayAudio      bool           `json:"llmPlayAudio,omitempty"`
+	LLMIncludeContext bool           `json:"llmIncludeContext,omitempty"`
+	VoiceText         string         `json:"voiceText,omitempty"`
 }
 
 type RuleEffectiveTime struct {
@@ -191,7 +197,7 @@ func validateAction(action RuleAction, depth int) error {
 		return errors.New("action id is required")
 	}
 	switch action.Type {
-	case RuleActionSetProperty, RuleActionCallService, RuleActionNotification, RuleActionAlarm:
+	case RuleActionSetProperty, RuleActionCallService, RuleActionNotification, RuleActionAlarm, RuleActionLLM, RuleActionVoicePlayback:
 		return nil
 	case RuleActionDelay:
 		if action.DelaySec < 0 || action.DelaySec > 300 {
