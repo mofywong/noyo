@@ -368,7 +368,7 @@ export default {
       return this.devices.find(device => device.code === code)
     },
     optionKey(item) {
-      return item?.identifier || item?.code || item?.id || item?.name || ''
+      return item?.key || item?.identifier || item?.code || item?.id || item?.name || ''
     },
     optionLabel(item) {
       const key = this.optionKey(item)
@@ -399,7 +399,6 @@ export default {
       return `${this.deviceName(trigger.deviceCode)} / ${this.propertyName(trigger.deviceCode, trigger.propertyKey)} ${trigger.operator || ''} ${trigger.value || ''}`.trim()
     },
     conditionDetail(condition) {
-      if (condition.type === 'time') return `${condition.startTime || '00:00:00'} - ${condition.endTime || '24:00:00'}`
       if (condition.type === 'device_status') return `${this.deviceName(condition.deviceCode)} ${condition.statusValue || ''}`
       return `${this.deviceName(condition.deviceCode)} / ${this.propertyName(condition.deviceCode, condition.propertyKey)} ${condition.operator || ''} ${condition.value || ''}`.trim()
     },
@@ -408,6 +407,8 @@ export default {
       if (action.type === 'notification') return action.notifyTitle || action.notifyContent || this.labels.notification
       if (action.type === 'alarm') return `${action.alarmLevel || ''} ${action.alarmTitle || action.alarmContent || ''}`.trim()
       if (action.type === 'delay') return `${action.delaySec || 1}s`
+      if (action.type === 'llm') return action.llmPrompt || this.labels.actionType?.llm || 'llm'
+      if (action.type === 'voice_playback') return this.labels.actionType?.voice_playback || 'voice_playback'
       if (action.type === 'sequence_group' || action.type === 'parallel_group') return `${(action.children || []).length} ${this.labels.childActions}`
       return `${this.deviceName(action.deviceCode)} / ${this.propertyName(action.deviceCode, action.propertyKey)} = ${action.value || ''}`.trim()
     }

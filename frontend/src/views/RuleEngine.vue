@@ -475,7 +475,7 @@
             <button type="button" class="btn-close" @click="closeRuleGraph"></button>
           </div>
           <div class="modal-body bg-light">
-            <RuleGraphViewer :rule="graphRule" :devices="devices" @update-rule="handleGraphUpdate" />
+            <RuleGraphViewer :rule="graphRule" :devices="devices" :groups="groups" @update-rule="handleGraphUpdate" />
           </div>
         </div>
       </div>
@@ -1568,7 +1568,7 @@ export default {
           description: updatedRule.description,
           group_id: updatedRule.group_id || null,
           priority: updatedRule.priority || 0,
-          throttle_sec: updatedRule.throttleSec || updatedRule.throttle_sec || 0,
+          throttle_sec: updatedRule.throttle_sec || updatedRule.throttleSec || 0,
           max_per_hour: updatedRule.max_per_hour || 0,
           retry_count: updatedRule.retry_count || 0,
           effective_time: updatedRule.effective_time,

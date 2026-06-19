@@ -59,7 +59,6 @@
           <div class="text-muted small mb-2">{{ $t('rule_conditions', '判断条件') }}</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_leaf', detailType: 'property' }, 'condition')"><i class="bi bi-wrench-adjustable text-warning"></i> 属性判断</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_leaf', detailType: 'device_status' }, 'condition')"><i class="bi bi-toggle-on text-warning"></i> 状态判断</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_leaf', detailType: 'time_range' }, 'condition')"><i class="bi bi-stopwatch text-warning"></i> 时间范围</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_group_and', logic: 'and' }, 'condition_group')"><i class="bi bi-intersect text-warning"></i> 满足所有(AND)</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_group_or', logic: 'or' }, 'condition_group')"><i class="bi bi-union text-warning"></i> 满足任一(OR)</div>
         </div>
@@ -183,36 +182,54 @@
             <input class="form-control form-control-sm" v-model="editableRule.name">
           </div>
           <div class="mb-3">
-            <label class="form-label">作用域</label>
-            <select class="form-select form-select-sm" v-model="editableRule.scope">
-              <option value="platform">全局 (Platform)</option>
-              <option value="gateway">网关 (Gateway)</option>
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">状态</label>
-            <select class="form-select form-select-sm" v-model="editableRule.status">
-              <option value="enabled">启用</option>
-              <option value="disabled">禁用</option>
-              <option value="draft">草稿</option>
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">防抖时间(秒)</label>
-            <input type="number" class="form-control form-control-sm" v-model="editableRule.throttleSec">
-          </div>
-          <div class="mb-3">
             <label class="form-label">描述</label>
             <textarea class="form-control form-control-sm" v-model="editableRule.description" rows="3"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ $t('rule_group') }}</label>
+            <select class="form-select form-select-sm" v-model="editableRule.group_id">
+              <option :value="null">{{ $t('rule_no_group') }}</option>
+              <option v-for="group in groups" :key="group.id || group.ID" :value="group.id || group.ID">{{ group.name }}</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ $t('rule_priority') }}</label>
+            <input type="number" min="1" max="100" class="form-control form-control-sm" v-model.number="editableRule.priority">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ $t('rule_throttle_sec') }}</label>
+            <input type="number" min="1" class="form-control form-control-sm" v-model.number="editableRule.throttle_sec">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ $t('rule_max_per_hour') }}</label>
+            <input type="number" min="1" class="form-control form-control-sm" v-model.number="editableRule.max_per_hour">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ $t('rule_retry_count') }}</label>
+            <input type="number" min="0" max="3" class="form-control form-control-sm" v-model.number="editableRule.retry_count">
           </div>
         </div>
 
         <!-- 节点属性面板 -->
         <div v-else class="rg-properties-form">
-          <h6 class="mb-3"><i class="bi bi-sliders"></i> {{ $t('properties', '属性配置') }}</h6>
-          <div class="mb-3" v-if="selectedNode.type !== 'effective_time'">
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h6 class="mb-0"><i class="bi bi-sliders"></i> {{ $t('properties', '属性配置') }}</h6>
+            <button v-if="canDeleteSelectedNode" type="button" class="btn btn-sm btn-outline-danger" @click="deleteSelectedNode">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+          <div class="mb-3" v-if="selectedNode._graphKind === 'condition_group'">
+            <label class="form-label">{{ $t('rule_logic', '逻辑') }}</label>
+            <select class="form-select form-select-sm" v-model="selectedNode.logic">
+              <option value="and">{{ $t('rule_graph_logic_and', '满足所有(AND)') }}</option>
+              <option value="or">{{ $t('rule_graph_logic_or', '满足任一(OR)') }}</option>
+            </select>
+          </div>
+          <div class="mb-3" v-else-if="selectedNode.type !== 'effective_time'">
             <label class="form-label">{{ $t('rule_type', '类型') }}</label>
-            <input class="form-control form-control-sm" :value="typeLabel(selectedNode.type)" disabled>
+            <select class="form-select form-select-sm" :value="selectedNode.type" @change="changeSelectedNodeType($event.target.value)">
+              <option v-for="option in selectedNodeTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
           </div>
 
           <!-- 生效时间编辑 (全局) -->
@@ -322,26 +339,6 @@
             </select>
           </div>
           
-          <!-- 时间范围 -->
-          <template v-if="selectedNode.type === 'time_range'">
-            <div class="mb-3">
-              <label class="form-label">开始时间</label>
-              <input type="time" class="form-control form-control-sm" v-model="computedStartTime">
-            </div>
-            <div class="mb-3">
-              <label class="form-label">结束时间</label>
-              <input type="time" class="form-control form-control-sm" v-model="computedEndTime">
-            </div>
-            <div class="mb-3">
-              <label class="form-label">星期配置 (逗号分隔的1-7，空为每天)</label>
-              <input type="text" class="form-control form-control-sm" v-model="computedWeekdays" placeholder="例如: 1,2,3,4,5">
-            </div>
-            <div class="mb-3">
-              <label class="form-label">时区</label>
-              <input type="text" class="form-control form-control-sm" v-model="selectedNode.timezone" placeholder="Asia/Shanghai">
-            </div>
-          </template>
-
           <!-- 定时触发 可视化配置 -->
           <template v-if="selectedNode.type === 'cron'">
             <div class="mb-3">
@@ -459,14 +456,6 @@
             </div>
           </template>
 
-          <!-- Voice Playback -->
-          <template v-if="selectedNode.type === 'voice_playback'">
-            <div class="mb-3">
-              <label class="form-label">播放文本</label>
-              <textarea class="form-control form-control-sm" v-model="selectedNode.voiceText" rows="3"></textarea>
-            </div>
-          </template>
-
         </div>
       </div>
     </div>
@@ -513,6 +502,9 @@ const RgCard = defineComponent({
         children.push(
           h('button', {
             class: 'rg-card__delete btn btn-sm btn-danger rounded-circle shadow-sm',
+            type: 'button',
+            draggable: false,
+            onMousedown: ctxData.stopDeletePointerEvent,
             onClick: (e) => {
               e.stopPropagation()
               ctxData.deleteNode(n._ref || n)
@@ -531,13 +523,14 @@ const RgCard = defineComponent({
         onClick: (e) => {
           if (ctxData.isEditing?.value && !n.empty) {
             e.stopPropagation()
-            ctxData.selectNode(n._ref || n)
+            ctxData.selectNode(n._ref || n, ctxData.dragGroupForNode?.(n) || n.tone)
           }
         },
-        draggable: ctxData.isEditing?.value && !n.empty && n.tone === 'action',
+        draggable: ctxData.isEditing?.value && !n.empty && !!ctxData.dragGroupForNode?.(n),
         onDragstart: (e) => {
-          if (ctxData.isEditing?.value && n.tone === 'action') {
-            e.dataTransfer.setData('text/plain', JSON.stringify({ item: n._ref, group: 'action', isExisting: true, sourceId: n._ref._id }))
+          const group = ctxData.dragGroupForNode?.(n)
+          if (ctxData.isEditing?.value && group && n._ref) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ item: n._ref, group, isExisting: true, sourceId: n._ref._id || n._ref.id }))
             e.stopPropagation()
           }
         }
@@ -599,13 +592,6 @@ const RgConditionGroup = defineComponent({
           icon = 'bi-toggle-on'
           title = t('rule_condition_status')
           detail = `${deviceName(c.deviceCode)} = ${c.statusValue === 'offline' ? t('dev_offline') : t('dev_online')}`
-        } else if (c.type === 'time_range') {
-          icon = 'bi-stopwatch'
-          title = t('rule_condition_time')
-          
-          const fmtTime = (t) => t && t.length >= 5 ? t.substring(0, 5) : (t || '00:00')
-          detail = `${fmtTime(c.startTime)} ~ ${fmtTime(c.endTime || '24:00')}`
-          if (c.weekdays?.length) detail += ` [${c.weekdays.join(',')}]`
         } else {
           detail = `${deviceName(c.deviceCode)} / ${propName(c.deviceCode, c.propertyKey)} ${opLabel(c.operator)} ${c.value ?? ''}`
         }
@@ -619,8 +605,6 @@ const RgConditionGroup = defineComponent({
       subGroups.forEach((sg, i) => {
         allItems.push({ type: 'group', key: `group-${props.depth}-${i}-${sg._id}`, group: sg })
       })
-
-      if (!allItems.length) return null
 
       const isSel = ctxData.selectedNode?.value && ctxData.selectedNode.value._id === g._id
       const depthColorIndex = props.depth % 6
@@ -639,6 +623,9 @@ const RgConditionGroup = defineComponent({
       const deleteBtn = ctxData.isEditing?.value && props.depth > 0
         ? h('button', {
             class: 'rg-group__delete btn btn-sm btn-danger rounded-circle shadow-sm',
+            type: 'button',
+            draggable: false,
+            onMousedown: ctxData.stopDeletePointerEvent,
             onClick: (e) => { e.stopPropagation(); ctxData.deleteNode(g) }
           }, [ h('i', { class: 'bi bi-x' }) ])
         : null
@@ -658,6 +645,14 @@ const RgConditionGroup = defineComponent({
         if (item.type === 'leaf') return h(RgCard, { node: item.node, key: item.key })
         return h(RgConditionGroup, { group: item.group, devices: props.devices, depth: props.depth + 1, key: item.key })
       })
+      if (!itemEls.length) {
+        itemEls.push(
+          h('div', { class: 'rg-cond-group__empty' }, [
+            h('i', { class: 'bi bi-node-plus' }),
+            h('span', t('rule_graph_drop_condition_here', '拖入判断条件或条件组'))
+          ])
+        )
+      }
 
       const isDragOver = ctxData.dragOverGroup?.value === g
       return h('div', { 
@@ -670,7 +665,14 @@ const RgConditionGroup = defineComponent({
         onClick: (e) => {
           if (ctxData.isEditing?.value) {
             e.stopPropagation()
-            ctxData.selectNode(g)
+            ctxData.selectNode(g, 'condition_group')
+          }
+        },
+        draggable: ctxData.isEditing?.value && props.depth > 0,
+        onDragstart: (e) => {
+          if (ctxData.isEditing?.value && props.depth > 0) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ item: g, group: 'condition_group', isExisting: true, sourceId: g._id || g.id }))
+            e.stopPropagation()
           }
         },
         onDragover: (e) => {
@@ -711,6 +713,9 @@ const RgActionNode = defineComponent({
       const deleteBtn = ctxData.isEditing?.value
         ? h('button', {
             class: 'rg-group__delete btn btn-sm btn-danger rounded-circle shadow-sm',
+            type: 'button',
+            draggable: false,
+            onMousedown: ctxData.stopDeletePointerEvent,
             onClick: (e) => { e.stopPropagation(); ctxData.deleteNode(g) }
           }, [ h('i', { class: 'bi bi-x' }) ])
         : null
@@ -722,7 +727,7 @@ const RgActionNode = defineComponent({
           { 'rg-node-selected': isSel }
         ],
         onClick: (e) => {
-          if (ctxData.isEditing?.value) { e.stopPropagation(); ctxData.selectNode(g) }
+          if (ctxData.isEditing?.value) { e.stopPropagation(); ctxData.selectNode(g, 'action') }
         },
         draggable: ctxData.isEditing?.value,
         onDragstart: (e) => {
@@ -799,7 +804,8 @@ const RgActionNode = defineComponent({
 
 function injectId(obj) {
   if (obj && typeof obj === 'object') {
-    if (!obj._id) obj._id = `node_${Math.random().toString(36).substr(2, 9)}`
+    if (!obj._id) obj._id = obj.id || `node_${Math.random().toString(36).substr(2, 9)}`
+    if (!obj.id) obj.id = obj._id
     for (let k in obj) {
       if (Array.isArray(obj[k])) obj[k].forEach(injectId)
       else if (typeof obj[k] === 'object') injectId(obj[k])
@@ -812,7 +818,8 @@ export default {
   components: { RgCard, RgConditionGroup, RgActionNode },
   props: {
     rule: { type: Object, default: () => null },
-    devices: { type: Array, default: () => [] }
+    devices: { type: Array, default: () => [] },
+    groups: { type: Array, default: () => [] }
   },
   setup(props, ctx) {
     const { t } = useI18n()
@@ -849,10 +856,27 @@ export default {
       }
     })
 
+    const nodeIdentity = (node) => node?._id || node?.id || null
+    const stopDeletePointerEvent = (e) => {
+      e.stopPropagation()
+    }
+    const preserveNodeIdentity = (node, next) => {
+      const id = nodeIdentity(node) || nodeIdentity(next)
+      const kind = node?._graphKind
+      Object.keys(node).forEach(key => {
+        if (!['id', '_id', '_graphKind'].includes(key)) delete node[key]
+      })
+      Object.assign(node, next)
+      if (id) {
+        node.id = id
+        node._id = id
+      }
+      if (kind) node._graphKind = kind
+    }
     const findAndDelete = (obj, targetId) => {
       if (!obj) return false
       if (Array.isArray(obj)) {
-        const idx = obj.findIndex(x => x && x._id === targetId)
+        const idx = obj.findIndex(x => x && nodeIdentity(x) === targetId)
         if (idx >= 0) { obj.splice(idx, 1); return true }
         for (const item of obj) if (findAndDelete(item, targetId)) return true
       } else if (typeof obj === 'object') {
@@ -860,11 +884,132 @@ export default {
       }
       return false
     }
+    const isConditionNodeRef = (node) => {
+      if (!node || typeof node !== 'object') return false
+      if (['property', 'device_status'].includes(node.type)) return true
+      return Array.isArray(node.conditions) && Array.isArray(node.groups)
+    }
+    const deleteConditionFromGroup = (group, targetId) => {
+      if (!group || !targetId) return false
+      const conditionIndex = (group.conditions || []).findIndex(condition => nodeIdentity(condition) === targetId)
+      if (conditionIndex >= 0) {
+        group.conditions.splice(conditionIndex, 1)
+        return true
+      }
+
+      const groupIndex = (group.groups || []).findIndex(child => nodeIdentity(child) === targetId)
+      if (groupIndex >= 0) {
+        group.groups.splice(groupIndex, 1)
+        return true
+      }
+
+      return (group.groups || []).some(child => deleteConditionFromGroup(child, targetId))
+    }
+    const deleteConditionNode = (nodeRef) => {
+      const targetId = nodeIdentity(nodeRef)
+      const rootGroup = editableRule.value?.conditions
+      if (!targetId || !rootGroup || nodeIdentity(rootGroup) === targetId) return false
+      return deleteConditionFromGroup(rootGroup, targetId)
+    }
 
     const deleteNode = (nodeRef) => {
-      if (!nodeRef || !nodeRef._id) return
-      if (selectedNode.value && selectedNode.value._id === nodeRef._id) selectedNode.value = null
-      findAndDelete(editableRule.value, nodeRef._id)
+      const targetId = nodeIdentity(nodeRef)
+      if (!targetId) return
+      const deleted = isConditionNodeRef(nodeRef)
+        ? deleteConditionNode(nodeRef)
+        : findAndDelete(editableRule.value, targetId)
+      if (deleted && selectedNode.value && nodeIdentity(selectedNode.value) === targetId) selectedNode.value = null
+    }
+    const deleteSelectedNode = () => {
+      if (canDeleteSelectedNode.value) deleteNode(selectedNode.value)
+    }
+
+    const dragGroupForNode = (node) => {
+      if (!node || node.empty) return null
+      if (node.tone === 'trigger') return 'trigger'
+      if (node.tone === 'condition') return 'condition'
+      if (node.tone === 'action') return 'action'
+      return null
+    }
+
+    const makeNodeId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`
+    const defaultActionFields = (type = 'set_property') => ({
+      type,
+      deviceCode: '',
+      propertyKey: '',
+      value: '',
+      serviceCode: '',
+      serviceParams: {},
+      notifyTitle: '',
+      notifyContent: '',
+      alarmLevel: 'warning',
+      alarmTitle: '',
+      alarmContent: '',
+      alarmDevice: 'trigger',
+      delaySec: 1,
+      llmPrompt: '',
+      llmPlayAudio: false,
+      llmIncludeContext: false
+    })
+    const createTriggerNode = (item = {}) => {
+      const type = item.type || 'property_change'
+      const id = makeNodeId('trg')
+      return {
+        id,
+        _id: id,
+        type,
+        deviceCode: '',
+        propertyKey: '',
+        operator: type === 'property_change' ? 'changed' : '',
+        value: '',
+        eventId: '',
+        eventFilter: [],
+        statusValue: 'online',
+        cronExpr: '*/5 * * * *',
+        cronDesc: '',
+        ...item
+      }
+    }
+    const createConditionNode = (type = 'property') => {
+      const id = makeNodeId('cond')
+      return {
+        id,
+        _id: id,
+        type,
+        deviceCode: '',
+        propertyKey: '',
+        operator: 'eq',
+        value: '',
+        statusValue: 'online',
+        startTime: '00:00:00',
+        endTime: '24:00:00',
+        weekdays: [],
+        timezone: ''
+      }
+    }
+    const createConditionGroupNode = (logic = 'and') => {
+      const id = makeNodeId('cond_grp')
+      return { id, _id: id, logic, conditions: [], groups: [] }
+    }
+    const createActionNode = (item = {}) => {
+      const type = item.type || 'set_property'
+      const id = makeNodeId(type === 'parallel_group' || type === 'sequence_group' ? 'act_grp' : 'act')
+      const node = { id, _id: id, ...defaultActionFields(type), ...item }
+      if ((type === 'parallel_group' || type === 'sequence_group') && !Array.isArray(node.subActions)) {
+        node.subActions = [createActionNode({ type: 'set_property' })]
+      }
+      return node
+    }
+    const ensureBackendIds = (value) => {
+      if (!value || typeof value !== 'object') return
+      if (value._id && !value.id) value.id = value._id
+      if (value._graphKind) delete value._graphKind
+      if (value.type === 'voice_playback') delete value.voiceText
+      Object.keys(value).forEach(key => {
+        const child = value[key]
+        if (Array.isArray(child)) child.forEach(ensureBackendIds)
+        else if (child && typeof child === 'object') ensureBackendIds(child)
+      })
     }
 
     const startEditing = () => {
@@ -875,6 +1020,11 @@ export default {
       cloned.actions = safeParse(cloned.actions, [])
       cloned.effective_time = safeParse(cloned.effective_time, { mode: 'always', windows: [] })
       if (!cloned.effective_time) cloned.effective_time = { mode: 'always', windows: [] }
+      cloned.group_id = cloned.group_id || cloned.GroupID || null
+      cloned.priority = cloned.priority || 50
+      cloned.throttle_sec = cloned.throttle_sec || cloned.throttleSec || 60
+      cloned.max_per_hour = cloned.max_per_hour || 60
+      cloned.retry_count = cloned.retry_count || 0
       
       const initLLM = (acts) => {
         if (!acts) return
@@ -896,6 +1046,7 @@ export default {
 
     const saveEditing = () => {
       const ruleToSave = JSON.parse(JSON.stringify(editableRule.value))
+      ensureBackendIds(ruleToSave)
       ctx.emit('update-rule', ruleToSave)
       isEditing.value = false
       editableRule.value = null
@@ -946,12 +1097,20 @@ export default {
     })
     const createTimeComputed = (key) => computed({
       get() {
-        if (!selectedNode.value || !selectedNode.value[key]) return ''
+        if (!selectedNode.value) return ''
+        if (selectedNode.value.type === 'effective_time' && selectedNode.value.windows?.length) {
+          const windowValue = selectedNode.value.windows[0]?.[key] || ''
+          return windowValue.length >= 5 ? windowValue.substring(0, 5) : windowValue
+        }
+        if (!selectedNode.value[key]) return ''
         const val = selectedNode.value[key]
         return val.length >= 5 ? val.substring(0, 5) : val
       },
       set(val) {
         if (!selectedNode.value) return
+        if (selectedNode.value.type === 'effective_time' && selectedNode.value.windows?.length) {
+          selectedNode.value.windows[0] = { ...selectedNode.value.windows[0], [key]: val }
+        }
         selectedNode.value[key] = val
       }
     })
@@ -961,18 +1120,6 @@ export default {
     const computedEffectiveWeekdays = createIntArrayComputed('weekdays')
     const computedEffectiveMonthDays = createIntArrayComputed('monthDays')
     const computedEffectiveMonths = createIntArrayComputed('months')
-
-    const computedWeekdays = computed({
-      get() {
-        if (!selectedNode.value || selectedNode.value.type !== 'time_range' || !selectedNode.value.weekdays) return ''
-        return selectedNode.value.weekdays.join(',')
-      },
-      set(val) {
-        if (!selectedNode.value || selectedNode.value.type !== 'time_range') return
-        if (!val) { selectedNode.value.weekdays = []; return }
-        selectedNode.value.weekdays = val.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
-      }
-    })
 
     const computedEventFilter = computed({
       get() {
@@ -1010,47 +1157,169 @@ export default {
 
     const onDropTrigger = (e) => {
       const data = JSON.parse(e.dataTransfer.getData('text/plain') || '{}')
-      if (data.group === 'trigger' && !data.isExisting) {
+      if (data.group === 'trigger' && data.isExisting) {
+        moveExistingTrigger(data.sourceId)
+      } else if (data.group === 'trigger' && !data.isExisting) {
         const triggers = editableRule.value.triggers || []
-        triggers.push({ _id: `trg_${Date.now()}`, ...data.item })
+        triggers.push(createTriggerNode(data.item))
         editableRule.value.triggers = triggers
       }
+    }
+    const moveExistingTrigger = (sourceId) => {
+      const triggers = editableRule.value.triggers || []
+      const index = triggers.findIndex(trigger => nodeIdentity(trigger) === sourceId)
+      if (index < 0) return
+      const [node] = triggers.splice(index, 1)
+      triggers.push(node)
+      editableRule.value.triggers = triggers
+    }
+    const removeConditionFromGroup = (group, sourceId) => {
+      if (!group) return null
+      const conditionIndex = (group.conditions || []).findIndex(condition => nodeIdentity(condition) === sourceId)
+      if (conditionIndex >= 0) {
+        const [node] = group.conditions.splice(conditionIndex, 1)
+        return { group: 'condition', node }
+      }
+      const groupIndex = (group.groups || []).findIndex(child => nodeIdentity(child) === sourceId)
+      if (groupIndex >= 0) {
+        const [node] = group.groups.splice(groupIndex, 1)
+        return { group: 'condition_group', node }
+      }
+      for (const child of group.groups || []) {
+        const found = removeConditionFromGroup(child, sourceId)
+        if (found) return found
+      }
+      return null
+    }
+    const conditionGroupContains = (group, sourceId) => {
+      if (!group) return false
+      if (nodeIdentity(group) === sourceId) return true
+      return (group.groups || []).some(child => conditionGroupContains(child, sourceId))
+    }
+    const findConditionGroupById = (group, sourceId) => {
+      if (!group) return null
+      if (nodeIdentity(group) === sourceId) return group
+      for (const child of group.groups || []) {
+        const found = findConditionGroupById(child, sourceId)
+        if (found) return found
+      }
+      return null
+    }
+    const moveExistingCondition = (sourceId, targetGroup) => {
+      if (!sourceId || !targetGroup) return
+      if (nodeIdentity(targetGroup) === sourceId) return
+      const movingGroup = findConditionGroupById(editableRule.value.conditions, sourceId)
+      if (movingGroup && conditionGroupContains(movingGroup, nodeIdentity(targetGroup))) return
+      const moved = removeConditionFromGroup(editableRule.value.conditions, sourceId)
+      if (!moved) return
+      if (moved.group === 'condition_group') {
+        targetGroup.groups = targetGroup.groups || []
+        targetGroup.groups.push(moved.node)
+      } else {
+        targetGroup.conditions = targetGroup.conditions || []
+        targetGroup.conditions.push(moved.node)
+      }
+    }
+    const findActionById = (actions, sourceId) => {
+      for (const action of actions || []) {
+        if (nodeIdentity(action) === sourceId) return action
+        const found = findActionById(action.subActions || [], sourceId)
+        if (found) return found
+      }
+      return null
+    }
+    const actionContainsId = (action, targetId) => {
+      if (!action || !targetId) return false
+      if (nodeIdentity(action) === targetId) return true
+      return (action.subActions || []).some(child => actionContainsId(child, targetId))
+    }
+    const moveExistingAction = (sourceId, targetList, targetGroup = null) => {
+      if (!sourceId || !targetList) return
+      const actions = editableRule.value.actions || []
+      const movingAction = findActionById(actions, sourceId)
+      const targetId = nodeIdentity(targetGroup)
+      if (targetId && actionContainsId(movingAction, targetId)) return
+      const before = actions.length
+      let moved = null
+      const captureAndDelete = (items) => {
+        const idx = (items || []).findIndex(item => nodeIdentity(item) === sourceId)
+        if (idx >= 0) {
+          moved = items[idx]
+          items.splice(idx, 1)
+          return true
+        }
+        return (items || []).some(item => captureAndDelete(item.subActions || []))
+      }
+      captureAndDelete(actions)
+      if (!moved) return
+      targetList.push(moved)
+      editableRule.value.actions = actions.length || before ? actions : editableRule.value.actions
+    }
+    const selectedNodeKind = computed(() => selectedNode.value?._graphKind || '')
+    const canDeleteSelectedNode = computed(() => {
+      if (!selectedNode.value || selectedNode.value.type === 'effective_time') return false
+      if (selectedNodeKind.value === 'condition_group' && nodeIdentity(selectedNode.value) === nodeIdentity(editableRule.value?.conditions)) return false
+      return ['trigger', 'condition', 'condition_group', 'action'].includes(selectedNodeKind.value)
+    })
+    const selectedNodeTypeOptions = computed(() => {
+      const kind = selectedNodeKind.value
+      if (kind === 'trigger') {
+        return ['property_change', 'event', 'device_status', 'cron'].map(value => ({ value, label: typeLabel(value) }))
+      }
+      if (kind === 'condition') {
+        return ['property', 'device_status'].map(value => ({ value, label: typeLabel(value) }))
+      }
+      if (kind === 'action') {
+        return ['set_property', 'call_service', 'notification', 'alarm', 'delay', 'llm', 'voice_playback', 'parallel_group', 'sequence_group'].map(value => ({ value, label: typeLabel(value) }))
+      }
+      return selectedNode.value?.type ? [{ value: selectedNode.value.type, label: typeLabel(selectedNode.value.type) }] : []
+    })
+    const changeSelectedNodeType = (type) => {
+      if (!selectedNode.value || !type || selectedNode.value.type === type) return
+      const kind = selectedNodeKind.value
+      const id = nodeIdentity(selectedNode.value)
+      if (kind === 'trigger') preserveNodeIdentity(selectedNode.value, createTriggerNode({ type, id, _id: id }))
+      if (kind === 'condition') preserveNodeIdentity(selectedNode.value, createConditionNode(type))
+      if (kind === 'action') preserveNodeIdentity(selectedNode.value, createActionNode({ type, id, _id: id }))
+      selectedNode.value._graphKind = kind
     }
 
     const onDropConditionRoot = (e) => {
       const data = JSON.parse(e.dataTransfer.getData('text/plain') || '{}')
-      if (data.group === 'condition' && !data.isExisting) {
+      if ((data.group === 'condition' || data.group === 'condition_group') && data.isExisting) {
+        moveExistingCondition(data.sourceId, editableRule.value.conditions)
+      } else if (data.group === 'condition' && !data.isExisting) {
         const conds = editableRule.value.conditions.conditions || []
-        conds.push({ _id: `cond_${Date.now()}`, type: data.item.detailType || 'property' })
+        conds.push(createConditionNode(data.item.detailType || 'property'))
         editableRule.value.conditions.conditions = conds
       } else if (data.group === 'condition_group' && !data.isExisting) {
         const groups = editableRule.value.conditions.groups || []
-        groups.push({ _id: `cond_grp_${Date.now()}`, logic: data.item.logic, conditions: [], groups: [] })
+        groups.push(createConditionGroupNode(data.item.logic))
         editableRule.value.conditions.groups = groups
       }
     }
 
     const handleDropCondition = (e, targetGroup) => {
       const data = JSON.parse(e.dataTransfer.getData('text/plain') || '{}')
-      if (data.group === 'condition' && !data.isExisting) {
+      if ((data.group === 'condition' || data.group === 'condition_group') && data.isExisting) {
+        moveExistingCondition(data.sourceId, targetGroup)
+      } else if (data.group === 'condition' && !data.isExisting) {
         targetGroup.conditions = targetGroup.conditions || []
-        targetGroup.conditions.push({ _id: `cond_${Date.now()}`, type: data.item.detailType || 'property' })
+        targetGroup.conditions.push(createConditionNode(data.item.detailType || 'property'))
       } else if (data.group === 'condition_group' && !data.isExisting) {
         targetGroup.groups = targetGroup.groups || []
-        targetGroup.groups.push({ _id: `cond_grp_${Date.now()}`, logic: data.item.logic, conditions: [], groups: [] })
+        targetGroup.groups.push(createConditionGroupNode(data.item.logic))
       }
     }
 
     const handleActionDrop = (targetList, data) => {
       if (data.isExisting && data.sourceId) {
-        // Drag to reorder
-        findAndDelete(editableRule.value.actions, data.sourceId)
-        targetList.push(data.item)
+        moveExistingAction(data.sourceId, targetList)
       } else {
         if (data.group === 'action') {
-          targetList.push({ _id: `act_${Date.now()}`, ...data.item })
+          targetList.push(createActionNode(data.item))
         } else if (data.group === 'action_group') {
-          targetList.push({ _id: `act_grp_${Date.now()}`, type: data.item.mode === 'parallel' ? 'parallel_group' : 'sequence_group', subActions: [] })
+          targetList.push(createActionNode({ type: data.item.mode === 'parallel' ? 'parallel_group' : 'sequence_group' }))
         }
       }
     }
@@ -1063,15 +1332,24 @@ export default {
     const handleDropAction = (e, targetGroup) => {
       const data = JSON.parse(e.dataTransfer.getData('text/plain') || '{}')
       targetGroup.subActions = targetGroup.subActions || []
-      handleActionDrop(targetGroup.subActions, data)
+      if (data.isExisting && data.sourceId) {
+        moveExistingAction(data.sourceId, targetGroup.subActions, targetGroup)
+      } else {
+        handleActionDrop(targetGroup.subActions, data)
+      }
     }
 
     provide('rgContext', {
       isEditing,
       selectedNode,
       dragOverGroup,
-      selectNode: (node) => { selectedNode.value = node },
+      selectNode: (node, kind) => {
+        if (node && typeof node === 'object' && kind) node._graphKind = kind
+        selectedNode.value = node
+      },
       deleteNode,
+      dragGroupForNode,
+      stopDeletePointerEvent,
       setDragOverGroup: (g) => { dragOverGroup.value = g },
       handleDropCondition,
       handleDropAction
@@ -1086,7 +1364,6 @@ export default {
         'device_status': t('rule_trigger_status', '状态触发/判断'),
         'cron': t('rule_trigger_cron', '定时触发'),
         'property': t('rule_condition_property', '属性判断'),
-        'time_range': t('rule_condition_time', '时间范围'),
         'set_property': t('rule_action_set_property', '设置属性'),
         'call_service': t('rule_action_call_service', '调用服务'),
         'notification': t('rule_action_notification', '消息通知'),
@@ -1224,7 +1501,7 @@ export default {
         if (mode === 'monthly' && w.monthDays?.length) badges.push(`${t('rule_effective_month_days')}: ${w.monthDays.join(',')}`)
         
           const fmtTime = (t) => t && t.length >= 5 ? t.substring(0, 5) : (t || '00:00')
-          return { _ref: et, id: `eff-${i}`, title: labels[mode] || mode, detail: `${fmtTime(et.startTime)} ~ ${fmtTime(et.endTime || '24:00')}`, icon: 'bi-calendar3-range', tone: 'time', badges }
+          return { _ref: et, id: `eff-${i}`, title: labels[mode] || mode, detail: `${fmtTime(w.startTime || et.startTime)} ~ ${fmtTime(w.endTime || et.endTime || '24:00')}`, icon: 'bi-calendar3-range', tone: 'time', badges }
       })
     })
 
@@ -1251,7 +1528,7 @@ export default {
         return { ...base, icon: 'bi-robot', title: t('rule_action_llm', '大模型'), detail: action.llmPrompt || '大语言模型调用' }
       }
       if (action.type === 'voice_playback') {
-        return { ...base, icon: 'bi-speaker', title: t('rule_action_voice_playback', '语音播放'), detail: action.voiceText || '语音播放' }
+        return { ...base, icon: 'bi-speaker', title: t('rule_action_voice_playback', '语音播放'), detail: t('rule_action_voice_playback', '语音播放') }
       }
       if (action.type === 'set_property') {
         return {
@@ -1336,8 +1613,8 @@ export default {
     return {
       triggerNodes, conditionTree, hasConditions,
       effectiveNodes, actionNodes, statusLabel, getDeviceProperties, getDeviceEvents, getDeviceServices,
-      computedWeekdays, computedServiceParams, computedEventFilter, computedStartTime, computedEndTime, computedEffectiveWeekdays, computedEffectiveMonthDays, computedEffectiveMonths,
-      typeLabel, updateCron, getCronPart, graphViewerRef, exportToImage, exportToPdf,
+      computedServiceParams, computedEventFilter, computedStartTime, computedEndTime, computedEffectiveWeekdays, computedEffectiveMonthDays, computedEffectiveMonths,
+      typeLabel, updateCron, getCronPart, graphViewerRef, exportToImage, exportToPdf, selectedNodeTypeOptions, changeSelectedNodeType, canDeleteSelectedNode, deleteSelectedNode,
       isEditing, editableRule, startEditing, saveEditing, cancelEditing, selectedNode, onDragStart,
       onDropTrigger, onDropConditionRoot, onDropActionRoot,
       collapsed, toggleSection
@@ -1681,6 +1958,7 @@ export default {
 .rg-cond-group__toggle:hover { border-color: var(--rg-condition); color: var(--rg-condition); }
 
 .rg-cond-group__items { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: 100%; }
+.rg-cond-group__empty { display: flex; align-items: center; justify-content: center; gap: 0.4rem; width: 100%; min-height: 2.75rem; padding: 0.6rem 1rem; background: var(--rg-surface); border: 1px dashed var(--rg-border); border-radius: 0.6rem; font-size: 0.78rem; color: var(--rg-text-tertiary); }
 .rg-cond-group__collapsed { display: flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.5rem 1rem; background: var(--rg-surface); border: 1px dashed var(--rg-border); border-radius: 0.5rem; font-size: 0.78rem; color: var(--rg-text-tertiary); cursor: pointer; transition: all 0.2s; }
 .rg-cond-group__collapsed:hover { border-color: var(--rg-condition); color: var(--rg-condition); }
 

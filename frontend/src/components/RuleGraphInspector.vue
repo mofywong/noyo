@@ -51,17 +51,11 @@
 
     <div v-else-if="kind === 'condition'" class="inspector-form">
       <SelectField :label="labels.type" :value="node.type" :options="conditionTypes" @change="patch({ type: $event })" />
-      <template v-if="node.type !== 'time'">
-        <SelectField :label="labels.device" :value="node.deviceCode" :options="deviceOptions" @change="patch({ deviceCode: $event, propertyKey: '' })" />
-        <SelectField v-if="node.type === 'property'" :label="labels.property" :value="node.propertyKey" :options="propertyOptions(node.deviceCode)" @change="patch({ propertyKey: $event })" />
-        <SelectField v-if="node.type === 'property'" :label="labels.operator" :value="node.operator" :options="conditionOperators" @change="patch({ operator: $event })" />
-        <FieldInput v-if="node.type === 'property'" :label="labels.value" :value="node.value" @input="patch({ value: $event })" />
-        <SelectField v-if="node.type === 'device_status'" :label="labels.status" :value="node.statusValue" :options="statusOptions" @change="patch({ statusValue: $event })" />
-      </template>
-      <template v-else>
-        <FieldInput :label="labels.startTime" :value="node.startTime" placeholder="00:00:00" @input="patch({ startTime: $event })" />
-        <FieldInput :label="labels.endTime" :value="node.endTime" placeholder="24:00:00" @input="patch({ endTime: $event })" />
-      </template>
+      <SelectField :label="labels.device" :value="node.deviceCode" :options="deviceOptions" @change="patch({ deviceCode: $event, propertyKey: '' })" />
+      <SelectField v-if="node.type === 'property'" :label="labels.property" :value="node.propertyKey" :options="propertyOptions(node.deviceCode)" @change="patch({ propertyKey: $event })" />
+      <SelectField v-if="node.type === 'property'" :label="labels.operator" :value="node.operator" :options="conditionOperators" @change="patch({ operator: $event })" />
+      <FieldInput v-if="node.type === 'property'" :label="labels.value" :value="node.value" @input="patch({ value: $event })" />
+      <SelectField v-if="node.type === 'device_status'" :label="labels.status" :value="node.statusValue" :options="statusOptions" @change="patch({ statusValue: $event })" />
     </div>
 
     <div v-else-if="kind === 'effective_time'" class="inspector-form">
@@ -102,6 +96,17 @@
       </template>
       <template v-else-if="node.type === 'delay'">
         <FieldInput type="number" :label="labels.delaySec" :value="node.delaySec" @input="patch({ delaySec: Number($event) || 1 })" />
+      </template>
+      <template v-else-if="node.type === 'llm'">
+        <TextAreaField :label="labels.llmPrompt" :value="node.llmPrompt" @input="patch({ llmPrompt: $event })" />
+        <label class="form-check">
+          <input class="form-check-input" type="checkbox" :checked="!!node.llmPlayAudio" @change="patch({ llmPlayAudio: $event.target.checked })">
+          <span class="form-check-label">{{ labels.llmPlayAudio }}</span>
+        </label>
+        <label class="form-check">
+          <input class="form-check-input" type="checkbox" :checked="!!node.llmIncludeContext" @change="patch({ llmIncludeContext: $event.target.checked })">
+          <span class="form-check-label">{{ labels.llmIncludeContext }}</span>
+        </label>
       </template>
       <button v-if="isActionGroup" type="button" class="btn btn-sm btn-outline-primary" @click="$emit('add-child', node.id)">
         <i class="bi bi-node-plus me-1"></i>{{ labels.addChildAction }}
@@ -213,8 +218,7 @@ export default {
     conditionTypes() {
       return [
         { value: 'property', label: this.labels.conditionType.property },
-        { value: 'device_status', label: this.labels.conditionType.device_status },
-        { value: 'time', label: this.labels.conditionType.time }
+        { value: 'device_status', label: this.labels.conditionType.device_status }
       ]
     },
     actionTypes() {
@@ -224,6 +228,8 @@ export default {
         { value: 'notification', label: this.labels.actionType.notification },
         { value: 'alarm', label: this.labels.actionType.alarm },
         { value: 'delay', label: this.labels.actionType.delay },
+        { value: 'llm', label: this.labels.actionType.llm || 'LLM' },
+        { value: 'voice_playback', label: this.labels.actionType.voice_playback || 'Voice playback' },
         { value: 'sequence_group', label: this.labels.actionType.sequence_group },
         { value: 'parallel_group', label: this.labels.actionType.parallel_group }
       ]
@@ -285,7 +291,7 @@ export default {
   },
   methods: {
     optionKey(item) {
-      return item?.identifier || item?.code || item?.id || item?.name || ''
+      return item?.key || item?.identifier || item?.code || item?.id || item?.name || ''
     },
     optionLabel(item) {
       const key = this.optionKey(item)

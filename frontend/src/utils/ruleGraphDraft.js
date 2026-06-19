@@ -62,7 +62,7 @@ export function baseCondition(type = 'property') {
 }
 
 export function baseAction(type = 'set_property') {
-  return {
+  const action = {
     id: uid('act'),
     kind: 'action',
     type,
@@ -78,8 +78,15 @@ export function baseAction(type = 'set_property') {
     alarmContent: '',
     alarmDevice: 'trigger',
     delaySec: 1,
+    llmPrompt: '',
+    llmPlayAudio: false,
+    llmIncludeContext: false,
     children: []
   }
+  if (type === 'sequence_group' || type === 'parallel_group') {
+    action.children = [baseAction('set_property')]
+  }
+  return action
 }
 
 export function actionToNode(action = {}) {
@@ -96,6 +103,7 @@ export function actionToNode(action = {}) {
 
 export function actionNodeToAction(node = {}) {
   const { kind, children, subActions, ...rest } = node
+  if (rest.type === 'voice_playback') delete rest.voiceText
   return {
     ...rest,
     subActions: (children || []).map(actionNodeToAction)
