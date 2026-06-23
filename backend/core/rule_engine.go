@@ -201,6 +201,10 @@ func (re *RuleEngine) execute(execCtx *RuleExecContext) {
 	conditionOK := re.evaluateConditions(execCtx.Rule.Conditions)
 	var results []ActionResult
 	if conditionOK {
+		if execCtx.TemplateVars == nil {
+			execCtx.TemplateVars = make(map[string]any)
+		}
+		execCtx.TemplateVars["condition_values"] = re.collectConditionValues(execCtx.Rule.Conditions)
 		results = re.executor.Execute(execCtx)
 	}
 	success := conditionOK
@@ -304,6 +308,48 @@ func (re *RuleEngine) evaluateCondition(condition RuleCondition) bool {
 	default:
 		return false
 	}
+}
+
+func (re *RuleEngine) collectConditionValues(group *RuleConditionGroup) []map[string]any {
+	if group == nil {
+		return nil
+	}
+	values := make([]map[string]any, 0, len(group.Conditions))
+	for _, condition := range group.Conditions {
+		item := map[string]any{
+			"id":          condition.ID,
+			"type":        condition.Type,
+			"deviceCode":  condition.DeviceCode,
+			"deviceName":  condition.DeviceName,
+			"propertyKey": condition.PropertyKey,
+			"operator":    condition.Operator,
+			"expected":    condition.Value,
+			"statusValue": condition.StatusValue,
+			"matched":     re.evaluateCondition(condition),
+		}
+		switch condition.Type {
+		case "property":
+			data := re.deviceManager.GetLatestData(condition.DeviceCode)
+			if actual, ok := data[condition.PropertyKey]; ok {
+				item["actualValue"] = actual
+			}
+		case "device_status":
+			if status, ok := re.deviceManager.GetStatus(condition.DeviceCode); ok {
+				if status.Online {
+					item["actualValue"] = "online"
+				} else {
+					item["actualValue"] = "offline"
+				}
+			}
+		case "time_range":
+			item["actualValue"] = time.Now().Format("15:04:05")
+		}
+		values = append(values, item)
+	}
+	for _, nested := range group.Groups {
+		values = append(values, re.collectConditionValues(&nested)...)
+	}
+	return values
 }
 
 func (re *RuleEngine) writeLog(execCtx *RuleExecContext, trigger RuleTrigger, event types.Event, success bool, results []ActionResult, errorMessage string, durationMs int64, depth int) {

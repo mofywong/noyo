@@ -69,7 +69,7 @@
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'notification' }, 'action')"><i class="bi bi-chat-left-dots text-success"></i> 消息通知</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'alarm' }, 'action')"><i class="bi bi-exclamation-triangle-fill text-success"></i> 触发告警</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'delay', delaySec: 1 }, 'action')"><i class="bi bi-hourglass-split text-success"></i> 延迟执行</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm', llmPlayAudio: false, llmIncludeContext: false }, 'action')"><i class="bi bi-robot text-success"></i> 大模型</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm' }, 'action')"><i class="bi bi-robot text-success"></i> 大模型</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'voice_playback' }, 'action')"><i class="bi bi-speaker text-success"></i> 语音播放</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'parallel' }, 'action_group')"><i class="bi bi-cpu text-success"></i> 并行执行组</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'sequence' }, 'action_group')"><i class="bi bi-list-ol text-success"></i> 串行执行组</div>
@@ -446,14 +446,6 @@
               <label class="form-label">附加描述词</label>
               <textarea class="form-control form-control-sm" v-model="selectedNode.llmPrompt" rows="3"></textarea>
             </div>
-            <div class="mb-3 form-check">
-              <input type="checkbox" class="form-check-input" id="rg-llm-play" v-model="selectedNode.llmPlayAudio">
-              <label class="form-check-label" for="rg-llm-play">扬声器播放</label>
-            </div>
-            <div class="mb-3 form-check">
-              <input type="checkbox" class="form-check-input" id="rg-llm-context" v-model="selectedNode.llmIncludeContext">
-              <label class="form-check-label" for="rg-llm-context">是否携带规则上下文</label>
-            </div>
           </template>
 
         </div>
@@ -467,6 +459,7 @@ import { defineComponent, computed, h, ref, reactive, provide, inject, watch, on
 import { useI18n } from 'vue-i18n'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
+import { insertActionAt, moveActionToList } from '../../utils/ruleGraphDnd.js'
 
 /* ============================================
  *  递归卡片节点组件
@@ -706,9 +699,19 @@ const RgActionNode = defineComponent({
     return () => {
       const node = props.node
       const g = node._ref
+      const groupSubActions = () => {
+        if (!g) return []
+        g.subActions = g.subActions || []
+        return g.subActions
+      }
       const isDragOver = ctxData.dragOverGroup?.value === g
       const depthColorIndex = props.depth % 6
       const isSel = ctxData.selectedNode?.value && ctxData.selectedNode.value._id === g?._id
+      const dropIndexForNode = (e) => {
+        if (!Array.isArray(node._list) || !Number.isInteger(node._index)) return undefined
+        const rect = e.currentTarget.getBoundingClientRect()
+        return e.clientY < rect.top + rect.height / 2 ? node._index : node._index + 1
+      }
 
       const deleteBtn = ctxData.isEditing?.value
         ? h('button', {
@@ -732,7 +735,8 @@ const RgActionNode = defineComponent({
         draggable: ctxData.isEditing?.value,
         onDragstart: (e) => {
           if (ctxData.isEditing?.value) {
-            e.dataTransfer.setData('text/plain', JSON.stringify({ item: g, group: 'action_group', isExisting: true, sourceId: g._id }))
+            const dragGroup = ctxData.dragGroupForNode?.(node) || 'action'
+            e.dataTransfer.setData('text/plain', JSON.stringify({ item: g, group: dragGroup, isExisting: true, sourceId: g._id || g.id }))
             e.stopPropagation()
           }
         },
@@ -741,7 +745,12 @@ const RgActionNode = defineComponent({
         },
         onDragleave: () => { if (ctxData.isEditing?.value) ctxData.setDragOverGroup(null) },
         onDrop: (e) => {
-          if (ctxData.isEditing?.value) { e.preventDefault(); e.stopPropagation(); ctxData.setDragOverGroup(null); ctxData.handleDropAction(e, g); }
+          if (ctxData.isEditing?.value) {
+            e.preventDefault()
+            e.stopPropagation()
+            ctxData.setDragOverGroup(null)
+            if (Array.isArray(node._list)) ctxData.handleDropAction(e, node._list, node._parentGroup || null, dropIndexForNode(e))
+          }
         }
       }
 
@@ -758,7 +767,11 @@ const RgActionNode = defineComponent({
             h('div', { class: 'rg-parallel-fork__stem' }),
             h('div', { class: 'rg-parallel-fork__rail' })
           ]),
-          h('div', { class: 'rg-parallel-branches' }, node.children.map((child, i) => {
+          h('div', {
+            class: 'rg-parallel-branches',
+            onDragover: (e) => { if (ctxData.isEditing?.value) { e.preventDefault(); e.stopPropagation(); ctxData.setDragOverGroup(g) } },
+            onDrop: (e) => { if (ctxData.isEditing?.value) { e.preventDefault(); e.stopPropagation(); ctxData.setDragOverGroup(null); ctxData.handleDropAction(e, groupSubActions(), g) } }
+          }, node.children.map((child, i) => {
             return h('div', { class: 'rg-parallel-branch', key: child.id }, [
               h('div', { class: 'rg-parallel-branch__line' }),
               h(RgActionNode, { node: child, depth: props.depth + 1 })
@@ -778,7 +791,11 @@ const RgActionNode = defineComponent({
             t('rule_graph_serial_run'),
             h('span', { class: 'rg-serial-group__count' }, `(${node.children.length})`)
           ]),
-          h('div', { class: 'rg-serial-steps' }, node.children.map((child, ci) => {
+          h('div', {
+            class: 'rg-serial-steps',
+            onDragover: (e) => { if (ctxData.isEditing?.value) { e.preventDefault(); e.stopPropagation(); ctxData.setDragOverGroup(g) } },
+            onDrop: (e) => { if (ctxData.isEditing?.value) { e.preventDefault(); e.stopPropagation(); ctxData.setDragOverGroup(null); ctxData.handleDropAction(e, groupSubActions(), g) } }
+          }, node.children.map((child, ci) => {
             const arr = [ h(RgActionNode, { node: child, depth: props.depth + 1, key: child.id }) ]
             if (ci < node.children.length - 1) {
               arr.push(h('div', { class: 'rg-serial-arrow', key: child.id + '-arrow' }, [
@@ -790,13 +807,15 @@ const RgActionNode = defineComponent({
           }).flat())
         ])
       } else if (node.isDelay) {
-        return h('div', { class: ['rg-delay-node', { 'rg-node-selected': isSel }], onClick: commonProps.onClick }, [
+        return h('div', { ...commonProps, class: ['rg-delay-node', { 'rg-node-selected': isSel }, { 'rg-drag-over': isDragOver }] }, [
           h('div', { class: 'rg-delay-node__icon' }, [ h('i', { class: 'bi bi-hourglass-split' }) ]),
           h('span', { class: 'rg-delay-node__text' }, t('rule_graph_delay_wait', { sec: node.delaySec })),
           deleteBtn
         ])
       } else {
-        return h(RgCard, { node })
+        return h('div', { ...commonProps, class: ['rg-action-node-shell', { 'rg-node-selected': isSel }, { 'rg-drag-over': isDragOver }] }, [
+          h(RgCard, { node })
+        ])
       }
     }
   }
@@ -947,9 +966,7 @@ export default {
       alarmContent: '',
       alarmDevice: 'trigger',
       delaySec: 1,
-      llmPrompt: '',
-      llmPlayAudio: false,
-      llmIncludeContext: false
+      llmPrompt: ''
     })
     const createTriggerNode = (item = {}) => {
       const type = item.type || 'property_change'
@@ -1005,6 +1022,10 @@ export default {
       if (value._id && !value.id) value.id = value._id
       if (value._graphKind) delete value._graphKind
       if (value.type === 'voice_playback') delete value.voiceText
+      if (value.type === 'llm') {
+        delete value.llmPlayAudio
+        delete value.llmIncludeContext
+      }
       Object.keys(value).forEach(key => {
         const child = value[key]
         if (Array.isArray(child)) child.forEach(ensureBackendIds)
@@ -1026,18 +1047,6 @@ export default {
       cloned.max_per_hour = cloned.max_per_hour || 60
       cloned.retry_count = cloned.retry_count || 0
       
-      const initLLM = (acts) => {
-        if (!acts) return
-        acts.forEach(a => {
-          if (a.type === 'llm') {
-            if (typeof a.llmIncludeContext === 'undefined') a.llmIncludeContext = false
-            if (typeof a.llmPlayAudio === 'undefined') a.llmPlayAudio = false
-          }
-          if (a.subActions) initLLM(a.subActions)
-        })
-      }
-      initLLM(cloned.actions)
-      
       injectId(cloned)
       
       editableRule.value = cloned
@@ -1048,9 +1057,6 @@ export default {
       const ruleToSave = JSON.parse(JSON.stringify(editableRule.value))
       ensureBackendIds(ruleToSave)
       ctx.emit('update-rule', ruleToSave)
-      isEditing.value = false
-      editableRule.value = null
-      selectedNode.value = null
     }
 
     const cancelEditing = () => {
@@ -1220,40 +1226,8 @@ export default {
         targetGroup.conditions.push(moved.node)
       }
     }
-    const findActionById = (actions, sourceId) => {
-      for (const action of actions || []) {
-        if (nodeIdentity(action) === sourceId) return action
-        const found = findActionById(action.subActions || [], sourceId)
-        if (found) return found
-      }
-      return null
-    }
-    const actionContainsId = (action, targetId) => {
-      if (!action || !targetId) return false
-      if (nodeIdentity(action) === targetId) return true
-      return (action.subActions || []).some(child => actionContainsId(child, targetId))
-    }
-    const moveExistingAction = (sourceId, targetList, targetGroup = null) => {
-      if (!sourceId || !targetList) return
-      const actions = editableRule.value.actions || []
-      const movingAction = findActionById(actions, sourceId)
-      const targetId = nodeIdentity(targetGroup)
-      if (targetId && actionContainsId(movingAction, targetId)) return
-      const before = actions.length
-      let moved = null
-      const captureAndDelete = (items) => {
-        const idx = (items || []).findIndex(item => nodeIdentity(item) === sourceId)
-        if (idx >= 0) {
-          moved = items[idx]
-          items.splice(idx, 1)
-          return true
-        }
-        return (items || []).some(item => captureAndDelete(item.subActions || []))
-      }
-      captureAndDelete(actions)
-      if (!moved) return
-      targetList.push(moved)
-      editableRule.value.actions = actions.length || before ? actions : editableRule.value.actions
+    const moveExistingAction = (sourceId, targetList, targetGroup = null, insertIndex) => {
+      moveActionToList(editableRule.value.actions || [], sourceId, targetList, insertIndex, targetGroup, nodeIdentity)
     }
     const selectedNodeKind = computed(() => selectedNode.value?._graphKind || '')
     const canDeleteSelectedNode = computed(() => {
@@ -1312,31 +1286,30 @@ export default {
       }
     }
 
-    const handleActionDrop = (targetList, data) => {
+    const createDroppedAction = (data) => {
+      if (data.group === 'action') return createActionNode(data.item)
+      if (data.group === 'action_group') return createActionNode({ type: data.item.mode === 'parallel' ? 'parallel_group' : 'sequence_group' })
+      return null
+    }
+
+    const handleActionDrop = (targetList, data, targetGroup = null, insertIndex) => {
       if (data.isExisting && data.sourceId) {
-        moveExistingAction(data.sourceId, targetList)
+        moveExistingAction(data.sourceId, targetList, targetGroup, insertIndex)
       } else {
-        if (data.group === 'action') {
-          targetList.push(createActionNode(data.item))
-        } else if (data.group === 'action_group') {
-          targetList.push(createActionNode({ type: data.item.mode === 'parallel' ? 'parallel_group' : 'sequence_group' }))
-        }
+        insertActionAt(targetList, createDroppedAction(data), insertIndex)
       }
     }
 
     const onDropActionRoot = (e) => {
+      e.preventDefault()
+      e.stopPropagation()
       const data = JSON.parse(e.dataTransfer.getData('text/plain') || '{}')
       handleActionDrop(editableRule.value.actions, data)
     }
 
-    const handleDropAction = (e, targetGroup) => {
+    const handleDropAction = (e, targetList, targetGroup = null, insertIndex) => {
       const data = JSON.parse(e.dataTransfer.getData('text/plain') || '{}')
-      targetGroup.subActions = targetGroup.subActions || []
-      if (data.isExisting && data.sourceId) {
-        moveExistingAction(data.sourceId, targetGroup.subActions, targetGroup)
-      } else {
-        handleActionDrop(targetGroup.subActions, data)
-      }
+      handleActionDrop(targetList, data, targetGroup, insertIndex)
     }
 
     provide('rgContext', {
@@ -1505,20 +1478,20 @@ export default {
       })
     })
 
-    function buildActionNode(action, prefix) {
-      const base = { _ref: action, id: action._id || prefix, tone: 'action', badges: [] }
+    function buildActionNode(action, prefix, list = null, index = -1, parentGroup = null) {
+      const base = { _ref: action, _list: list, _index: index, _parentGroup: parentGroup, id: action._id || prefix, tone: 'action', badges: [] }
       if (action.type === 'parallel_group') {
         return {
           ...base,
           isParallel: true,
-          children: (action.subActions || []).map((sa, j) => buildActionNode(sa, `${prefix}-p${j}`))
+          children: (action.subActions || []).map((sa, j) => buildActionNode(sa, `${prefix}-p${j}`, action.subActions || [], j, action))
         }
       }
       if (action.type === 'sequence_group') {
         return {
           ...base,
           isSerial: true,
-          children: (action.subActions || []).map((sa, j) => buildActionNode(sa, `${prefix}-s${j}`))
+          children: (action.subActions || []).map((sa, j) => buildActionNode(sa, `${prefix}-s${j}`, action.subActions || [], j, action))
         }
       }
       if (action.type === 'delay') {
@@ -1571,7 +1544,7 @@ export default {
       if (!actions.length) {
         return [{ id: 'act-empty', title: t('rule_action_required'), detail: '', icon: 'bi-exclamation-circle', tone: 'action', badges: [], empty: true }]
       }
-      return actions.map((a, i) => buildActionNode(a, `act-${i}`))
+      return actions.map((a, i) => buildActionNode(a, `act-${i}`, actions, i))
     })
 
     const graphViewerRef = ref(null)

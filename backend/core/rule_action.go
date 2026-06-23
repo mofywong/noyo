@@ -55,38 +55,59 @@ func (ae *ActionExecutor) Execute(ctx *RuleExecContext) []ActionResult {
 	execCtx, cancel := context.WithTimeout(ctx.Context, ctx.RuleTimeout)
 	defer cancel()
 
-	results := make([]ActionResult, 0, len(ctx.Rule.Actions))
-	for _, action := range ctx.Rule.Actions {
+	return ae.executeActionList(execCtx, ctx, ctx.Rule.Actions, true)
+}
+
+func (ae *ActionExecutor) executeActionList(execCtx context.Context, ctx *RuleExecContext, actions []RuleAction, inferVoiceOutput bool) []ActionResult {
+	results := make([]ActionResult, 0, len(actions))
+	for i, action := range actions {
 		if execCtx.Err() != nil {
 			results = append(results, ActionResult{ActionID: action.ID, Type: action.Type, Status: "skipped", Error: execCtx.Err().Error()})
 			continue
 		}
-		results = append(results, ae.executeAction(execCtx, ctx, action)...)
+		outputMode := ""
+		if inferVoiceOutput && action.Type == RuleActionLLM && nextActionUsesLLMResult(actions, i) {
+			outputMode = "voice"
+		}
+		results = append(results, ae.executeAction(execCtx, ctx, action, outputMode)...)
 	}
 	return results
 }
 
-func (ae *ActionExecutor) executeAction(execCtx context.Context, ctx *RuleExecContext, action RuleAction) []ActionResult {
+func nextActionUsesLLMResult(actions []RuleAction, index int) bool {
+	if index < 0 || index+1 >= len(actions) {
+		return false
+	}
+	return actionUsesLLMResultForVoice(actions[index+1])
+}
+
+func actionUsesLLMResultForVoice(action RuleAction) bool {
+	switch action.Type {
+	case RuleActionVoicePlayback:
+		return action.VoiceText == "" || strings.Contains(action.VoiceText, "${llm_result}")
+	case RuleActionParallelGroup, RuleActionSequenceGroup:
+		for _, subAction := range action.SubActions {
+			if actionUsesLLMResultForVoice(subAction) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (ae *ActionExecutor) executeAction(execCtx context.Context, ctx *RuleExecContext, action RuleAction, llmOutputMode string) []ActionResult {
 	switch action.Type {
 	case RuleActionParallelGroup:
 		return ae.executeParallelGroup(execCtx, ctx, action)
 	case RuleActionSequenceGroup:
 		return ae.executeSequenceGroup(execCtx, ctx, action)
 	default:
-		return []ActionResult{ae.executeSingleAction(execCtx, ctx, action)}
+		return []ActionResult{ae.executeSingleAction(execCtx, ctx, action, llmOutputMode)}
 	}
 }
 
 func (ae *ActionExecutor) executeSequenceGroup(execCtx context.Context, ctx *RuleExecContext, group RuleAction) []ActionResult {
-	results := make([]ActionResult, 0, len(group.SubActions))
-	for _, action := range group.SubActions {
-		if execCtx.Err() != nil {
-			results = append(results, ActionResult{ActionID: action.ID, Type: action.Type, Status: "skipped", Error: execCtx.Err().Error()})
-			continue
-		}
-		results = append(results, ae.executeAction(execCtx, ctx, action)...)
-	}
-	return results
+	return ae.executeActionList(execCtx, ctx, group.SubActions, true)
 }
 
 func (ae *ActionExecutor) executeParallelGroup(execCtx context.Context, ctx *RuleExecContext, group RuleAction) []ActionResult {
@@ -108,7 +129,7 @@ func (ae *ActionExecutor) executeParallelGroup(execCtx context.Context, ctx *Rul
 				results[idx] = []ActionResult{{ActionID: act.ID, Type: act.Type, Status: "skipped", Error: execCtx.Err().Error()}}
 				return
 			}
-			results[idx] = ae.executeAction(execCtx, ctx, act)
+			results[idx] = ae.executeAction(execCtx, ctx, act, "")
 		}(i, action)
 	}
 	wg.Wait()
@@ -119,7 +140,7 @@ func (ae *ActionExecutor) executeParallelGroup(execCtx context.Context, ctx *Rul
 	return flat
 }
 
-func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *RuleExecContext, action RuleAction) ActionResult {
+func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *RuleExecContext, action RuleAction, llmOutputMode string) ActionResult {
 	start := time.Now()
 	result := ActionResult{ActionID: action.ID, Type: action.Type, Status: "success"}
 	actionCtx, cancel := context.WithTimeout(execCtx, ctx.ActionTimeout)
@@ -208,16 +229,20 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 				Type:  types.EventType("rule.action.llm"),
 				Topic: ctx.Rule.Code,
 				Payload: map[string]any{
-					"rule_code":       ctx.Rule.Code,
-					"rule_name":       ctx.Rule.Name,
-					"triggers":        ctx.Rule.Triggers,
-					"conditions":      ctx.Rule.Conditions,
-					"prompt":          action.LLMPrompt,
-					"play_audio":      action.LLMPlayAudio,
-					"include_context": action.LLMIncludeContext,
-					"trigger_time":    time.Now().Format(time.RFC3339),
-					"trigger_event":   ctx.TemplateVars["event"],
-					"response_topic":  responseTopic,
+					"rule_code":        ctx.Rule.Code,
+					"rule_name":        ctx.Rule.Name,
+					"rule":             ctx.Rule,
+					"trigger":          ctx.TemplateVars["trigger"],
+					"triggers":         ctx.Rule.Triggers,
+					"conditions":       ctx.Rule.Conditions,
+					"condition_values": ctx.TemplateVars["condition_values"],
+					"prompt":           action.LLMPrompt,
+					"play_audio":       action.LLMPlayAudio,
+					"include_context":  true,
+					"output_mode":      llmOutputMode,
+					"trigger_time":     time.Now().Format(time.RFC3339),
+					"trigger_event":    ctx.TemplateVars["event"],
+					"response_topic":   responseTopic,
 				},
 				Timestamp: time.Now().UnixMilli(),
 			})

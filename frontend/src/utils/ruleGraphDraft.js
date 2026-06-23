@@ -79,8 +79,6 @@ export function baseAction(type = 'set_property') {
     alarmDevice: 'trigger',
     delaySec: 1,
     llmPrompt: '',
-    llmPlayAudio: false,
-    llmIncludeContext: false,
     children: []
   }
   if (type === 'sequence_group' || type === 'parallel_group') {
@@ -104,6 +102,10 @@ export function actionToNode(action = {}) {
 export function actionNodeToAction(node = {}) {
   const { kind, children, subActions, ...rest } = node
   if (rest.type === 'voice_playback') delete rest.voiceText
+  if (rest.type === 'llm') {
+    delete rest.llmPlayAudio
+    delete rest.llmIncludeContext
+  }
   return {
     ...rest,
     subActions: (children || []).map(actionNodeToAction)

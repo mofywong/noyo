@@ -580,8 +580,6 @@ function baseAction() {
     alarmDevice: 'trigger',
     delaySec: 1,
     llmPrompt: '',
-    llmPlayAudio: false,
-    llmIncludeContext: false,
     voiceText: '',
     subActions: []
   }
@@ -995,18 +993,6 @@ const ActionEditor = defineComponent({
             : null,
           props.action.type === 'llm'
             ? field(props.labels.llmPrompt || '描述词', h('textarea', { class: 'form-control', rows: 1, ...inputModel('llmPrompt') }), 'col-md-5')
-            : null,
-          props.action.type === 'llm'
-            ? field(props.labels.llmPlayAudio || '扬声器播放', h('div', { class: 'form-check mt-2' }, [
-                h('input', { class: 'form-check-input', type: 'checkbox', id: `playAudio_${props.action.id}`, checked: props.action.llmPlayAudio, onChange: e => { props.action.llmPlayAudio = e.target.checked } }),
-                h('label', { class: 'form-check-label', for: `playAudio_${props.action.id}` }, props.labels.yes || '是')
-              ]), 'col-md-2')
-            : null,
-          props.action.type === 'llm'
-            ? field(props.labels.llmIncludeContext || '携带上下文', h('div', { class: 'form-check mt-2' }, [
-                h('input', { class: 'form-check-input', type: 'checkbox', id: `includeContext_${props.action.id}`, checked: props.action.llmIncludeContext, onChange: e => { props.action.llmIncludeContext = e.target.checked } }),
-                h('label', { class: 'form-check-label', for: `includeContext_${props.action.id}` }, props.labels.yes || '是')
-              ]), 'col-md-3')
             : null,
           props.action.type === 'voice_playback'
             ? field(props.labels.voiceText || '播放文本', h('textarea', { class: 'form-control', rows: 1, ...inputModel('voiceText') }), 'col-md-6')
@@ -1482,6 +1468,13 @@ export default {
     }
 
     function payload(enable = false) {
+      const normalizeActionPayload = (action) => {
+        const { llmPlayAudio, llmIncludeContext, ...rest } = action
+        if (rest.subActions) {
+          rest.subActions = rest.subActions.map(normalizeActionPayload)
+        }
+        return rest
+      }
       return {
         name: form.name,
         description: form.description,
@@ -1501,7 +1494,7 @@ export default {
         },
         triggers: form.triggers.map(trigger => normalizeTrigger(trigger)),
         conditions: hasConditionNodes(form.conditions) ? form.conditions : null,
-        actions: form.actions,
+        actions: form.actions.map(normalizeActionPayload),
         enable
       }
     }
@@ -1581,7 +1574,7 @@ export default {
           enable: updatedRule.status === 'enabled'
         }
         await axios.put(`/api/rules/${updatedRule.code}`, payload)
-        closeRuleGraph()
+        graphRule.value = { ...updatedRule, ...payload, code: updatedRule.code, status: updatedRule.status }
         await fetchAll()
       } catch (err) {
         console.error('Failed to save rule from graph:', err)
@@ -1641,8 +1634,6 @@ export default {
       llm: t('rule_action_llm'),
       voicePlayback: t('rule_action_voice_playback'),
       llmPrompt: t('rule_action_llm_prompt'),
-      llmPlayAudio: t('rule_action_llm_play_audio'),
-      llmIncludeContext: t('rule_action_llm_include_context', '携带上下文'),
       voiceText: t('rule_action_voice_text'),
       yes: t('yes'),
       sequenceGroup: t('rule_sequence_group'),

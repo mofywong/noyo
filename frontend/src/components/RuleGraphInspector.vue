@@ -99,14 +99,6 @@
       </template>
       <template v-else-if="node.type === 'llm'">
         <TextAreaField :label="labels.llmPrompt" :value="node.llmPrompt" @input="patch({ llmPrompt: $event })" />
-        <label class="form-check">
-          <input class="form-check-input" type="checkbox" :checked="!!node.llmPlayAudio" @change="patch({ llmPlayAudio: $event.target.checked })">
-          <span class="form-check-label">{{ labels.llmPlayAudio }}</span>
-        </label>
-        <label class="form-check">
-          <input class="form-check-input" type="checkbox" :checked="!!node.llmIncludeContext" @change="patch({ llmIncludeContext: $event.target.checked })">
-          <span class="form-check-label">{{ labels.llmIncludeContext }}</span>
-        </label>
       </template>
       <button v-if="isActionGroup" type="button" class="btn btn-sm btn-outline-primary" @click="$emit('add-child', node.id)">
         <i class="bi bi-node-plus me-1"></i>{{ labels.addChildAction }}
