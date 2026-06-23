@@ -102,6 +102,7 @@ type RuleAction struct {
 	LLMPrompt         string         `json:"llmPrompt,omitempty"`
 	LLMPlayAudio      bool           `json:"llmPlayAudio,omitempty"`
 	LLMIncludeContext bool           `json:"llmIncludeContext,omitempty"`
+	OutputSchema      map[string]any `json:"outputSchema,omitempty"`
 	VoiceText         string         `json:"voiceText,omitempty"`
 }
 
@@ -223,3 +224,5 @@ func validateAction(action RuleAction, depth int) error {
 	}
 	return nil
 }
+
+

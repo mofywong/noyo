@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"noyo/core/types"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,6 +13,40 @@ import (
 
 	"go.uber.org/zap"
 )
+
+var varRegex = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+func interpolateString(text string, vars map[string]any) string {
+	if text == "" {
+		return text
+	}
+	return varRegex.ReplaceAllStringFunc(text, func(match string) string {
+		path := match[2 : len(match)-1]
+		val := getValueByPath(vars, path)
+		if val != nil {
+			return fmt.Sprintf("%v", val)
+		}
+		return match
+	})
+}
+
+func getValueByPath(data map[string]any, path string) any {
+	parts := strings.Split(path, ".")
+	var current any = data
+	for _, part := range parts {
+		if m, ok := current.(map[string]any); ok {
+			current = m[part]
+		} else if m, ok := current.(types.Event); ok && part == "topic" {
+			current = m.Topic
+		} else if m, ok := current.(types.Event); ok && part == "payload" {
+			current = m.Payload
+		} else {
+			return nil
+		}
+	}
+	return current
+}
+
 
 type ActionResult struct {
 	ActionID   string `json:"actionId"`
@@ -25,6 +60,8 @@ type RuleExecContext struct {
 	Context       context.Context
 	Rule          RuleRuntime
 	TemplateVars  map[string]any
+	NodeResults   map[string]any
+	SessionID     string
 	ActionTimeout time.Duration
 	RuleTimeout   time.Duration
 	MaxParallel   int
@@ -147,6 +184,28 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 	defer cancel()
 
 	var err error
+
+	mergedVars := make(map[string]any)
+	if ctx.TemplateVars != nil {
+		for k, v := range ctx.TemplateVars {
+			mergedVars[k] = v
+		}
+	}
+	if ctx.NodeResults != nil {
+		mergedVars["node"] = ctx.NodeResults
+		// Keep flat mapping for backward compatibility if needed, but prefer 'node' object
+		for k, v := range ctx.NodeResults {
+			mergedVars[k] = v
+		}
+	}
+
+	action.NotifyTitle = interpolateString(action.NotifyTitle, mergedVars)
+	action.NotifyContent = interpolateString(action.NotifyContent, mergedVars)
+	action.AlarmTitle = interpolateString(action.AlarmTitle, mergedVars)
+	action.AlarmContent = interpolateString(action.AlarmContent, mergedVars)
+	action.LLMPrompt = interpolateString(action.LLMPrompt, mergedVars)
+	action.VoiceText = interpolateString(action.VoiceText, mergedVars)
+
 	switch action.Type {
 	case RuleActionDelay:
 		if action.DelaySec > 0 {
@@ -240,6 +299,7 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 					"play_audio":       action.LLMPlayAudio,
 					"include_context":  true,
 					"output_mode":      llmOutputMode,
+					"output_schema":    action.OutputSchema,
 					"trigger_time":     time.Now().Format(time.RFC3339),
 					"trigger_event":    ctx.TemplateVars["event"],
 					"response_topic":   responseTopic,
@@ -253,6 +313,15 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 					ctx.TemplateVars = make(map[string]any)
 				}
 				ctx.TemplateVars["llm_result"] = resText
+				if ctx.NodeResults == nil {
+					ctx.NodeResults = make(map[string]any)
+				}
+				var jsonRes map[string]any
+				if err := json.Unmarshal([]byte(resText), &jsonRes); err == nil {
+					ctx.NodeResults[action.ID] = jsonRes
+				} else {
+					ctx.NodeResults[action.ID] = resText
+				}
 			case <-time.After(30 * time.Second):
 				err = fmt.Errorf("llm action timeout")
 			}

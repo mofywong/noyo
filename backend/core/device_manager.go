@@ -367,13 +367,16 @@ func (dm *DeviceManager) UpdateLatestData(deviceCode string, data map[string]int
 	go dm.UpdateStatus(deviceCode, nil)
 }
 
-func (dm *DeviceManager) mergeLatestData(deviceCode string, data map[string]interface{}) map[string]interface{} {
+func (dm *DeviceManager) mergeLatestData(deviceCode string, data map[string]interface{}) (map[string]interface{}, bool) {
 	rt := dm.getRuntime(deviceCode)
 
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	
+	isInitial := false
 	if rt.Properties == nil {
 		rt.Properties = make(map[string]interface{})
+		isInitial = true
 	}
 	changed := make(map[string]interface{})
 	for k, v := range data {
@@ -382,7 +385,12 @@ func (dm *DeviceManager) mergeLatestData(deviceCode string, data map[string]inte
 		}
 		rt.Properties[k] = v
 	}
-	return changed
+	
+	if isInitial {
+		// Do not return changed properties on the very first state initialization
+		return make(map[string]interface{}), true
+	}
+	return changed, false
 }
 
 func propertyValuesEqual(left, right interface{}) bool {
@@ -536,7 +544,7 @@ func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, para
 // ReportDeviceProperties handles data reporting
 func (dm *DeviceManager) ReportDeviceProperties(meta DeviceMeta, properties map[string]interface{}) error {
 	// 1. Update Local Cache
-	changedProperties := dm.mergeLatestData(meta.DeviceCode, properties)
+	changedProperties, isInitial := dm.mergeLatestData(meta.DeviceCode, properties)
 	go dm.UpdateStatus(meta.DeviceCode, nil)
 
 	// 2. Persist to TSDB
@@ -560,7 +568,7 @@ func (dm *DeviceManager) ReportDeviceProperties(meta DeviceMeta, properties map[
 		Type:      types.EventPropertyReported,
 		Topic:     meta.DeviceCode,
 		Payload:   properties,
-		Metadata:  map[string]interface{}{"changedProperties": changedProperties},
+		Metadata:  map[string]interface{}{"changedProperties": changedProperties, "isInitial": isInitial},
 		Timestamp: time.Now().UnixMilli(),
 	})
 

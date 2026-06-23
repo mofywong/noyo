@@ -550,8 +550,10 @@
 </template>
 
 <script>
+import VarInputWrapper from '../components/rule/VarInputWrapper.vue'
 import { computed, defineComponent, h, onMounted, reactive, ref, watch, provide, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useToast } from '../composables/useToast'
 import axios from 'axios'
 import RuleGraphViewer from '@/components/rule/RuleGraphViewer.vue'
 
@@ -810,8 +812,8 @@ const ActionEditor = defineComponent({
     const row = (children) => h('div', { class: 'builder-line' }, children)
     const field = (label, child, cls = 'col-md-3') => h('div', { class: cls }, [h('label', { class: 'form-label' }, label), child])
     const inputModel = (key) => ({
-      value: props.action[key] || '',
-      onInput: e => { props.action[key] = e.target.value }
+      modelValue: props.action[key] || '',
+      'onUpdate:modelValue': val => { props.action[key] = val }
     })
 
     return () => {
@@ -966,10 +968,10 @@ const ActionEditor = defineComponent({
               }), 'col-md-4')
             : null,
           props.action.type === 'notification'
-            ? field(props.labels.title, h('input', { class: 'form-control', ...inputModel('notifyTitle') }), 'col-md-4')
+            ? field(props.labels.title, h(VarInputWrapper, { ...inputModel('notifyTitle') }), 'col-md-4')
             : null,
           props.action.type === 'notification'
-            ? field(props.labels.content, h('input', { class: 'form-control', ...inputModel('notifyContent') }), 'col-md-5')
+            ? field(props.labels.content, h(VarInputWrapper, { ...inputModel('notifyContent') }), 'col-md-5')
             : null,
           props.action.type === 'alarm'
             ? field(props.labels.level, h('select', {
@@ -983,19 +985,19 @@ const ActionEditor = defineComponent({
               ]), 'col-md-2')
             : null,
           props.action.type === 'alarm'
-            ? field(props.labels.title, h('input', { class: 'form-control', ...inputModel('alarmTitle') }), 'col-md-4')
+            ? field(props.labels.title, h(VarInputWrapper, { ...inputModel('alarmTitle') }), 'col-md-4')
             : null,
           props.action.type === 'alarm'
-            ? field(props.labels.content, h('input', { class: 'form-control', ...inputModel('alarmContent') }), 'col-md-4')
+            ? field(props.labels.content, h(VarInputWrapper, { ...inputModel('alarmContent') }), 'col-md-4')
             : null,
           props.action.type === 'delay'
             ? field(props.labels.delaySec, h('input', { class: 'form-control', type: 'number', min: 0, max: 300, value: props.action.delaySec, onInput: e => { props.action.delaySec = Number(e.target.value) } }), 'col-md-3')
             : null,
           props.action.type === 'llm'
-            ? field(props.labels.llmPrompt || '描述词', h('textarea', { class: 'form-control', rows: 1, ...inputModel('llmPrompt') }), 'col-md-5')
+            ? field(props.labels.llmPrompt || '描述词', h(VarInputWrapper, { textarea: true, rows: 1, ...inputModel('llmPrompt') }), 'col-md-5')
             : null,
           props.action.type === 'voice_playback'
-            ? field(props.labels.voiceText || '播放文本', h('textarea', { class: 'form-control', rows: 1, ...inputModel('voiceText') }), 'col-md-6')
+            ? field(props.labels.voiceText || '播放文本', h(VarInputWrapper, { textarea: true, rows: 1, ...inputModel('voiceText') }), 'col-md-6')
             : null,
           h('div', { class: 'col text-end' }, [
             h('button', { class: 'btn btn-outline-danger btn-sm shadow-sm bg-body', onClick: () => emit('remove') }, [h('i', { class: 'bi bi-trash' })])
@@ -1008,9 +1010,10 @@ const ActionEditor = defineComponent({
 
 export default {
   name: 'RuleEngine',
-  components: { ActionEditor, RuleConditionGroupEditor, RuleGraphViewer },
+  components: { ActionEditor, RuleConditionGroupEditor, RuleGraphViewer , VarInputWrapper },
   setup() {
     const { t } = useI18n()
+    const { showToast } = useToast()
     const rules = ref([])
     const groups = ref([])
     const devices = ref([])
@@ -1518,6 +1521,7 @@ export default {
         }
         showEditor.value = false
         await fetchAll()
+        showToast('success', t('rule_save_success', '保存成功'))
       } finally {
         saving.value = false
       }
@@ -1576,6 +1580,7 @@ export default {
         await axios.put(`/api/rules/${updatedRule.code}`, payload)
         graphRule.value = { ...updatedRule, ...payload, code: updatedRule.code, status: updatedRule.status }
         await fetchAll()
+        showToast('success', t('rule_save_success', '保存成功'))
       } catch (err) {
         console.error('Failed to save rule from graph:', err)
       } finally {

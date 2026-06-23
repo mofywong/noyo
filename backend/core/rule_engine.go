@@ -145,6 +145,13 @@ func (re *RuleEngine) loadRule(rule store.Rule) error {
 }
 
 func (re *RuleEngine) handleEvent(event types.Event) {
+	// Skip processing rules for initial property state load on boot
+	if event.Type == types.EventPropertyReported && event.Metadata != nil {
+		if isInitial, ok := event.Metadata["isInitial"].(bool); ok && isInitial {
+			return
+		}
+	}
+
 	re.rules.Range(func(_, value any) bool {
 		rule := value.(*RuleRuntime)
 		for _, trigger := range rule.Triggers {
@@ -169,6 +176,8 @@ func (re *RuleEngine) enqueue(ruleCode string, trigger RuleTrigger, event types.
 		Context:       context.Background(),
 		Rule:          rule,
 		TemplateVars:  buildTemplateVars(rule, trigger, event),
+		NodeResults:   make(map[string]any),
+		SessionID:     uuid.New().String(),
 		ActionTimeout: re.actionTimeout,
 		RuleTimeout:   re.ruleTimeout,
 		MaxParallel:   re.maxParallel,

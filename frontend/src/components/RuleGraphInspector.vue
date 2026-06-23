@@ -110,19 +110,14 @@
 </template>
 
 <script>
+import VarInputWrapper from './rule/VarInputWrapper.vue'
 const FieldInput = {
   props: ['label', 'value', 'type', 'placeholder'],
   emits: ['input'],
   template: `
     <div>
       <label class="form-label">{{ label }}</label>
-      <input
-        class="form-control form-control-sm"
-        :type="type || 'text'"
-        :value="value"
-        :placeholder="placeholder"
-        @input="$emit('input', $event.target.value)"
-      >
+      <VarInputWrapper :type="type || \'text\'" :modelValue="value" :placeholder="placeholder" @update:modelValue="$emit(\'input\', $event)" />
     </div>
   `
 }
@@ -133,7 +128,7 @@ const TextAreaField = {
   template: `
     <div>
       <label class="form-label">{{ label }}</label>
-      <textarea class="form-control form-control-sm" rows="3" :value="value" @input="$emit('input', $event.target.value)"></textarea>
+      <VarInputWrapper :textarea="true" :rows="3" :modelValue="value" @update:modelValue="$emit(\'input\', $event)" />
     </div>
   `
 }
@@ -153,7 +148,7 @@ const SelectField = {
 
 export default {
   name: 'RuleGraphInspector',
-  components: { FieldInput, TextAreaField, SelectField },
+  components: { FieldInput, TextAreaField, SelectField , VarInputWrapper},
   props: {
     title: {
       type: String,

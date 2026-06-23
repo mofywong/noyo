@@ -179,11 +179,11 @@
           <h6 class="mb-3"><i class="bi bi-info-circle"></i> {{ $t('rule_basic_info', '规则基础信息') }}</h6>
           <div class="mb-3">
             <label class="form-label">规则名称</label>
-            <input class="form-control form-control-sm" v-model="editableRule.name">
+            <VarInputWrapper v-model="editableRule.name" />
           </div>
           <div class="mb-3">
             <label class="form-label">描述</label>
-            <textarea class="form-control form-control-sm" v-model="editableRule.description" rows="3"></textarea>
+            <VarInputWrapper :textarea="true" v-model="editableRule.description" :rows="3" />
           </div>
           <div class="mb-3">
             <label class="form-label">{{ $t('rule_group') }}</label>
@@ -256,19 +256,19 @@
             </div>
             <div class="mb-3" v-if="['weekly', 'custom'].includes(selectedNode.mode)">
               <label class="form-label">星期配置 (逗号分隔1-7)</label>
-              <input type="text" class="form-control form-control-sm" v-model="computedEffectiveWeekdays" placeholder="例如: 1,2,3,4,5">
+              <VarInputWrapper v-model="computedEffectiveWeekdays" placeholder="例如: 1,2,3,4,5" />
             </div>
             <div class="mb-3" v-if="['monthly', 'custom'].includes(selectedNode.mode)">
               <label class="form-label">月份日期 (逗号分隔1-31)</label>
-              <input type="text" class="form-control form-control-sm" v-model="computedEffectiveMonthDays" placeholder="例如: 1,15,30">
+              <VarInputWrapper v-model="computedEffectiveMonthDays" placeholder="例如: 1,15,30" />
             </div>
             <div class="mb-3" v-if="['custom'].includes(selectedNode.mode)">
               <label class="form-label">月份 (逗号分隔1-12)</label>
-              <input type="text" class="form-control form-control-sm" v-model="computedEffectiveMonths" placeholder="例如: 1,6,12">
+              <VarInputWrapper v-model="computedEffectiveMonths" placeholder="例如: 1,6,12" />
             </div>
             <div class="mb-3" v-if="selectedNode.mode !== 'always'">
               <label class="form-label">时区</label>
-              <input type="text" class="form-control form-control-sm" v-model="selectedNode.timezone" placeholder="Asia/Shanghai">
+              <VarInputWrapper v-model="selectedNode.timezone" placeholder="Asia/Shanghai" />
             </div>
           </template>
 
@@ -290,7 +290,7 @@
                 {{ p.name || p.key }}
               </option>
             </select>
-            <input v-else class="form-control form-control-sm" v-model="selectedNode.propertyKey" placeholder="输入属性标识">
+            <VarInputWrapper v-model="selectedNode.propertyKey" placeholder="输入属性标识" />
           </div>
           
           <!-- 针对 eventId -->
@@ -302,11 +302,11 @@
                 {{ e.name || e.key || e.identifier }}
               </option>
             </select>
-            <input v-else class="form-control form-control-sm" v-model="selectedNode.eventId" placeholder="输入事件标识">
+            <VarInputWrapper v-model="selectedNode.eventId" placeholder="输入事件标识" />
           </div>
           <div class="mb-3" v-if="['event'].includes(selectedNode.type)">
             <label class="form-label">事件过滤 (JSON数组)</label>
-            <textarea class="form-control form-control-sm" v-model="computedEventFilter" rows="2" placeholder='[{"key": "level", "operator": "eq", "value": 1}]'></textarea>
+            <VarInputWrapper :textarea="true" v-model="computedEventFilter" :rows="2" placeholder='[{"key": "level", "operator": "eq", "value": 1}]' />
           </div>
 
           <!-- Operator (条件/触发器) -->
@@ -327,7 +327,7 @@
           <!-- 针对 value -->
           <div class="mb-3" v-if="['property_change', 'property', 'set_property'].includes(selectedNode.type)">
             <label class="form-label">值</label>
-            <input class="form-control form-control-sm" v-model="selectedNode.value">
+            <VarInputWrapper v-model="selectedNode.value" />
           </div>
           
           <!-- 针对 statusValue -->
@@ -372,7 +372,7 @@
             </div>
             <div class="mb-3">
               <label class="form-label">任务描述</label>
-              <input class="form-control form-control-sm" v-model="selectedNode.cronDesc" placeholder="例如：每天8点执行">
+              <VarInputWrapper v-model="selectedNode.cronDesc" placeholder="例如：每天8点执行" />
             </div>
           </template>
 
@@ -386,11 +386,11 @@
                   {{ s.name || s.key || s.identifier }}
                 </option>
               </select>
-              <input v-else class="form-control form-control-sm" v-model="selectedNode.serviceCode" placeholder="输入服务标识">
+              <VarInputWrapper v-model="selectedNode.serviceCode" placeholder="输入服务标识" />
             </div>
             <div class="mb-3">
               <label class="form-label">服务参数 (JSON格式)</label>
-              <textarea class="form-control form-control-sm" v-model="computedServiceParams" rows="3" placeholder='{"param1": "value"}'></textarea>
+              <VarInputWrapper :textarea="true" v-model="computedServiceParams" :rows="3" placeholder='{"param1": "value"}' />
             </div>
           </template>
 
@@ -398,11 +398,11 @@
           <template v-if="selectedNode.type === 'notification'">
             <div class="mb-3">
               <label class="form-label">通知标题</label>
-              <input class="form-control form-control-sm" v-model="selectedNode.notifyTitle">
+              <VarInputWrapper v-model="selectedNode.notifyTitle" />
             </div>
             <div class="mb-3">
               <label class="form-label">通知内容</label>
-              <textarea class="form-control form-control-sm" v-model="selectedNode.notifyContent" rows="3"></textarea>
+              <VarInputWrapper :textarea="true" v-model="selectedNode.notifyContent" :rows="3" />
             </div>
           </template>
 
@@ -426,11 +426,11 @@
             </div>
             <div class="mb-3">
               <label class="form-label">告警名称</label>
-              <input class="form-control form-control-sm" v-model="selectedNode.alarmTitle">
+              <VarInputWrapper v-model="selectedNode.alarmTitle" />
             </div>
             <div class="mb-3">
               <label class="form-label">告警内容</label>
-              <textarea class="form-control form-control-sm" v-model="selectedNode.alarmContent" rows="3"></textarea>
+              <VarInputWrapper :textarea="true" v-model="selectedNode.alarmContent" :rows="3" />
             </div>
           </template>
 
@@ -444,7 +444,7 @@
           <template v-if="selectedNode.type === 'llm'">
             <div class="mb-3">
               <label class="form-label">附加描述词</label>
-              <textarea class="form-control form-control-sm" v-model="selectedNode.llmPrompt" rows="3"></textarea>
+              <VarInputWrapper :textarea="true" v-model="selectedNode.llmPrompt" :rows="3" />
             </div>
           </template>
 
@@ -455,6 +455,7 @@
 </template>
 
 <script>
+import VarInputWrapper from './VarInputWrapper.vue'
 import { defineComponent, computed, h, ref, reactive, provide, inject, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import html2canvas from 'html2canvas'
@@ -834,7 +835,7 @@ function injectId(obj) {
 
 export default {
   name: 'RuleGraphViewer',
-  components: { RgCard, RgConditionGroup, RgActionNode },
+  components: { VarInputWrapper, RgCard, RgConditionGroup, RgActionNode },
   props: {
     rule: { type: Object, default: () => null },
     devices: { type: Array, default: () => [] },
