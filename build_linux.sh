@@ -12,7 +12,9 @@ fi
 
 EDITION=$1
 if [ -z "$EDITION" ]; then
-    if [ -d "../noyo-pro" ]; then
+    if [ -n "$NOYO_PRO_DIR" ]; then
+        EDITION="all"
+    elif [ -d "../noyo-pro" ]; then
         EDITION="all"
     else
         EDITION="community"

@@ -9,7 +9,9 @@ if "%TARGET%"=="" set TARGET=windows
 
 set EDITION=%2
 if "%EDITION%"=="" (
-    if exist "..\noyo-pro" (
+    if defined NOYO_PRO_DIR (
+        set EDITION=all
+    ) else if exist "..\noyo-pro" (
         set EDITION=all
     ) else (
         set EDITION=community

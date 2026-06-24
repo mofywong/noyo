@@ -82,6 +82,75 @@ go build -o noyo main.go
 ```
 *\* 启动后，引擎将在当前目录自动生成 `data/db` 本地数据文件。打开浏览器访问对应的监听端口（默认为 8989 端口，视配置而定），即可登录 Noyo 控制台。*
 
+### 3. 企业版插件与多工作区开发构建 (进阶)
+
+本仓库原生支持通过 **Go Workspace (go.work)** 机制无缝挂载 Noyo Pro 企业版插件进行联合编译开发，彻底摆脱物理软连接带来的各种困扰。
+
+如果您在进行企业版的多分支工作区（Git Worktree）开发，可以通过以下标准流程进行极速切换：
+
+1. **设置后端工作区 (`go.work`)**
+   在 `backend` 目录下创建或编辑 `go.work`，使用 `use` 指向你的目标工作区路径：
+   ```go
+   go 1.26.2
+   
+   use (
+       .
+       ../../noyo-pro-your-worktree/backend/plugins // 指向实际所在的 Pro 插件目录
+   )
+   ```
+
+2. **指定环境变量并执行构建**
+   构建脚本与前端运行脚本天然支持环境变量 `NOYO_PRO_DIR`。只要传入该变量，脚本即可精准定位插件工作区，自动完成前端依赖链并生成 `pro_imports.go` 注册文件。
+   
+   *Windows (PowerShell) 示例：*
+   ```powershell
+   $env:NOYO_PRO_DIR="D:\path\to\your\noyo-pro-worktree"
+   # 一键打包编译，将自动输出 community 和 pro 两个版本的 .exe
+   .\build_windows.bat
+   ```
+
+   *Linux / macOS 示例：*
+   ```bash
+   export NOYO_PRO_DIR="/path/to/your/noyo-pro-worktree"
+   ./build_linux.sh
+   ```
+   *\*注：如果未设置环境变量 `NOYO_PRO_DIR`，构建脚本默认自动去上级目录寻找 `../noyo-pro`。*
+
+### 4. 构建脚本高级参数说明
+
+无论是 `build_windows.bat` 还是 `build_linux.sh`，它们都支持接收多个命令行参数以进行高度定制化的交叉编译。参数顺序依次为：
+
+`./build_windows.bat [TARGET] [EDITION] [BUILD_YOLO] [BUILD_ONNXRUNTIME]`
+
+- **TARGET (目标系统)**
+  - 默认值：`windows` (如果是 Windows 脚本) / `linux` (如果是 Linux 脚本)
+  - 可选值：`windows` | `linux` | `mac` | `all`
+  - 描述：指定交叉编译的目标操作系统。如果传入 `all`，将依次为三个平台编译。
+
+- **EDITION (目标版本)**
+  - 默认值：自动探测（若存在环境变量 `NOYO_PRO_DIR` 或 `../noyo-pro` 则为 `all`，否则为 `community`）
+  - 可选值：`community` | `pro` | `all`
+  - 描述：指定编译哪些版本。传入 `community` 仅编译开源版，`pro` 仅编译企业版，`all` 则同时编译两者。
+
+- **BUILD_YOLO (是否启用 YOLO AI 模型编译)**
+  - 默认值：`1`
+  - 可选值：`0` | `1`
+  - 描述：是否将 YOLO CGO 扩展一同编译进二进制（仅对 Pro 版本生效）。`0` 表示禁用，`1` 表示启用。
+
+- **BUILD_ONNXRUNTIME (是否启用 ONNX 运行时编译)**
+  - 默认值：`1`
+  - 可选值：`0` | `1`
+  - 描述：是否开启 ONNX Runtime CGO 依赖支持（YOLO 为 `1` 时，此项必须为 `1`）。
+
+**使用示例：**
+```bash
+# 仅编译 Pro 版本，目标为 Linux，且关闭 YOLO 编译
+./build_windows.bat linux pro 0 0
+
+# 交叉编译全平台全版本的程序（这可能需要你配置好 CGO 的交叉编译链）
+./build_windows.bat all all 1 1
+```
+
 ---
 
 ## 💎 Noyo Pro & Noyo AI Engine (企业级商业闭源版)
