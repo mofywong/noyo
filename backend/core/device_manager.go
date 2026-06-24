@@ -26,9 +26,10 @@ type DeviceStatus struct {
 
 // DeviceRuntime holds the runtime state for a single device with its own lock
 type DeviceRuntime struct {
-	mu         sync.RWMutex
-	Status     DeviceStatus
-	Properties map[string]interface{}
+	mu                    sync.RWMutex
+	Status                DeviceStatus
+	Properties            map[string]interface{}
+	PropertiesInitialized bool
 }
 
 // DeviceManager manages the lifecycle of devices and their tasks
@@ -372,12 +373,11 @@ func (dm *DeviceManager) mergeLatestData(deviceCode string, data map[string]inte
 
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	
-	isInitial := false
+
 	if rt.Properties == nil {
 		rt.Properties = make(map[string]interface{})
-		isInitial = true
 	}
+	isInitial := !rt.PropertiesInitialized
 	changed := make(map[string]interface{})
 	for k, v := range data {
 		if old, exists := rt.Properties[k]; !exists || !propertyValuesEqual(old, v) {
@@ -385,7 +385,8 @@ func (dm *DeviceManager) mergeLatestData(deviceCode string, data map[string]inte
 		}
 		rt.Properties[k] = v
 	}
-	
+	rt.PropertiesInitialized = true
+
 	if isInitial {
 		// Do not return changed properties on the very first state initialization
 		return make(map[string]interface{}), true

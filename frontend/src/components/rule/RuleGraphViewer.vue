@@ -8,7 +8,8 @@
       <button v-if="isEditing" class="btn btn-sm btn-secondary me-2" @click="cancelEditing">
         {{ $t('tsl_cancel', '取消') }}
       </button>
-      <button v-if="isEditing" class="btn btn-sm btn-success me-2" @click="saveEditing">
+      <button v-if="isEditing" class="btn btn-sm btn-success me-2" :disabled="savingEditing" @click="saveEditing">
+        <span v-if="savingEditing" class="spinner-border spinner-border-sm me-1"></span>
         <i class="bi bi-save"></i> {{ $t('save', '保存') }}
       </button>
       <button v-if="!isEditing" class="btn btn-sm btn-outline-info me-2" @click="exportToImage">
@@ -17,6 +18,9 @@
       <button class="btn btn-sm btn-outline-danger" @click="exportToPdf">
         <i class="bi bi-file-pdf"></i> {{ $t('export_pdf', '导出PDF') }}
       </button>
+    </div>
+    <div v-if="saveMessage" class="alert py-2" :class="saveMessageType === 'success' ? 'alert-success' : 'alert-danger'">
+      {{ saveMessage }}
     </div>
 
     <!-- 规则概览面板 (非编辑时显示) -->
@@ -70,7 +74,7 @@
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'alarm' }, 'action')"><i class="bi bi-exclamation-triangle-fill text-success"></i> 触发告警</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'delay', delaySec: 1 }, 'action')"><i class="bi bi-hourglass-split text-success"></i> 延迟执行</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm' }, 'action')"><i class="bi bi-robot text-success"></i> 大模型</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'voice_playback' }, 'action')"><i class="bi bi-speaker text-success"></i> 语音播放</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'voice_playback' }, 'action')"><i class="bi bi-volume-up-fill text-success"></i> 语音播放</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'parallel' }, 'action_group')"><i class="bi bi-cpu text-success"></i> 并行执行组</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'sequence' }, 'action_group')"><i class="bi bi-list-ol text-success"></i> 串行执行组</div>
         </div>
@@ -183,7 +187,7 @@
           </div>
           <div class="mb-3">
             <label class="form-label">描述</label>
-            <VarInputWrapper :textarea="true" v-model="editableRule.description" :rows="3" />
+            <VarInputWrapper :textarea="true" v-model="editableRule.description" :rows="4" :maxRows="10" />
           </div>
           <div class="mb-3">
             <label class="form-label">{{ $t('rule_group') }}</label>
@@ -248,11 +252,11 @@
             </div>
             <div class="mb-3" v-if="selectedNode.mode !== 'always'">
               <label class="form-label">开始时间</label>
-              <input type="time" class="form-control form-control-sm" v-model="computedStartTime">
+              <input type="text" inputmode="numeric" class="form-control form-control-sm" placeholder="00:00" v-model="computedStartTime">
             </div>
             <div class="mb-3" v-if="selectedNode.mode !== 'always'">
               <label class="form-label">结束时间</label>
-              <input type="time" class="form-control form-control-sm" v-model="computedEndTime">
+              <input type="text" inputmode="numeric" class="form-control form-control-sm" placeholder="24:00" v-model="computedEndTime">
             </div>
             <div class="mb-3" v-if="['weekly', 'custom'].includes(selectedNode.mode)">
               <label class="form-label">星期配置 (逗号分隔1-7)</label>
@@ -283,30 +287,28 @@
 
           <!-- 针对 propertyKey -->
           <div class="mb-3" v-if="['property_change', 'property', 'set_property'].includes(selectedNode.type)">
-            <label class="form-label">属性</label>
-            <select class="form-select form-select-sm" v-model="selectedNode.propertyKey" v-if="selectedNode.deviceCode">
+            <label class="form-label">属性名称</label>
+            <select class="form-select form-select-sm" v-model="selectedNode.propertyKey" :disabled="!selectedNode.deviceCode">
               <option value="">请选择属性</option>
-              <option v-for="p in getDeviceProperties(selectedNode.deviceCode)" :key="p.key" :value="p.key">
-                {{ p.name || p.key }}
+              <option v-for="p in getDeviceProperties(selectedNode.deviceCode)" :key="p.key || p.identifier" :value="p.key || p.identifier">
+                {{ p.name || p.key || p.identifier }}
               </option>
             </select>
-            <VarInputWrapper v-model="selectedNode.propertyKey" placeholder="输入属性标识" />
+            <label class="form-label mt-2">属性标识</label>
+            <input class="form-control form-control-sm" :value="selectedNode.propertyKey || ''" readonly placeholder="选择属性后自动带出">
           </div>
           
           <!-- 针对 eventId -->
           <div class="mb-3" v-if="['event'].includes(selectedNode.type)">
-            <label class="form-label">事件</label>
-            <select class="form-select form-select-sm" v-model="selectedNode.eventId" v-if="selectedNode.deviceCode">
+            <label class="form-label">事件名称</label>
+            <select class="form-select form-select-sm" v-model="selectedNode.eventId" :disabled="!selectedNode.deviceCode">
               <option value="">请选择事件</option>
               <option v-for="e in getDeviceEvents(selectedNode.deviceCode)" :key="e.key || e.identifier" :value="e.key || e.identifier">
                 {{ e.name || e.key || e.identifier }}
               </option>
             </select>
-            <VarInputWrapper v-model="selectedNode.eventId" placeholder="输入事件标识" />
-          </div>
-          <div class="mb-3" v-if="['event'].includes(selectedNode.type)">
-            <label class="form-label">事件过滤 (JSON数组)</label>
-            <VarInputWrapper :textarea="true" v-model="computedEventFilter" :rows="2" placeholder='[{"key": "level", "operator": "eq", "value": 1}]' />
+            <label class="form-label mt-2">事件标识</label>
+            <input class="form-control form-control-sm" :value="selectedNode.eventId || ''" readonly placeholder="选择事件后自动带出">
           </div>
 
           <!-- Operator (条件/触发器) -->
@@ -342,33 +344,72 @@
           <!-- 定时触发 可视化配置 -->
           <template v-if="selectedNode.type === 'cron'">
             <div class="mb-3">
-              <label class="form-label">执行时间(时)</label>
-              <select class="form-select form-select-sm" :value="getCronPart(1)" @change="e => updateCron(1, e.target.value)">
-                <option value="*">每小时</option>
-                <option v-for="h in 24" :key="h-1" :value="`${h-1}`">{{ h-1 }}时</option>
+              <label class="form-label">配置方式</label>
+              <select class="form-select form-select-sm" v-model="selectedNode.cronMode" @change="syncSelectedCron">
+                <option value="visual">常用配置</option>
+                <option value="fields">Cron 字段</option>
+                <option value="advanced">高级表达式</option>
               </select>
             </div>
-            <div class="mb-3">
-              <label class="form-label">执行时间(分)</label>
-              <select class="form-select form-select-sm" :value="getCronPart(0)" @change="e => updateCron(0, e.target.value)">
-                <option value="*">每分钟</option>
-                <option v-for="m in 60" :key="m-1" :value="`${m-1}`">{{ m-1 }}分</option>
-              </select>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">星期配置</label>
-              <select class="form-select form-select-sm" :value="getCronPart(4)" @change="e => updateCron(4, e.target.value)">
-                <option value="*">每天</option>
-                <option value="1-5">工作日</option>
-                <option value="0,6">周末</option>
-                <option value="1">星期一</option>
-                <option value="2">星期二</option>
-                <option value="3">星期三</option>
-                <option value="4">星期四</option>
-                <option value="5">星期五</option>
-                <option value="6">星期六</option>
-                <option value="0">星期日</option>
-              </select>
+            <template v-if="selectedNode.cronMode !== 'advanced'">
+              <div class="mb-3" v-if="selectedNode.cronMode === 'visual'">
+                <label class="form-label">定时类型</label>
+                <select class="form-select form-select-sm" v-model="selectedNode.schedule.mode" @change="syncSelectedCron">
+                  <option value="every_minutes">每隔 N 分钟</option>
+                  <option value="hourly">每小时</option>
+                  <option value="daily">每天</option>
+                  <option value="weekly">每周</option>
+                  <option value="monthly">每月</option>
+                </select>
+              </div>
+              <div class="mb-3" v-if="selectedNode.cronMode === 'visual' && selectedNode.schedule.mode === 'every_minutes'">
+                <label class="form-label">间隔分钟</label>
+                <input class="form-control form-control-sm" type="number" min="1" max="59" v-model.number="selectedNode.schedule.intervalMinutes" @input="syncSelectedCron">
+              </div>
+              <div class="row g-2" v-if="selectedNode.cronMode === 'visual' && selectedNode.schedule.mode !== 'every_minutes'">
+                <div class="col-6">
+                  <label class="form-label">时</label>
+                  <input class="form-control form-control-sm" type="number" min="0" max="23" v-model.number="selectedNode.schedule.hour" @input="syncSelectedCron">
+                </div>
+                <div class="col-6">
+                  <label class="form-label">分</label>
+                  <input class="form-control form-control-sm" type="number" min="0" max="59" v-model.number="selectedNode.schedule.minute" @input="syncSelectedCron">
+                </div>
+              </div>
+              <div class="mb-3 mt-2" v-if="selectedNode.cronMode === 'visual' && selectedNode.schedule.mode === 'weekly'">
+                <label class="form-label">星期</label>
+                <input class="form-control form-control-sm" v-model.trim="selectedNode.schedule.weekdaysText" placeholder="1,3,5" @input="syncSelectedCron">
+              </div>
+              <div class="mb-3 mt-2" v-if="selectedNode.cronMode === 'visual' && selectedNode.schedule.mode === 'monthly'">
+                <label class="form-label">月份日期</label>
+                <input class="form-control form-control-sm" v-model.trim="selectedNode.schedule.monthDaysText" placeholder="1,15,28" @input="syncSelectedCron">
+              </div>
+              <div class="row g-2" v-if="selectedNode.cronMode === 'fields'">
+                <div class="col-6">
+                  <label class="form-label">分</label>
+                  <input class="form-control form-control-sm" v-model.trim="selectedNode.schedule.minuteExpr" placeholder="*/5" @input="syncSelectedCron">
+                </div>
+                <div class="col-6">
+                  <label class="form-label">时</label>
+                  <input class="form-control form-control-sm" v-model.trim="selectedNode.schedule.hourExpr" placeholder="*" @input="syncSelectedCron">
+                </div>
+                <div class="col-6">
+                  <label class="form-label">日</label>
+                  <input class="form-control form-control-sm" v-model.trim="selectedNode.schedule.dayOfMonthExpr" placeholder="*" @input="syncSelectedCron">
+                </div>
+                <div class="col-6">
+                  <label class="form-label">月</label>
+                  <input class="form-control form-control-sm" v-model.trim="selectedNode.schedule.monthExpr" placeholder="*" @input="syncSelectedCron">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">周</label>
+                  <input class="form-control form-control-sm" v-model.trim="selectedNode.schedule.weekdayExpr" placeholder="*" @input="syncSelectedCron">
+                </div>
+              </div>
+            </template>
+            <div class="mb-3 mt-2">
+              <label class="form-label">Cron 表达式</label>
+              <input class="form-control form-control-sm" v-model.trim="selectedNode.cronExpr" :readonly="selectedNode.cronMode !== 'advanced'" placeholder="*/5 * * * *">
             </div>
             <div class="mb-3">
               <label class="form-label">任务描述</label>
@@ -390,7 +431,7 @@
             </div>
             <div class="mb-3">
               <label class="form-label">服务参数 (JSON格式)</label>
-              <VarInputWrapper :textarea="true" v-model="computedServiceParams" :rows="3" placeholder='{"param1": "value"}' />
+              <VarInputWrapper :textarea="true" v-model="computedServiceParams" :rows="5" :maxRows="14" placeholder='{"param1": "value"}' />
             </div>
           </template>
 
@@ -402,7 +443,7 @@
             </div>
             <div class="mb-3">
               <label class="form-label">通知内容</label>
-              <VarInputWrapper :textarea="true" v-model="selectedNode.notifyContent" :rows="3" />
+              <VarInputWrapper :textarea="true" v-model="selectedNode.notifyContent" :rows="5" :maxRows="12" />
             </div>
           </template>
 
@@ -430,7 +471,7 @@
             </div>
             <div class="mb-3">
               <label class="form-label">告警内容</label>
-              <VarInputWrapper :textarea="true" v-model="selectedNode.alarmContent" :rows="3" />
+              <VarInputWrapper :textarea="true" v-model="selectedNode.alarmContent" :rows="5" :maxRows="12" />
             </div>
           </template>
 
@@ -444,7 +485,7 @@
           <template v-if="selectedNode.type === 'llm'">
             <div class="mb-3">
               <label class="form-label">附加描述词</label>
-              <VarInputWrapper :textarea="true" v-model="selectedNode.llmPrompt" :rows="3" />
+              <VarInputWrapper :textarea="true" v-model="selectedNode.llmPrompt" :rows="7" :maxRows="18" />
             </div>
           </template>
 
@@ -456,7 +497,7 @@
 
 <script>
 import VarInputWrapper from './VarInputWrapper.vue'
-import { defineComponent, computed, h, ref, reactive, provide, inject, watch, onUnmounted } from 'vue'
+import { defineComponent, computed, h, ref, reactive, provide, inject, watch, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
@@ -488,7 +529,9 @@ const RgCard = defineComponent({
         : null
       const textEl = h('div', { class: 'rg-card__text' }, [titleEl, detailEl])
 
-      const isSel = ctxData.selectedNode?.value && ctxData.selectedNode.value._id === (n._ref?._id || n.id || n._id)
+      const graphNodeId = n._ref?._id || n._ref?.id || n.id || n._id
+      const isSel = ctxData.selectedNode?.value && ctxData.selectedNode.value._id === graphNodeId
+      const isReferenced = ctxData.referenceNodeId?.value && ctxData.referenceNodeId.value === graphNodeId
       
       const children = [iconEl, textEl, badgesEl]
       
@@ -512,8 +555,10 @@ const RgCard = defineComponent({
           'rg-card',
           `rg-card--${n.tone}`,
           { 'rg-card--empty': n.empty },
-          { 'rg-node-selected': isSel && !n.empty }
+          { 'rg-node-selected': isSel && !n.empty },
+          { 'rg-node-referenced': isReferenced && !n.empty }
         ],
+        'data-rg-node-id': graphNodeId || undefined,
         onClick: (e) => {
           if (ctxData.isEditing?.value && !n.empty) {
             e.stopPropagation()
@@ -846,7 +891,12 @@ export default {
     const isEditing = ref(false)
     const editableRule = ref(null)
     const selectedNode = ref(null)
+    const referenceNodeId = ref(null)
+    const graphViewerRef = ref(null)
     const dragOverGroup = ref(null)
+    const savingEditing = ref(false)
+    const saveMessage = ref('')
+    const saveMessageType = ref('success')
 
     const collapsed = reactive({
       time: false,
@@ -953,6 +1003,19 @@ export default {
     }
 
     const makeNodeId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`
+    const defaultCronSchedule = () => ({
+      mode: 'every_minutes',
+      intervalMinutes: 5,
+      hour: 0,
+      minute: 0,
+      weekdaysText: '1,2,3,4,5',
+      monthDaysText: '1',
+      minuteExpr: '*/5',
+      hourExpr: '*',
+      dayOfMonthExpr: '*',
+      monthExpr: '*',
+      weekdayExpr: '*'
+    })
     const defaultActionFields = (type = 'set_property') => ({
       type,
       deviceCode: '',
@@ -981,10 +1044,11 @@ export default {
         operator: type === 'property_change' ? 'changed' : '',
         value: '',
         eventId: '',
-        eventFilter: [],
         statusValue: 'online',
+        cronMode: type === 'cron' ? 'visual' : '',
         cronExpr: '*/5 * * * *',
         cronDesc: '',
+        schedule: defaultCronSchedule(),
         ...item
       }
     }
@@ -1022,6 +1086,7 @@ export default {
       if (!value || typeof value !== 'object') return
       if (value._id && !value.id) value.id = value._id
       if (value._graphKind) delete value._graphKind
+      if (value.type === 'event') delete value.eventFilter
       if (value.type === 'voice_playback') delete value.voiceText
       if (value.type === 'llm') {
         delete value.llmPlayAudio
@@ -1052,18 +1117,37 @@ export default {
       
       editableRule.value = cloned
       isEditing.value = true
+      saveMessage.value = ''
     }
 
     const saveEditing = () => {
+      if (savingEditing.value) return
       const ruleToSave = JSON.parse(JSON.stringify(editableRule.value))
       ensureBackendIds(ruleToSave)
-      ctx.emit('update-rule', ruleToSave)
+      savingEditing.value = true
+      saveMessage.value = ''
+      ctx.emit('update-rule', ruleToSave, {
+        done: (ok, message, savedRule) => {
+          savingEditing.value = false
+          if (ok && savedRule && editableRule.value) {
+            Object.assign(editableRule.value, savedRule)
+          }
+          saveMessageType.value = ok ? 'success' : 'danger'
+          saveMessage.value = message || (ok ? t('rule_save_success', '保存成功') : t('common_save_fail', '保存失败'))
+        }
+      })
     }
+
+    watch(() => props.rule, (value) => {
+      if (value && !value.code) startEditing()
+    }, { immediate: true })
 
     const cancelEditing = () => {
       isEditing.value = false
       editableRule.value = null
       selectedNode.value = null
+      savingEditing.value = false
+      saveMessage.value = ''
     }
 
     const getDeviceProperties = (code) => {
@@ -1074,17 +1158,61 @@ export default {
       const dev = props.devices.find(d => d.code === code)
       return dev ? dev.events || [] : []
     }
-    function updateCron(partIndex, val) {
-      if (!selectedNode.value || selectedNode.value.type !== 'cron') return
-      const parts = (selectedNode.value.cronExpr || '* * * * *').split(' ')
-      while(parts.length < 5) parts.push('*')
-      parts[partIndex] = val
-      selectedNode.value.cronExpr = parts.join(' ')
+    const boundedNumber = (value, min, max, fallback) => {
+      const n = Number(value)
+      if (!Number.isFinite(n)) return fallback
+      return Math.min(max, Math.max(min, Math.trunc(n)))
     }
-    function getCronPart(partIndex) {
-      if (!selectedNode.value || selectedNode.value.type !== 'cron') return '*'
-      const parts = (selectedNode.value.cronExpr || '* * * * *').split(' ')
-      return parts[partIndex] || '*'
+    const parseNumberList = (text, min, max, fallback) => {
+      const values = String(text || '')
+        .split(',')
+        .map(item => Number.parseInt(item.trim(), 10))
+        .filter(item => Number.isInteger(item) && item >= min && item <= max)
+      return values.length ? values : fallback
+    }
+    const cronWeekdays = (text) => parseNumberList(text, 0, 7, [1, 2, 3, 4, 5]).map(day => day === 7 ? 0 : day).join(',')
+    const cronMonthDays = (text) => parseNumberList(text, 1, 31, [1]).join(',')
+    const cronExprPart = (value, fallback = '*') => String(value || '').trim() || fallback
+    const buildCronExpression = (schedule = {}) => {
+      const minute = boundedNumber(schedule.minute, 0, 59, 0)
+      const hour = boundedNumber(schedule.hour, 0, 23, 0)
+      switch (schedule.mode) {
+        case 'hourly':
+          return `${minute} * * * *`
+        case 'daily':
+          return `${minute} ${hour} * * *`
+        case 'weekly':
+          return `${minute} ${hour} * * ${cronWeekdays(schedule.weekdaysText)}`
+        case 'monthly':
+          return `${minute} ${hour} ${cronMonthDays(schedule.monthDaysText)} * *`
+        case 'custom_fields':
+        case 'fields':
+          return [
+            cronExprPart(schedule.minuteExpr),
+            cronExprPart(schedule.hourExpr),
+            cronExprPart(schedule.dayOfMonthExpr),
+            cronExprPart(schedule.monthExpr),
+            cronExprPart(schedule.weekdayExpr)
+          ].join(' ')
+        case 'every_minutes':
+        default:
+          return `*/${boundedNumber(schedule.intervalMinutes, 1, 59, 5)} * * * *`
+      }
+    }
+    const ensureCronNode = (node) => {
+      if (!node || node.type !== 'cron') return
+      node.cronMode = node.cronMode || 'visual'
+      node.schedule = { ...defaultCronSchedule(), ...(node.schedule || {}) }
+      if (node.cronMode === 'fields') node.schedule.mode = 'fields'
+      if (!node.cronExpr) node.cronExpr = buildCronExpression(node.schedule)
+    }
+    const syncSelectedCron = () => {
+      if (!selectedNode.value || selectedNode.value.type !== 'cron') return
+      ensureCronNode(selectedNode.value)
+      if (selectedNode.value.cronMode === 'fields') selectedNode.value.schedule.mode = 'fields'
+      if (selectedNode.value.cronMode !== 'advanced') {
+        selectedNode.value.cronExpr = buildCronExpression(selectedNode.value.schedule)
+      }
     }
     const getDeviceServices = (code) => {
       const dev = props.devices.find(d => d.code === code)
@@ -1127,21 +1255,6 @@ export default {
     const computedEffectiveWeekdays = createIntArrayComputed('weekdays')
     const computedEffectiveMonthDays = createIntArrayComputed('monthDays')
     const computedEffectiveMonths = createIntArrayComputed('months')
-
-    const computedEventFilter = computed({
-      get() {
-        if (!selectedNode.value || selectedNode.value.type !== 'event') return ''
-        return selectedNode.value.eventFilter ? JSON.stringify(selectedNode.value.eventFilter, null, 2) : ''
-      },
-      set(val) {
-        if (!selectedNode.value || selectedNode.value.type !== 'event') return
-        try {
-          selectedNode.value.eventFilter = JSON.parse(val || '[]')
-        } catch(e) {
-          // ignore parsing error
-        }
-      }
-    })
 
     const computedServiceParams = computed({
       get() {
@@ -1313,12 +1426,28 @@ export default {
       handleActionDrop(targetList, data, targetGroup, insertIndex)
     }
 
+    const highlightReferenceNode = (id, scroll = false) => {
+      referenceNodeId.value = id || null
+      if (!id || !scroll) return
+      nextTick(() => {
+        const nodes = graphViewerRef.value?.querySelectorAll?.('[data-rg-node-id]') || []
+        const target = Array.from(nodes).find(el => el.dataset.rgNodeId === id)
+        target?.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'center' })
+      })
+    }
+
+    const clearReferenceHighlight = () => {
+      referenceNodeId.value = null
+    }
+
     provide('rgContext', {
       isEditing,
       selectedNode,
+      referenceNodeId,
       dragOverGroup,
       selectNode: (node, kind) => {
         if (node && typeof node === 'object' && kind) node._graphKind = kind
+        ensureCronNode(node)
         selectedNode.value = node
       },
       deleteNode,
@@ -1502,7 +1631,7 @@ export default {
         return { ...base, icon: 'bi-robot', title: t('rule_action_llm', '大模型'), detail: action.llmPrompt || '大语言模型调用' }
       }
       if (action.type === 'voice_playback') {
-        return { ...base, icon: 'bi-speaker', title: t('rule_action_voice_playback', '语音播放'), detail: t('rule_action_voice_playback', '语音播放') }
+        return { ...base, icon: 'bi-volume-up-fill', title: t('rule_action_voice_playback', '语音播放'), detail: t('rule_action_voice_playback', '语音播放') }
       }
       if (action.type === 'set_property') {
         return {
@@ -1548,7 +1677,76 @@ export default {
       return actions.map((a, i) => buildActionNode(a, `act-${i}`, actions, i))
     })
 
-    const graphViewerRef = ref(null)
+    function flattenConditionNodes(group, result = []) {
+      if (!group) return result
+      ;(group.conditions || []).forEach(condition => result.push(condition))
+      ;(group.groups || []).forEach(child => flattenConditionNodes(child, result))
+      return result
+    }
+
+    function conditionDisplayNode(condition) {
+      let title = t('rule_condition_property')
+      let detail = ''
+      if (condition.type === 'device_status') {
+        title = t('rule_condition_status')
+        detail = `${deviceName(condition.deviceCode)} = ${condition.statusValue === 'offline' ? t('dev_offline') : t('dev_online')}`
+      } else {
+        detail = `${deviceName(condition.deviceCode)} / ${propName(condition.deviceCode, condition.propertyKey)} ${opLabel(condition.operator)} ${condition.value ?? ''}`
+      }
+      return { label: title, detail }
+    }
+
+    function addDisplayNode(map, id, node) {
+      if (!id || !node) return
+      map[id] = { label: node.title || node.label || '', detail: node.detail || '' }
+    }
+
+    function collectActionDisplayNodes(nodes, map) {
+      ;(nodes || []).forEach(node => {
+        if (!node || node.empty) return
+        addDisplayNode(map, node._ref?._id || node._ref?.id || node.id, node)
+        if (node.children?.length) collectActionDisplayNodes(node.children, map)
+      })
+    }
+
+    const nodeDisplay = computed(() => {
+      const map = {}
+      triggerNodes.value.forEach(node => {
+        if (!node.empty) addDisplayNode(map, node._ref?._id || node._ref?.id || node.id, node)
+      })
+      flattenConditionNodes(conditionTree.value).forEach(condition => {
+        const id = condition?._id || condition?.id
+        const display = conditionDisplayNode(condition)
+        if (id) map[id] = display
+      })
+      collectActionDisplayNodes(actionNodes.value, map)
+      return map
+    })
+    const hasReferenceContent = () => {
+      const kind = selectedNode.value?._graphKind || ''
+      const type = selectedNode.value?.type || ''
+      const actionTypes = ['set_property', 'call_service', 'notification', 'alarm', 'delay', 'llm', 'voice_playback', 'parallel_group', 'sequence_group']
+      return kind === 'condition' || kind === 'condition_group' || kind === 'action' || type === 'property' || actionTypes.includes(type)
+    }
+
+    provide('ruleContext', {
+      getContext: () => {
+        const activeRule = isEditing.value ? editableRule.value : props.rule
+        return {
+          effectiveTime: safeParse(activeRule?.effective_time, null),
+          triggers: safeParse(activeRule?.triggers, []),
+          conditions: flattenConditionNodes(safeParse(activeRule?.conditions, null)),
+          actions: safeParse(activeRule?.actions, []),
+          rule: activeRule || {},
+          currentNode: selectedNode.value,
+          devices: props.devices || [],
+          nodeDisplay: nodeDisplay.value
+        }
+      },
+      highlightNode: highlightReferenceNode,
+      clearHighlight: clearReferenceHighlight,
+      hasReferenceContent
+    })
 
     const exportToImage = async () => {
       if (!graphViewerRef.value) return
@@ -1587,11 +1785,11 @@ export default {
     return {
       triggerNodes, conditionTree, hasConditions,
       effectiveNodes, actionNodes, statusLabel, getDeviceProperties, getDeviceEvents, getDeviceServices,
-      computedServiceParams, computedEventFilter, computedStartTime, computedEndTime, computedEffectiveWeekdays, computedEffectiveMonthDays, computedEffectiveMonths,
-      typeLabel, updateCron, getCronPart, graphViewerRef, exportToImage, exportToPdf, selectedNodeTypeOptions, changeSelectedNodeType, canDeleteSelectedNode, deleteSelectedNode,
+      computedServiceParams, computedStartTime, computedEndTime, computedEffectiveWeekdays, computedEffectiveMonthDays, computedEffectiveMonths,
+      typeLabel, syncSelectedCron, graphViewerRef, exportToImage, exportToPdf, selectedNodeTypeOptions, changeSelectedNodeType, canDeleteSelectedNode, deleteSelectedNode,
       isEditing, editableRule, startEditing, saveEditing, cancelEditing, selectedNode, onDragStart,
       onDropTrigger, onDropConditionRoot, onDropActionRoot,
-      collapsed, toggleSection
+      collapsed, toggleSection, savingEditing, saveMessage, saveMessageType
     }
   }
 }
@@ -1989,4 +2187,9 @@ export default {
 
 .rg-drag-over { outline: 2px dashed var(--rg-trigger) !important; outline-offset: 2px; background-color: rgba(139, 92, 246, 0.05); }
 .rg-node-selected { outline: 2px solid #0d6efd !important; outline-offset: -2px; box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important; }
+.rg-node-referenced {
+  outline: 2px solid #8b5cf6 !important;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.16), 0 0.65rem 1.35rem rgba(15, 23, 42, 0.18) !important;
+}
 </style>

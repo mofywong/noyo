@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,7 +28,10 @@ type RuleEngine struct {
 	executor      *ActionExecutor
 	distributor   *RuleDistributor
 	cron          *cron.Cron
+	cronMu        sync.Mutex
 	cronEntries   map[string]cron.EntryID
+	controlMu     sync.Mutex
+	controls      map[string]*ruleExecutionControl
 	rules         sync.Map
 	execQueue     chan *RuleExecContext
 	workerCount   int
@@ -46,6 +50,7 @@ func NewRuleEngine(server *Server) *RuleEngine {
 		registry:      server.DeviceManager.Registry,
 		cron:          newRuleCronScheduler(),
 		cronEntries:   make(map[string]cron.EntryID),
+		controls:      make(map[string]*ruleExecutionControl),
 		execQueue:     make(chan *RuleExecContext, 2000),
 		workerCount:   20,
 		ruleTimeout:   60 * time.Second,
@@ -101,6 +106,7 @@ func (re *RuleEngine) LoadRules() error {
 	if err := store.DB.Where("enabled = ? AND status = ?", true, RuleStatusEnabled).Find(&rules).Error; err != nil {
 		return err
 	}
+	re.clearCronEntries()
 	re.rules.Range(func(key, value any) bool {
 		re.rules.Delete(key)
 		return true
@@ -121,11 +127,19 @@ func (re *RuleEngine) loadRule(rule store.Rule) error {
 	rt := &RuleRuntime{
 		Code:          rule.Code,
 		Name:          rule.Name,
+		Description:   rule.Description,
 		Version:       rule.Version,
+		Priority:      rule.Priority,
+		ThrottleSec:   rule.ThrottleSec,
+		MaxPerHour:    rule.MaxPerHour,
+		RetryCount:    rule.RetryCount,
 		Triggers:      def.Triggers,
 		Conditions:    def.Conditions,
 		Actions:       def.Actions,
 		EffectiveTime: def.EffectiveTime,
+	}
+	if rt.Priority <= 0 {
+		rt.Priority = 50
 	}
 	re.rules.Store(rule.Code, rt)
 	for _, trigger := range rt.Triggers {
@@ -138,10 +152,24 @@ func (re *RuleEngine) loadRule(rule store.Rule) error {
 			if err != nil {
 				return err
 			}
+			re.cronMu.Lock()
 			re.cronEntries[rule.Code+":"+trigger.ID] = entryID
+			re.cronMu.Unlock()
 		}
 	}
 	return nil
+}
+
+func (re *RuleEngine) clearCronEntries() {
+	if re == nil || re.cron == nil {
+		return
+	}
+	re.cronMu.Lock()
+	defer re.cronMu.Unlock()
+	for key, entryID := range re.cronEntries {
+		re.cron.Remove(entryID)
+		delete(re.cronEntries, key)
+	}
 }
 
 func (re *RuleEngine) handleEvent(event types.Event) {
@@ -152,15 +180,43 @@ func (re *RuleEngine) handleEvent(event types.Event) {
 		}
 	}
 
+	for _, match := range re.matchingRules(event) {
+		re.enqueue(match.ruleCode, match.trigger, event, 1)
+	}
+}
+
+type ruleExecutionControl struct {
+	inFlight []time.Time
+}
+
+type matchedRuleTrigger struct {
+	ruleCode string
+	priority int
+	trigger  RuleTrigger
+}
+
+func (re *RuleEngine) matchingRules(event types.Event) []matchedRuleTrigger {
+	matches := make([]matchedRuleTrigger, 0)
 	re.rules.Range(func(_, value any) bool {
 		rule := value.(*RuleRuntime)
 		for _, trigger := range rule.Triggers {
 			if re.triggerMatches(trigger, event) {
-				re.enqueue(rule.Code, trigger, event, 1)
+				matches = append(matches, matchedRuleTrigger{
+					ruleCode: rule.Code,
+					priority: rule.Priority,
+					trigger:  trigger,
+				})
 			}
 		}
 		return true
 	})
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].priority == matches[j].priority {
+			return matches[i].ruleCode < matches[j].ruleCode
+		}
+		return matches[i].priority < matches[j].priority
+	})
+	return matches
 }
 
 func (re *RuleEngine) enqueue(ruleCode string, trigger RuleTrigger, event types.Event, depth int) {
@@ -175,7 +231,7 @@ func (re *RuleEngine) enqueue(ruleCode string, trigger RuleTrigger, event types.
 	ctx := &RuleExecContext{
 		Context:       context.Background(),
 		Rule:          rule,
-		TemplateVars:  buildTemplateVars(rule, trigger, event),
+		TemplateVars:  re.buildTemplateVars(rule, trigger, event),
 		NodeResults:   make(map[string]any),
 		SessionID:     uuid.New().String(),
 		ActionTimeout: re.actionTimeout,
@@ -203,7 +259,8 @@ func (re *RuleEngine) worker(ctx context.Context) {
 func (re *RuleEngine) execute(execCtx *RuleExecContext) {
 	start := time.Now()
 	trigger, event := triggerFromVars(execCtx.TemplateVars)
-	if !ruleEffectiveAtPtr(execCtx.Rule.EffectiveTime, time.Now()) {
+	now := time.Now()
+	if !ruleEffectiveAtPtr(execCtx.Rule.EffectiveTime, now) {
 		re.writeLog(execCtx, trigger, event, false, nil, "rule is outside effective time", time.Since(start).Milliseconds(), 1)
 		return
 	}
@@ -214,18 +271,130 @@ func (re *RuleEngine) execute(execCtx *RuleExecContext) {
 			execCtx.TemplateVars = make(map[string]any)
 		}
 		execCtx.TemplateVars["condition_values"] = re.collectConditionValues(execCtx.Rule.Conditions)
-		results = re.executor.Execute(execCtx)
+		allowed, reason, release := re.reserveRuleExecution(execCtx.Rule, now)
+		if !allowed {
+			if re.server != nil && re.server.Logger != nil {
+				re.server.Logger.Debug("rule execution skipped by control limit", zap.String("rule", execCtx.Rule.Code), zap.String("reason", reason))
+			}
+			return
+		}
+		if release != nil {
+			defer release()
+		}
+		results = re.executeActionsWithRetry(execCtx)
 	}
 	success := conditionOK
 	errorMessage := ""
-	for _, result := range results {
-		if result.Status == "failed" {
-			success = false
-			errorMessage = result.Error
-			break
-		}
+	if actionError := firstFailedActionError(results); actionError != "" {
+		success = false
+		errorMessage = actionError
 	}
 	re.writeLog(execCtx, trigger, event, success, results, errorMessage, time.Since(start).Milliseconds(), 1)
+}
+
+func (re *RuleEngine) executeActionsWithRetry(execCtx *RuleExecContext) []ActionResult {
+	attempts := execCtx.Rule.RetryCount + 1
+	if attempts < 1 {
+		attempts = 1
+	}
+	var results []ActionResult
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if attempt > 1 {
+			execCtx.NodeResultsMu.Lock()
+			execCtx.NodeResults = make(map[string]any)
+			execCtx.NodeResultsMu.Unlock()
+		}
+		results = re.executor.Execute(execCtx)
+		if firstFailedActionError(results) == "" {
+			return results
+		}
+	}
+	return results
+}
+
+func firstFailedActionError(results []ActionResult) string {
+	for _, result := range results {
+		if result.Status == "failed" {
+			return result.Error
+		}
+	}
+	return ""
+}
+
+func (re *RuleEngine) reserveRuleExecution(rule RuleRuntime, now time.Time) (bool, string, func()) {
+	persistedLast, persistedCount := re.persistedRuleExecutionState(rule, now)
+	re.controlMu.Lock()
+	defer re.controlMu.Unlock()
+	if re.controls == nil {
+		re.controls = make(map[string]*ruleExecutionControl)
+	}
+	state := re.controls[rule.Code]
+	if state == nil {
+		state = &ruleExecutionControl{}
+		re.controls[rule.Code] = state
+	}
+	state.inFlight = pruneRuleExecutionReservations(state.inFlight, now.Add(-time.Hour))
+
+	if rule.ThrottleSec > 0 {
+		if !persistedLast.IsZero() && now.Before(persistedLast.Add(time.Duration(rule.ThrottleSec)*time.Second)) {
+			return false, "rule is throttled", nil
+		}
+	}
+	if rule.MaxPerHour > 0 {
+		if persistedCount+int64(len(state.inFlight)) >= int64(rule.MaxPerHour) {
+			return false, "rule exceeds hourly execution limit", nil
+		}
+	}
+	state.inFlight = append(state.inFlight, now)
+	return true, "", func() {
+		re.controlMu.Lock()
+		defer re.controlMu.Unlock()
+		current := re.controls[rule.Code]
+		if current == nil {
+			return
+		}
+		current.inFlight = removeRuleExecutionReservation(current.inFlight, now)
+	}
+}
+
+func (re *RuleEngine) persistedRuleExecutionState(rule RuleRuntime, now time.Time) (time.Time, int64) {
+	if store.DB == nil || rule.Code == "" {
+		return time.Time{}, 0
+	}
+	var last time.Time
+	if rule.ThrottleSec > 0 {
+		model, err := store.GetRule(rule.Code)
+		if err == nil && model != nil && model.LastTriggeredAt != nil {
+			last = time.UnixMilli(*model.LastTriggeredAt)
+		}
+	}
+	var count int64
+	if rule.MaxPerHour > 0 {
+		since := now.Add(-time.Hour).UnixMilli()
+		_ = store.DB.Model(&store.RuleExecLog{}).
+			Where("rule_code = ? AND success = ? AND executed_at >= ?", rule.Code, true, since).
+			Count(&count).Error
+	}
+	return last, count
+}
+
+func pruneRuleExecutionReservations(values []time.Time, cutoff time.Time) []time.Time {
+	filtered := values[:0]
+	for _, value := range values {
+		if value.After(cutoff) || value.Equal(cutoff) {
+			filtered = append(filtered, value)
+		}
+	}
+	return filtered
+}
+
+func removeRuleExecutionReservation(values []time.Time, target time.Time) []time.Time {
+	for index, value := range values {
+		if value.Equal(target) {
+			return append(values[:index], values[index+1:]...)
+		}
+	}
+	return values
 }
 
 func (re *RuleEngine) triggerMatches(trigger RuleTrigger, event types.Event) bool {
@@ -326,21 +495,37 @@ func (re *RuleEngine) collectConditionValues(group *RuleConditionGroup) []map[st
 	values := make([]map[string]any, 0, len(group.Conditions))
 	for _, condition := range group.Conditions {
 		item := map[string]any{
-			"id":          condition.ID,
-			"type":        condition.Type,
-			"deviceCode":  condition.DeviceCode,
-			"deviceName":  condition.DeviceName,
-			"propertyKey": condition.PropertyKey,
-			"operator":    condition.Operator,
-			"expected":    condition.Value,
-			"statusValue": condition.StatusValue,
-			"matched":     re.evaluateCondition(condition),
+			"id":           condition.ID,
+			"type":         condition.Type,
+			"deviceCode":   condition.DeviceCode,
+			"deviceName":   re.resolveDeviceName(condition.DeviceCode, condition.DeviceName),
+			"propertyKey":  condition.PropertyKey,
+			"propertyName": re.resolvePropertyName(condition.DeviceCode, condition.PropertyKey, condition.PropertyKey),
+			"operator":     condition.Operator,
+			"expected":     condition.Value,
+			"statusValue":  condition.StatusValue,
+			"startTime":    condition.StartTime,
+			"endTime":      condition.EndTime,
+			"weekdays":     condition.Weekdays,
+			"timezone":     condition.Timezone,
+			"matched":      re.evaluateCondition(condition),
+		}
+		if condition.DeviceCode != "" {
+			item["properties"] = re.deviceManager.GetLatestData(condition.DeviceCode)
+			if status, ok := re.deviceManager.GetStatus(condition.DeviceCode); ok {
+				if status.Online {
+					item["deviceStatus"] = "online"
+				} else {
+					item["deviceStatus"] = "offline"
+				}
+			}
 		}
 		switch condition.Type {
 		case "property":
 			data := re.deviceManager.GetLatestData(condition.DeviceCode)
 			if actual, ok := data[condition.PropertyKey]; ok {
 				item["actualValue"] = actual
+				item["propertyValue"] = actual
 			}
 		case "device_status":
 			if status, ok := re.deviceManager.GetStatus(condition.DeviceCode); ok {
@@ -588,12 +773,145 @@ func containsInt(values []int, target int) bool {
 	return false
 }
 
-func buildTemplateVars(rule RuleRuntime, trigger RuleTrigger, event types.Event) map[string]any {
+func (re *RuleEngine) buildTemplateVars(rule RuleRuntime, trigger RuleTrigger, event types.Event) map[string]any {
+	deviceCode := trigger.DeviceCode
+	if deviceCode == "" {
+		deviceCode = event.Topic
+	}
+	if deviceCode != "" && re != nil && re.deviceManager != nil {
+		trigger.DeviceCode = deviceCode
+		trigger.DeviceName = re.resolveDeviceName(deviceCode, trigger.DeviceName)
+		trigger.PropertyName = re.resolvePropertyName(deviceCode, trigger.PropertyKey, trigger.PropertyName)
+		trigger.EventName = re.resolveEventName(deviceCode, trigger.EventID, trigger.EventName)
+		trigger.Properties = mergeRuntimeProperties(re.deviceManager.GetLatestData(deviceCode), eventProperties(event))
+		if trigger.PropertyKey != "" && trigger.Properties != nil {
+			if value, ok := trigger.Properties[trigger.PropertyKey]; ok {
+				trigger.TriggerValue = value
+			}
+		}
+		if status, ok := re.deviceManager.GetStatus(deviceCode); ok {
+			if status.Online {
+				trigger.DeviceStatus = "online"
+			} else {
+				trigger.DeviceStatus = "offline"
+			}
+		}
+	}
+	trigger.TriggerTime = event.Timestamp
+	trigger.TriggerTimeText = formatSystemTimeMillis(event.Timestamp)
+	if payload, ok := event.Payload.(map[string]interface{}); ok {
+		if params, ok := payload["params"].(map[string]interface{}); ok {
+			trigger.EventParams = params
+		}
+	}
 	return map[string]any{
 		"rule":    rule,
 		"trigger": trigger,
 		"event":   event,
 	}
+}
+
+func (re *RuleEngine) resolveDeviceName(deviceCode string, fallback string) string {
+	if deviceCode == "" || re == nil || re.deviceManager == nil || re.deviceManager.Registry == nil {
+		return fallback
+	}
+	if device, ok := re.deviceManager.Registry.GetDevice(deviceCode); ok {
+		if device.Name != "" {
+			return device.Name
+		}
+	}
+	return fallback
+}
+
+func (re *RuleEngine) resolvePropertyName(deviceCode string, propertyKey string, fallback string) string {
+	if deviceCode == "" || propertyKey == "" || re == nil || re.deviceManager == nil || re.deviceManager.Registry == nil {
+		return fallback
+	}
+	device, ok := re.deviceManager.Registry.GetDevice(deviceCode)
+	if !ok {
+		return fallback
+	}
+	product, err := re.deviceManager.Registry.GetProductMeta(device.ProductCode)
+	if err != nil {
+		return fallback
+	}
+	tsl, ok := product.Config["tsl"].(map[string]any)
+	if !ok {
+		tsl = product.Config
+	}
+	props, ok := tsl["properties"].([]any)
+	if !ok {
+		return fallback
+	}
+	for _, raw := range props {
+		prop, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if stringValue(prop["identifier"]) == propertyKey {
+			if name := stringValue(prop["name"]); name != "" {
+				return name
+			}
+			return fallback
+		}
+	}
+	return fallback
+}
+
+func formatSystemTimeMillis(timestamp int64) string {
+	if timestamp <= 0 {
+		return ""
+	}
+	return time.UnixMilli(timestamp).In(time.Local).Format("2006-01-02 15:04:05")
+}
+
+func (re *RuleEngine) resolveEventName(deviceCode string, eventID string, fallback string) string {
+	if deviceCode == "" || eventID == "" || re == nil || re.deviceManager == nil || re.deviceManager.Registry == nil {
+		return fallback
+	}
+	device, ok := re.deviceManager.Registry.GetDevice(deviceCode)
+	if !ok {
+		return fallback
+	}
+	product, err := re.deviceManager.Registry.GetProductMeta(device.ProductCode)
+	if err != nil {
+		return fallback
+	}
+	tsl, ok := product.Config["tsl"].(map[string]any)
+	if !ok {
+		tsl = product.Config
+	}
+	events, ok := tsl["events"].([]any)
+	if !ok {
+		return fallback
+	}
+	for _, raw := range events {
+		event, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if stringValue(event["identifier"]) == eventID {
+			if name := stringValue(event["name"]); name != "" {
+				return name
+			}
+			return fallback
+		}
+	}
+	return fallback
+}
+
+func mergeRuntimeProperties(latest map[string]interface{}, reported map[string]interface{}) map[string]any {
+	if latest == nil && reported == nil {
+		return nil
+	}
+	result := make(map[string]any, len(latest)+len(reported))
+	for k, v := range latest {
+		result[k] = v
+	}
+	for k, v := range reported {
+		result[k] = v
+	}
+	return result
 }
 
 func triggerFromVars(vars map[string]any) (RuleTrigger, types.Event) {

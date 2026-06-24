@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="rule-engine container-fluid py-4">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
       <div>
@@ -9,7 +9,7 @@
         <button class="btn btn-outline-secondary btn-sm" @click="fetchAll" :disabled="loading">
           <i class="bi me-1" :class="loading ? 'bi-arrow-repeat spin' : 'bi-arrow-clockwise'"></i>{{ $t('refresh') }}
         </button>
-        <button class="btn btn-primary btn-sm" @click="openEditor()" v-permission="'rule:create'">
+        <button class="btn btn-primary btn-sm" @click="openNewRuleGraph" v-permission="'rule:create'">
           <i class="bi bi-plus-lg me-1"></i>{{ $t('rule_create') }}
         </button>
       </div>
@@ -112,7 +112,7 @@
                   <span class="badge rounded-pill" :class="statusBadge(rule.status)">
                     {{ statusLabel(rule.status) }}
                   </span>
-                  <div v-if="rule.error_message" class="small text-danger mt-1">{{ rule.error_message }}</div>
+                  <div v-if="rule.error_message" class="small text-danger mt-1">{{ localizedRuleError(rule.error_message) }}</div>
                 </td>
                 <td class="text-end">
                   <div>{{ rule.trigger_count || 0 }}</div>
@@ -125,9 +125,6 @@
                     </button>
                     <button class="btn btn-outline-info" @click="openRuleGraph(rule)" :title="$t('rule_graph_view')">
                       <i class="bi bi-diagram-3"></i>
-                    </button>
-                    <button class="btn btn-outline-primary" @click="openEditor(rule)" :title="$t('tsl_edit')" v-permission="'rule:edit'">
-                      <i class="bi bi-pencil"></i>
                     </button>
                     <button v-if="rule.enabled" class="btn btn-outline-warning" @click="toggleRule(rule, false)" :title="$t('disable')" v-permission="'rule:enable'">
                       <i class="bi bi-pause-fill"></i>
@@ -147,330 +144,13 @@
       </div>
     </div>
 
-    <div v-if="showEditor" class="modal fade show d-block rule-modal" tabindex="-1">
-      <div class="modal-dialog modal-xl rule-editor-dialog">
-        <div class="modal-content border-0 shadow-lg">
-          <div class="modal-header">
-            <div>
-              <h5 class="modal-title">{{ editingCode ? $t('rule_edit') : $t('rule_create') }}</h5>
-              <div class="small text-muted">{{ executionPreview }}</div>
-            </div>
-            <button type="button" class="btn-close" @click="closeEditor"></button>
-          </div>
-          <div class="modal-body">
-            <div class="row g-4 mb-4">
-              <div class="col-12">
-                <div class="rule-panel">
-                  <div class="d-flex align-items-center border-bottom pb-2 mb-3 cursor-pointer" @click="expandedSections.basicInfo = !expandedSections.basicInfo">
-                    <i class="bi me-2" :class="expandedSections.basicInfo ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-                    <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>{{ $t('rule_basic_info') }}</h6>
-                  </div>
-                  <div class="row g-3" v-show="expandedSections.basicInfo">
-                    <div class="col-md-3">
-                      <label class="form-label">{{ $t('rule_name') }}</label>
-                      <input class="form-control" v-model.trim="form.name" maxlength="128">
-                    </div>
-                    <div class="col-md-3">
-                      <label class="form-label">{{ $t('rule_group') }}</label>
-                      <select class="form-select" v-model="form.group_id">
-                        <option :value="null">{{ $t('rule_no_group') }}</option>
-                        <option v-for="group in groups" :key="group.id || group.ID" :value="group.id || group.ID">{{ group.name }}</option>
-                      </select>
-                    </div>
-                    <div class="col-md-6">
-                      <label class="form-label">{{ $t('description') }}</label>
-                      <input class="form-control" v-model.trim="form.description">
-                    </div>
-                    <div class="col-md-2">
-                      <label class="form-label">{{ $t('rule_priority') }}</label>
-                      <input class="form-control" type="number" min="1" max="100" v-model.number="form.priority">
-                    </div>
-                    <div class="col-md-2">
-                      <label class="form-label">{{ $t('rule_throttle_sec') }}</label>
-                      <input class="form-control" type="number" min="1" v-model.number="form.throttle_sec">
-                    </div>
-                    <div class="col-md-2">
-                      <label class="form-label">{{ $t('rule_max_per_hour') }}</label>
-                      <input class="form-control" type="number" min="1" v-model.number="form.max_per_hour">
-                    </div>
-                    <div class="col-md-2">
-                      <label class="form-label">{{ $t('rule_retry_count') }}</label>
-                      <input class="form-control" type="number" min="0" max="3" v-model.number="form.retry_count">
-                    </div>
-                    <div class="col-md-4">
-                      <label class="form-label">{{ $t('rule_effective_time') }}</label>
-                      <div class="d-flex gap-2">
-                        <select class="form-select" v-model="form.effective_time.mode" @change="applyEffectiveModeDefaults">
-                          <option value="always">{{ $t('rule_effective_always') }}</option>
-                          <option value="daily">{{ $t('rule_effective_daily') }}</option>
-                          <option value="weekly">{{ $t('rule_effective_weekly') }}</option>
-                          <option value="monthly">{{ $t('rule_effective_monthly') }}</option>
-                          <option value="workday">{{ $t('rule_effective_workday') }}</option>
-                          <option value="holiday">{{ $t('rule_effective_holiday') }}</option>
-                          <option value="custom">{{ $t('rule_effective_custom') }}</option>
-                        </select>
-                        <button v-if="form.effective_time.mode !== 'always'" class="btn btn-outline-primary text-nowrap" type="button" @click="addEffectiveWindow">
-                          <i class="bi bi-plus-lg me-1"></i>{{ $t('rule_effective_add_window') }}
-                        </button>
-                      </div>
-                    </div>
-                    <div class="col-12" v-if="form.effective_time.mode !== 'always'">
-                      <div class="row g-2 align-items-end mb-2" v-for="(window, index) in form.effective_time.windows" :key="index">
-                        <div class="col-md-4" v-if="form.effective_time.mode === 'monthly'">
-                          <label class="form-label">{{ $t('rule_effective_month_days') }}</label>
-                          <input class="form-control" v-model.trim="window.monthDaysText" placeholder="1,15,28" @input="window.monthDays = parseNumberList(window.monthDaysText, 1, 31)">
-                        </div>
-                        <div class="col-md-3">
-                          <label class="form-label">{{ $t('rule_effective_start') }}</label>
-                          <input class="form-control" v-model.trim="window.startTime" placeholder="00:00:00">
-                        </div>
-                        <div class="col-md-3">
-                          <label class="form-label">{{ $t('rule_effective_end') }}</label>
-                          <input class="form-control" v-model.trim="window.endTime" placeholder="24:00:00">
-                        </div>
-                        <div class="col-md-2">
-                          <button class="btn btn-outline-danger" type="button" :disabled="form.effective_time.windows.length <= 1" @click="removeEffectiveWindow(index)">
-                            <i class="bi bi-trash"></i>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="col-12" v-if="showsEffectiveWeekdays">
-                      <label class="form-label">{{ $t('rule_effective_weekdays') }}</label>
-                      <div class="d-flex flex-wrap gap-2">
-                        <label v-for="day in weekdayOptions" :key="day.value" class="form-check form-check-inline mb-0">
-                          <input class="form-check-input" type="checkbox" :value="day.value" v-model="form.effective_time.weekdays">
-                          <span class="form-check-label small">{{ day.label }}</span>
-                        </label>
-                      </div>
-                    </div>
-                    <div class="col-md-6" v-if="showsEffectiveMonthDays">
-                      <label class="form-label">{{ $t('rule_effective_month_days') }}</label>
-                      <input class="form-control" v-model.trim="effectiveMonthDaysText" placeholder="1,15,28">
-                    </div>
-                    <div class="col-md-6" v-if="showsEffectiveMonths">
-                      <label class="form-label">{{ $t('rule_effective_months') }}</label>
-                      <input class="form-control" v-model.trim="effectiveMonthsText" placeholder="1,6,12">
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="row">
-              <div class="col-12">
-                <div class="rule-builder">
-                  <section class="rule-step">
-                    <div class="rule-step__head cursor-pointer" @click="expandedSections.triggers = !expandedSections.triggers">
-                      <div class="d-flex align-items-center gap-2">
-                        <i class="bi" :class="expandedSections.triggers ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-                        <div>
-                          <span class="step-kicker">{{ $t('rule_when') }}</span>
-                          <h6 class="mb-0">{{ $t('rule_triggers') }}</h6>
-                        </div>
-                      </div>
-                      <button class="btn btn-outline-primary btn-sm" @click.stop="addTrigger">
-                        <i class="bi bi-plus-lg me-1"></i>{{ $t('add_trigger') }}
-                      </button>
-                    </div>
-                    <div v-show="expandedSections.triggers">
-                    <article v-for="(trigger, index) in form.triggers" :key="trigger.id" class="builder-item">
-                      <div class="builder-line">
-                        <div class="col-md-3">
-                          <label class="form-label">{{ $t('type') }}</label>
-                          <select class="form-select" v-model="trigger.type">
-                            <option value="property_change">{{ $t('rule_trigger_property') }}</option>
-                            <option value="event">{{ $t('rule_trigger_event') }}</option>
-                            <option value="device_status">{{ $t('rule_trigger_status') }}</option>
-                            <option value="cron">{{ $t('rule_trigger_cron') }}</option>
-                          </select>
-                        </div>
-                        <template v-if="trigger.type !== 'cron'">
-                          <div class="col-md-4">
-                            <label class="form-label">{{ $t('device') }}</label>
-                            <select class="form-select" v-model="trigger.deviceCode">
-                              <option value="">{{ $t('select_device') }}</option>
-                              <option v-for="device in devices" :key="device.code" :value="device.code">{{ deviceLabel(device) }}</option>
-                            </select>
-                          </div>
-                          <div class="col-md-3" v-if="trigger.type === 'property_change'">
-                            <label class="form-label">{{ $t('property') }}</label>
-                            <select class="form-select" v-model="trigger.propertyKey">
-                              <option value="">{{ $t('select_properties') }}</option>
-                              <option v-for="prop in propertiesFor(trigger.deviceCode)" :key="optionKey(prop)" :value="optionKey(prop)">{{ optionLabel(prop) }}</option>
-                            </select>
-                          </div>
-                          <div class="col-md-2" v-if="trigger.type === 'property_change'">
-                            <label class="form-label">{{ $t('operator') }}</label>
-                            <select class="form-select" v-model="trigger.operator">
-                              <option value="changed">{{ $t('rule_op_changed') }}</option>
-                              <option value="eq">=</option>
-                              <option value="gt">&gt;</option>
-                              <option value="gte">&gt;=</option>
-                              <option value="lt">&lt;</option>
-                              <option value="lte">&lt;=</option>
-                            </select>
-                          </div>
-                          <div class="col-md-3" v-if="trigger.type === 'property_change' && trigger.operator !== 'changed'">
-                            <label class="form-label">{{ $t('value') }}</label>
-                            <input class="form-control" v-model="trigger.value">
-                          </div>
-                          <div class="col-md-4" v-if="trigger.type === 'event'">
-                            <label class="form-label">{{ $t('event') }}</label>
-                            <select class="form-select" v-model="trigger.eventId">
-                              <option value="">{{ $t('rule_select_event') }}</option>
-                              <option v-for="evt in eventsFor(trigger.deviceCode)" :key="optionKey(evt)" :value="optionKey(evt)">{{ optionLabel(evt) }}</option>
-                            </select>
-                          </div>
-                          <div class="col-md-3" v-if="trigger.type === 'device_status'">
-                            <label class="form-label">{{ $t('status') }}</label>
-                            <select class="form-select" v-model="trigger.statusValue">
-                              <option value="online">{{ $t('dev_online') }}</option>
-                              <option value="offline">{{ $t('dev_offline') }}</option>
-                            </select>
-                          </div>
-                        </template>
-                        <template v-else>
-                          <div class="col-md-3">
-                            <label class="form-label">{{ $t('rule_cron_mode') }}</label>
-                            <select class="form-select" v-model="trigger.cronMode" @change="syncCronExpression(trigger)">
-                              <option value="visual">{{ $t('rule_cron_mode_visual') }}</option>
-                              <option value="advanced">{{ $t('rule_cron_mode_advanced') }}</option>
-                            </select>
-                          </div>
-                          <template v-if="trigger.cronMode !== 'advanced'">
-                            <div class="col-md-3">
-                              <label class="form-label">{{ $t('rule_cron_schedule_type') }}</label>
-                              <select class="form-select" v-model="trigger.schedule.mode" @change="syncCronExpression(trigger)">
-                                <option value="every_minutes">{{ $t('rule_cron_every_minutes') }}</option>
-                                <option value="hourly">{{ $t('rule_cron_hourly') }}</option>
-                                <option value="daily">{{ $t('rule_cron_daily') }}</option>
-                                <option value="weekly">{{ $t('rule_cron_weekly') }}</option>
-                                <option value="monthly">{{ $t('rule_cron_monthly') }}</option>
-                              </select>
-                            </div>
-                            <div class="col-md-2" v-if="trigger.schedule.mode === 'every_minutes'">
-                              <label class="form-label">{{ $t('rule_cron_interval_minutes') }}</label>
-                              <input class="form-control" type="number" min="1" max="59" v-model.number="trigger.schedule.intervalMinutes" @input="syncCronExpression(trigger)">
-                            </div>
-                            <div class="col-md-2" v-if="trigger.schedule.mode !== 'every_minutes'">
-                              <label class="form-label">{{ $t('rule_cron_hour') }}</label>
-                              <input class="form-control" type="number" min="0" max="23" v-model.number="trigger.schedule.hour" @input="syncCronExpression(trigger)">
-                            </div>
-                            <div class="col-md-2" v-if="trigger.schedule.mode !== 'every_minutes'">
-                              <label class="form-label">{{ $t('rule_cron_minute') }}</label>
-                              <input class="form-control" type="number" min="0" max="59" v-model.number="trigger.schedule.minute" @input="syncCronExpression(trigger)">
-                            </div>
-                            <div class="col-md-4" v-if="trigger.schedule.mode === 'weekly'">
-                              <label class="form-label">{{ $t('rule_effective_weekdays') }}</label>
-                              <input class="form-control" v-model.trim="trigger.schedule.weekdaysText" placeholder="1,3,5" @input="syncCronExpression(trigger)">
-                            </div>
-                            <div class="col-md-4" v-if="trigger.schedule.mode === 'monthly'">
-                              <label class="form-label">{{ $t('rule_effective_month_days') }}</label>
-                              <input class="form-control" v-model.trim="trigger.schedule.monthDaysText" placeholder="1,15,28" @input="syncCronExpression(trigger)">
-                            </div>
-                          </template>
-                          <div class="col-md-4">
-                            <label class="form-label">{{ $t('rule_cron_expr') }}</label>
-                            <input class="form-control" v-model.trim="trigger.cronExpr" :readonly="trigger.cronMode !== 'advanced'" placeholder="*/5 * * * *">
-                          </div>
-                        </template>
-                        <div class="col text-end">
-                          <button class="btn btn-outline-danger btn-sm" @click="removeTrigger(index)" :disabled="form.triggers.length === 1">
-                            <i class="bi bi-trash"></i>
-                          </button>
-                        </div>
-                        </div>
-                      </article>
-                    </div>
-                  </section>
-
-                  <section class="rule-step">
-                    <div class="rule-step__head cursor-pointer" @click="expandedSections.conditions = !expandedSections.conditions">
-                      <div class="d-flex align-items-center gap-2">
-                        <i class="bi" :class="expandedSections.conditions ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-                        <div>
-                          <span class="step-kicker">{{ $t('rule_if') }}</span>
-                          <h6 class="mb-0">{{ $t('rule_conditions') }}</h6>
-                        </div>
-                      </div>
-                    </div>
-                    <div v-show="expandedSections.conditions">
-                      <RuleConditionGroupEditor
-                        :group="form.conditions"
-                        :devices="devices"
-                        :labels="conditionLabels"
-                        :level="0"
-                      />
-                    </div>
-                  </section>
-
-                  <section class="rule-step">
-                    <div class="rule-step__head cursor-pointer" @click="expandedSections.actions = !expandedSections.actions">
-                      <div class="d-flex align-items-center gap-2">
-                        <i class="bi" :class="expandedSections.actions ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-                        <div>
-                          <span class="step-kicker">{{ $t('rule_then') }}</span>
-                          <h6 class="mb-0">{{ $t('rule_actions') }}</h6>
-                        </div>
-                      </div>
-                      <div class="btn-group btn-group-sm" @click.stop>
-                        <button class="btn btn-outline-primary" @click="addAction()"><i class="bi bi-plus-lg me-1"></i>{{ $t('rule_add_action') }}</button>
-                        <button class="btn btn-outline-primary" @click="addSequenceGroup"><i class="bi bi-list-nested me-1"></i>{{ $t('rule_sequence_group') }}</button>
-                        <button class="btn btn-outline-primary" @click="addParallelGroup"><i class="bi bi-diagram-3 me-1"></i>{{ $t('rule_parallel_group') }}</button>
-                      </div>
-                    </div>
-                    <div v-show="expandedSections.actions">
-                      <div class="action-group-container" style="--group-color: #fd7e14; --group-bg: rgba(253, 126, 20, 0.03);">
-                        <div class="action-group-container__header d-flex justify-content-between align-items-center mb-3 pb-3">
-                          <div class="d-flex align-items-center gap-2">
-                            <div class="fw-bold group-title" style="color: #fd7e14;">
-                              <i class="bi bi-play-circle me-2"></i>{{ $t('rule_actions_group_root', '主执行动作组') }}
-                            </div>
-                          </div>
-                        </div>
-                        <div class="action-group-body">
-                          <div v-if="form.actions.length === 0" class="builder-empty">{{ $t('rule_no_actions', '无执行动作') }}</div>
-                          <div v-for="(action, index) in form.actions" :key="action.id" class="action-sub-wrapper position-relative">
-                            <ActionEditor
-                              :action="action"
-                              :devices="devices"
-                              :level="0"
-                              :labels="actionLabels"
-                              @remove="removeAction(index)"
-                              @add-sub="addSubAction(action)"
-                              @remove-sub="removeSubAction(action, $event)"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <div class="me-auto text-muted small">{{ validationMessage }}</div>
-            <button class="btn btn-outline-secondary" @click="closeEditor">{{ $t('tsl_cancel') }}</button>
-            <button class="btn btn-outline-primary" :disabled="saving || !!validationMessage" @click="saveRule(false)">
-              <i class="bi bi-save me-1"></i>{{ $t('rule_save_draft') }}
-            </button>
-            <button class="btn btn-primary" :disabled="saving || !!validationMessage" @click="saveRule(true)">
-              <i class="bi bi-play-fill me-1"></i>{{ $t('rule_save_enable') }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div v-if="showGraph" class="modal fade show d-block rule-modal" tabindex="-1">
       <div class="modal-dialog modal-xl rule-graph-dialog">
         <div class="modal-content border-0 shadow-lg">
           <div class="modal-header">
             <div>
-              <h5 class="modal-title">{{ $t('rule_graph_view') }} - {{ graphRule?.name }}</h5>
-              <div class="small text-muted">{{ $t('rule_graph_readonly') }}</div>
+              <h5 class="modal-title">{{ graphRule?.code ? $t('rule_graph_view') : $t('rule_create') }} - {{ graphRule?.name || $t('rule_new_default_name') }}</h5>
+              <div class="small text-muted">{{ graphRule?.code ? $t('rule_graph_readonly') : $t('rule_graph_editing') }}</div>
             </div>
             <button type="button" class="btn-close" @click="closeRuleGraph"></button>
           </div>
@@ -504,12 +184,12 @@
                 </tr>
                 <tr v-for="log in logs" :key="log.id || log.ID">
                   <td>{{ formatTime(log.executed_at) }}</td>
-                  <td>{{ log.trigger_type }}</td>
+                  <td>{{ triggerTypeLabel(log.trigger_type) }}</td>
                   <td>
                     <span class="badge rounded-pill" :class="log.success ? 'bg-success' : 'bg-danger'">
                       {{ log.success ? $t('success') : $t('failed') }}
                     </span>
-                    <div v-if="log.error_message" class="small text-danger">{{ log.error_message }}</div>
+                    <div v-if="log.error_message" class="small text-danger">{{ localizedRuleError(log.error_message) }}</div>
                   </td>
                   <td class="text-end">{{ log.duration_ms }} ms</td>
                 </tr>
@@ -609,7 +289,12 @@ function baseTrigger(type = 'property_change') {
       hour: 0,
       minute: 0,
       weekdaysText: '1,2,3,4,5',
-      monthDaysText: '1'
+      monthDaysText: '1',
+      minuteExpr: '*/5',
+      hourExpr: '*',
+      dayOfMonthExpr: '*',
+      monthExpr: '*',
+      weekdayExpr: '*'
     }
   }
 }
@@ -1090,6 +775,25 @@ export default {
       }
     }
 
+    function defaultGraphRule() {
+      return {
+        code: '',
+        name: t('rule_new_default_name'),
+        description: '',
+        group_id: null,
+        priority: 50,
+        throttle_sec: 60,
+        max_per_hour: 60,
+        retry_count: 0,
+        status: 'draft',
+        enabled: false,
+        effective_time: defaultEffectiveTime(),
+        triggers: [],
+        conditions: { logic: 'and', conditions: [], groups: [] },
+        actions: []
+      }
+    }
+
     function defaultEffectiveTime() {
       return { mode: 'always', windows: [{ startTime: '00:00:00', endTime: '24:00:00', monthDays: [], monthDaysText: '1' }], weekdays: [], monthDays: [], months: [] }
     }
@@ -1219,15 +923,57 @@ export default {
     }
 
     function syncStateLabel(state) {
-      return state ? `${t('rule_sync')}: ${state}` : ''
+      if (!state) return ''
+      const map = {
+        local: t('rule_sync_local'),
+        pending: t('rule_sync_pending'),
+        synced: t('rule_sync_synced'),
+        disabled: t('rule_sync_disabled'),
+        error: t('rule_sync_error')
+      }
+      return `${t('rule_sync')}: ${map[state] || state}`
+    }
+
+    function triggerTypeLabel(type) {
+      return {
+        property_change: t('rule_trigger_property'),
+        event: t('rule_trigger_event'),
+        device_status: t('rule_trigger_status'),
+        cron: t('rule_trigger_cron')
+      }[type] || type || '-'
+    }
+
+    function actionTypeLabel(type) {
+      return {
+        set_property: t('rule_action_set_property'),
+        call_service: t('rule_action_call_service'),
+        notification: t('rule_action_notification'),
+        alarm: t('rule_action_alarm'),
+        delay: t('rule_action_delay'),
+        llm: t('rule_action_llm'),
+        voice_playback: t('rule_action_voice_playback'),
+        parallel_group: t('rule_parallel_group'),
+        sequence_group: t('rule_sequence_group')
+      }[type] || type || '-'
+    }
+
+    function localizedRuleError(message) {
+      if (!message) return ''
+      const normalized = String(message).trim().toLowerCase()
+      const map = {
+        'rule is outside effective time': t('rule_error_outside_effective_time'),
+        'rule is throttled': t('rule_error_throttled'),
+        'rule exceeds hourly execution limit': t('rule_error_hourly_limit')
+      }
+      return map[normalized] || message
     }
 
     function describeTriggers(rule) {
-      return safeParse(rule.triggers, []).map(t => t.type).join(', ') || '-'
+      return safeParse(rule.triggers, []).map(item => triggerTypeLabel(item.type)).join(', ') || '-'
     }
 
     function describeActions(rule) {
-      return safeParse(rule.actions, []).map(a => a.type).join(', ') || '-'
+      return safeParse(rule.actions, []).map(item => actionTypeLabel(item.type)).join(', ') || '-'
     }
 
     function safeParse(text, fallback) {
@@ -1254,6 +1000,7 @@ export default {
 
     function normalizeTrigger(trigger = {}) {
       const normalized = { ...baseTrigger(trigger.type || 'property_change'), ...trigger }
+      delete normalized.eventFilter
       normalized.schedule = { ...baseTrigger('cron').schedule, ...(trigger.schedule || {}) }
       if (normalized.type === 'cron' && !normalized.cronMode) {
         normalized.cronMode = normalized.cronExpr ? 'advanced' : 'visual'
@@ -1283,6 +1030,7 @@ export default {
     function buildCronExpression(schedule = {}) {
       const minute = boundedNumber(schedule.minute, 0, 59, 0)
       const hour = boundedNumber(schedule.hour, 0, 23, 0)
+      const exprPart = (value, fallback = '*') => String(value || '').trim() || fallback
       switch (schedule.mode) {
         case 'hourly':
           return `${minute} * * * *`
@@ -1292,6 +1040,14 @@ export default {
           return `${minute} ${hour} * * ${cronWeekdays(schedule.weekdaysText)}`
         case 'monthly':
           return `${minute} ${hour} ${cronMonthDays(schedule.monthDaysText)} * *`
+        case 'custom_fields':
+          return [
+            exprPart(schedule.minuteExpr),
+            exprPart(schedule.hourExpr),
+            exprPart(schedule.dayOfMonthExpr),
+            exprPart(schedule.monthExpr),
+            exprPart(schedule.weekdayExpr)
+          ].join(' ')
         case 'every_minutes':
         default:
           return `*/${boundedNumber(schedule.intervalMinutes, 1, 59, 5)} * * * *`
@@ -1538,6 +1294,11 @@ export default {
       await fetchAll()
     }
 
+    function openNewRuleGraph() {
+      graphRule.value = defaultGraphRule()
+      showGraph.value = true
+    }
+
     function openRuleGraph(rule) {
       graphRule.value = rule
       showGraph.value = true
@@ -1557,9 +1318,10 @@ export default {
       });
     }
 
-    async function handleGraphUpdate(updatedRule) {
+    async function handleGraphUpdate(updatedRule, feedback) {
       saving.value = true
       try {
+        const isCreate = !updatedRule.code
         const payload = {
           name: updatedRule.name,
           description: updatedRule.description,
@@ -1577,12 +1339,31 @@ export default {
           actions: mapIds(updatedRule.actions || []),
           enable: updatedRule.status === 'enabled'
         }
-        await axios.put(`/api/rules/${updatedRule.code}`, payload)
-        graphRule.value = { ...updatedRule, ...payload, code: updatedRule.code, status: updatedRule.status }
+        const res = isCreate
+          ? await axios.post('/api/rules', payload)
+          : await axios.put(`/api/rules/${updatedRule.code}`, payload)
+        const savedRule = normalizeRule(res.data.data || {})
+        graphRule.value = {
+          ...updatedRule,
+          ...payload,
+          ...savedRule,
+          code: savedRule.code || updatedRule.code,
+          status: savedRule.status || updatedRule.status || 'draft'
+        }
         await fetchAll()
-        showToast('success', t('rule_save_success', '保存成功'))
+        const message = t('rule_save_success', '保存成功')
+        showToast('success', message)
+        feedback?.done?.(true, message, {
+          id: savedRule.id,
+          code: savedRule.code,
+          status: savedRule.status,
+          enabled: savedRule.enabled
+        })
       } catch (err) {
         console.error('Failed to save rule from graph:', err)
+        const message = err.response?.data?.message || t('common_save_fail', '保存失败')
+        showToast('danger', message)
+        feedback?.done?.(false, message)
       } finally {
         saving.value = false
       }
@@ -1684,12 +1465,12 @@ export default {
       validationMessage, executionPreview, weekdayOptions, effectiveMonthDaysText, effectiveMonthsText,
       showsEffectiveWeekdays, showsEffectiveMonthDays, showsEffectiveMonths,
       actionLabels, conditionLabels, fetchAll, groupName, statusBadge, statusLabel,
-      syncStateLabel, describeTriggers, describeActions, formatTime, deviceLabel, optionLabel, optionKey, propertiesFor,
-      eventsFor, openEditor, closeEditor, addTrigger, removeTrigger, addCondition, removeCondition, addAction,
+      syncStateLabel, describeTriggers, describeActions, localizedRuleError, formatTime, deviceLabel, optionLabel, optionKey, propertiesFor,
+      eventsFor, openNewRuleGraph, openEditor, closeEditor, addTrigger, removeTrigger, addCondition, removeCondition, addAction,
       addSequenceGroup, addParallelGroup, addEffectiveWindow, removeEffectiveWindow, applyEffectiveModeDefaults,
       parseNumberList, syncCronExpression,
       removeAction, addSubAction, removeSubAction, saveRule, toggleRule, deleteRule,
-      openRuleGraph, closeRuleGraph, handleGraphUpdate, openLogs, openGroupModal, saveGroup, deleteGroup
+      openRuleGraph, closeRuleGraph, handleGraphUpdate, triggerTypeLabel, openLogs, openGroupModal, saveGroup, deleteGroup
     }
   }
 }
@@ -2139,3 +1920,4 @@ export default {
   }
 }
 </style>
+

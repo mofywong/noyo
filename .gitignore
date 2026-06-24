@@ -62,3 +62,4 @@ go.work.sum
 .env.production.local
 docs/*
 .superpowers/*
+backend/noyo.db*

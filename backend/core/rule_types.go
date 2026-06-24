@@ -40,19 +40,27 @@ const (
 )
 
 type RuleTrigger struct {
-	ID          string              `json:"id"`
-	Type        string              `json:"type"`
-	DeviceCode  string              `json:"deviceCode,omitempty"`
-	DeviceName  string              `json:"deviceName,omitempty"`
-	ProductCode string              `json:"productCode,omitempty"`
-	PropertyKey string              `json:"propertyKey,omitempty"`
-	Operator    string              `json:"operator,omitempty"`
-	Value       any                 `json:"value,omitempty"`
-	EventID     string              `json:"eventId,omitempty"`
-	EventFilter []PropertyCondition `json:"eventFilter,omitempty"`
-	StatusValue string              `json:"statusValue,omitempty"`
-	CronExpr    string              `json:"cronExpr,omitempty"`
-	CronDesc    string              `json:"cronDesc,omitempty"`
+	ID              string              `json:"id"`
+	Type            string              `json:"type"`
+	DeviceCode      string              `json:"deviceCode,omitempty"`
+	DeviceName      string              `json:"deviceName,omitempty"`
+	ProductCode     string              `json:"productCode,omitempty"`
+	PropertyKey     string              `json:"propertyKey,omitempty"`
+	PropertyName    string              `json:"propertyName,omitempty"`
+	Operator        string              `json:"operator,omitempty"`
+	Value           any                 `json:"value,omitempty"`
+	TriggerValue    any                 `json:"triggerValue,omitempty"`
+	EventID         string              `json:"eventId,omitempty"`
+	EventName       string              `json:"eventName,omitempty"`
+	EventFilter     []PropertyCondition `json:"eventFilter,omitempty"`
+	StatusValue     string              `json:"statusValue,omitempty"`
+	CronExpr        string              `json:"cronExpr,omitempty"`
+	CronDesc        string              `json:"cronDesc,omitempty"`
+	Properties      map[string]any      `json:"properties,omitempty"`
+	DeviceStatus    string              `json:"deviceStatus,omitempty"`
+	EventParams     map[string]any      `json:"eventParams,omitempty"`
+	TriggerTime     int64               `json:"triggerTime,omitempty"`
+	TriggerTimeText string              `json:"triggerTimeText,omitempty"`
 }
 
 type RuleConditionGroup struct {
@@ -83,21 +91,21 @@ type PropertyCondition struct {
 }
 
 type RuleAction struct {
-	ID            string         `json:"id"`
-	Type          string         `json:"type"`
-	SubActions    []RuleAction   `json:"subActions,omitempty"`
-	DeviceCode    string         `json:"deviceCode,omitempty"`
-	DeviceName    string         `json:"deviceName,omitempty"`
-	PropertyKey   string         `json:"propertyKey,omitempty"`
-	Value         any            `json:"value,omitempty"`
-	ServiceCode   string         `json:"serviceCode,omitempty"`
-	ServiceParams map[string]any `json:"serviceParams,omitempty"`
-	NotifyTitle   string         `json:"notifyTitle,omitempty"`
-	NotifyContent string         `json:"notifyContent,omitempty"`
-	AlarmLevel    string         `json:"alarmLevel,omitempty"`
-	AlarmTitle    string         `json:"alarmTitle,omitempty"`
-	AlarmContent  string         `json:"alarmContent,omitempty"`
-	AlarmDevice   string         `json:"alarmDevice,omitempty"`
+	ID                string         `json:"id"`
+	Type              string         `json:"type"`
+	SubActions        []RuleAction   `json:"subActions,omitempty"`
+	DeviceCode        string         `json:"deviceCode,omitempty"`
+	DeviceName        string         `json:"deviceName,omitempty"`
+	PropertyKey       string         `json:"propertyKey,omitempty"`
+	Value             any            `json:"value,omitempty"`
+	ServiceCode       string         `json:"serviceCode,omitempty"`
+	ServiceParams     map[string]any `json:"serviceParams,omitempty"`
+	NotifyTitle       string         `json:"notifyTitle,omitempty"`
+	NotifyContent     string         `json:"notifyContent,omitempty"`
+	AlarmLevel        string         `json:"alarmLevel,omitempty"`
+	AlarmTitle        string         `json:"alarmTitle,omitempty"`
+	AlarmContent      string         `json:"alarmContent,omitempty"`
+	AlarmDevice       string         `json:"alarmDevice,omitempty"`
 	DelaySec          int            `json:"delaySec,omitempty"`
 	LLMPrompt         string         `json:"llmPrompt,omitempty"`
 	LLMPlayAudio      bool           `json:"llmPlayAudio,omitempty"`
@@ -131,13 +139,18 @@ type RuleDefinition struct {
 }
 
 type RuleRuntime struct {
-	Code          string
-	Name          string
-	Version       int64
-	Triggers      []RuleTrigger
-	Conditions    *RuleConditionGroup
-	Actions       []RuleAction
-	EffectiveTime *RuleEffectiveTime
+	Code          string              `json:"code"`
+	Name          string              `json:"name"`
+	Description   string              `json:"description,omitempty"`
+	Version       int64               `json:"version"`
+	Priority      int                 `json:"priority"`
+	ThrottleSec   int                 `json:"throttleSec,omitempty"`
+	MaxPerHour    int                 `json:"maxPerHour,omitempty"`
+	RetryCount    int                 `json:"retryCount,omitempty"`
+	Triggers      []RuleTrigger       `json:"triggers"`
+	Conditions    *RuleConditionGroup `json:"conditions,omitempty"`
+	Actions       []RuleAction        `json:"actions"`
+	EffectiveTime *RuleEffectiveTime  `json:"effectiveTime,omitempty"`
 }
 
 func DecodeRuleDefinition(triggersJSON, conditionsJSON, actionsJSON string) (RuleDefinition, error) {
@@ -224,5 +237,3 @@ func validateAction(action RuleAction, depth int) error {
 	}
 	return nil
 }
-
-

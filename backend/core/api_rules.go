@@ -136,6 +136,10 @@ func (s *Server) handleUpdateRule(r *ghttp.Request) {
 	rule.CreatedAt = existing.CreatedAt
 	rule.Enabled = existing.Enabled
 	rule.Status = existing.Status
+	rule.LastTriggeredAt = existing.LastTriggeredAt
+	rule.TriggerCount = existing.TriggerCount
+	rule.ErrorMessage = existing.ErrorMessage
+	rule.EnabledBy = existing.EnabledBy
 	if payload.Enable {
 		if err := s.validateRuleControlPermission(r, rule); err != nil {
 			r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})

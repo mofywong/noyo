@@ -22,7 +22,7 @@ func (rd *RuleDistributor) AnalyzeScope(rule *store.Rule) (string, string) {
 	if err != nil {
 		return RuleScopePlatform, ""
 	}
-	if hasPlatformOnlyAction(def.Actions) {
+	if hasNonDeviceAction(def.Actions) {
 		return RuleScopePlatform, ""
 	}
 	deviceCodes := collectRuleDeviceCodes(def)
@@ -75,15 +75,21 @@ func (rd *RuleDistributor) getDeviceGateway(device *store.Device) string {
 	return ""
 }
 
-func hasPlatformOnlyAction(actions []RuleAction) bool {
+func hasNonDeviceAction(actions []RuleAction) bool {
 	for _, action := range actions {
 		switch action.Type {
-		case RuleActionNotification, RuleActionAlarm:
-			return true
+		case RuleActionSetProperty, RuleActionCallService:
+			continue
 		case RuleActionParallelGroup:
-			if hasPlatformOnlyAction(action.SubActions) {
+			if hasNonDeviceAction(action.SubActions) {
 				return true
 			}
+		case RuleActionSequenceGroup:
+			if hasNonDeviceAction(action.SubActions) {
+				return true
+			}
+		default:
+			return true
 		}
 	}
 	return false

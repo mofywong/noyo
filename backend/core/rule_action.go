@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"noyo/core/types"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,29 +25,78 @@ func interpolateString(text string, vars map[string]any) string {
 		path := match[2 : len(match)-1]
 		val := getValueByPath(vars, path)
 		if val != nil {
-			return fmt.Sprintf("%v", val)
+			return formatTemplateValue(val)
 		}
 		return match
 	})
+}
+
+func formatTemplateValue(val any) string {
+	switch v := val.(type) {
+	case bool:
+		if v {
+			return "成功"
+		}
+		return "失败"
+	default:
+		return fmt.Sprintf("%v", val)
+	}
 }
 
 func getValueByPath(data map[string]any, path string) any {
 	parts := strings.Split(path, ".")
 	var current any = data
 	for _, part := range parts {
-		if m, ok := current.(map[string]any); ok {
-			current = m[part]
-		} else if m, ok := current.(types.Event); ok && part == "topic" {
-			current = m.Topic
-		} else if m, ok := current.(types.Event); ok && part == "payload" {
-			current = m.Payload
-		} else {
+		next, ok := getPathPart(current, part)
+		if !ok {
 			return nil
 		}
+		current = next
 	}
 	return current
 }
 
+func getPathPart(current any, part string) (any, bool) {
+	if current == nil {
+		return nil, false
+	}
+	if m, ok := current.(map[string]any); ok {
+		v, exists := m[part]
+		return v, exists
+	}
+
+	value := reflect.ValueOf(current)
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return nil, false
+		}
+		value = value.Elem()
+	}
+	switch value.Kind() {
+	case reflect.Slice, reflect.Array:
+		index, err := strconv.Atoi(part)
+		if err != nil || index < 0 || index >= value.Len() {
+			return nil, false
+		}
+		return value.Index(index).Interface(), true
+	case reflect.Struct:
+		valueType := value.Type()
+		for i := 0; i < value.NumField(); i++ {
+			field := valueType.Field(i)
+			if field.PkgPath != "" {
+				continue
+			}
+			jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
+			if jsonName == "" {
+				jsonName = field.Name
+			}
+			if jsonName == part || strings.EqualFold(field.Name, part) {
+				return value.Field(i).Interface(), true
+			}
+		}
+	}
+	return nil, false
+}
 
 type ActionResult struct {
 	ActionID   string `json:"actionId"`
@@ -61,6 +111,7 @@ type RuleExecContext struct {
 	Rule          RuleRuntime
 	TemplateVars  map[string]any
 	NodeResults   map[string]any
+	NodeResultsMu sync.RWMutex
 	SessionID     string
 	ActionTimeout time.Duration
 	RuleTimeout   time.Duration
@@ -184,6 +235,7 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 	defer cancel()
 
 	var err error
+	var actionOutput any
 
 	mergedVars := make(map[string]any)
 	if ctx.TemplateVars != nil {
@@ -191,10 +243,11 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 			mergedVars[k] = v
 		}
 	}
-	if ctx.NodeResults != nil {
-		mergedVars["node"] = ctx.NodeResults
+	nodeResults := snapshotNodeResults(ctx)
+	if nodeResults != nil {
+		mergedVars["node"] = nodeResults
 		// Keep flat mapping for backward compatibility if needed, but prefer 'node' object
-		for k, v := range ctx.NodeResults {
+		for k, v := range nodeResults {
 			mergedVars[k] = v
 		}
 	}
@@ -263,13 +316,17 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 			err = metaErr
 			break
 		}
-		err = ae.deviceManager.ReportDeviceEvent(*meta, "rule_alarm", map[string]interface{}{
-			"rule_code": ctx.Rule.Code,
-			"rule_name": ctx.Rule.Name,
-			"title":     action.AlarmTitle,
-			"content":   action.AlarmContent,
-			"level":     action.AlarmLevel,
-		})
+		alarmPayload := map[string]interface{}{
+			"rule_code":  ctx.Rule.Code,
+			"rule_name":  ctx.Rule.Name,
+			"title":      action.AlarmTitle,
+			"content":    action.AlarmContent,
+			"level":      action.AlarmLevel,
+			"deviceCode": deviceCode,
+			"eventId":    "rule_alarm",
+		}
+		actionOutput = alarmPayload
+		err = ae.deviceManager.ReportDeviceEvent(*meta, "rule_alarm", alarmPayload)
 	case RuleActionLLM:
 		if ae.deviceManager != nil && ae.deviceManager.EventBus != nil {
 			responseTopic := fmt.Sprintf("rule.action.llm.response.%s.%d", ctx.Rule.Code, time.Now().UnixNano())
@@ -313,14 +370,11 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 					ctx.TemplateVars = make(map[string]any)
 				}
 				ctx.TemplateVars["llm_result"] = resText
-				if ctx.NodeResults == nil {
-					ctx.NodeResults = make(map[string]any)
-				}
 				var jsonRes map[string]any
 				if err := json.Unmarshal([]byte(resText), &jsonRes); err == nil {
-					ctx.NodeResults[action.ID] = jsonRes
+					actionOutput = jsonRes
 				} else {
-					ctx.NodeResults[action.ID] = resText
+					actionOutput = resText
 				}
 			case <-time.After(30 * time.Second):
 				err = fmt.Errorf("llm action timeout")
@@ -356,6 +410,66 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 		result.Error = err.Error()
 	}
 	result.DurationMs = time.Since(start).Milliseconds()
+	setActionNodeResult(ctx, result, actionOutput)
+	return result
+}
+
+func setActionNodeResult(ctx *RuleExecContext, result ActionResult, data any) {
+	if ctx == nil || result.ActionID == "" {
+		return
+	}
+	ctx.NodeResultsMu.Lock()
+	defer ctx.NodeResultsMu.Unlock()
+	if ctx.NodeResults == nil {
+		ctx.NodeResults = make(map[string]any)
+	}
+	nodeValue := map[string]any{
+		"status":     actionStatusLabel(result.Status),
+		"durationMs": result.DurationMs,
+	}
+	if result.Error != "" {
+		nodeValue["error"] = result.Error
+	}
+	if data != nil {
+		nodeValue["data"] = data
+		nodeValue["output"] = data
+		if dataMap, ok := data.(map[string]any); ok {
+			for key, value := range dataMap {
+				if _, exists := nodeValue[key]; !exists {
+					nodeValue[key] = value
+				}
+			}
+		}
+	}
+	ctx.NodeResults[result.ActionID] = nodeValue
+}
+
+func actionStatusLabel(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "success", "succeeded", "ok", "true":
+		return "成功"
+	case "failed", "failure", "error", "false":
+		return "失败"
+	case "skipped":
+		return "跳过"
+	default:
+		return ""
+	}
+}
+
+func snapshotNodeResults(ctx *RuleExecContext) map[string]any {
+	if ctx == nil {
+		return nil
+	}
+	ctx.NodeResultsMu.RLock()
+	defer ctx.NodeResultsMu.RUnlock()
+	if ctx.NodeResults == nil {
+		return nil
+	}
+	result := make(map[string]any, len(ctx.NodeResults))
+	for key, value := range ctx.NodeResults {
+		result[key] = value
+	}
 	return result
 }
 
