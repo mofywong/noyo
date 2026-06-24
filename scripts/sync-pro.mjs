@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const rootDir = path.resolve(__dirname, '..');
-const proDir = path.resolve(rootDir, '../noyo-pro');
+const proDir = process.env.NOYO_PRO_DIR ? path.resolve(process.env.NOYO_PRO_DIR) : path.resolve(rootDir, '../noyo-pro');
 
 const requestedEdition = process.env.NOYO_EDITION;
 const buildYoloEnabled = parseBuildYoloEnabled(process.env.NOYO_BUILD_YOLO);
@@ -67,7 +67,12 @@ if (!fs.existsSync(backendBasePluginsDir)) fs.mkdirSync(backendBasePluginsDir, {
 if (!fs.existsSync(frontendBasePluginsDir)) fs.mkdirSync(frontendBasePluginsDir, { recursive: true });
 
 // Sync Directories
-syncSymlink(backendProPluginsDir, backendProLinkDir);
+// Skip backend symlink because we are using go.work
+// if (process.env.NOYO_SKIP_BACKEND_LINK !== 'true') {
+//     syncSymlink(backendProPluginsDir, backendProLinkDir);
+// } else {
+//     console.log('[Sync-Pro] Skipping backend symlink creation because NOYO_SKIP_BACKEND_LINK is true (go.work enabled).');
+// }
 syncSymlink(frontendProPluginsDir, frontendProLinkDir);
 
 // Generate backend/pro_imports.go
