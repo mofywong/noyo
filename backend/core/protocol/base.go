@@ -45,6 +45,10 @@ func (p *BaseProtocolPlugin) GetProductConfigSchema() ([]byte, error) {
 	return nil, nil // Return nil to indicate no schema or empty
 }
 
+func (p *BaseProtocolPlugin) GetProfileConfigSchema() ([]byte, error) {
+	return nil, nil
+}
+
 func (p *BaseProtocolPlugin) GetDeviceConfigSchema(config types.DeviceMeta) ([]byte, error) {
 	return nil, nil
 }

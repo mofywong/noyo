@@ -1280,8 +1280,10 @@ func (s *Server) handleGetStats(r *ghttp.Request) {
 // handleGetDeviceConfigSchema returns the device or point config schema for a given protocol.
 func (s *Server) handleGetDeviceConfigSchema(r *ghttp.Request) {
 	protocolName := r.Get("protocolName").String()
+	productCode := r.Get("productCode").String()
 	schemaType := r.Get("type", "device").String()
 	isSubDevice := r.Get("isSubDevice", false).Bool()
+	profileCode := r.Get("profileCode").String()
 
 	if protocolName == "" {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "protocolName is required"})
@@ -1304,9 +1306,17 @@ func (s *Server) handleGetDeviceConfigSchema(r *ghttp.Request) {
 
 	if schemaType == "point" {
 		schema, err = protocolPlugin.GetPointConfigSchema()
+	} else if schemaType == "profile" {
+		schema, err = protocolPlugin.GetProfileConfigSchema()
 	} else {
 		// Device Config Schema
-		meta := types.DeviceMeta{ParentCode: ""}
+		meta := types.DeviceMeta{
+			ParentCode:  "",
+			ProductCode: productCode,
+			Extras: map[string]interface{}{
+				"profileCode": profileCode,
+			},
+		}
 		if isSubDevice {
 			meta.ParentCode = "dummy" // 标记为子设备，部分插件可能需要此上下文
 		}

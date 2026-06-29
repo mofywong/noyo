@@ -62,7 +62,7 @@
         <div class="text-muted small">
           {{ $t('pagination_total', { total: total }) }}
         </div>
-        <nav aria-label="Page navigation">
+        <nav :aria-label="$t('pagination_navigation')">
           <ul class="pagination pagination-sm mb-0">
             <li class="page-item" :class="{ disabled: page === 1 }">
               <button class="page-link" @click="changePage(page - 1)"><i class="bi bi-chevron-left"></i></button>
@@ -98,7 +98,7 @@
             <div class="mb-3">
               <label class="form-label">{{ $t('prod_protocol', '通信协议') }}</label>
               <select v-model="currentDriver.protocol_name" class="form-select" :disabled="isEditing" @change="fetchSchema(currentDriver.protocol_name)">
-                <option value="">{{ $t('prod_no_protocol', '请选择协议') }}</option>
+                <option value="">{{ $t('driver_select_protocol', '请选择协议') }}</option>
                 <option v-for="p in protocols" :key="p.name" :value="p.name">{{ getPluginTitle(p.name) }}</option>
               </select>
             </div>
@@ -106,8 +106,14 @@
               <label class="form-label">{{ $t('description', '描述') }}</label>
               <textarea v-model="currentDriver.description" class="form-control" rows="2"></textarea>
             </div>
-            <div class="mb-3" v-if="currentSchema">
-               <label class="form-label">{{ $t('prod_proto_config', '协议配置') }}</label>
+            <div class="mb-3" v-if="isScriptProtocol">
+               <ScriptProductConfig
+                      v-model="currentDriver.config"
+                      :product-code="currentDriver.code"
+                  />
+            </div>
+            <div class="mb-3" v-else-if="currentSchema">
+               <label class="form-label">{{ $t('driver_config', '驱动配置') }}</label>
                <div class="border rounded p-3 bg-light">
                   <SchemaForm 
                       :schema="currentSchema" 
@@ -132,6 +138,7 @@ import axios from 'axios';
 import { useToast } from '../composables/useToast';
 import { useI18n } from 'vue-i18n';
 import SchemaForm from '../components/SchemaForm.vue';
+import ScriptProductConfig from '../components/script/ScriptProductConfig.vue';
 import { useAuthStore } from '../stores/auth';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 
@@ -150,6 +157,10 @@ const showModal = ref(false);
 const isEditing = ref(false);
 const currentDriver = ref({});
 const currentSchema = ref(null);
+
+const isScriptProtocol = computed(() => {
+  return (currentDriver.value.protocol_name || '').toLowerCase() === 'script';
+});
 
 const showProjectColumn = computed(() => {
     const mode = localStorage.getItem('system_mode') || '';
@@ -194,25 +205,39 @@ const getPluginTitle = (name) => {
   return name;
 };
 
+const normalizeConfig = (config) => {
+  if (!config) return {};
+  if (typeof config === 'object') return { ...config };
+  try {
+    const parsed = JSON.parse(config);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (err) {
+    console.error('Failed to parse driver config', err);
+    return {};
+  }
+};
+
 const fetchSchema = async (protocolName) => {
   if (!protocolName) {
     currentSchema.value = null;
     return;
   }
+  currentDriver.value.config = normalizeConfig(currentDriver.value.config);
+  if (protocolName.toLowerCase() === 'script') {
+    currentSchema.value = null;
+    return;
+  }
   try {
     const res = await axios.get(`/api/devices/config-schema`, {
-      params: { protocolName: protocolName, type: 'device' }
+      params: { protocolName: protocolName, type: 'profile' }
     });
     if (res.data.code === 0) {
-      currentSchema.value = res.data.data.schema;
-      if (!currentDriver.value.config) {
-         currentDriver.value.config = JSON.stringify({});
-      }
+      currentSchema.value = res.data.data;
     } else {
       currentSchema.value = null;
     }
   } catch (err) {
-    console.danger('Failed to load schema', err);
+    console.error('Failed to load schema', err);
     currentSchema.value = null;
   }
 };
@@ -229,7 +254,7 @@ const openCreateModal = () => {
     name: '',
     protocol_name: '',
     description: '',
-    config: ''
+    config: {}
   };
   currentSchema.value = null;
   showModal.value = true;
@@ -237,7 +262,7 @@ const openCreateModal = () => {
 
 const openEditModal = async (driver) => {
   isEditing.value = true;
-  currentDriver.value = { ...driver };
+  currentDriver.value = { ...driver, config: normalizeConfig(driver.config) };
   if (driver.protocol_name) {
     await fetchSchema(driver.protocol_name);
   }

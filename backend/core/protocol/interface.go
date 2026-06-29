@@ -44,6 +44,7 @@ type IProtocolPlugin interface {
 	WritePoint(device types.DeviceMeta, pointCode string, value interface{}) error
 
 	// Config Schemas
+	GetProfileConfigSchema() ([]byte, error)
 	GetProductConfigSchema() ([]byte, error)
 	GetDeviceConfigSchema(config types.DeviceMeta) ([]byte, error)
 	GetPointConfigSchema() ([]byte, error)

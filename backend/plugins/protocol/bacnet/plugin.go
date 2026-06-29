@@ -4,10 +4,10 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"net"
 	"noyo/core"
 	"noyo/core/protocol"
 	"noyo/core/types"
-	"net"
 	"os"
 	"strings"
 	"sync"
@@ -47,7 +47,7 @@ type BacnetPlugin struct {
 
 func init() {
 	core.InstallPlugin[BacnetPlugin](core.PluginMeta{
-		Name:     "BACnet",
+		Name: "BACnet",
 		Title: map[string]string{
 			"en": "BACnet/IP",
 			"zh": "BACnet/IP协议",
@@ -271,6 +271,19 @@ func (p *BacnetPlugin) GetConfigSchema() *core.PluginConfigSchema {
 	})
 
 	return schema
+}
+
+func (p *BacnetPlugin) GetProfileConfigSchema() ([]byte, error) {
+	raw, err := p.GetDeviceConfigSchema(types.DeviceMeta{})
+	if err != nil {
+		return nil, err
+	}
+	var schema map[string]interface{}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return nil, err
+	}
+	removeRequiredSchemaEntries(schema)
+	return json.Marshal(schema)
 }
 
 func (p *BacnetPlugin) GetDeviceConfigSchema(config types.DeviceMeta) ([]byte, error) {
@@ -548,6 +561,20 @@ func logDebugFile(msg string) {
 	}
 	defer f.Close()
 	f.WriteString(time.Now().Format(time.RFC3339) + " " + msg + "\n")
+}
+
+func removeRequiredSchemaEntries(value interface{}) {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		delete(typed, "required")
+		for _, child := range typed {
+			removeRequiredSchemaEntries(child)
+		}
+	case []interface{}:
+		for _, child := range typed {
+			removeRequiredSchemaEntries(child)
+		}
+	}
 }
 
 func (p *BacnetPlugin) addDevice(device types.DeviceMeta) {

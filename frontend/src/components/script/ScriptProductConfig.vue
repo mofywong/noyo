@@ -10,6 +10,9 @@
             <a class="nav-link" :class="{ active: activeTab === 'params' }" href="#" @click.prevent="activeTab = 'params'">{{ $t('script_device_params') }}</a>
           </li>
           <li class="nav-item">
+            <a class="nav-link" :class="{ active: activeTab === 'subParams' }" href="#" @click.prevent="activeTab = 'subParams'">{{ $t('prod_sub_device_params') }}</a>
+          </li>
+          <li class="nav-item">
             <a class="nav-link" :class="{ active: activeTab === 'script' }" href="#" @click.prevent="activeTab = 'script'">{{ $t('script_tab_script') }}</a>
           </li>
         </ul>
@@ -30,30 +33,24 @@
              <tr>
                <th style="width: 25%">{{ $t('script_param_key') }}</th>
                <th style="width: 25%">{{ $t('script_param_name') }}</th>
-               <th style="width: 20%">{{ $t('script_param_type') }}</th>
-               <th style="width: 15%">{{ $t('script_param_required') }}</th>
-               <th style="width: 15%"></th>
+               <th style="width: 30%">{{ $t('script_param_type') }}</th>
+               <th style="width: 20%"></th>
              </tr>
            </thead>
            <tbody>
              <tr v-for="(param, index) in deviceParams" :key="index">
                <td>
-                 <input type="text" class="form-control" v-model="param.key" @input="updateParams" placeholder="e.g. ip">
+                 <input type="text" class="form-control" v-model="param.key" @input="updateParams" :placeholder="$t('script_device_param_key_placeholder')">
                </td>
                <td>
-                 <input type="text" class="form-control" v-model="param.name" @input="updateParams" placeholder="e.g. IP Address">
+                 <input type="text" class="form-control" v-model="param.name" @input="updateParams" :placeholder="$t('script_device_param_name_placeholder')">
                </td>
                <td>
                  <select class="form-select" v-model="param.type" @change="updateParams">
-                   <option value="string">String</option>
-                   <option value="number">Number</option>
-                   <option value="boolean">Boolean</option>
+                   <option value="string">{{ $t('script_param_type_string') }}</option>
+                   <option value="number">{{ $t('script_param_type_number') }}</option>
+                   <option value="boolean">{{ $t('script_param_type_boolean') }}</option>
                  </select>
-               </td>
-               <td>
-                 <div class="form-check form-switch">
-                   <input class="form-check-input" type="checkbox" v-model="param.required" @change="updateParams">
-                 </div>
                </td>
                <td>
                  <button class="btn btn-outline-danger btn-sm" @click="removeParam(index)">
@@ -64,6 +61,53 @@
            </tbody>
          </table>
          <button class="btn btn-outline-primary btn-sm mt-2" @click="addParam">
+           <i class="bi bi-plus"></i> {{ $t('script_add_param') }}
+         </button>
+       </div>
+    </div>
+
+    <!-- Sub-device Params Tab -->
+    <div v-else-if="activeTab === 'subParams'" class="p-3">
+       <div v-if="subDeviceParams.length === 0" class="text-center text-muted py-5">
+         <p>{{ $t('script_no_params') }}</p>
+         <button class="btn btn-primary btn-sm" @click="addSubDeviceParam">
+           <i class="bi bi-plus"></i> {{ $t('script_add_param') }}
+         </button>
+       </div>
+       <div v-else>
+         <table class="table table-borderless align-middle">
+           <thead>
+             <tr>
+               <th style="width: 25%">{{ $t('script_param_key') }}</th>
+               <th style="width: 25%">{{ $t('script_param_name') }}</th>
+               <th style="width: 30%">{{ $t('script_param_type') }}</th>
+               <th style="width: 20%"></th>
+             </tr>
+           </thead>
+           <tbody>
+             <tr v-for="(param, index) in subDeviceParams" :key="index">
+               <td>
+                 <input type="text" class="form-control" v-model="param.key" @input="updateParams" :placeholder="$t('script_sub_device_param_key_placeholder')">
+               </td>
+               <td>
+                 <input type="text" class="form-control" v-model="param.name" @input="updateParams" :placeholder="$t('script_sub_device_param_name_placeholder')">
+               </td>
+               <td>
+                 <select class="form-select" v-model="param.type" @change="updateParams">
+                   <option value="string">{{ $t('script_param_type_string') }}</option>
+                   <option value="number">{{ $t('script_param_type_number') }}</option>
+                   <option value="boolean">{{ $t('script_param_type_boolean') }}</option>
+                 </select>
+               </td>
+               <td>
+                 <button class="btn btn-outline-danger btn-sm" @click="removeSubDeviceParam(index)">
+                   <i class="bi bi-trash"></i>
+                 </button>
+               </td>
+             </tr>
+           </tbody>
+         </table>
+         <button class="btn btn-outline-primary btn-sm mt-2" @click="addSubDeviceParam">
            <i class="bi bi-plus"></i> {{ $t('script_add_param') }}
          </button>
        </div>
@@ -234,6 +278,7 @@ const showDeviceSelect = ref(false);
 const devices = ref([]);
 const selectedDeviceCode = ref('');
 const deviceParams = ref([]);
+const subDeviceParams = ref([]);
 const isFullscreen = ref(false);
 let monacoInstance = null;
 
@@ -326,6 +371,11 @@ const handleMount = (editor, monaco) => {
     });
 };
 
+const normalizeParamList = (params) => {
+  if (!Array.isArray(params)) return [];
+  return params.map(({ key = '', name = '', type = 'string' }) => ({ key, name, type }));
+};
+
 // Sync prop to local state
 watch(() => props.modelValue, (val) => {
   if (val) {
@@ -334,9 +384,14 @@ watch(() => props.modelValue, (val) => {
       inferProtocolsAndModules(val.script);
     }
     if (val.device_params && Array.isArray(val.device_params)) {
-        deviceParams.value = JSON.parse(JSON.stringify(val.device_params));
+        deviceParams.value = normalizeParamList(val.device_params);
     } else {
         deviceParams.value = [];
+    }
+    if (val.sub_device_params && Array.isArray(val.sub_device_params)) {
+        subDeviceParams.value = normalizeParamList(val.sub_device_params);
+    } else {
+        subDeviceParams.value = [];
     }
   }
 }, { immediate: true });
@@ -356,17 +411,28 @@ const updateParams = (val) => {
     emit('update:modelValue', { 
         ...props.modelValue, 
         script: content,
-        device_params: deviceParams.value
+        device_params: normalizeParamList(deviceParams.value),
+        sub_device_params: normalizeParamList(subDeviceParams.value)
     });
 };
 
 const addParam = () => {
-    deviceParams.value.push({ key: '', name: '', type: 'string', required: false });
+    deviceParams.value.push({ key: '', name: '', type: 'string' });
     updateParams();
 };
 
 const removeParam = (index) => {
     deviceParams.value.splice(index, 1);
+    updateParams();
+};
+
+const addSubDeviceParam = () => {
+    subDeviceParams.value.push({ key: '', name: '', type: 'string' });
+    updateParams();
+};
+
+const removeSubDeviceParam = (index) => {
+    subDeviceParams.value.splice(index, 1);
     updateParams();
 };
 
@@ -903,7 +969,7 @@ end
     activeTab.value = 'script';
   } catch (e) {
     console.error(e);
-    alert('Failed to generate script');
+    alert(t('script_generate_failed'));
   }
 };
 

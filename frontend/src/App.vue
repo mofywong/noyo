@@ -163,7 +163,10 @@ const fetchPlugins = async () => {
 
 const updatePluginStatus = async (name, enabled) => {
   try {
-    await axios.post(`/api/plugins/${name}/config`, { enabled });
+    const res = await axios.post(`/api/plugins/${name}/config`, { enabled });
+    if (res.data && res.data.code !== 0) {
+      throw new Error(res.data.message || 'API Error');
+    }
     showToast('success', gt('gateway_plugin_status_updated', { action: gatewayActionText(locale.value, enabled) }));
     await fetchPlugins(); // Refresh list
   } catch (e) {

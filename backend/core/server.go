@@ -1,4 +1,4 @@
-package core
+﻿package core
 
 import (
 	"encoding/base64"
@@ -312,6 +312,7 @@ func (s *Server) handleUploadImage(r *ghttp.Request) {
 }
 
 func (s *Server) handleListPlugins(r *ghttp.Request) {
+	r.Response.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	type PluginSummary struct {
 		Name                    string              `json:"name"`
 		Title                   map[string]string   `json:"title"`       // Display Name (i18n)
@@ -320,7 +321,7 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 		Category                string              `json:"category"`
 		Icon                    string              `json:"icon"` // Base64 encoded icon
 		Schema                  *PluginConfigSchema `json:"schema"`
-		ProtocolMappingRequired *bool               `json:"protocolMappingRequired,omitempty"` // 协议映射是否需要
+		ProtocolMappingRequired *bool               `json:"protocolMappingRequired,omitempty"` // 协议映射是否需�?
 		IsPro                   bool                `json:"isPro"`
 		IsUnauthorized          bool                `json:"isUnauthorized"`
 	}

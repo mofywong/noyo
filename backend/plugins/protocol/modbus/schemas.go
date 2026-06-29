@@ -1,6 +1,9 @@
 package modbus
 
-import "noyo/core"
+import (
+	"encoding/json"
+	"noyo/core"
+)
 
 // ProductConfigSchema defines the schema for Modbus product configuration
 const ProductConfigSchema = `
@@ -337,6 +340,15 @@ func (p *ModbusPlugin) GetProductConfigSchema() ([]byte, error) {
 	return nil, nil
 }
 
+func (p *ModbusPlugin) GetProfileConfigSchema() ([]byte, error) {
+	var schema map[string]interface{}
+	if err := json.Unmarshal([]byte(DeviceConfigSchema), &schema); err != nil {
+		return nil, err
+	}
+	removeRequiredSchemaEntries(schema)
+	return json.Marshal(schema)
+}
+
 func (p *ModbusPlugin) GetDeviceConfigSchema(meta core.DeviceMeta) ([]byte, error) {
 	if meta.ParentCode != "" {
 		return []byte(SubDeviceConfigSchema), nil
@@ -351,4 +363,18 @@ func (p *ModbusPlugin) GetPointConfigSchema() ([]byte, error) {
 // SubDeviceConfigCustomizable Modbus 子设备配置固定（slave_id 等），不允许用户自定义
 func (p *ModbusPlugin) SubDeviceConfigCustomizable() bool {
 	return false
+}
+
+func removeRequiredSchemaEntries(value interface{}) {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		delete(typed, "required")
+		for _, child := range typed {
+			removeRequiredSchemaEntries(child)
+		}
+	case []interface{}:
+		for _, child := range typed {
+			removeRequiredSchemaEntries(child)
+		}
+	}
 }

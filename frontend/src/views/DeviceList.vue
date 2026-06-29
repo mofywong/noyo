@@ -873,6 +873,7 @@ import DeviceDataModal from '../components/device/DeviceDataModal.vue';
 import Sparkline from '../components/Sparkline.vue';
 import { usePlugins } from '../plugins/registry.js';
 import { isSingleProjectMode } from '../utils/systemMode.js';
+import { applyDriverDefaults } from '../utils/deviceDriverDefaults.js';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { LineChart, BarChart, ScatterChart } from 'echarts/charts';
@@ -2271,7 +2272,7 @@ const isChildOfCascade = (device) => {
   return parentProduct && parentProduct.protocol_name === 'cascade';
 };
 
-const fetchProtocolSchema = async (protocolName, parentCode) => {
+const fetchProtocolSchema = async (protocolName, parentCode, profileCode, defaultConfig = null) => {
     if (!protocolName && parentCode) {
         try {
             const res = await axios.get(`/api/devices/${parentCode}`);
@@ -2291,7 +2292,9 @@ const fetchProtocolSchema = async (protocolName, parentCode) => {
       const params = new URLSearchParams();
       params.append('protocolName', protocolName);
       params.append('type', 'device');
+      if (newDevice.value.product_code) params.append('productCode', newDevice.value.product_code);
       if (parentCode) params.append('isSubDevice', 'true');
+      if (profileCode) params.append('profileCode', profileCode);
       
       const res = await axios.get(`/api/devices/config-schema?${params.toString()}`);
       if (res.data.code === 0) {
@@ -2299,8 +2302,13 @@ const fetchProtocolSchema = async (protocolName, parentCode) => {
       
       // Apply defaults from schema to config if missing
       if (currentSchema.value && currentSchema.value.properties) {
-          const config = newDevice.value.config || {};
+          let config = newDevice.value.config || {};
           let changed = false;
+          if (defaultConfig && typeof defaultConfig === 'object') {
+              const beforeDefaults = JSON.stringify(config);
+              config = applyDriverDefaults(config, defaultConfig, currentSchema.value);
+              changed = JSON.stringify(config) !== beforeDefaults;
+          }
           for (const key in currentSchema.value.properties) {
               const prop = currentSchema.value.properties[key];
               if (config[key] === undefined && prop.default !== undefined) {
@@ -2330,7 +2338,15 @@ const handleProtocolProfileChange = () => {
     const selectedDriver = drivers.value.find(d => d.code === newDevice.value.protocol_profile_code);
     if (selectedDriver) {
       newDevice.value.protocol_name = selectedDriver.protocol_name;
-      fetchProtocolSchema(selectedDriver.protocol_name, newDevice.value.parent_code);
+      let defaultConf = {};
+      if (selectedDriver.config) {
+        try {
+          defaultConf = JSON.parse(selectedDriver.config);
+        } catch (e) {
+          console.error("Failed to parse driver config", e);
+        }
+      }
+      fetchProtocolSchema(selectedDriver.protocol_name, newDevice.value.parent_code, selectedDriver.code, defaultConf);
     } else {
       newDevice.value.protocol_name = '';
       currentSchema.value = null;
@@ -2339,7 +2355,7 @@ const handleProtocolProfileChange = () => {
 
 // 监听父设备变化，重新加载 Schema（子设备 Schema 可能不同）
 watch(() => newDevice.value.parent_code, (newParentCode) => {
-    fetchProtocolSchema(newDevice.value.protocol_name, newParentCode);
+    fetchProtocolSchema(newDevice.value.protocol_name, newParentCode, newDevice.value.protocol_profile_code);
   });
 
 const fetchConfiguredTasks = async () => {
@@ -2516,7 +2532,7 @@ const openEditModal = async (device) => {
   }
   
   // Fetch Schema
-  fetchProtocolSchema(device.protocol_name, device.parent_code);
+  fetchProtocolSchema(device.protocol_name, device.parent_code, device.protocol_profile_code);
   
   showCreateModal.value = true;
 };
