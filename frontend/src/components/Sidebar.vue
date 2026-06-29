@@ -38,6 +38,9 @@
       <a v-if="authStore.hasPermission('product:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Products' }" @click.prevent="navigate('/products')">
         <i class="bi bi-box-seam"></i> <span>{{ $t('sidebar_products') }}</span>
       </a>
+      <a v-if="authStore.hasPermission('product:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceDrivers' }" @click.prevent="navigate('/drivers')">
+        <i class="bi bi-usb-drive"></i> <span>{{ $t('sidebar_device_drivers', '设备驱动') }}</span>
+      </a>
       <a v-if="!isGatewayRuntime && authStore.hasPermission('gateway:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'GatewayManagement' || currentRouteName === 'GatewayPlugins' || currentRouteName === 'GatewayPluginConfig' }" @click.prevent="navigate('/gateways')">
         <i class="bi bi-hdd-network"></i> <span>{{ gt('gateway_management') }}</span>
       </a>

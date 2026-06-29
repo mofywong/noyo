@@ -433,44 +433,9 @@ const buildGraphData = (devices, plugins) => {
         });
     }
 
-    // Create product protocol map
-    const productProtocolMap = {};
-    const productDriverProtocols = {};
-    if (products.value && products.value.length > 0) {
-        products.value.forEach(p => {
-            productProtocolMap[p.code] = p.protocol_name;
-            if (p.protocol_name && p.protocol_name.toLowerCase() === 'script' && p.config) {
-                try {
-                    const cfg = typeof p.config === 'string' ? JSON.parse(p.config) : p.config;
-                    if (cfg.script) {
-                        const script = cfg.script;
-                        const cleanScript = script.replace(/--\[\[[\s\S]*?\]\]/g, '').replace(/--.*$/gm, '');
-                        const protocols = new Set();
-                        if (cleanScript.includes('http.get') || cleanScript.includes('http.post') || cleanScript.includes('http.request')) protocols.add('HTTP客户端');
-                        if (/clients\.http\s*=/.test(cleanScript) || /clients\[['"]http['"]\]\s*=/.test(cleanScript)) protocols.add('HTTP客户端');
-                        if (cleanScript.includes('listeners.http') || /servers\.http\s*=/.test(cleanScript) || /servers\[['"]http['"]\]\s*=/.test(cleanScript)) protocols.add('HTTP服务端');
-                        if (cleanScript.includes('net.tcp_request') || cleanScript.includes('net.dial_tcp')) protocols.add('TCP客户端');
-                        if (/clients\.tcp\s*=/.test(cleanScript) || /clients\[['"]tcp['"]\]\s*=/.test(cleanScript)) protocols.add('TCP客户端');
-                        if (cleanScript.includes('listeners.tcp') || /servers\.tcp\s*=/.test(cleanScript) || /servers\[['"]tcp['"]\]\s*=/.test(cleanScript)) protocols.add('TCP服务端');
-                        if (cleanScript.includes('net.udp_request') || cleanScript.includes('net.dial_udp')) protocols.add('UDP客户端');
-                        if (cleanScript.includes('listeners.udp') || /servers\.udp\s*=/.test(cleanScript) || /servers\[['"]udp['"]\]\s*=/.test(cleanScript)) protocols.add('UDP服务端');
-                        if (cleanScript.includes('listeners.mqtt') || cleanScript.includes('mqtt.client') || /clients\.mqtt\s*=/.test(cleanScript) || /clients\[['"]mqtt['"]\]\s*=/.test(cleanScript)) protocols.add('MQTT客户端');
-                        
-                        if (protocols.size > 0) {
-                            productDriverProtocols[p.code] = Array.from(protocols).join(' / ');
-                        }
-                    }
-                } catch(e){}
-            }
-        });
-    }
-
     if (devices) {
         devices.forEach(d => {
-            let protocol = productProtocolMap[d.product_code] || d.protocol || '';
-            if (protocol && protocol.toLowerCase() === 'script' && productDriverProtocols[d.product_code]) {
-                protocol = productDriverProtocols[d.product_code];
-            }
+            let protocol = d.protocol_name || d.protocol || '';
             
             let label = d.name || d.code;
             if (d.product_code === 'noyo-gw') {

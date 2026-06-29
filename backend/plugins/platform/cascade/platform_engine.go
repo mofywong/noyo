@@ -102,9 +102,9 @@ func EnsureGatewayProduct(logger *zap.Logger) {
 	p, err := store.GetProduct(gwProductCode)
 	if err == nil && p != nil {
 		// Update existing if name, protocol, or config is outdated
-		if p.Name != expectedName || p.ProtocolName != "cascade" || p.Config != expectedConfig {
+		if p.Name != expectedName || p.Name != "cascade" || p.Config != expectedConfig {
 			p.Name = expectedName
-			p.ProtocolName = "cascade" // 设置为 cascade 协议，避免直连设备无协议的报错
+			p.Name = "cascade" // 设置为 cascade 协议，避免直连设备无协议的报错
 			p.Config = expectedConfig
 			if err := store.SaveProduct(p); err != nil {
 				logger.Error("Failed to update default gateway product", zap.Error(err))
@@ -117,10 +117,9 @@ func EnsureGatewayProduct(logger *zap.Logger) {
 
 	logger.Info("Creating default gateway product", zap.String("code", gwProductCode))
 	newProd := &store.Product{
-		Code:         gwProductCode,
-		Name:         expectedName,
-		ProtocolName: "cascade", // 不需要额外的子设备配置参数，但需要满足直连设备有协议的要求
-		Config:       expectedConfig,
+		Code:     gwProductCode,
+		Name:     expectedName,
+		Config:   expectedConfig,
 	}
 	if err := store.SaveProduct(newProd); err != nil {
 		logger.Error("Failed to create default gateway product", zap.Error(err))
@@ -336,7 +335,7 @@ func (e *platformEngineImpl) findTopLevelGateway(db *gorm.DB, deviceCode string)
 		if err := db.Unscoped().Where("code = ?", d.ProductCode).First(&p).Error; err != nil {
 			db.Unscoped().Where("code LIKE ?", d.ProductCode+"_del_%").Order("deleted_at DESC").First(&p)
 		}
-		if p.Code != "" && p.ProtocolName == "cascade" {
+		if p.Code != "" && p.Name == "cascade" {
 			return d.Code
 		}
 
@@ -940,7 +939,7 @@ func (e *platformEngineImpl) resetAllCascadeDevicesOffline() {
 			continue
 		}
 
-		isCascadeGateway := product.ProtocolName == "cascade"
+		isCascadeGateway := product.Name == "cascade"
 		isCascadeSubDevice := false
 
 		// Check if any ancestor is a cascade gateway
@@ -949,7 +948,7 @@ func (e *platformEngineImpl) resetAllCascadeDevicesOffline() {
 			parentDev, parentOk := deviceMap[currentParent]
 			if parentOk {
 				parentProduct, ppOk := productMap[parentDev.ProductCode]
-				if ppOk && parentProduct.ProtocolName == "cascade" {
+				if ppOk && parentProduct.Name == "cascade" {
 					isCascadeSubDevice = true
 					break
 				}

@@ -12,12 +12,11 @@ import (
 // Product represents a type of device (e.g., "Smart Meter Model X")
 type Product struct {
 	gorm.Model
-	TenantID     uint   `gorm:"index;not null;default:0" json:"tenant_id"`
-	ProjectID    uint   `gorm:"index;not null;default:0" json:"project_id"`
-	Code         string `gorm:"uniqueIndex;size:64;not null" json:"code"`
-	Name         string `gorm:"size:128;not null" json:"name"`
-	ProtocolName string `json:"protocol_name"` // e.g. "Modbus", "OPC-UA"
-	// Config stores protocol-specific product configuration (e.g. Polling Groups, TSL)
+	TenantID  uint   `gorm:"index;not null;default:0" json:"tenant_id"`
+	ProjectID uint   `gorm:"index;not null;default:0" json:"project_id"`
+	Code      string `gorm:"uniqueIndex;size:64;not null" json:"code"`
+	Name      string `gorm:"size:128;not null" json:"name"`
+	// Config stores TSL and display settings. Protocol config moved to ProtocolProfile.
 	// Stored as JSON string
 	Config string `json:"config"`
 }
@@ -25,14 +24,31 @@ type Product struct {
 // Device represents a physical instance
 type Device struct {
 	gorm.Model
-	TenantID    uint   `gorm:"index;not null;default:0" json:"tenant_id"`
-	ProjectID   uint   `gorm:"index;not null;default:0" json:"project_id"`
-	Code        string `gorm:"uniqueIndex;size:64;not null" json:"code"`
-	Name        string `gorm:"size:128;not null" json:"name"`
-	ProductCode string `gorm:"index;not null" json:"product_code"`
-	ParentCode  string `gorm:"index" json:"parent_code"`
-	Enabled     bool   `json:"enabled"`
+	TenantID            uint   `gorm:"index;not null;default:0" json:"tenant_id"`
+	ProjectID           uint   `gorm:"index;not null;default:0" json:"project_id"`
+	Code                string `gorm:"uniqueIndex;size:64;not null" json:"code"`
+	Name                string `gorm:"size:128;not null" json:"name"`
+	ProductCode         string `gorm:"index;not null" json:"product_code"`
+	ParentCode          string `gorm:"index" json:"parent_code"`
+	ProtocolName        string `gorm:"size:64;index" json:"protocol_name"`
+	ProtocolProfileCode string `gorm:"size:64;index" json:"protocol_profile_code"`
+	Enabled             bool   `json:"enabled"`
 	// Config stores device-specific connection parameters (e.g. IP, Port, SlaveID)
+	// Stored as JSON string
+	Config string `json:"config"`
+}
+
+// ProtocolProfile represents a reusable protocol configuration template
+type ProtocolProfile struct {
+	gorm.Model
+	TenantID     uint   `gorm:"index;not null;default:0" json:"tenant_id"`
+	ProjectID    uint   `gorm:"index;not null;default:0" json:"project_id"`
+	Code         string `gorm:"uniqueIndex;size:64;not null" json:"code"`
+	Name         string `gorm:"size:128;not null" json:"name"`
+	ProtocolName string `gorm:"size:64;not null" json:"protocol_name"` // e.g. "Modbus", "BACnet"
+	ProductCode  string `gorm:"index" json:"product_code"`             // Optional: recommended for which product
+	Description  string `gorm:"size:255" json:"description"`
+	// Config stores protocol-specific template configuration (e.g. Polling Groups, Point Mappings)
 	// Stored as JSON string
 	Config string `json:"config"`
 }
@@ -227,6 +243,78 @@ func DeleteDevice(code string) error {
 
 		// Soft delete
 		return tx.Delete(&device).Error
+	})
+}
+
+// --- Protocol Profile Methods ---
+
+func GetProtocolProfile(code string) (*ProtocolProfile, error) {
+	var pp ProtocolProfile
+	result := DB.Where("code = ?", code).First(&pp)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &pp, nil
+}
+
+func ListProtocolProfiles(page, pageSize int, tenantID, projectID uint, allowedProjectIDs ...[]uint) ([]ProtocolProfile, int64, error) {
+	var profiles []ProtocolProfile
+	var total int64
+
+	db := DB.Model(&ProtocolProfile{})
+	if tenantID > 0 {
+		db = db.Where("tenant_id IN (?, 0)", tenantID)
+	}
+	if projectID > 0 {
+		db = db.Where("project_id IN (?, 0)", projectID)
+	} else if len(allowedProjectIDs) > 0 {
+		ids := allowedProjectIDs[0]
+		if len(ids) == 0 {
+			db = db.Where("project_id = 0")
+		} else {
+			db = db.Where("project_id IN (?) OR project_id = 0", ids)
+		}
+	}
+
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if page > 0 && pageSize > 0 {
+		offset := (page - 1) * pageSize
+		db = db.Offset(offset).Limit(pageSize)
+	}
+
+	result := db.Order("created_at desc").Find(&profiles)
+	return profiles, total, result.Error
+}
+
+func SaveProtocolProfile(pp *ProtocolProfile) error {
+	var existing ProtocolProfile
+	err := DB.Unscoped().Where("code = ?", pp.Code).First(&existing).Error
+	if err == nil {
+		pp.ID = existing.ID
+		pp.CreatedAt = existing.CreatedAt
+		pp.DeletedAt = gorm.DeletedAt{}
+		return DB.Unscoped().Save(pp).Error
+	}
+	return DB.Create(pp).Error
+}
+
+func DeleteProtocolProfile(code string) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var pp ProtocolProfile
+		if err := tx.Where("code = ?", code).First(&pp).Error; err != nil {
+			return err
+		}
+
+		newCode := fmt.Sprintf("%s_del_%d", pp.Code, time.Now().Unix())
+
+		if err := tx.Model(&pp).Update("code", newCode).Error; err != nil {
+			return err
+		}
+
+		return tx.Delete(&pp).Error
 	})
 }
 

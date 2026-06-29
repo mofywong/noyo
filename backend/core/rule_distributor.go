@@ -54,8 +54,7 @@ func (rd *RuleDistributor) getDeviceGateway(device *store.Device) string {
 		return ""
 	}
 	if device.ParentCode == "" {
-		product, ok := rd.registry.GetProduct(device.ProductCode)
-		if ok && product.ProtocolName == "cascade" {
+		if device.ProtocolName == "cascade" {
 			return device.Code
 		}
 		return ""
@@ -66,8 +65,7 @@ func (rd *RuleDistributor) getDeviceGateway(device *store.Device) string {
 		if !ok || parent == nil {
 			return ""
 		}
-		product, ok := rd.registry.GetProduct(parent.ProductCode)
-		if ok && product.ProtocolName == "cascade" {
+		if parent.ProtocolName == "cascade" {
 			return parent.Code
 		}
 		current = parent

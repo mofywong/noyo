@@ -149,7 +149,12 @@
                 </div>
               </td>
               <td class="text-truncate" style="max-width: 150px;" :title="getProductName(device.product_code)" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
-                <span class="badge bg-light text-body border text-truncate w-100" style="vertical-align: middle;">{{ getProductName(device.product_code) }}</span>
+                <div class="d-flex flex-column align-items-start">
+                  <span class="badge bg-light text-body border text-truncate w-100" style="vertical-align: middle;">{{ getProductName(device.product_code) }}</span>
+                  <span v-if="device.protocol_profile_code" class="badge bg-primary-subtle text-primary border border-primary-subtle mt-1 text-truncate" style="font-size: 0.65rem; max-width: 100%;">
+                    <i class="bi bi-hdd-network"></i> {{ getDriverName(device.protocol_profile_code) }}
+                  </span>
+                </div>
               </td>
               <td class="d-none d-lg-table-cell text-truncate" style="max-width: 150px;" :title="device.parent_code ? getDeviceName(device.parent_code) : ''" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
                 <span v-if="device.parent_code" class="text-muted small">
@@ -230,7 +235,7 @@
                     </template>
                     <li v-permission="'device:edit'">
                       <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openDeviceTagsModal(device))">
-                        <i class="bi bi-tags me-2 text-primary"></i> {{ $t('dev_edit_tags') }}
+                        <i class="bi bi-tags me-2 text-primary"></i> {{ $t('dev_tag_manage') }}
                       </a>
                     </li>
                     <li v-permission="'device:edit'">
@@ -389,10 +394,13 @@
                     <option value="" disabled>{{ $t('dev_select_prod_hint') }}</option>
                     <option v-for="p in products" :key="p.code" :value="p.code">{{ p.name }} ({{ p.code }})</option>
                   </select>
-                  <div v-if="selectedProductNoProtocol && (!newDevice.parent_code || isChildOfCascade(newDevice))" class="form-text text-warning">
-                    <i class="bi bi-exclamation-triangle me-1"></i>
-                    {{ $t('prod_no_protocol_hint') }}
-                  </div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">{{ $t('sidebar_device_drivers', '设备驱动') }}</label>
+                  <select v-model="newDevice.protocol_profile_code" class="form-select" @change="handleProtocolProfileChange">
+                    <option value="">{{ $t('none', '无') }}</option>
+                    <option v-for="d in drivers" :key="d.code" :value="d.code">{{ d.name }} ({{ d.code }})</option>
+                  </select>
                 </div>
                 <div class="mb-3">
                   <label class="form-label">{{ $t('dev_code') }}</label>
@@ -441,7 +449,7 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ $t('dev_edit_tags') }} - {{ currentTagDevice?.code }}</h5>
+            <h5 class="modal-title">{{ $t('dev_tag_manage') }} - {{ currentTagDevice?.code }}</h5>
             <button type="button" class="btn-close" @click="closeDeviceTagsModal"></button>
           </div>
           <div class="modal-body">
@@ -894,6 +902,7 @@ const { t, locale } = useI18n();
 const devices = ref([]);
 const configuredDeviceCodes = ref(new Set());
 const products = ref([]);
+const drivers = ref([]);
 const loading = ref(false);
 const showCreateModal = ref(false);
 const showDiscoveryModal = ref(false);
@@ -904,15 +913,9 @@ const showProjectColumn = computed(() => {
   if (isSingleProjectMode(mode)) return false;
   return Number(localStorage.getItem('current_project_id') || 0) === 0;
 });
-const newDevice = ref({ code: '', name: '', product_code: '', parent_code: '', enabled: true, config: {} });
+const newDevice = ref({ code: '', name: '', product_code: '', protocol_profile_code: '', protocol_name: '', parent_code: '', enabled: true, config: {} });
 const currentSchema = ref(null);
 const isEditing = ref(false);
-// 检查当前选择的产品是否没有协议
-const selectedProductNoProtocol = computed(() => {
-  if (!newDevice.value.product_code) return false;
-  const p = products.value.find(prod => prod.code === newDevice.value.product_code);
-  return p && !p.protocol_name;
-});
 const selectedDevices = ref([]);
 const hoveredDevice = ref(null);
 const hoveredData = ref({});
@@ -1192,6 +1195,12 @@ const playVideo = (device) => {
 const getProductName = (code) => {
   const p = products.value.find(prod => prod.code === code);
   return p ? `${p.name} (${p.code})` : code;
+};
+
+const getDriverName = (code) => {
+  if (!code) return '';
+  const d = drivers.value.find(drv => drv.code === code);
+  return d ? `${d.name}` : code;
 };
 
 const batchDelete = async () => {
@@ -2204,6 +2213,17 @@ const fetchProducts = async () => {
   }
 };
 
+const fetchDrivers = async () => {
+  try {
+    const res = await axios.get('/api/protocol-profiles', { params: { page: 0, pageSize: 1000 } });
+    if (res.data.code === 0 || res.data.data) {
+      drivers.value = res.data.data || [];
+    }
+  } catch (e) {
+    console.error(e);
+  }
+};
+
 // 协议映射标志缓存: protocolName -> bool
 const protocolMappingMap = ref({});
 
@@ -2226,15 +2246,11 @@ const fetchPluginsInfo = async () => {
 
 // 判断设备是否需要协议映射
 const needsProtocolMapping = (device) => {
-  const product = products.value.find(p => p.code === device.product_code);
-  if (!product || !product.protocol_name) return false;
-  // 子设备取父设备的协议
-  let protocolName = product.protocol_name;
-  if (device.parent_code && !protocolName) {
+  let protocolName = device.protocol_name;
+  if (!protocolName && device.parent_code) {
     const parentDev = devices.value.find(d => d.code === device.parent_code);
     if (parentDev) {
-      const parentProd = products.value.find(p => p.code === parentDev.product_code);
-      protocolName = parentProd?.protocol_name || '';
+      protocolName = parentDev.protocol_name || '';
     }
   }
   if (!protocolName) return false;
@@ -2255,20 +2271,31 @@ const isChildOfCascade = (device) => {
   return parentProduct && parentProduct.protocol_name === 'cascade';
 };
 
-const fetchProtocolSchema = async (productCode, parentCode) => {
-  if (!productCode) {
-    currentSchema.value = null;
-    return;
-  }
-  try {
-    // 使用新的 config-schema API，子设备从父设备获取协议的 SubDeviceConfigSchema
-    const params = new URLSearchParams();
-    params.append('productCode', productCode);
-    if (parentCode) params.append('parentCode', parentCode);
+const fetchProtocolSchema = async (protocolName, parentCode) => {
+    if (!protocolName && parentCode) {
+        try {
+            const res = await axios.get(`/api/devices/${parentCode}`);
+            if (res.data.code === 0 && res.data.data) {
+                protocolName = res.data.data.protocol_name;
+            }
+        } catch (e) {
+            console.error("Failed to fetch parent device for protocol", e);
+        }
+    }
     
-    const res = await axios.get(`/api/devices/config-schema?${params.toString()}`);
-    if (res.data.code === 0) {
-      currentSchema.value = res.data.data.schema;
+    if (!protocolName) {
+      currentSchema.value = null;
+      return;
+    }
+    try {
+      const params = new URLSearchParams();
+      params.append('protocolName', protocolName);
+      params.append('type', 'device');
+      if (parentCode) params.append('isSubDevice', 'true');
+      
+      const res = await axios.get(`/api/devices/config-schema?${params.toString()}`);
+      if (res.data.code === 0) {
+        currentSchema.value = res.data.data;
       
       // Apply defaults from schema to config if missing
       if (currentSchema.value && currentSchema.value.properties) {
@@ -2295,20 +2322,25 @@ const fetchProtocolSchema = async (productCode, parentCode) => {
 };
 
 const handleProductChange = () => {
-  newDevice.value.config = {}; // Reset config
-  if (newDevice.value.product_code) {
-    fetchProtocolSchema(newDevice.value.product_code, newDevice.value.parent_code);
-  } else {
-    currentSchema.value = null;
-  }
-};
+    // config schema is now fetched via protocol change, not product change.
+  };
+
+const handleProtocolProfileChange = () => {
+    newDevice.value.config = {}; // Reset config
+    const selectedDriver = drivers.value.find(d => d.code === newDevice.value.protocol_profile_code);
+    if (selectedDriver) {
+      newDevice.value.protocol_name = selectedDriver.protocol_name;
+      fetchProtocolSchema(selectedDriver.protocol_name, newDevice.value.parent_code);
+    } else {
+      newDevice.value.protocol_name = '';
+      currentSchema.value = null;
+    }
+  };
 
 // 监听父设备变化，重新加载 Schema（子设备 Schema 可能不同）
 watch(() => newDevice.value.parent_code, (newParentCode) => {
-  if (newDevice.value.product_code) {
-    fetchProtocolSchema(newDevice.value.product_code, newParentCode);
-  }
-});
+    fetchProtocolSchema(newDevice.value.protocol_name, newParentCode);
+  });
 
 const fetchConfiguredTasks = async () => {
   try {
@@ -2330,6 +2362,7 @@ const fetchConfiguredTasks = async () => {
 onMounted(() => {
   fetchDevices();
   fetchProducts();
+  fetchDrivers();
   fetchPluginsInfo();
   fetchConfiguredTasks();
   fetchDeviceTags();
@@ -2343,7 +2376,7 @@ onMounted(() => {
 
 const openCreateModal = () => {
   isEditing.value = false;
-  newDevice.value = { code: '', name: '', product_code: '', parent_code: '', enabled: true, config: {} };
+  newDevice.value = { code: '', name: '', product_code: '', protocol_profile_code: '', protocol_name: '', parent_code: '', enabled: true, config: {} };
   currentSchema.value = null;
   showCreateModal.value = true;
 };
@@ -2482,10 +2515,8 @@ const openEditModal = async (device) => {
     newDevice.value.config = {};
   }
   
-  // Fetch Schema (使用产品编码而不是协议名称)
-  if (device.product_code) {
-    fetchProtocolSchema(device.product_code, device.parent_code);
-  }
+  // Fetch Schema
+  fetchProtocolSchema(device.protocol_name, device.parent_code);
   
   showCreateModal.value = true;
 };
@@ -2508,7 +2539,7 @@ const saveDevice = async () => {
     if (res.data.code === 0) {
       showCreateModal.value = false;
       fetchDevices();
-      newDevice.value = { code: '', name: '', product_code: '', parent_code: '', enabled: true, config: {} };
+      newDevice.value = { code: '', name: '', product_code: '', protocol_profile_code: '', protocol_name: '', parent_code: '', enabled: true, config: {} };
       currentSchema.value = null;
     } else {
       alert(res.data.message);
@@ -2577,22 +2608,18 @@ const openMappingModal = async (device) => {
   const product = products.value.find(p => p.code === device.product_code);
   if (product) {
       // 子设备从父设备获取协议名称
-      if (device.parent_code && !product.protocol_name) {
-          // 尝试从父设备的产品获取协议
-          try {
-              const res = await axios.get(`/api/devices/${device.parent_code}`);
-              if (res.data.code === 0 && res.data.data) {
-                  const parentDev = res.data.data;
-                  const parentProduct = products.value.find(p => p.code === parentDev.product_code);
-                  currentMappingProtocol.value = parentProduct?.protocol_name || '';
-              }
-          } catch (e) {
-              console.error("Failed to fetch parent device for protocol", e);
-              currentMappingProtocol.value = '';
-          }
-      } else {
-          currentMappingProtocol.value = product.protocol_name || '';
-      }
+      let protocolName = device.protocol_name;
+        if (!protocolName && device.parent_code) {
+            try {
+                const res = await axios.get(`/api/devices/${device.parent_code}`);
+                if (res.data.code === 0 && res.data.data) {
+                    protocolName = res.data.data.protocol_name || '';
+                }
+            } catch (e) {
+                console.error("Failed to fetch parent device for protocol", e);
+            }
+        }
+        currentMappingProtocol.value = protocolName || '';
       
       if (product.config) {
         try {
@@ -2621,9 +2648,8 @@ const openMappingModal = async (device) => {
       try {
           const res = await axios.get(`/api/devices/${device.parent_code}`);
           if (res.data.code === 0 && res.data.data) {
-              const parentDev = res.data.data;
-              const parentProduct = products.value.find(p => p.code === parentDev.product_code);
-              if (parentProduct && parentProduct.protocol_name === 'cascade') {
+                const parentDev = res.data.data;
+                if (parentDev.protocol_name === 'cascade') {
                   isParentCascade.value = true;
               }
               if (parentDev.config) {

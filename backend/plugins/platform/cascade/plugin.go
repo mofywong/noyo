@@ -171,7 +171,7 @@ func (p *CascadePlugin) IsGatewayDevice(gwSn string) bool {
 	if err != nil || product == nil {
 		return false
 	}
-	return product.ProtocolName == "cascade"
+	return product.Name == "cascade"
 }
 
 // SendCommandToGateway implements IGatewayRouter
@@ -504,7 +504,7 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 	items := make([]gatewayItem, 0)
 	for _, dev := range devices {
 		product, err := store.GetProduct(dev.ProductCode)
-		if err != nil || product == nil || product.ProtocolName != "cascade" {
+		if err != nil || product == nil || product.Name != "cascade" {
 			continue
 		}
 

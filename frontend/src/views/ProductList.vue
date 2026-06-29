@@ -14,7 +14,6 @@
               <th class="ps-4 d-none d-md-table-cell">{{ $t('prod_code') }}</th>
               <th>{{ $t('prod_name') }}</th>
               <th v-if="showProjectColumn" class="d-none d-lg-table-cell">{{ $t('project_name') }}</th>
-              <th class="d-none d-lg-table-cell">{{ $t('prod_protocol') }}</th>
               <th>{{ $t('prod_tsl_status') }}</th>
               <th class="d-none d-xl-table-cell" style="font-size: 0.8rem; color: #6c757d;">
                 <div style="line-height: 1.2;">{{ $t('dev_created') }}</div>
@@ -35,10 +34,6 @@
               <td class="fw-bold">{{ product.name }}</td>
               <td v-if="showProjectColumn" class="d-none d-lg-table-cell">
                 <span class="badge text-bg-light border">{{ product.project_name || '-' }}</span>
-              </td>
-              <td class="d-none d-lg-table-cell">
-                <span v-if="product.protocol_name" class="badge bg-info bg-opacity-10 text-info">{{ getPluginTitle(product.protocol_name) }}</span>
-                <span v-else class="badge bg-secondary bg-opacity-10 text-secondary">{{ $t('prod_subdevice_only') }}</span>
               </td>
               <td>
                 <span v-if="hasTSL(product)" class="badge bg-success bg-opacity-10 text-success">
@@ -89,82 +84,6 @@
                 <div class="mb-3">
                   <label class="form-label">{{ $t('prod_name') }}</label>
                   <input v-model="currentProduct.name" type="text" class="form-control">
-                </div>
-                <div class="mb-3">
-                  <label class="form-label">{{ $t('prod_protocol') }}</label>
-                  <select v-model="currentProduct.protocol_name" class="form-select" :disabled="isEditing">
-                    <option value="">{{ $t('prod_no_protocol') }}</option>
-                    <option v-for="p in protocols" :key="p.name" :value="p.name">{{ getPluginTitle(p.name) }}</option>
-                  </select>
-                  <div v-if="!currentProduct.protocol_name" class="form-text text-warning">
-                    <i class="bi bi-exclamation-triangle me-1"></i>{{ $t('prod_no_protocol_hint') }}
-                  </div>
-                </div>
-                <div class="mb-3" v-if="currentSchema || currentProduct.protocol_name === 'Script' || currentProduct.protocol_name === 'script'">
-                   <label class="form-label">{{ $t('prod_proto_config') }}</label>
-                   <div class="border rounded p-3 bg-light">
-                      <ScriptProductConfig 
-                          v-if="currentProduct.protocol_name === 'Script' || currentProduct.protocol_name === 'script'"
-                          :modelValue="currentProduct.config"
-                          @update:modelValue="handleScriptConfigUpdate"
-                          :product-code="currentProduct.code"
-                      />
-                      <SchemaForm 
-                          v-else
-                          :schema="currentSchema" 
-                          v-model="currentProduct.config" 
-                      />
-                   </div>
-                </div>
-                <!-- 子设备配置参数定义（仅当协议允许自定义时显示） -->
-                <div class="mb-3" v-if="currentProduct.protocol_name && subDeviceConfigCustomizable">
-                   <label class="form-label">
-                     {{ $t('prod_sub_device_params') }}
-                     <span class="text-muted small ms-1">({{ $t('optional') }})</span>
-                   </label>
-                   <div class="form-text text-muted mb-2">{{ $t('prod_sub_device_params_hint') }}</div>
-                   <div class="border rounded p-3 bg-light">
-                      <div v-for="(param, index) in subDeviceParams" :key="index" class="row g-2 mb-2 align-items-center">
-                        <div class="col-3">
-                          <input type="text" class="form-control form-control-sm" v-model="param.key" :placeholder="$t('script_param_key')">
-                        </div>
-                        <div class="col-3">
-                          <input type="text" class="form-control form-control-sm" v-model="param.title" :placeholder="$t('script_param_name')">
-                        </div>
-                        <div class="col-2">
-                          <select class="form-select form-select-sm" v-model="param.type">
-                            <option value="string">String</option>
-                            <option value="integer">Integer</option>
-                            <option value="number">Number</option>
-                            <option value="boolean">Boolean</option>
-                          </select>
-                        </div>
-                        <div class="col-2">
-                          <input type="text" class="form-control form-control-sm" v-model="param.default" :placeholder="$t('default')">
-                        </div>
-                        <div class="col-1">
-                          <div class="form-check">
-                            <input class="form-check-input" type="checkbox" v-model="param.required">
-                          </div>
-                        </div>
-                        <div class="col-1">
-                          <button type="button" class="btn btn-sm btn-outline-danger" @click="removeSubDeviceParam(index)">
-                            <i class="bi bi-trash"></i>
-                          </button>
-                        </div>
-                      </div>
-                      <div v-if="subDeviceParams.length > 0" class="row g-2 mb-2 text-muted small">
-                        <div class="col-3">{{ $t('script_param_key') }}</div>
-                        <div class="col-3">{{ $t('script_param_name') }}</div>
-                        <div class="col-2">{{ $t('script_param_type') }}</div>
-                        <div class="col-2">{{ $t('default') }}</div>
-                        <div class="col-1">{{ $t('script_param_required') }}</div>
-                        <div class="col-1"></div>
-                      </div>
-                      <button type="button" class="btn btn-sm btn-outline-primary" @click="addSubDeviceParam">
-                        <i class="bi bi-plus me-1"></i>{{ $t('script_add_param') }}
-                      </button>
-                   </div>
                 </div>
               </div>
             </div>
@@ -233,100 +152,31 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import axios from 'axios';
 import { useI18n } from 'vue-i18n';
-import SchemaForm from '../components/SchemaForm.vue';
-import ScriptProductConfig from '../components/script/ScriptProductConfig.vue';
 import TSLEditor from '../components/tsl/TSLEditor.vue';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 
 const { t, locale } = useI18n();
-
-const getPluginTitle = (name) => {
-  const p = protocols.value.find(plugin => plugin.name === name);
-  if (p && p.title) {
-    if (typeof p.title === 'string') return p.title;
-    return p.title[locale.value] || p.title['en'] || name;
-  }
-  return name;
-};
 
 const products = ref([]);
 const loading = ref(false);
 const showCreateModal = ref(false);
 const showTSLModal = ref(false);
 const isEditing = ref(false);
-const protocols = ref([]);
 const showProjectColumn = computed(() => {
   const mode = localStorage.getItem('system_mode') || '';
   if (isSingleProjectMode(mode)) return false;
   return Number(localStorage.getItem('current_project_id') || 0) === 0;
 });
 
-// 分页状态
+// 分页状?
 const page = ref(1);
 const pageSize = ref(10);
 const total = ref(0);
 
-// 产品信息状态
-const currentProduct = ref({ code: '', name: '', protocol_name: '', config: {} });
-const currentSchema = ref(null);
+// 产品信息状?
+const currentProduct = ref({ code: '', name: '', config: {} });
 
-// 子设备配置参数
-const subDeviceParams = ref([]);
-const subDeviceConfigCustomizable = ref(true);
-
-const addSubDeviceParam = () => {
-  subDeviceParams.value.push({ key: '', title: '', type: 'string', default: '', required: false });
-};
-
-const removeSubDeviceParam = (index) => {
-  subDeviceParams.value.splice(index, 1);
-};
-
-// 将 subDeviceParams 转换为 JSON Schema 格式
-const buildSubDeviceConfigSchema = () => {
-  if (subDeviceParams.value.length === 0) return null;
-  const properties = {};
-  const required = [];
-  for (const param of subDeviceParams.value) {
-    if (!param.key) continue;
-    const prop = { type: param.type, title: param.title || param.key };
-    if (param.default !== '') {
-      if (param.type === 'integer') prop.default = parseInt(param.default) || 0;
-      else if (param.type === 'number') prop.default = parseFloat(param.default) || 0;
-      else if (param.type === 'boolean') prop.default = param.default === 'true';
-      else prop.default = param.default;
-    }
-    properties[param.key] = prop;
-    if (param.required) required.push(param.key);
-  }
-  if (Object.keys(properties).length === 0) return null;
-  const schema = { type: 'object', properties };
-  if (required.length > 0) schema.required = required;
-  return schema;
-};
-
-// 从产品配置中加载 subDeviceParams
-const loadSubDeviceParams = (config) => {
-  const schema = config?.sub_device_config_schema;
-  if (!schema || !schema.properties) {
-    subDeviceParams.value = [];
-    return;
-  }
-  const params = [];
-  const requiredList = schema.required || [];
-  for (const [key, prop] of Object.entries(schema.properties)) {
-    params.push({
-      key,
-      title: prop.title || '',
-      type: prop.type || 'string',
-      default: prop.default !== undefined ? String(prop.default) : '',
-      required: requiredList.includes(key)
-    });
-  }
-  subDeviceParams.value = params;
-};
-
-// TSL 编辑器状态
+// TSL 编辑器状?
 const editingProduct = ref({});
 const currentTSL = ref({ properties: [], events: [], services: [] });
 const currentProtocolSchema = ref(null);
@@ -381,62 +231,11 @@ const changePageSize = () => {
   fetchProducts();
 };
 
-const fetchProtocols = async () => {
-  try {
-    const res = await axios.get('/api/plugins', {
-      params: { type: 'protocol', enabled: 1 }
-    });
-    if (res.data.code === 0) {
-      protocols.value = res.data.data.filter(p => p.category === 'protocol' && p.status === 'running');
-    }
-  } catch (e) {
-    console.error(e);
-  }
-};
-
-const fetchProtocolSchema = async (protocolName) => {
-  if (!protocolName) {
-    subDeviceConfigCustomizable.value = true;
-    return null;
-  }
-  try {
-    const res = await axios.get(`/api/plugins/${protocolName}/schemas`);
-    if (res.data.code === 0) {
-      // 更新子设备配置可自定义标志
-      subDeviceConfigCustomizable.value = res.data.data.subDeviceConfigCustomizable !== false;
-      if (res.data.data.product) {
-        return res.data.data.product;
-      }
-    }
-  } catch (e) {
-    console.error(e);
-  }
-  return null;
-};
-
-// Watch protocol change in Create/Edit Modal
-watch(() => currentProduct.value.protocol_name, async (newVal) => {
-  if (newVal) {
-    currentSchema.value = await fetchProtocolSchema(newVal);
-  } else {
-    currentSchema.value = null;
-  }
-});
-
 // Open Create Modal
 const openCreateModal = () => {
   isEditing.value = false;
-  currentProduct.value = { code: '', name: '', protocol_name: '', config: {} };
-  currentSchema.value = null;
-  subDeviceParams.value = [];
-  subDeviceConfigCustomizable.value = true;
+  currentProduct.value = { code: '', name: '', config: {} };
   showCreateModal.value = true;
-};
-
-const handleScriptConfigUpdate = (newConfig) => {
-  console.log('ProductList: Received config update from ScriptProductConfig', newConfig);
-  // Ensure reactivity by assigning a new object via deep clone
-  currentProduct.value.config = JSON.parse(JSON.stringify(newConfig));
 };
 
 // Open Info Edit Modal
@@ -452,12 +251,6 @@ const openInfoEditModal = async (product) => {
         currentProduct.value.config = {};
      }
   }
-  // 加载子设备配置参数
-  loadSubDeviceParams(currentProduct.value.config);
-  // Fetch Schema
-  if (currentProduct.value.protocol_name) {
-    currentSchema.value = await fetchProtocolSchema(currentProduct.value.protocol_name);
-  }
   showCreateModal.value = true;
 };
 
@@ -467,15 +260,8 @@ const closeCreateModal = () => {
 
 const saveProduct = async () => {
   try {
-    // 将子设备配置参数合并到产品配置中
     const configToSave = { ...(currentProduct.value.config || {}) };
-    const subSchema = buildSubDeviceConfigSchema();
-    if (subSchema) {
-      configToSave.sub_device_config_schema = subSchema;
-    } else {
-      delete configToSave.sub_device_config_schema;
-    }
-
+    
     const payload = {
       ...currentProduct.value,
       config: JSON.stringify(configToSave)
@@ -527,11 +313,8 @@ const openTSLEditModal = async (product) => {
     currentMapping.value = { points: [] };
   }
 
-  // Fetch Protocol Schema (for mapping UI)
-  if (product.protocol_name) {
-    currentProtocolSchema.value = await fetchProtocolSchema(product.protocol_name);
-  }
-
+  currentProtocolSchema.value = null; // Removed protocol schema dependency from Product
+  
   showTSLModal.value = true;
   setTimeout(() => { tslDirty.value = false; }, 0);
 };
@@ -546,7 +329,7 @@ const closeTSLModal = () => {
   tslDirty.value = false;
 };
 
-// 监听 TSL 变化以标记未保存状态
+// 监听 TSL 变化以标记未保存状?
 const tslDirty = ref(false);
 watch([currentTSL, currentMapping], () => {
   if (showTSLModal.value) {
@@ -560,20 +343,16 @@ const updateMapping = (newMapping) => {
 
 const saveTSL = async () => {
   try {
-    // 1. Get current config from product (or reload it to be safe, but here we use what we have)
     let configObj = {};
     try {
-       // Re-parse original config to preserve other fields (like polling_groups)
        configObj = JSON.parse(editingProduct.value.config || '{}');
     } catch (e) {
        configObj = {};
     }
 
-    // 2. Update TSL and Points
     configObj.tsl = currentTSL.value;
     configObj.points = currentMapping.value.points;
 
-    // 3. Save
     const payload = {
       ...editingProduct.value,
       config: JSON.stringify(configObj)
@@ -610,7 +389,6 @@ const deleteProduct = async (code) => {
 
 onMounted(() => {
   fetchProducts();
-  fetchProtocols();
   window.addEventListener('noyo-data-updated', fetchProducts);
 });
 

@@ -139,11 +139,7 @@ func (s *Server) handleCreateProduct(r *ghttp.Request) {
 		return
 	}
 
-	// ProtocolName 现在为可选字段，为空表示该产品只能作为子设备使用
-	if err := validateProtocolEnabledForProject(p.ProtocolName, tenantID, projectID); err != nil {
-		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
-		return
-	}
+
 	if err := store.SaveProduct(&p); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
@@ -180,12 +176,7 @@ func (s *Server) handleUpdateProduct(r *ghttp.Request) {
 	}
 	p.TenantID = existing.TenantID
 	p.ProjectID = existing.ProjectID
-	if p.ProtocolName != "" && p.ProtocolName != existing.ProtocolName {
-		if err := validateProtocolEnabledForProject(p.ProtocolName, p.TenantID, p.ProjectID); err != nil {
-			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
-			return
-		}
-	}
+
 	if err := store.UpdateProduct(&p); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
@@ -484,14 +475,18 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 		return
 	}
 
-	if d.ParentCode == "" {
-		// 直连设备：产品必须绑定协议
-		if product.ProtocolName == "" {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "该产品没有绑定协议，只能作为子设备使用"})
+	if d.ProtocolName != "" {
+		if err := validateProtocolEnabledForProject(d.ProtocolName, d.TenantID, d.ProjectID); err != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 			return
 		}
-	} else {
-		// 子设备：验证父设备存在且其产品有协议
+	} else if d.ParentCode == "" {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "直连设备必须绑定通信协议"})
+		return
+	}
+
+	if d.ParentCode != "" {
+		// 子设备：验证父设备存在
 		parentDevice, err := store.GetDevice(d.ParentCode)
 		if err != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备不存在"})
@@ -505,22 +500,14 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 403, "message": "Parent device is outside current project"})
 			return
 		}
-		parentProduct, err := store.GetProduct(parentDevice.ProductCode)
-		if err != nil {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品不存在"})
-			return
-		}
-		if (parentProduct.TenantID != 0 && parentProduct.TenantID != d.TenantID) || (parentProduct.ProjectID != 0 && parentProduct.ProjectID != d.ProjectID) {
-			r.Response.WriteJson(g.Map{"code": 403, "message": "Parent product is outside current project"})
-			return
-		}
-		if parentProduct.ProtocolName == "" {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品没有绑定协议"})
+
+		if parentDevice.ProtocolName == "" {
+			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备没有绑定协议"})
 			return
 		}
 
-		// 如果父设备是级联网关，则该设备视作直连设备，其自身产品必须绑定协议
-		if parentProduct.ProtocolName == "cascade" && product.ProtocolName == "" {
+		// 如果父设备是级联网关，则该设备视作直连设备，自身必须绑定协议
+		if parentDevice.ProtocolName == "cascade" && d.ProtocolName == "" {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "级联网关下的设备（视作直连设备）必须绑定协议"})
 			return
 		}
@@ -588,7 +575,7 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 		return
 	}
 
-	// 验证协议配置 (与 Create 逻辑保持一致)
+	// 验证协议配置
 	product, err := store.GetProduct(d.ProductCode)
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Product not found"})
@@ -598,12 +585,18 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Product is outside current project"})
 		return
 	}
-	if d.ParentCode == "" {
-		if product.ProtocolName == "" {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "该产品没有绑定协议，只能作为子设备使用"})
+
+	if d.ProtocolName != "" {
+		if err := validateProtocolEnabledForProject(d.ProtocolName, d.TenantID, d.ProjectID); err != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 			return
 		}
-	} else {
+	} else if d.ParentCode == "" {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "直连设备必须绑定通信协议"})
+		return
+	}
+
+	if d.ParentCode != "" {
 		parentDevice, err := store.GetDevice(d.ParentCode)
 		if err != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备不存在"})
@@ -617,20 +610,13 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 403, "message": "Parent device is outside current project"})
 			return
 		}
-		parentProduct, err := store.GetProduct(parentDevice.ProductCode)
-		if err != nil {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品不存在"})
+
+		if parentDevice.ProtocolName == "" {
+			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备没有绑定协议"})
 			return
 		}
-		if (parentProduct.TenantID != 0 && parentProduct.TenantID != d.TenantID) || (parentProduct.ProjectID != 0 && parentProduct.ProjectID != d.ProjectID) {
-			r.Response.WriteJson(g.Map{"code": 403, "message": "Parent product is outside current project"})
-			return
-		}
-		if parentProduct.ProtocolName == "" {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品没有绑定协议"})
-			return
-		}
-		if parentProduct.ProtocolName == "cascade" && product.ProtocolName == "" {
+
+		if parentDevice.ProtocolName == "cascade" && d.ProtocolName == "" {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "级联网关下的设备（视作直连设备）必须绑定协议"})
 			return
 		}
@@ -1291,177 +1277,56 @@ func (s *Server) handleGetStats(r *ghttp.Request) {
 // handleGetDeviceConfigSchema 获取设备配置 Schema
 // 参数：productCode（必填）, parentCode（可选，子设备时传入父设备编码）
 // 直连设备：返回产品协议的 DeviceConfigSchema
-// 子设备：返回父设备协议的 SubDeviceConfigSchema
+// handleGetDeviceConfigSchema returns the device or point config schema for a given protocol.
 func (s *Server) handleGetDeviceConfigSchema(r *ghttp.Request) {
-	productCode := r.Get("productCode").String()
-	parentCode := r.Get("parentCode").String()
+	protocolName := r.Get("protocolName").String()
 	schemaType := r.Get("type", "device").String()
+	isSubDevice := r.Get("isSubDevice", false).Bool()
 
-	if productCode == "" {
-		r.Response.WriteJson(g.Map{"code": 400, "message": "productCode is required"})
+	if protocolName == "" {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "protocolName is required"})
 		return
 	}
 
-	var protocolName string
-	var isSubDevice bool
+	plugin := s.Manager.GetPlugin(protocolName)
+	if plugin == nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Protocol plugin not found: " + protocolName})
+		return
+	}
+	protocolPlugin, ok := plugin.(protocol.IProtocolPlugin)
+	if !ok {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Plugin is not a protocol plugin"})
+		return
+	}
+
 	var schema []byte
 	var err error
 
-	if parentCode == "" {
-		// 直连设备：使用产品自己的协议
-		var product *store.Product
-		product, err = store.GetProduct(productCode)
-		if err != nil {
-			r.Response.WriteJson(g.Map{"code": 404, "message": "Product not found"})
-			return
-		}
-		if !canAccessProduct(r, product) {
-			r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
-			return
-		}
-		if product.ProtocolName == "" {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "该产品没有绑定协议，只能作为子设备使用"})
-			return
-		}
-		protocolName = product.ProtocolName
-		isSubDevice = false
-
-		// 获取协议插件的设备配置 Schema
-		plugin := s.Manager.GetPlugin(protocolName)
-		if plugin == nil {
-			r.Response.WriteJson(g.Map{"code": 500, "message": "Protocol plugin not found: " + protocolName})
-			return
-		}
-		protocolPlugin, ok := plugin.(protocol.IProtocolPlugin)
-		if !ok {
-			r.Response.WriteJson(g.Map{"code": 500, "message": "Plugin is not a protocol plugin"})
-			return
-		}
-
-		if schemaType == "point" {
-			// Get Point Config Schema
-			schema, err = protocolPlugin.GetPointConfigSchema()
-		} else {
-			// Get Device Config Schema
-			meta := DeviceMeta{ParentCode: "", ProductCode: productCode}
-			schema, err = protocolPlugin.GetDeviceConfigSchema(meta)
-		}
-
-		if err != nil {
-			r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
-			return
-		}
+	if schemaType == "point" {
+		schema, err = protocolPlugin.GetPointConfigSchema()
 	} else {
-		// 子设备：优先从父设备产品配置获取 sub_device_config_schema
-		parentDevice, err := store.GetDevice(parentCode)
-		if err != nil {
-			r.Response.WriteJson(g.Map{"code": 404, "message": "父设备不存在"})
-			return
+		// Device Config Schema
+		meta := types.DeviceMeta{ParentCode: ""}
+		if isSubDevice {
+			meta.ParentCode = "dummy" // 标记为子设备，部分插件可能需要此上下文
 		}
-		parentProduct, err := store.GetProduct(parentDevice.ProductCode)
-		if err != nil {
-			r.Response.WriteJson(g.Map{"code": 404, "message": "父设备的产品不存在"})
-			return
-		}
-
-		// 如果父设备是级联网关，则子设备在配置时完全视作直连设备，使用其自身产品的协议配置
-		if parentProduct.ProtocolName == "cascade" {
-			product, err := store.GetProduct(productCode)
-			if err != nil {
-				r.Response.WriteJson(g.Map{"code": 404, "message": "Product not found"})
-				return
-			}
-			if !canAccessProduct(r, product) {
-				r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
-				return
-			}
-			if product.ProtocolName == "" {
-				r.Response.WriteJson(g.Map{"code": 400, "message": "网关子设备（视作直连设备）的产品必须绑定协议"})
-				return
-			}
-			protocolName = product.ProtocolName
-			isSubDevice = false // 强制作为直连设备返回 schema
-
-			plugin := s.Manager.GetPlugin(protocolName)
-			if plugin == nil {
-				r.Response.WriteJson(g.Map{"code": 500, "message": "Protocol plugin not found: " + protocolName})
-				return
-			}
-			protocolPlugin, ok := plugin.(protocol.IProtocolPlugin)
-			if !ok {
-				r.Response.WriteJson(g.Map{"code": 500, "message": "Plugin is not a protocol plugin"})
-				return
-			}
-
-			if schemaType == "point" {
-				schema, err = protocolPlugin.GetPointConfigSchema()
-			} else {
-				meta := DeviceMeta{ParentCode: "", ProductCode: productCode}
-				schema, err = protocolPlugin.GetDeviceConfigSchema(meta)
-			}
-
-			if err != nil {
-				r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
-				return
-			}
-		} else {
-			if parentProduct.ProtocolName == "" {
-				r.Response.WriteJson(g.Map{"code": 400, "message": "父设备的产品没有绑定协议"})
-				return
-			}
-			protocolName = parentProduct.ProtocolName
-			isSubDevice = true
-
-			// 尝试从父产品配置获取 sub_device_config_schema
-			var customSchema []byte
-			if parentProduct.Config != "" {
-				var prodConfig map[string]interface{}
-				if json.Unmarshal([]byte(parentProduct.Config), &prodConfig) == nil {
-					if subSchema, ok := prodConfig["sub_device_config_schema"]; ok {
-						customSchema, _ = json.Marshal(subSchema)
-					}
-				}
-			}
-
-			if len(customSchema) > 0 {
-				// 使用父产品自定义的子设备配置 Schema
-				schema = customSchema
-			} else {
-				// 回退到协议插件的 Schema
-				plugin := s.Manager.GetPlugin(protocolName)
-				if plugin == nil {
-					r.Response.WriteJson(g.Map{"code": 500, "message": "Protocol plugin not found: " + protocolName})
-					return
-				}
-				protocolPlugin, ok := plugin.(protocol.IProtocolPlugin)
-				if !ok {
-					r.Response.WriteJson(g.Map{"code": 500, "message": "Plugin is not a protocol plugin"})
-					return
-				}
-
-				if schemaType == "point" {
-					schema, err = protocolPlugin.GetPointConfigSchema()
-				} else {
-					meta := DeviceMeta{ParentCode: parentCode, ProductCode: productCode}
-					schema, err = protocolPlugin.GetDeviceConfigSchema(meta)
-				}
-
-				if err != nil {
-					r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
-					return
-				}
-			}
-		}
+		schema, err = protocolPlugin.GetDeviceConfigSchema(meta)
 	}
 
-	r.Response.WriteJson(g.Map{
-		"code": 0,
-		"data": g.Map{
-			"schema":       json.RawMessage(schema),
-			"protocolName": protocolName,
-			"isSubDevice":  isSubDevice,
-		},
-	})
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+		return
+	}
+
+	if len(schema) > 0 {
+		var schemaMap interface{}
+		if err := json.Unmarshal(schema, &schemaMap); err == nil {
+			r.Response.WriteJson(g.Map{"code": 0, "data": schemaMap})
+			return
+		}
+	}
+	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{}})
+
 }
 
 func (s *Server) checkDeviceTagPermission(r *ghttp.Request, deviceCode string) error {

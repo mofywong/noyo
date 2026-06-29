@@ -347,7 +347,7 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 		// 检查产品信息是否有变化，避免无变化时触发插件重载
 		productChanged := true
 		if existingP, err := store.GetProduct(p.Code); err == nil && existingP != nil {
-			if existingP.Name == p.Name && existingP.ProtocolName == p.ProtocolName && existingP.Config == p.Config {
+			if existingP.Name == p.Name  && existingP.Config == p.Config {
 				productChanged = false
 			}
 		}
@@ -362,45 +362,6 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 
 			e.logger.Info("Synced product", zap.String("code", p.Code))
 			coreServer.DeviceManager.Registry.UpdateProduct(p)
-
-			// Automatically enable and reload the protocol plugin used by this product
-			if p.ProtocolName != "" {
-				pluginModel, _ := store.GetPlugin(p.ProtocolName)
-				needsReload := false
-				if pluginModel == nil {
-					pluginModel = &store.PluginModel{
-						Name:    p.ProtocolName,
-						Enabled: true,
-						Config:  "{}",
-					}
-					if err := store.DB.Save(pluginModel).Error; err != nil {
-						e.logger.Error("Failed to save enabled state for protocol plugin", zap.String("plugin", p.ProtocolName), zap.Error(err))
-					} else {
-						needsReload = true
-					}
-				} else if !pluginModel.Enabled {
-					pluginModel.Enabled = true
-					if err := store.DB.Save(pluginModel).Error; err != nil {
-						e.logger.Error("Failed to enable protocol plugin", zap.String("plugin", p.ProtocolName), zap.Error(err))
-					} else {
-						needsReload = true
-					}
-				}
-
-				if needsReload {
-					e.logger.Info("Auto-enabling and reloading protocol plugin for synced product", zap.String("plugin", p.ProtocolName), zap.String("product", p.Code))
-					if err := coreServer.Manager.ReloadPlugin(p.ProtocolName); err != nil {
-						e.logger.Error("Failed to reload protocol plugin automatically", zap.String("plugin", p.ProtocolName), zap.Error(err))
-					}
-				} else {
-					// Check if it's already loaded in memory (e.g. system started with it disabled)
-					if coreServer.Manager.GetPlugin(p.ProtocolName) == nil {
-						if err := coreServer.Manager.LoadPlugin(p.ProtocolName); err != nil {
-							e.logger.Error("Failed to load protocol plugin automatically", zap.String("plugin", p.ProtocolName), zap.Error(err))
-						}
-					}
-				}
-			}
 		}
 	}
 

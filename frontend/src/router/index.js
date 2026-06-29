@@ -46,6 +46,12 @@ const routes = [
     meta: { requiresAuth: true, permission: 'plugin:list' }
   },
   {
+    path: '/drivers',
+    name: 'DeviceDrivers',
+    component: () => import('../views/DeviceDrivers.vue'),
+    meta: { requiresAuth: true, permission: 'product:list' }
+  },
+  {
     path: '/products',
     name: 'Products',
     component: ProductList,

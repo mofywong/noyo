@@ -36,8 +36,7 @@ type DeviceMeta struct {
 type ProductMeta struct {
 	Name         string
 	Code         string
-	ProtocolName string                 // e.g. "Modbus", "Sagoo"
-	Config       map[string]interface{} // Protocol-specific config (e.g. polling groups)
+	Config       map[string]interface{} // Config (e.g. TSL)
 }
 
 // TaskDefinition defines a task to be scheduled

@@ -72,6 +72,7 @@ func (s *Server) registerAPIRoutes() {
 			permissionDELETE(tenantProtectedGroup, "/history/record", "history:delete", s.handleDeleteRecord)
 			permissionPOST(tenantProtectedGroup, "/system/upload/image", "device:upload", s.handleUploadImage)
 			s.RegisterDeviceRoutes(tenantProtectedGroup)
+			s.RegisterProtocolProfileRoutes(tenantProtectedGroup)
 			s.RegisterRuleRoutes(tenantProtectedGroup)
 
 			protected.Group("/users", func(userGroup *ghttp.RouterGroup) {

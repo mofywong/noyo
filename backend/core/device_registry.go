@@ -101,7 +101,7 @@ func (dr *DeviceRegistry) GetProduct(code string) (*store.Product, bool) {
 }
 
 // GetDeviceMeta constructs the DeviceMeta (including context) for a device
-func (dr *DeviceRegistry) GetDeviceMeta(deviceCode string) (*DeviceMeta, error) {
+func (dr *DeviceRegistry) GetDeviceMeta(deviceCode string) (*types.DeviceMeta, error) {
 	dr.mu.RLock()
 	device, ok := dr.devices[deviceCode]
 	if !ok {
@@ -117,13 +117,11 @@ func (dr *DeviceRegistry) GetDeviceMeta(deviceCode string) (*DeviceMeta, error) 
 		parentDevice = dr.devices[devCopy.ParentCode]
 	}
 
-	// 忽略 cascade 网关这一层：如果父设备的产品是 cascade，则本设备视作顶级直连设备
+	// 忽略 cascade 网关这一层：如果父设备是 cascade，则本设备视作顶级直连设备
 	if parentDevice != nil {
-		if parentProduct, ok := dr.products[parentDevice.ProductCode]; ok {
-			if parentProduct.ProtocolName == "cascade" {
-				parentDevice = nil
-				devCopy.ParentCode = "" // 抹去 ParentCode，使其在 Meta 中表现为顶级设备
-			}
+		if parentDevice.ProtocolName == "cascade" {
+			parentDevice = nil
+			devCopy.ParentCode = "" // 抹去 ParentCode，使其在 Meta 中表现为顶级设备
 		}
 	}
 
@@ -139,40 +137,70 @@ func (dr *DeviceRegistry) GetDeviceMeta(deviceCode string) (*DeviceMeta, error) 
 
 	// 1. Construct Base Meta
 	//fmt.Printf("[DEBUG] GetDeviceMeta: Code=%s ConfigRaw='%s'\n", devCopy.Code, devCopy.Config)
-	deviceMeta := &DeviceMeta{
+	deviceMeta := &types.DeviceMeta{
 		ProductCode: devCopy.ProductCode,
 		DeviceCode:  devCopy.Code,
 		ParentCode:  devCopy.ParentCode,
 		Extras:      make(map[string]interface{}),
 	}
+	if devCopy.ProtocolProfileCode != "" {
+		if pp, err := store.GetProtocolProfile(devCopy.ProtocolProfileCode); err == nil && pp.Config != "" {
+			_ = json.Unmarshal([]byte(pp.Config), &deviceMeta.Extras)
+		}
+	}
 	if devCopy.Config != "" {
-		_ = json.Unmarshal([]byte(devCopy.Config), &deviceMeta.Extras)
+		var devConfig map[string]interface{}
+		if err := json.Unmarshal([]byte(devCopy.Config), &devConfig); err == nil {
+			for k, v := range devConfig {
+				deviceMeta.Extras[k] = v
+			}
+		}
 	}
 
 	// 2. Populate Context
 	if parentDevice != nil {
 		// SubDevice: Find Parent
-		parentMeta := DeviceMeta{
+		parentMeta := types.DeviceMeta{
 			ProductCode: parentDevice.ProductCode,
 			DeviceCode:  parentDevice.Code,
 			ParentCode:  parentDevice.ParentCode,
 			Extras:      make(map[string]interface{}),
 		}
+		if parentDevice.ProtocolProfileCode != "" {
+			if pp, err := store.GetProtocolProfile(parentDevice.ProtocolProfileCode); err == nil && pp.Config != "" {
+				_ = json.Unmarshal([]byte(pp.Config), &parentMeta.Extras)
+			}
+		}
 		if parentDevice.Config != "" {
-			_ = json.Unmarshal([]byte(parentDevice.Config), &parentMeta.Extras)
+			var devConfig map[string]interface{}
+			if err := json.Unmarshal([]byte(parentDevice.Config), &devConfig); err == nil {
+				for k, v := range devConfig {
+					parentMeta.Extras[k] = v
+				}
+			}
 		}
 		deviceMeta.Parent = &parentMeta
 	} else if len(childDevices) > 0 {
 		// Gateway: Find SubDevices using index
 		for _, sub := range childDevices {
-			subMeta := DeviceMeta{
+			subMeta := types.DeviceMeta{
 				ProductCode: sub.ProductCode,
 				DeviceCode:  sub.Code,
 				ParentCode:  sub.ParentCode,
 				Extras:      make(map[string]interface{}),
 			}
+			if sub.ProtocolProfileCode != "" {
+				if pp, err := store.GetProtocolProfile(sub.ProtocolProfileCode); err == nil && pp.Config != "" {
+					_ = json.Unmarshal([]byte(pp.Config), &subMeta.Extras)
+				}
+			}
 			if sub.Config != "" {
-				_ = json.Unmarshal([]byte(sub.Config), &subMeta.Extras)
+				var devConfig map[string]interface{}
+				if err := json.Unmarshal([]byte(sub.Config), &devConfig); err == nil {
+					for k, v := range devConfig {
+						subMeta.Extras[k] = v
+					}
+				}
 			}
 			deviceMeta.SubDevices = append(deviceMeta.SubDevices, subMeta)
 		}
@@ -194,7 +222,6 @@ func (dr *DeviceRegistry) GetProductMeta(productCode string) (types.ProductMeta,
 	meta := types.ProductMeta{
 		Name:         p.Name,
 		Code:         p.Code,
-		ProtocolName: p.ProtocolName,
 		Config:       make(map[string]interface{}),
 	}
 	if p.Config != "" {
@@ -215,16 +242,12 @@ func (dr *DeviceRegistry) GetEffectiveProtocol(deviceCode string) (string, error
 		return "", fmt.Errorf("%w: device %s", types.ErrNotFound, deviceCode)
 	}
 
+	if device.ProtocolName != "" {
+		return device.ProtocolName, nil
+	}
+
 	if device.ParentCode == "" {
-		// 直连设备：使用自己产品的协议
-		product, ok := dr.products[device.ProductCode]
-		if !ok {
-			return "", fmt.Errorf("%w: product %s", types.ErrNotFound, device.ProductCode)
-		}
-		if product.ProtocolName == "" {
-			return "", fmt.Errorf("直连设备的产品必须绑定协议")
-		}
-		return product.ProtocolName, nil
+		return "", fmt.Errorf("直连设备必须绑定协议")
 	}
 
 	// 检查是否属于级联网关下的子设备，如果是，则其协议强制为 cascade
@@ -234,26 +257,21 @@ func (dr *DeviceRegistry) GetEffectiveProtocol(deviceCode string) (string, error
 		if !ok {
 			break
 		}
-		parentProduct, ok := dr.products[parentDevice.ProductCode]
-		if ok && parentProduct.ProtocolName == "cascade" {
+		if parentDevice.ProtocolName == "cascade" {
 			return "cascade", nil
 		}
 		current = parentDevice
 	}
 
-	// 子设备：使用父设备产品的协议
+	// 子设备：使用父设备的协议
 	parentDevice, ok := dr.devices[device.ParentCode]
 	if !ok {
 		return "", fmt.Errorf("%w: parent device %s", types.ErrNotFound, device.ParentCode)
 	}
-	parentProduct, ok := dr.products[parentDevice.ProductCode]
-	if !ok {
-		return "", fmt.Errorf("%w: parent product %s", types.ErrNotFound, parentDevice.ProductCode)
+	if parentDevice.ProtocolName == "" {
+		return "", fmt.Errorf("父设备没有绑定协议")
 	}
-	if parentProduct.ProtocolName == "" {
-		return "", fmt.Errorf("父设备的产品没有绑定协议")
-	}
-	return parentProduct.ProtocolName, nil
+	return parentDevice.ProtocolName, nil
 }
 
 // UpdateDeviceStatus updates status (last active time) in DB (optional/async)

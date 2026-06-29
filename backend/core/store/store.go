@@ -59,6 +59,7 @@ func InitDB(dsn string) error {
 		&RoleDeviceTagPermission{},
 		&PluginModel{},
 		&Product{},
+		&ProtocolProfile{},
 		&Device{},
 		&DeviceTag{},
 		&DeviceTagBinding{},

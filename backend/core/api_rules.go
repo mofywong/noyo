@@ -260,8 +260,8 @@ func (s *Server) handleRuleDeviceOptions(r *ghttp.Request) {
 		if product != nil {
 			productName = product.Name
 			productConfig = product.Config
-			protocolName = product.ProtocolName
 		}
+		protocolName, _ = s.DeviceManager.Registry.GetEffectiveProtocol(device.Code)
 		tsl, _ := ParseProductTSL(productConfig)
 		status, _ := s.DeviceManager.GetStatus(device.Code)
 		gatewaySN := ""
