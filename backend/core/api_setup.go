@@ -285,10 +285,13 @@ func (s *Server) applyInitialSetup(req setupApplyRequest) error {
 
 		if mode == SetupModePlatformGateway {
 			cascadeConfig := cascadeGatewayConfig(req.Gateway, req.LocalProject)
-			if err := savePluginConfigInTx(tx, "cascade", 0, 0, true, cascadeConfig); err != nil {
-				return err
+			var err error
+			if tenantID > 0 && projectID > 0 {
+				err = savePluginConfigInTx(tx, "cascade", tenantID, projectID, true, cascadeConfig)
+			} else {
+				err = savePluginConfigInTx(tx, "cascade", 0, 0, true, cascadeConfig)
 			}
-			if err := savePluginConfigInTx(tx, "cascade", tenantID, projectID, true, cascadeConfig); err != nil {
+			if err != nil {
 				return err
 			}
 			pluginsToReload = append(pluginsToReload, "cascade")
@@ -302,13 +305,14 @@ func (s *Server) applyInitialSetup(req setupApplyRequest) error {
 
 		if shouldConfigureMQTTAPI(req.MQTTAPI) {
 			mqttAPIConfig := mqttAPIConfig(req.MQTTAPI, req.Gateway.SN)
-			if err := savePluginConfigInTx(tx, "MQTT_API", 0, 0, req.MQTTAPI.Enabled, mqttAPIConfig); err != nil {
-				return err
-			}
+			var err error
 			if tenantID > 0 && projectID > 0 {
-				if err := savePluginConfigInTx(tx, "MQTT_API", tenantID, projectID, req.MQTTAPI.Enabled, mqttAPIConfig); err != nil {
-					return err
-				}
+				err = savePluginConfigInTx(tx, "MQTT_API", tenantID, projectID, req.MQTTAPI.Enabled, mqttAPIConfig)
+			} else {
+				err = savePluginConfigInTx(tx, "MQTT_API", 0, 0, req.MQTTAPI.Enabled, mqttAPIConfig)
+			}
+			if err != nil {
+				return err
 			}
 			pluginsToReload = append(pluginsToReload, "MQTT_API")
 		}
@@ -712,13 +716,14 @@ func saveGenericSetupPluginConfigs(tx *gorm.DB, pluginConfigs map[string]g.Map, 
 			continue
 		}
 		enabled := boolFromSetupConfig(cfg, "enabled", false)
-		if err := savePluginConfigInTx(tx, name, 0, 0, enabled, cfg); err != nil {
-			return err
-		}
+		var err error
 		if tenantID > 0 && projectID > 0 {
-			if err := savePluginConfigInTx(tx, name, tenantID, projectID, enabled, cfg); err != nil {
-				return err
-			}
+			err = savePluginConfigInTx(tx, name, tenantID, projectID, enabled, cfg)
+		} else {
+			err = savePluginConfigInTx(tx, name, 0, 0, enabled, cfg)
+		}
+		if err != nil {
+			return err
 		}
 		if pluginsToReload != nil {
 			*pluginsToReload = append(*pluginsToReload, name)

@@ -14,7 +14,7 @@
               <th class="ps-4 d-none d-md-table-cell">{{ $t('driver_code', '驱动编码') }}</th>
               <th>{{ $t('driver_name', '驱动名称') }}</th>
               <th v-if="showProjectColumn" class="d-none d-lg-table-cell">{{ $t('project_name', '所属项目') }}</th>
-              <th class="d-none d-lg-table-cell">{{ $t('prod_protocol', '通信协议') }}</th>
+              <th class="d-none d-lg-table-cell">{{ $t('driver_protocol_plugin', '协议插件') }}</th>
               <th class="d-none d-xl-table-cell" style="font-size: 0.8rem; color: #6c757d;">
                 <div style="line-height: 1.2;">{{ $t('dev_created', '创建时间') }}</div>
                 <div style="line-height: 1.2;">{{ $t('dev_updated', '更新时间') }}</div>
@@ -96,9 +96,9 @@
               <input v-model="currentDriver.name" type="text" class="form-control">
             </div>
             <div class="mb-3">
-              <label class="form-label">{{ $t('prod_protocol', '通信协议') }}</label>
+              <label class="form-label">{{ $t('driver_protocol_plugin', '协议插件') }}</label>
               <select v-model="currentDriver.protocol_name" class="form-select" :disabled="isEditing" @change="fetchSchema(currentDriver.protocol_name)">
-                <option value="">{{ $t('driver_select_protocol', '请选择协议') }}</option>
+                <option value="">{{ $t('driver_select_protocol_plugin', '请选择协议插件') }}</option>
                 <option v-for="p in protocols" :key="p.name" :value="p.name">{{ getPluginTitle(p.name) }}</option>
               </select>
             </div>
@@ -323,9 +323,10 @@ const changePage = (p) => {
   loadDrivers();
 };
 
-onMounted(() => {
-  loadProtocols();
-  loadDrivers();
+onMounted(async () => {
+  loading.value = true;
+  await loadProtocols();
+  await loadDrivers();
 });
 
 </script>
