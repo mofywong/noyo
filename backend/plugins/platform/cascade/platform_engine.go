@@ -32,6 +32,12 @@ type platformEngineImpl struct {
 	gatewayMediaAddrs sync.Map   // gw_sn -> public IP string (from STUN discovery)
 }
 
+const (
+	defaultGatewayProductCode = "noyo-gw"
+	defaultGatewayProfileCode = "noyo-gw-default"
+	defaultGatewayProtocol    = "cascade"
+)
+
 func NewPlatformEngine(ctx platform.Context, logger *zap.Logger, cfg *Config) PlatformEngine {
 	return &platformEngineImpl{
 		ctx:    ctx,
@@ -95,35 +101,107 @@ func (e *platformEngineImpl) Start() error {
 }
 
 func EnsureGatewayProduct(logger *zap.Logger) {
-	const gwProductCode = "noyo-gw"
 	expectedName := "Noyo边缘网关"
 	expectedConfig := `{"tsl":{"properties":[{"identifier":"sys_cpu","name":"系统CPU","dataType":{"type":"double","specs":{"unit":"%"}},"accessMode":"r"},{"identifier":"sys_mem_percent","name":"系统内存","dataType":{"type":"double","specs":{"unit":"%"}},"accessMode":"r"},{"identifier":"sys_mem_total","name":"系统总内存","dataType":{"type":"double","specs":{"unit":"MB"}},"accessMode":"r"},{"identifier":"sys_mem_used","name":"系统已用内存","dataType":{"type":"double","specs":{"unit":"MB"}},"accessMode":"r"},{"identifier":"sys_disk_percent","name":"系统磁盘","dataType":{"type":"double","specs":{"unit":"%"}},"accessMode":"r"},{"identifier":"sys_disk_total","name":"系统总磁盘","dataType":{"type":"double","specs":{"unit":"GB"}},"accessMode":"r"},{"identifier":"sys_disk_used","name":"系统已用磁盘","dataType":{"type":"double","specs":{"unit":"GB"}},"accessMode":"r"},{"identifier":"svc_cpu","name":"服务CPU","dataType":{"type":"double","specs":{"unit":"%"}},"accessMode":"r"},{"identifier":"svc_mem","name":"服务内存","dataType":{"type":"double","specs":{"unit":"MB"}},"accessMode":"r"},{"identifier":"sys_uptime","name":"运行时间","dataType":{"type":"int","specs":{"unit":"s"}},"accessMode":"r"},{"identifier":"sys_ip","name":"IP地址","dataType":{"type":"text","specs":{"length":"64"}},"accessMode":"r"},{"identifier":"sys_os","name":"操作系统","dataType":{"type":"text","specs":{"length":"64"}},"accessMode":"r"},{"identifier":"sys_arch","name":"系统架构","dataType":{"type":"text","specs":{"length":"64"}},"accessMode":"r"},{"identifier":"gw_version","name":"网关版本","dataType":{"type":"text","specs":{"length":"64"}},"accessMode":"r"},{"identifier":"gw_go_version","name":"Go版本","dataType":{"type":"text","specs":{"length":"64"}},"accessMode":"r"},{"identifier":"gw_goroutine","name":"协程数","dataType":{"type":"int","specs":{"unit":"个"}},"accessMode":"r"}]}}`
 
-	p, err := store.GetProduct(gwProductCode)
+	p, err := store.GetProduct(defaultGatewayProductCode)
 	if err == nil && p != nil {
-		// Update existing if name, protocol, or config is outdated
-		if p.Name != expectedName || p.Name != "cascade" || p.Config != expectedConfig {
+		// Update existing if name or config is outdated.
+		if p.Name != expectedName || p.Config != expectedConfig {
 			p.Name = expectedName
-			p.Name = "cascade" // 设置为 cascade 协议，避免直连设备无协议的报错
 			p.Config = expectedConfig
 			if err := store.SaveProduct(p); err != nil {
 				logger.Error("Failed to update default gateway product", zap.Error(err))
 			} else {
-				logger.Info("Updated default gateway product", zap.String("code", gwProductCode))
+				logger.Info("Updated default gateway product", zap.String("code", defaultGatewayProductCode))
 			}
 		}
+		ensureGatewayDefaultProfile(logger)
 		return // already exists
 	}
 
-	logger.Info("Creating default gateway product", zap.String("code", gwProductCode))
+	logger.Info("Creating default gateway product", zap.String("code", defaultGatewayProductCode))
 	newProd := &store.Product{
-		Code:     gwProductCode,
-		Name:     expectedName,
-		Config:   expectedConfig,
+		Code:   defaultGatewayProductCode,
+		Name:   expectedName,
+		Config: expectedConfig,
 	}
 	if err := store.SaveProduct(newProd); err != nil {
 		logger.Error("Failed to create default gateway product", zap.Error(err))
+		return
 	}
+	ensureGatewayDefaultProfile(logger)
+}
+
+func ensureGatewayDefaultProfile(logger *zap.Logger) {
+	expected := &store.ProtocolProfile{
+		Code:         defaultGatewayProfileCode,
+		Name:         "Noyo边缘网关默认驱动",
+		ProtocolName: defaultGatewayProtocol,
+		ProductCode:  defaultGatewayProductCode,
+		Config:       "{}",
+	}
+
+	profile, err := store.GetProtocolProfile(defaultGatewayProfileCode)
+	if err == nil && profile != nil {
+		changed := false
+		if profile.Name != expected.Name {
+			profile.Name = expected.Name
+			changed = true
+		}
+		if profile.ProtocolName != expected.ProtocolName {
+			profile.ProtocolName = expected.ProtocolName
+			changed = true
+		}
+		if profile.ProductCode != expected.ProductCode {
+			profile.ProductCode = expected.ProductCode
+			changed = true
+		}
+		if profile.Config == "" {
+			profile.Config = "{}"
+			changed = true
+		}
+		if changed {
+			if err := store.SaveProtocolProfile(profile); err != nil {
+				logger.Error("Failed to update default gateway driver", zap.Error(err))
+			}
+		}
+		return
+	}
+
+	if err := store.SaveProtocolProfile(expected); err != nil {
+		logger.Error("Failed to create default gateway driver", zap.Error(err))
+	}
+}
+
+func newPendingGatewayDevice(gwSn, gwName string, tenantID, projectID uint) *store.Device {
+	return &store.Device{
+		Code:                gwSn,
+		Name:                gwName,
+		ProductCode:         defaultGatewayProductCode,
+		ProtocolName:        defaultGatewayProtocol,
+		ProtocolProfileCode: defaultGatewayProfileCode,
+		Enabled:             false,
+		TenantID:            tenantID,
+		ProjectID:           projectID,
+	}
+}
+
+func applyGatewayDeviceDefaults(device *store.Device) bool {
+	if device == nil || device.ProductCode != defaultGatewayProductCode {
+		return false
+	}
+
+	changed := false
+	if device.ProtocolName == "" {
+		device.ProtocolName = defaultGatewayProtocol
+		changed = true
+	}
+	if device.ProtocolProfileCode == "" {
+		device.ProtocolProfileCode = defaultGatewayProfileCode
+		changed = true
+	}
+	return changed
 }
 
 func (e *platformEngineImpl) Stop() error {
@@ -624,26 +702,26 @@ func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.
 		e.logger.Info("Gateway device not found, registering as pending", zap.String("gw_sn", gwSn))
 
 		// Auto-register the gateway device as "pending" (Enabled = false)
-		newDev := &store.Device{
-			Code:        gwSn,
-			Name:        gwName,
-			ProductCode: "noyo-gw",
-			Enabled:     false, // Pending registration approval
-			TenantID:    targetTenantID,
-			ProjectID:   targetProjectID,
-		}
+		newDev := newPendingGatewayDevice(gwSn, gwName, targetTenantID, targetProjectID)
 		if err := store.SaveDevice(newDev); err != nil {
 			e.logger.Error("Failed to auto-register gateway device", zap.Error(err))
 		}
-	} else if gwDevice.Enabled {
-		resp.Status = "success"
-		resp.Message = "approved"
 	} else {
-		// Device exists but not enabled, update tenant/project if they were provided
+		needsSave := false
 		if targetTenantID > 0 && (gwDevice.TenantID != targetTenantID || gwDevice.ProjectID != targetProjectID) {
 			gwDevice.TenantID = targetTenantID
 			gwDevice.ProjectID = targetProjectID
+			needsSave = true
+		}
+		if applyGatewayDeviceDefaults(gwDevice) {
+			needsSave = true
+		}
+		if needsSave {
 			store.SaveDevice(gwDevice)
+		}
+		if gwDevice.Enabled {
+			resp.Status = "success"
+			resp.Message = "approved"
 		}
 	}
 
