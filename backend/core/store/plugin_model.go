@@ -140,15 +140,23 @@ func GetPlugin(name string) (*PluginModel, error) {
 
 // GetPluginForScope retrieves a plugin configuration for a tenant/project scope.
 func GetPluginForScope(name string, tenantID, projectID uint) (*PluginModel, error) {
-	var plugin PluginModel
-	result := DB.Where("name = ? AND tenant_id = ? AND project_id = ?", name, tenantID, projectID).First(&plugin)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+	plugin, err := getPluginForExactScope(name, tenantID, projectID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			if tenantID != 0 || projectID != 0 {
 				return GetPluginForScope(name, 0, 0)
 			}
 			return nil, nil
 		}
+		return nil, err
+	}
+	return plugin, nil
+}
+
+func getPluginForExactScope(name string, tenantID, projectID uint) (*PluginModel, error) {
+	var plugin PluginModel
+	result := DB.Where("name = ? AND tenant_id = ? AND project_id = ?", name, tenantID, projectID).First(&plugin)
+	if result.Error != nil {
 		return nil, result.Error
 	}
 	return &plugin, nil
@@ -166,9 +174,11 @@ func SavePluginForScope(name string, tenantID, projectID uint, enabled bool, con
 		return err
 	}
 
-	plugin, err := GetPluginForScope(name, tenantID, projectID)
+	plugin, err := getPluginForExactScope(name, tenantID, projectID)
 	if err != nil {
-		return err
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
 	}
 	if plugin == nil {
 		plugin = &PluginModel{

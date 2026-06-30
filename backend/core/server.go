@@ -1,4 +1,4 @@
-﻿package core
+package core
 
 import (
 	"encoding/base64"
@@ -75,6 +75,9 @@ func NewServer() (*Server, error) {
 	// 0. Init Database
 	// Default to sqlite with file noyo.db
 	if err := store.InitDB("./data/db/noyo.db"); err != nil {
+		return nil, err
+	}
+	if err := cleanupSingleProjectRuntimePluginRows(); err != nil {
 		return nil, err
 	}
 

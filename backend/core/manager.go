@@ -122,7 +122,7 @@ type pluginConfigResult struct {
 
 func (pm *PluginManager) loadPluginConfigData(meta PluginMeta) (*pluginConfigResult, error) {
 	// Try to load from Database
-	model, err := store.GetPlugin(meta.Name)
+	model, err := loadRuntimePluginConfigModel(meta.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +138,14 @@ func (pm *PluginManager) loadPluginConfigData(meta PluginMeta) (*pluginConfigRes
 	}
 
 	return &pluginConfigResult{config: nil, enabled: false}, nil
+}
+
+func loadRuntimePluginConfigModel(name string) (*store.PluginModel, error) {
+	tenantID, projectID, ok := singleProjectRuntimePluginScope()
+	if ok {
+		return store.GetPluginForScope(name, tenantID, projectID)
+	}
+	return store.GetPlugin(name)
 }
 
 // IConfigurablePlugin defines plugins that can be configured programmatically

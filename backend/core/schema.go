@@ -180,6 +180,35 @@ func UpdatePluginConfigForScope(plugin IManagedPlugin, newConfig map[string]inte
 	return updatePluginConfig(plugin, newConfig, tenantID, projectID)
 }
 
+func singleProjectRuntimePluginScope() (uint, uint, bool) {
+	state, err := store.LoadSetupState()
+	if err != nil || state == nil || !state.Initialized {
+		return 0, 0, false
+	}
+	if !IsSingleProjectSetupMode(state.Mode) || state.TenantID == 0 || state.ProjectID == 0 {
+		return 0, 0, false
+	}
+	return state.TenantID, state.ProjectID, true
+}
+
+func isSingleProjectRuntimePluginScope(tenantID, projectID uint) bool {
+	runtimeTenantID, runtimeProjectID, ok := singleProjectRuntimePluginScope()
+	return ok && runtimeTenantID == tenantID && runtimeProjectID == projectID
+}
+
+func cleanupSingleProjectRuntimePluginRows() error {
+	tenantID, projectID, ok := singleProjectRuntimePluginScope()
+	if !ok {
+		return nil
+	}
+	scopedNames := store.DB.Model(&store.PluginModel{}).
+		Select("name").
+		Where("tenant_id = ? AND project_id = ?", tenantID, projectID)
+	return store.DB.
+		Where("tenant_id = ? AND project_id = ? AND name IN (?)", 0, 0, scopedNames).
+		Delete(&store.PluginModel{}).Error
+}
+
 func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{}, tenantID, projectID uint) error {
 	// 1. Handle Enabled status
 	var enabled bool
@@ -284,6 +313,9 @@ func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{},
 	if tenantID > 0 && projectID > 0 {
 		if err := store.SavePluginForScope(name, tenantID, projectID, enabled, configToSave); err != nil {
 			return fmt.Errorf("failed to save scoped plugin config to db: %w", err)
+		}
+		if isSingleProjectRuntimePluginScope(tenantID, projectID) {
+			return nil
 		}
 		anyEnabled, err := store.AnyScopedPluginEnabled(name)
 		if err != nil {
