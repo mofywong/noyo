@@ -841,7 +841,7 @@
                     <input class="form-check-input" type="checkbox" :value="p.code" v-model="selectedProductsForTemplate" :id="'prod_check_' + p.code" :disabled="isProductDisabled(p)">
                     <label class="form-check-label" :for="'prod_check_' + p.code" :class="{'text-muted': isProductDisabled(p)}">
                       {{ p.name }} <span class="text-muted small">({{ p.code }})</span>
-                      <span class="badge bg-primary-subtle text-primary border border-primary-subtle ms-1" style="font-size: 0.7rem">{{ p.protocol_name }}</span>
+                      <span v-if="getProductProtocol(p.code)" class="badge bg-primary-subtle text-primary border border-primary-subtle ms-1" style="font-size: 0.7rem">{{ getProductProtocol(p.code) }}</span>
                     </label>
                   </div>
                 </div>
@@ -1176,9 +1176,21 @@ const hexToRgb = (color) => {
   };
 };
 
+const getDriverProtocol = (profileCode) => {
+  if (!profileCode) return '';
+  const driver = drivers.value.find(drv => drv.code === profileCode);
+  return driver ? driver.protocol_name : '';
+};
+
+const getProductProtocol = (productCode) => {
+  if (!productCode) return '';
+  const driver = drivers.value.find(drv => drv.product_code === productCode);
+  return driver ? driver.protocol_name : '';
+};
+
 const getDeviceProtocol = (device) => {
-  const p = products.value.find(prod => prod.code === device.product_code);
-  return p ? p.protocol_name : '';
+  if (!device) return '';
+  return device.protocol_name || getDriverProtocol(device.protocol_profile_code) || getProductProtocol(device.product_code);
 };
 
 const isCameraDevice = (device) => {
@@ -2260,16 +2272,14 @@ const needsProtocolMapping = (device) => {
 };
 
 const getProtocol = (productCode) => {
-    const p = products.value.find(prod => prod.code === productCode);
-    return p ? p.protocol_name : '';
+    return getProductProtocol(productCode);
 };
 
 const isChildOfCascade = (device) => {
   if (!device.parent_code) return false;
   const parent = devices.value.find(d => d.code === device.parent_code);
   if (!parent) return false;
-  const parentProduct = products.value.find(p => p.code === parent.product_code);
-  return parentProduct && parentProduct.protocol_name === 'cascade';
+  return getDeviceProtocol(parent) === 'cascade';
 };
 
 const fetchProtocolSchema = async (protocolName, parentCode, profileCode, defaultConfig = null) => {
@@ -2405,13 +2415,12 @@ const selectedProductsForTemplate = ref([]);
 const targetProtocol = computed(() => {
   if (selectedProductsForTemplate.value.length === 0) return null;
   const firstCode = selectedProductsForTemplate.value[0];
-  const p = products.value.find(prod => prod.code === firstCode);
-  return p ? p.protocol_name : null;
+  return getProductProtocol(firstCode) || null;
 });
 
 const isProductDisabled = (p) => {
   if (!targetProtocol.value) return false;
-  return p.protocol_name !== targetProtocol.value;
+  return getProductProtocol(p.code) !== targetProtocol.value;
 };
 
 const downloadTemplate = () => {
@@ -2423,13 +2432,13 @@ const selectAllProducts = () => {
   let proto = targetProtocol.value;
   if (!proto && products.value.length > 0) {
     // If no protocol selected yet, default to the first product's protocol
-    proto = products.value[0].protocol_name;
+    proto = getProductProtocol(products.value[0].code);
   }
   
   if (proto) {
     // Only select products matching the protocol
     selectedProductsForTemplate.value = products.value
-      .filter(p => p.protocol_name === proto)
+      .filter(p => getProductProtocol(p.code) === proto)
       .map(p => p.code);
   }
 };
@@ -2459,8 +2468,7 @@ const triggerImport = () => {
   if (targetProtocol.value) {
       importProtocol.value = targetProtocol.value;
   } else if (filterProduct.value) {
-      const p = products.value.find(prod => prod.code === filterProduct.value);
-      if (p) importProtocol.value = p.protocol_name;
+      importProtocol.value = getProductProtocol(filterProduct.value);
   }
   showImportModal.value = true;
 };
@@ -2470,7 +2478,7 @@ const importProtocol = ref('');
 const importFile = ref(null);
 
 const availableProtocols = computed(() => {
-    const protos = new Set(products.value.map(p => p.protocol_name).filter(Boolean));
+    const protos = new Set(drivers.value.map(d => d.protocol_name).filter(Boolean));
     return Array.from(protos);
 });
 

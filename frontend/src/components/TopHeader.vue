@@ -287,6 +287,10 @@ const getEventDef = (evt) => {
   return prod.model.events.find(e => e.key === evt.event_id);
 };
 
+const isGb28181Device = (device) => {
+  return device?.protocol_name === 'gb28181';
+};
+
 const getEventName = (evt) => {
   const def = getEventDef(evt);
   if (def && def.name) {
@@ -357,11 +361,8 @@ const fetchRecentEvents = async () => {
               showToast(alarmName, `设备: ${deviceName} 发生了告警事件`);
               
               const dev = devices.value[evt.device_code];
-              if (dev) {
-                const prod = products.value[dev.product_code];
-                if (prod && prod.protocol_name === 'gb28181') {
-                  floatingVideoDevice.value = dev;
-                }
+              if (isGb28181Device(dev)) {
+                floatingVideoDevice.value = dev;
               }
             }
           }
@@ -410,11 +411,8 @@ const setupEventStream = () => {
           showToast(alarmName, `设备: ${deviceName} 发生了告警事件`);
           
           const dev = devices.value[evt.device_code];
-          if (dev) {
-            const prod = products.value[dev.product_code];
-            if (prod && prod.protocol_name === 'gb28181') {
-              floatingVideoDevice.value = dev;
-            }
+          if (isGb28181Device(dev)) {
+            floatingVideoDevice.value = dev;
           }
         }
         

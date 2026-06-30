@@ -58,7 +58,23 @@ func (s *Server) handleDownloadTemplate(r *ghttp.Request) {
 			store.DB.Where("code IN ? AND tenant_id IN (?, 0) AND project_id IN (?, 0)", codes, tenantID, projectID).Find(&products)
 		}
 	} else {
-		store.DB.Where("protocol_name = ? AND tenant_id IN (?, 0) AND project_id IN (?, 0)", protocolName, tenantID, projectID).Find(&products)
+		var profiles []store.ProtocolProfile
+		store.DB.Where("protocol_name = ? AND tenant_id IN (?, 0) AND project_id IN (?, 0)", protocolName, tenantID, projectID).Find(&profiles)
+		productCodes := make([]string, 0, len(profiles))
+		seenProductCodes := make(map[string]bool, len(profiles))
+		for _, profile := range profiles {
+			code := strings.TrimSpace(profile.ProductCode)
+			if code == "" || seenProductCodes[code] {
+				continue
+			}
+			seenProductCodes[code] = true
+			productCodes = append(productCodes, code)
+		}
+		if len(productCodes) > 0 {
+			store.DB.Where("code IN ? AND tenant_id IN (?, 0) AND project_id IN (?, 0)", productCodes, tenantID, projectID).Find(&products)
+		} else {
+			store.DB.Where("tenant_id IN (?, 0) AND project_id IN (?, 0)", tenantID, projectID).Find(&products)
+		}
 	}
 
 	// Convert store.Product to names/codes for dropdowns
@@ -194,13 +210,14 @@ func (s *Server) handleImportDevices(r *ghttp.Request) {
 
 		// Create Device with tenant/project context
 		device := store.Device{
-			Name:        devModel.Name,
-			Code:        devModel.Code,
-			ProductCode: devModel.ProductCode,
-			ParentCode:  devModel.ParentCode,
-			Enabled:     devModel.Enabled,
-			TenantID:    tenantID,
-			ProjectID:   projectID,
+			Name:         devModel.Name,
+			Code:         devModel.Code,
+			ProductCode:  devModel.ProductCode,
+			ParentCode:   devModel.ParentCode,
+			ProtocolName: protocolName,
+			Enabled:      devModel.Enabled,
+			TenantID:     tenantID,
+			ProjectID:    projectID,
 		}
 
 		// Merge Config
