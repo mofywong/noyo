@@ -357,6 +357,7 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 					"include_context":  true,
 					"output_mode":      llmOutputMode,
 					"output_schema":    action.OutputSchema,
+					"priority":         ctx.Rule.Priority,
 					"trigger_time":     time.Now().Format(time.RFC3339),
 					"trigger_event":    ctx.TemplateVars["event"],
 					"response_topic":   responseTopic,
@@ -397,7 +398,8 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 				Type:  types.EventType("rule.action.voice_playback"),
 				Topic: ctx.Rule.Code,
 				Payload: map[string]any{
-					"text": text,
+					"text":     text,
+					"priority": ctx.Rule.Priority,
 				},
 				Timestamp: time.Now().UnixMilli(),
 			})

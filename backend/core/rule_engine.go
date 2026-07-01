@@ -339,6 +339,11 @@ func (re *RuleEngine) reserveRuleExecution(rule RuleRuntime, now time.Time) (boo
 		if !persistedLast.IsZero() && now.Before(persistedLast.Add(time.Duration(rule.ThrottleSec)*time.Second)) {
 			return false, "rule is throttled", nil
 		}
+		for _, reservedAt := range state.inFlight {
+			if now.Before(reservedAt.Add(time.Duration(rule.ThrottleSec) * time.Second)) {
+				return false, "rule is throttled", nil
+			}
+		}
 	}
 	if rule.MaxPerHour > 0 {
 		if persistedCount+int64(len(state.inFlight)) >= int64(rule.MaxPerHour) {
@@ -414,7 +419,13 @@ func (re *RuleEngine) triggerMatches(trigger RuleTrigger, event types.Event) boo
 			if trigger.Operator == "changed" {
 				return len(eventChangedProperties(event)) > 0
 			}
+			if eventHasChangedPropertiesMetadata(event) {
+				return len(eventChangedProperties(event)) > 0
+			}
 			return len(props) > 0
+		}
+		if eventHasChangedPropertiesMetadata(event) && !eventChangedPropertiesContains(event, trigger.PropertyKey) {
+			return false
 		}
 		value, exists := props[trigger.PropertyKey]
 		if trigger.Operator == "changed" {
@@ -940,6 +951,14 @@ func eventChangedProperties(event types.Event) map[string]interface{} {
 		return changed
 	}
 	return map[string]interface{}{}
+}
+
+func eventHasChangedPropertiesMetadata(event types.Event) bool {
+	if event.Metadata == nil {
+		return false
+	}
+	_, ok := event.Metadata["changedProperties"]
+	return ok
 }
 
 func eventChangedPropertiesContains(event types.Event, key string) bool {
