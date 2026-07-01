@@ -407,8 +407,9 @@ export default {
       if (action.type === 'notification') return action.notifyTitle || action.notifyContent || this.labels.notification
       if (action.type === 'alarm') return `${action.alarmLevel || ''} ${action.alarmTitle || action.alarmContent || ''}`.trim()
       if (action.type === 'delay') return `${action.delaySec || 1}s`
+      if (action.type === 'text') return action.textContent || this.labels.actionType?.text || 'text'
       if (action.type === 'llm') return action.llmPrompt || this.labels.actionType?.llm || 'llm'
-      if (action.type === 'voice_playback') return this.labels.actionType?.voice_playback || 'voice_playback'
+      if (action.type === 'voice_playback') return action.voiceText || this.labels.actionType?.voice_playback || 'voice_playback'
       if (action.type === 'sequence_group' || action.type === 'parallel_group') return `${(action.children || []).length} ${this.labels.childActions}`
       return `${this.deviceName(action.deviceCode)} / ${this.propertyName(action.deviceCode, action.propertyKey)} = ${action.value || ''}`.trim()
     }

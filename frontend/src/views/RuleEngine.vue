@@ -261,6 +261,7 @@ function baseAction() {
     alarmContent: '',
     alarmDevice: 'trigger',
     delaySec: 1,
+    textContent: '',
     llmPrompt: '',
     voiceText: '',
     subActions: []
@@ -591,6 +592,9 @@ const ActionEditor = defineComponent({
                     alarmContent: '',
                     alarmDevice: 'trigger',
                     delaySec: 1,
+                    textContent: '',
+                    llmPrompt: '',
+                    voiceText: '',
                     subActions: []
                   });
                 },
@@ -615,6 +619,7 @@ const ActionEditor = defineComponent({
             h('option', { value: 'notification' }, props.labels.notification),
             h('option', { value: 'alarm' }, props.labels.alarm),
             h('option', { value: 'delay' }, props.labels.delay),
+            h('option', { value: 'text' }, props.labels.text),
             h('option', { value: 'llm' }, props.labels.llm || 'LLM 组件'),
             h('option', { value: 'voice_playback' }, props.labels.voicePlayback || '语音播放')
           ])),
@@ -677,6 +682,9 @@ const ActionEditor = defineComponent({
             : null,
           props.action.type === 'delay'
             ? field(props.labels.delaySec, h('input', { class: 'form-control', type: 'number', min: 0, max: 300, value: props.action.delaySec, onInput: e => { props.action.delaySec = Number(e.target.value) } }), 'col-md-3')
+            : null,
+          props.action.type === 'text'
+            ? field(props.labels.textContent, h(VarInputWrapper, { textarea: true, rows: 1, ...inputModel('textContent') }), 'col-md-6')
             : null,
           props.action.type === 'llm'
             ? field(props.labels.llmPrompt || '描述词', h(VarInputWrapper, { textarea: true, rows: 1, ...inputModel('llmPrompt') }), 'col-md-5')
@@ -950,6 +958,7 @@ export default {
         notification: t('rule_action_notification'),
         alarm: t('rule_action_alarm'),
         delay: t('rule_action_delay'),
+        text: t('rule_action_text'),
         llm: t('rule_action_llm'),
         voice_playback: t('rule_action_voice_playback'),
         parallel_group: t('rule_parallel_group'),
@@ -1417,8 +1426,10 @@ export default {
       notification: t('rule_action_notification'),
       alarm: t('rule_action_alarm'),
       delay: t('rule_action_delay'),
+      text: t('rule_action_text'),
       llm: t('rule_action_llm'),
       voicePlayback: t('rule_action_voice_playback'),
+      textContent: t('rule_action_text_content'),
       llmPrompt: t('rule_action_llm_prompt'),
       voiceText: t('rule_action_voice_text'),
       yes: t('yes'),

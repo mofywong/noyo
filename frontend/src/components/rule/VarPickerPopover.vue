@@ -402,6 +402,7 @@ function buildActionNodes(actions, currentNode, nodeDisplay) {
       sections: [
         section('动作输出', compact([
           variableItem('动作输出', `\${node.${id}.data}`),
+          action.type === 'text' ? variableItem('文本内容', `\${node.${id}.text}`) : null,
           action.type === 'alarm' ? variableItem('告警标题', `\${node.${id}.title}`) : null,
           action.type === 'alarm' ? variableItem('告警内容', `\${node.${id}.content}`) : null,
           action.type === 'alarm' ? variableItem('告警级别', `\${node.${id}.level}`) : null,
@@ -452,6 +453,7 @@ function isActionType(type) {
     'notification',
     'alarm',
     'delay',
+    'text',
     'llm',
     'voice_playback',
     'parallel_group',
@@ -460,7 +462,7 @@ function isActionType(type) {
 }
 
 function actionCanExposeOutput(action) {
-  return ['llm', 'alarm'].includes(action?.type)
+  return ['llm', 'alarm', 'text'].includes(action?.type)
 }
 
 function effectiveTimeDetail(et) {
@@ -618,6 +620,7 @@ function actionLabel(action, index) {
     notification: '消息通知',
     alarm: '触发告警',
     delay: '延迟执行',
+    text: '文本组件',
     llm: '大模型',
     voice_playback: '语音播放'
   }

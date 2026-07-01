@@ -215,6 +215,7 @@ export default {
         { value: 'notification', label: this.labels.actionType.notification },
         { value: 'alarm', label: this.labels.actionType.alarm },
         { value: 'delay', label: this.labels.actionType.delay },
+        { value: 'text', label: this.labels.actionType.text || 'Text' },
         { value: 'llm', label: this.labels.actionType.llm || 'LLM' },
         { value: 'voice_playback', label: this.labels.actionType.voice_playback || 'Voice playback' },
         { value: 'sequence_group', label: this.labels.actionType.sequence_group },

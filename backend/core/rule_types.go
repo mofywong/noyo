@@ -25,6 +25,7 @@ const (
 	RuleActionNotification  = "notification"
 	RuleActionAlarm         = "alarm"
 	RuleActionDelay         = "delay"
+	RuleActionText          = "text"
 	RuleActionLLM           = "llm"
 	RuleActionVoicePlayback = "voice_playback"
 	RuleActionParallelGroup = "parallel_group"
@@ -107,6 +108,7 @@ type RuleAction struct {
 	AlarmContent      string         `json:"alarmContent,omitempty"`
 	AlarmDevice       string         `json:"alarmDevice,omitempty"`
 	DelaySec          int            `json:"delaySec,omitempty"`
+	TextContent       string         `json:"textContent,omitempty"`
 	LLMPrompt         string         `json:"llmPrompt,omitempty"`
 	LLMPlayAudio      bool           `json:"llmPlayAudio,omitempty"`
 	LLMIncludeContext bool           `json:"llmIncludeContext,omitempty"`
@@ -211,7 +213,7 @@ func validateAction(action RuleAction, depth int) error {
 		return errors.New("action id is required")
 	}
 	switch action.Type {
-	case RuleActionSetProperty, RuleActionCallService, RuleActionNotification, RuleActionAlarm, RuleActionLLM, RuleActionVoicePlayback:
+	case RuleActionSetProperty, RuleActionCallService, RuleActionNotification, RuleActionAlarm, RuleActionText, RuleActionLLM, RuleActionVoicePlayback:
 		return nil
 	case RuleActionDelay:
 		if action.DelaySec < 0 || action.DelaySec > 300 {

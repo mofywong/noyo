@@ -256,6 +256,7 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 	action.NotifyContent = interpolateString(action.NotifyContent, mergedVars)
 	action.AlarmTitle = interpolateString(action.AlarmTitle, mergedVars)
 	action.AlarmContent = interpolateString(action.AlarmContent, mergedVars)
+	action.TextContent = interpolateString(action.TextContent, mergedVars)
 	action.LLMPrompt = interpolateString(action.LLMPrompt, mergedVars)
 	action.VoiceText = interpolateString(action.VoiceText, mergedVars)
 
@@ -269,6 +270,14 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 				timer.Stop()
 				err = actionCtx.Err()
 			}
+		}
+	case RuleActionText:
+		if ctx.TemplateVars == nil {
+			ctx.TemplateVars = make(map[string]any)
+		}
+		ctx.TemplateVars["text_result"] = action.TextContent
+		actionOutput = map[string]any{
+			"text": action.TextContent,
 		}
 	case RuleActionSetProperty:
 		if ae.deviceManager == nil {
@@ -384,13 +393,26 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 	case RuleActionVoicePlayback:
 		if ae.deviceManager != nil && ae.deviceManager.EventBus != nil {
 			text := action.VoiceText
-			if text == "" || text == "${llm_result}" {
+			if text == "" {
+				if res, ok := ctx.TemplateVars["text_result"].(string); ok && res != "" {
+					text = res
+				} else if res, ok := ctx.TemplateVars["llm_result"].(string); ok {
+					text = res
+				}
+			} else if text == "${llm_result}" {
 				if res, ok := ctx.TemplateVars["llm_result"].(string); ok {
+					text = res
+				}
+			} else if text == "${text_result}" {
+				if res, ok := ctx.TemplateVars["text_result"].(string); ok {
 					text = res
 				}
 			} else {
 				if res, ok := ctx.TemplateVars["llm_result"].(string); ok {
 					text = strings.ReplaceAll(text, "${llm_result}", res)
+				}
+				if res, ok := ctx.TemplateVars["text_result"].(string); ok {
+					text = strings.ReplaceAll(text, "${text_result}", res)
 				}
 			}
 

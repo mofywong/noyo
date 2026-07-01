@@ -73,6 +73,7 @@
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'notification' }, 'action')"><i class="bi bi-chat-left-dots text-success"></i> 消息通知</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'alarm' }, 'action')"><i class="bi bi-exclamation-triangle-fill text-success"></i> 触发告警</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'delay', delaySec: 1 }, 'action')"><i class="bi bi-hourglass-split text-success"></i> 延迟执行</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'text' }, 'action')"><i class="bi bi-text-paragraph text-success"></i> {{ $t('rule_action_text', '文本组件') }}</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm' }, 'action')"><i class="bi bi-robot text-success"></i> 大模型</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'voice_playback' }, 'action')"><i class="bi bi-volume-up-fill text-success"></i> 语音播放</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'parallel' }, 'action_group')"><i class="bi bi-cpu text-success"></i> 并行执行组</div>
@@ -481,11 +482,27 @@
             <input type="number" class="form-control form-control-sm" v-model.number="selectedNode.delaySec" min="0" max="300">
           </div>
 
+          <!-- 文本 -->
+          <template v-if="selectedNode.type === 'text'">
+            <div class="mb-3">
+              <label class="form-label">{{ $t('rule_action_text_content', '文本内容') }}</label>
+              <VarInputWrapper :textarea="true" v-model="selectedNode.textContent" :rows="5" :maxRows="12" />
+            </div>
+          </template>
+
           <!-- LLM -->
           <template v-if="selectedNode.type === 'llm'">
             <div class="mb-3">
               <label class="form-label">附加描述词</label>
               <VarInputWrapper :textarea="true" v-model="selectedNode.llmPrompt" :rows="7" :maxRows="18" />
+            </div>
+          </template>
+
+          <!-- 语音播放 -->
+          <template v-if="selectedNode.type === 'voice_playback'">
+            <div class="mb-3">
+              <label class="form-label">{{ $t('rule_action_voice_text', '播放文本') }}</label>
+              <VarInputWrapper :textarea="true" v-model="selectedNode.voiceText" :rows="5" :maxRows="12" />
             </div>
           </template>
 
@@ -1030,6 +1047,8 @@ export default {
       alarmContent: '',
       alarmDevice: 'trigger',
       delaySec: 1,
+      textContent: '',
+      voiceText: '',
       llmPrompt: ''
     })
     const createTriggerNode = (item = {}) => {
@@ -1087,7 +1106,6 @@ export default {
       if (value._id && !value.id) value.id = value._id
       if (value._graphKind) delete value._graphKind
       if (value.type === 'event') delete value.eventFilter
-      if (value.type === 'voice_playback') delete value.voiceText
       if (value.type === 'llm') {
         delete value.llmPlayAudio
         delete value.llmIncludeContext
@@ -1358,7 +1376,7 @@ export default {
         return ['property', 'device_status'].map(value => ({ value, label: typeLabel(value) }))
       }
       if (kind === 'action') {
-        return ['set_property', 'call_service', 'notification', 'alarm', 'delay', 'llm', 'voice_playback', 'parallel_group', 'sequence_group'].map(value => ({ value, label: typeLabel(value) }))
+        return ['set_property', 'call_service', 'notification', 'alarm', 'delay', 'text', 'llm', 'voice_playback', 'parallel_group', 'sequence_group'].map(value => ({ value, label: typeLabel(value) }))
       }
       return selectedNode.value?.type ? [{ value: selectedNode.value.type, label: typeLabel(selectedNode.value.type) }] : []
     })
@@ -1472,6 +1490,7 @@ export default {
         'notification': t('rule_action_notification', '消息通知'),
         'alarm': t('rule_action_alarm', '告警'),
         'delay': t('rule_action_delay', '延迟执行'),
+        'text': t('rule_action_text', '文本组件'),
         'llm': t('rule_action_llm', '大模型'),
         'voice_playback': t('rule_action_voice_playback', '语音播放'),
         'parallel_group': t('rule_graph_parallel_run', '并行执行'),
@@ -1627,11 +1646,14 @@ export default {
       if (action.type === 'delay') {
         return { ...base, isDelay: true, delaySec: action.delaySec || 0, icon: 'bi-hourglass-split', title: t('rule_action_delay') }
       }
+      if (action.type === 'text') {
+        return { ...base, icon: 'bi-text-paragraph', title: t('rule_action_text', '文本组件'), detail: action.textContent || t('rule_action_text_content', '文本内容') }
+      }
       if (action.type === 'llm') {
         return { ...base, icon: 'bi-robot', title: t('rule_action_llm', '大模型'), detail: action.llmPrompt || '大语言模型调用' }
       }
       if (action.type === 'voice_playback') {
-        return { ...base, icon: 'bi-volume-up-fill', title: t('rule_action_voice_playback', '语音播放'), detail: t('rule_action_voice_playback', '语音播放') }
+        return { ...base, icon: 'bi-volume-up-fill', title: t('rule_action_voice_playback', '语音播放'), detail: action.voiceText || t('rule_action_voice_playback', '语音播放') }
       }
       if (action.type === 'set_property') {
         return {
@@ -1725,7 +1747,7 @@ export default {
     const hasReferenceContent = () => {
       const kind = selectedNode.value?._graphKind || ''
       const type = selectedNode.value?.type || ''
-      const actionTypes = ['set_property', 'call_service', 'notification', 'alarm', 'delay', 'llm', 'voice_playback', 'parallel_group', 'sequence_group']
+      const actionTypes = ['set_property', 'call_service', 'notification', 'alarm', 'delay', 'text', 'llm', 'voice_playback', 'parallel_group', 'sequence_group']
       return kind === 'condition' || kind === 'condition_group' || kind === 'action' || type === 'property' || actionTypes.includes(type)
     }
 
