@@ -153,12 +153,17 @@ func toSchemaParam(param *Parameter) *schema.ParameterInfo {
 		return &schema.ParameterInfo{Type: schema.String}
 	}
 
-	return &schema.ParameterInfo{
-		Type:      schema.DataType(param.Type),
-		ElemInfo:  toSchemaParam(param.Elem),
-		SubParams: toSchemaParams(param.SubParams),
-		Desc:      param.Desc,
-		Enum:      param.Enum,
-		Required:  param.Required,
+	info := &schema.ParameterInfo{
+		Type:     schema.DataType(param.Type),
+		Desc:     param.Desc,
+		Enum:     param.Enum,
+		Required: param.Required,
 	}
+	if param.Elem != nil {
+		info.ElemInfo = toSchemaParam(param.Elem)
+	}
+	if len(param.SubParams) > 0 {
+		info.SubParams = toSchemaParams(param.SubParams)
+	}
+	return info
 }
