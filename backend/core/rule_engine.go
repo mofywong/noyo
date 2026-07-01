@@ -424,9 +424,6 @@ func (re *RuleEngine) triggerMatches(trigger RuleTrigger, event types.Event) boo
 			}
 			return len(props) > 0
 		}
-		if eventHasChangedPropertiesMetadata(event) && !eventChangedPropertiesContains(event, trigger.PropertyKey) {
-			return false
-		}
 		value, exists := props[trigger.PropertyKey]
 		if trigger.Operator == "changed" {
 			_, changed := eventChangedProperties(event)[trigger.PropertyKey]
@@ -958,10 +955,5 @@ func eventHasChangedPropertiesMetadata(event types.Event) bool {
 		return false
 	}
 	_, ok := event.Metadata["changedProperties"]
-	return ok
-}
-
-func eventChangedPropertiesContains(event types.Event, key string) bool {
-	_, ok := eventChangedProperties(event)[key]
 	return ok
 }
