@@ -66,6 +66,10 @@
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_group_and', logic: 'and' }, 'condition_group')"><i class="bi bi-intersect text-warning"></i> 满足所有(AND)</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_group_or', logic: 'or' }, 'condition_group')"><i class="bi bi-union text-warning"></i> 满足任一(OR)</div>
         </div>
+        <div class="rg-palette-section rg-palette-section--ai mb-3">
+          <div class="text-muted small mb-2">{{ $t('rule_ai_capability', 'AI 能力') }}</div>
+          <div class="rg-palette-item rg-palette-item--ai border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm' }, 'action')"><i class="bi bi-stars text-info"></i> {{ $t('rule_action_ai_reasoning', 'AI 推理') }}</div>
+        </div>
         <div class="rg-palette-section mb-3">
           <div class="text-muted small mb-2">{{ $t('rule_actions', '执行动作') }}</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'set_property' }, 'action')"><i class="bi bi-pencil-square text-success"></i> 设置属性</div>
@@ -74,7 +78,6 @@
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'alarm' }, 'action')"><i class="bi bi-exclamation-triangle-fill text-success"></i> 触发告警</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'delay', delaySec: 1 }, 'action')"><i class="bi bi-hourglass-split text-success"></i> 延迟执行</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'text' }, 'action')"><i class="bi bi-text-paragraph text-success"></i> {{ $t('rule_action_text', '文本组件') }}</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm' }, 'action')"><i class="bi bi-robot text-success"></i> 大模型</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'voice_playback' }, 'action')"><i class="bi bi-volume-up-fill text-success"></i> 语音播放</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'parallel' }, 'action_group')"><i class="bi bi-cpu text-success"></i> 并行执行组</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'sequence' }, 'action_group')"><i class="bi bi-list-ol text-success"></i> 串行执行组</div>
@@ -1491,7 +1494,7 @@ export default {
         'alarm': t('rule_action_alarm', '告警'),
         'delay': t('rule_action_delay', '延迟执行'),
         'text': t('rule_action_text', '文本组件'),
-        'llm': t('rule_action_llm', '大模型'),
+        'llm': t('rule_action_ai_reasoning', 'AI 推理'),
         'voice_playback': t('rule_action_voice_playback', '语音播放'),
         'parallel_group': t('rule_graph_parallel_run', '并行执行'),
         'sequence_group': t('rule_graph_serial_run', '串行执行组'),
@@ -1650,7 +1653,7 @@ export default {
         return { ...base, icon: 'bi-text-paragraph', title: t('rule_action_text', '文本组件'), detail: action.textContent || t('rule_action_text_content', '文本内容') }
       }
       if (action.type === 'llm') {
-        return { ...base, icon: 'bi-robot', title: t('rule_action_llm', '大模型'), detail: action.llmPrompt || '大语言模型调用' }
+        return { ...base, icon: 'bi-stars', title: t('rule_action_ai_reasoning', 'AI 推理'), detail: action.llmPrompt || t('rule_action_ai_reasoning_detail', '根据规则上下文执行智能判断') }
       }
       if (action.type === 'voice_playback') {
         return { ...base, icon: 'bi-volume-up-fill', title: t('rule_action_voice_playback', '语音播放'), detail: action.voiceText || t('rule_action_voice_playback', '语音播放') }
@@ -1953,6 +1956,21 @@ export default {
 [data-bs-theme="dark"] .rg-status--disabled { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
 [data-bs-theme="dark"] .rg-status--draft    { background: rgba(96, 165, 250, 0.15); color: #60a5fa; }
 [data-bs-theme="dark"] .rg-status--error    { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+
+.rg-palette-section--ai {
+  padding: 0.65rem;
+  background: rgba(13, 202, 240, 0.06);
+  border: 1px solid rgba(13, 202, 240, 0.22);
+  border-radius: 0.5rem;
+}
+
+.rg-palette-item--ai {
+  border-color: rgba(13, 202, 240, 0.32) !important;
+}
+
+.rg-palette-item--ai:hover {
+  box-shadow: 0 0 0 2px rgba(13, 202, 240, 0.14) !important;
+}
 
 .rg-canvas {
   position: relative;

@@ -9,6 +9,9 @@
         <button class="btn btn-outline-secondary btn-sm" @click="fetchAll" :disabled="loading">
           <i class="bi me-1" :class="loading ? 'bi-arrow-repeat spin' : 'bi-arrow-clockwise'"></i>{{ $t('refresh') }}
         </button>
+        <button class="btn btn-outline-info btn-sm" @click="openAiRuleCreator" v-permission="'rule:create'">
+          <i class="bi bi-stars me-1"></i>{{ $t('rule_ai_create') }}
+        </button>
         <button class="btn btn-primary btn-sm" @click="openNewRuleGraph" v-permission="'rule:create'">
           <i class="bi bi-plus-lg me-1"></i>{{ $t('rule_create') }}
         </button>
@@ -59,9 +62,23 @@
             </select>
           </div>
           <div class="col-sm-4 col-lg-3 text-lg-end">
-            <button class="btn btn-outline-primary btn-sm" @click="openGroupModal" v-permission="'rule_group:manage'">
-              <i class="bi bi-folder-plus me-1"></i>{{ $t('rule_manage_groups') }}
-            </button>
+            <div class="d-inline-flex flex-wrap justify-content-lg-end gap-2">
+              <button
+                class="btn btn-sm"
+                :class="aiRuleFilter ? 'btn-info text-white' : 'btn-outline-info'"
+                :title="$t('rule_ai_filter_title')"
+                :aria-pressed="aiRuleFilter ? 'true' : 'false'"
+                @click="aiRuleFilter = !aiRuleFilter"
+              >
+                <i class="bi bi-stars me-1"></i>{{ $t('rule_ai_only') }}
+                <span class="badge ms-1" :class="aiRuleFilter ? 'bg-light text-info' : 'bg-info-subtle text-info-emphasis'">
+                  {{ aiRuleCount }}
+                </span>
+              </button>
+              <button class="btn btn-outline-primary btn-sm" @click="openGroupModal" v-permission="'rule_group:manage'">
+                <i class="bi bi-folder-plus me-1"></i>{{ $t('rule_manage_groups') }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -86,13 +103,25 @@
               </tr>
               <tr v-else-if="filteredRules.length === 0">
                 <td colspan="6" class="text-center py-5 text-muted">
-                  <i class="bi bi-diagram-3 fs-1 d-block mb-2"></i>{{ $t('rule_empty') }}
+                  <template v-if="aiRuleFilter">
+                    <i class="bi bi-stars fs-1 d-block mb-2"></i>
+                    <div class="fw-semibold text-body">{{ aiRuleCount === 0 ? $t('rule_ai_empty') : $t('rule_ai_empty_filtered') }}</div>
+                    <button class="btn btn-outline-info btn-sm mt-3" @click="openAiRuleCreator">
+                      <i class="bi bi-stars me-1"></i>{{ $t('rule_ai_create') }}
+                    </button>
+                  </template>
+                  <template v-else>
+                    <i class="bi bi-diagram-3 fs-1 d-block mb-2"></i>{{ $t('rule_empty') }}
+                  </template>
                 </td>
               </tr>
               <tr v-for="rule in filteredRules" :key="rule.code">
                 <td>
                   <div class="fw-semibold">{{ rule.name }}</div>
                   <div class="small text-muted text-truncate rule-desc">{{ rule.description || rule.code }}</div>
+                  <span v-if="ruleHasAiAction(rule)" class="badge bg-info-subtle text-info-emphasis mt-1 me-1">
+                    <i class="bi bi-stars me-1"></i>{{ $t('rule_ai_badge') }}
+                  </span>
                   <span v-if="groupName(rule.group_id)" class="badge bg-secondary-subtle text-secondary-emphasis mt-1">
                     {{ groupName(rule.group_id) }}
                   </span>
@@ -125,6 +154,9 @@
                     </button>
                     <button class="btn btn-outline-info" @click="openRuleGraph(rule)" :title="$t('rule_graph_view')">
                       <i class="bi bi-diagram-3"></i>
+                    </button>
+                    <button class="btn btn-outline-primary" @click="openAiRuleHelper(rule)" :title="$t('rule_ai_help')">
+                      <i class="bi bi-stars"></i>
                     </button>
                     <button v-if="rule.enabled" class="btn btn-outline-warning" @click="toggleRule(rule, false)" :title="$t('disable')" v-permission="'rule:enable'">
                       <i class="bi bi-pause-fill"></i>
@@ -176,11 +208,12 @@
                   <th>{{ $t('rule_trigger') }}</th>
                   <th>{{ $t('status') }}</th>
                   <th class="text-end">{{ $t('rule_duration') }}</th>
+                  <th class="text-end">{{ $t('actions') }}</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="logs.length === 0">
-                  <td colspan="4" class="text-center py-4 text-muted">{{ $t('rule_no_logs') }}</td>
+                  <td colspan="5" class="text-center py-4 text-muted">{{ $t('rule_no_logs') }}</td>
                 </tr>
                 <tr v-for="log in logs" :key="log.id || log.ID">
                   <td>{{ formatTime(log.executed_at) }}</td>
@@ -192,6 +225,11 @@
                     <div v-if="log.error_message" class="small text-danger">{{ localizedRuleError(log.error_message) }}</div>
                   </td>
                   <td class="text-end">{{ log.duration_ms }} ms</td>
+                  <td class="text-end">
+                    <button class="btn btn-outline-primary btn-sm" @click="analyzeRuleLog(log)" :title="$t('rule_ai_analyze_log')">
+                      <i class="bi bi-stars"></i>
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -716,6 +754,7 @@ export default {
     const search = ref('')
     const statusFilter = ref('')
     const groupFilter = ref('')
+    const aiRuleFilter = ref(false)
     const showEditor = ref(false)
     const showLogs = ref(false)
     const showGraph = ref(false)
@@ -854,19 +893,22 @@ export default {
       }
     }
 
+    const aiRuleCount = computed(() => rules.value.filter(ruleHasAiAction).length)
+
     const filteredRules = computed(() => rules.value.filter(rule => {
       const q = search.value.toLowerCase()
       if (q && !`${rule.name} ${rule.description} ${rule.code}`.toLowerCase().includes(q)) return false
       if (statusFilter.value && rule.status !== statusFilter.value) return false
       if (groupFilter.value === '__none__' && rule.group_id) return false
       if (groupFilter.value && groupFilter.value !== '__none__' && String(rule.group_id) !== groupFilter.value) return false
+      if (aiRuleFilter.value && !ruleHasAiAction(rule)) return false
       return true
     }))
 
     const summaryCards = computed(() => [
       { key: 'total', label: t('rule_total'), value: rules.value.length, icon: 'bi-diagram-3' },
       { key: 'enabled', label: t('rule_status_enabled'), value: rules.value.filter(r => r.enabled).length, icon: 'bi-play-circle' },
-      { key: 'gateway', label: t('rule_scope_gateway'), value: rules.value.filter(r => r.scope === 'gateway').length, icon: 'bi-hdd-network' },
+      { key: 'ai', label: t('rule_ai_rules'), value: aiRuleCount.value, icon: 'bi-stars' },
       { key: 'error', label: t('rule_status_error'), value: rules.value.filter(r => r.status === 'error').length, icon: 'bi-exclamation-triangle' }
     ])
 
@@ -983,6 +1025,14 @@ export default {
 
     function describeActions(rule) {
       return safeParse(rule.actions, []).map(item => actionTypeLabel(item.type)).join(', ') || '-'
+    }
+
+    function actionListHasAi(actions) {
+      return (actions || []).some(action => action?.type === 'llm' || actionListHasAi(action?.subActions))
+    }
+
+    function ruleHasAiAction(rule) {
+      return actionListHasAi(safeParse(rule.actions, []))
     }
 
     function safeParse(text, fallback) {
@@ -1308,6 +1358,28 @@ export default {
       showGraph.value = true
     }
 
+    function openAiRuleCreator() {
+      window.dispatchEvent(new CustomEvent('noyo-open-copilot', {
+        detail: {
+          scene: 'rules',
+          subject: 'rule_assistant',
+          newSession: true,
+          prompt: t('rule_ai_create_prompt')
+        }
+      }))
+    }
+
+    function openAiRuleHelper(rule) {
+      window.dispatchEvent(new CustomEvent('noyo-open-copilot', {
+        detail: {
+          scene: 'rules',
+          subject: 'rule_assistant',
+          newSession: true,
+          prompt: t('rule_ai_rule_prompt', { name: rule.name || rule.code, code: rule.code || '' })
+        }
+      }))
+    }
+
     function openRuleGraph(rule) {
       graphRule.value = rule
       showGraph.value = true
@@ -1383,6 +1455,24 @@ export default {
       const res = await axios.get(`/api/rules/${rule.code}/logs`, { params: { page: 1, pageSize: 50 } })
       logs.value = res.data.data || []
       showLogs.value = true
+    }
+
+    function analyzeRuleLog(log) {
+      const payload = {
+        rule: logRule.value ? {
+          code: logRule.value.code,
+          name: logRule.value.name,
+          status: logRule.value.status
+        } : null,
+        log
+      }
+      window.dispatchEvent(new CustomEvent('noyo-analyze-log', {
+        detail: {
+          scene: 'rules',
+          subject: 'rule_assistant',
+          text: JSON.stringify(payload, null, 2)
+        }
+      }))
     }
 
     function openGroupModal() {
@@ -1471,17 +1561,17 @@ export default {
 
     return {
       expandedSections,
-      rules, groups, devices, logs, loading, saving, search, statusFilter, groupFilter, showEditor, showLogs, showGraph,
-      showGroupModal, editingCode, logRule, graphRule, groupForm, form, analysis, filteredRules, summaryCards,
+      rules, groups, devices, logs, loading, saving, search, statusFilter, groupFilter, aiRuleFilter, showEditor, showLogs, showGraph,
+      showGroupModal, editingCode, logRule, graphRule, groupForm, form, analysis, aiRuleCount, filteredRules, summaryCards,
       validationMessage, executionPreview, weekdayOptions, effectiveMonthDaysText, effectiveMonthsText,
       showsEffectiveWeekdays, showsEffectiveMonthDays, showsEffectiveMonths,
       actionLabels, conditionLabels, fetchAll, groupName, statusBadge, statusLabel,
-      syncStateLabel, describeTriggers, describeActions, localizedRuleError, formatTime, deviceLabel, optionLabel, optionKey, propertiesFor,
+      syncStateLabel, describeTriggers, describeActions, ruleHasAiAction, localizedRuleError, formatTime, deviceLabel, optionLabel, optionKey, propertiesFor,
       eventsFor, openNewRuleGraph, openEditor, closeEditor, addTrigger, removeTrigger, addCondition, removeCondition, addAction,
       addSequenceGroup, addParallelGroup, addEffectiveWindow, removeEffectiveWindow, applyEffectiveModeDefaults,
       parseNumberList, syncCronExpression,
       removeAction, addSubAction, removeSubAction, saveRule, toggleRule, deleteRule,
-      openRuleGraph, closeRuleGraph, handleGraphUpdate, triggerTypeLabel, openLogs, openGroupModal, saveGroup, deleteGroup
+      openAiRuleCreator, openAiRuleHelper, openRuleGraph, closeRuleGraph, handleGraphUpdate, triggerTypeLabel, openLogs, analyzeRuleLog, openGroupModal, saveGroup, deleteGroup
     }
   }
 }
