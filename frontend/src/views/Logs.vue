@@ -1,15 +1,40 @@
 <template>
   <div class="logs-container h-100 d-flex flex-column">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-3 gap-3 flex-wrap">
       <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_logs') }}</h2>
       
-      <div class="btn-group">
-        <button class="btn btn-outline-primary" :class="{ active: activeTab === 'realtime' }" @click="activeTab = 'realtime'">
-          <i class="bi bi-activity me-1"></i> {{ $t('realtime_logs') }}
-        </button>
-        <button class="btn btn-outline-primary" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
-          <i class="bi bi-clock-history me-1"></i> {{ $t('history_logs') }}
-        </button>
+      <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+        <div v-if="!props.remoteLogBase" class="input-group input-group-sm log-level-config">
+          <label class="input-group-text" for="log-config-level">{{ $t('log_level') }}</label>
+          <select
+            id="log-config-level"
+            class="form-select"
+            v-model="logConfig.level"
+            :disabled="logConfigLoading || savingLogConfig || !logConfigLoaded"
+          >
+            <option v-for="option in logLevelOptions" :key="option.value" :value="option.value">
+              {{ $t(option.labelKey) }}
+            </option>
+          </select>
+          <button
+            class="btn btn-outline-primary"
+            type="button"
+            @click="saveLogConfig"
+            :disabled="logConfigLoading || savingLogConfig || !logConfigLoaded"
+          >
+            <span v-if="savingLogConfig" class="spinner-border spinner-border-sm"></span>
+            <i v-else class="bi bi-save"></i>
+            <span class="ms-1">{{ $t('save_config') }}</span>
+          </button>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-outline-primary" :class="{ active: activeTab === 'realtime' }" @click="activeTab = 'realtime'">
+            <i class="bi bi-activity me-1"></i> {{ $t('realtime_logs') }}
+          </button>
+          <button class="btn btn-outline-primary" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
+            <i class="bi bi-clock-history me-1"></i> {{ $t('history_logs') }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -172,6 +197,16 @@ const props = defineProps({
 });
 
 const activeTab = ref('realtime'); // realtime | history
+const logConfig = ref({ level: 'info' });
+const logConfigLoaded = ref(false);
+const logConfigLoading = ref(false);
+const savingLogConfig = ref(false);
+const logLevelOptions = [
+  { value: 'debug', labelKey: 'log_level_debug' },
+  { value: 'info', labelKey: 'log_level_info' },
+  { value: 'warn', labelKey: 'log_level_warn' },
+  { value: 'error', labelKey: 'log_level_error' },
+];
 
 // Real-time state
 const logs = ref([]);
@@ -471,6 +506,40 @@ const fetchRealtimeTail = async () => {
 
 const logApiBase = () => props.remoteLogBase || '/api/system/log';
 
+const fetchLogConfig = async () => {
+  logConfigLoading.value = true;
+  try {
+    const res = await axios.get(`${logApiBase()}/config`);
+    if (res.data.code === 0 && res.data.data) {
+      logConfig.value = {
+        ...res.data.data,
+        level: res.data.data.level || 'info'
+      };
+      logConfigLoaded.value = true;
+    }
+  } catch (e) {
+    showToast('danger', t('log_config_load_fail'));
+  } finally {
+    logConfigLoading.value = false;
+  }
+};
+
+const saveLogConfig = async () => {
+  savingLogConfig.value = true;
+  try {
+    const res = await axios.post(`${logApiBase()}/config`, logConfig.value);
+    if (res.data.code === 0) {
+      showToast('success', t('log_config_success'));
+    } else {
+      showToast('danger', t('log_config_fail') + (res.data.message || ''));
+    }
+  } catch (e) {
+    showToast('danger', t('log_config_fail') + e.message);
+  } finally {
+    savingLogConfig.value = false;
+  }
+};
+
 const startRemoteRealtimePolling = () => {
   stopRemoteRealtimePolling();
   fetchRealtimeTail();
@@ -603,6 +672,9 @@ watch(activeTab, (newTab) => {
 });
 
 onMounted(() => {
+  if (!props.remoteLogBase) {
+    fetchLogConfig();
+  }
   fetchRealtimeTail().then(() => {
     connectWebSocket();
   });
@@ -627,5 +699,9 @@ onUnmounted(() => {
 }
 .log-line:hover {
   background-color: rgba(255,255,255,0.05);
+}
+.log-level-config {
+  width: 360px;
+  max-width: 100%;
 }
 </style>

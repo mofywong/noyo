@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,10 +13,42 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 // DB Global database instance
 var DB *gorm.DB
+
+func newGormLogger(level string) gormlogger.Interface {
+	logLevel := gormlogger.Warn
+	switch strings.ToLower(level) {
+	case "debug":
+		logLevel = gormlogger.Info
+	case "error":
+		logLevel = gormlogger.Error
+	case "silent":
+		logLevel = gormlogger.Silent
+	default:
+		logLevel = gormlogger.Warn
+	}
+
+	return gormlogger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		gormlogger.Config{
+			SlowThreshold:             time.Second,
+			LogLevel:                  logLevel,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false,
+		},
+	)
+}
+
+func SetDBLogLevel(level string) {
+	if DB == nil || DB.Config == nil {
+		return
+	}
+	DB.Config.Logger = newGormLogger(level)
+}
 
 // InitDB initializes the database
 func InitDB(dsn string) error {
@@ -28,7 +61,9 @@ func InitDB(dsn string) error {
 	}
 
 	// Use pure go sqlite
-	DB, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	DB, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
+		Logger: newGormLogger("warn"),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to connect database: %w", err)
 	}

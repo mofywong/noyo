@@ -33,6 +33,8 @@ func (s *Server) handleUpdateLogConfig(r *ghttp.Request) {
 
 	// Update config in memory
 	s.Config.Log = req
+	SetLoggerLevel(req.Level)
+	store.SetDBLogLevel(req.Level)
 
 	// Save to database
 	if err := store.SaveGlobalConfig(s.Config); err != nil {

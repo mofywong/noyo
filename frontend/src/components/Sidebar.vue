@@ -1,12 +1,12 @@
 <template>
   <div class="sidebar" :class="{ show: isOpen }">
     <div class="sidebar-brand">
-      <template v-if="authStore.user && authStore.user.tenant_name">
-        <div v-if="authStore.user.tenant_logo" class="me-2 d-flex align-items-center justify-content-center" style="height: 32px; width: 32px; overflow: hidden;">
-          <div v-if="authStore.user.tenant_logo.trim().startsWith('<svg') || authStore.user.tenant_logo.trim().startsWith('<?xml')" v-html="DOMPurify.sanitize(authStore.user.tenant_logo, { USE_PROFILES: { svg: true } })" class="svg-container" style="height: 100%; display: flex; align-items: center; justify-content: center;"></div>
-          <img v-else :src="authStore.user.tenant_logo" style="max-height: 100%; max-width: 100%; object-fit: contain;">
+      <template v-if="showTenantBrand">
+        <div v-if="tenantBrandLogo" class="me-2 d-flex align-items-center justify-content-center" style="height: 32px; width: 32px; overflow: hidden;">
+          <div v-if="tenantBrandLogo.trim().startsWith('<svg') || tenantBrandLogo.trim().startsWith('<?xml')" v-html="DOMPurify.sanitize(tenantBrandLogo, { USE_PROFILES: { svg: true } })" class="svg-container" style="height: 100%; display: flex; align-items: center; justify-content: center;"></div>
+          <img v-else :src="tenantBrandLogo" style="max-height: 100%; max-width: 100%; object-fit: contain;">
         </div>
-        <span class="text-truncate">{{ authStore.user.tenant_name }}</span>
+        <span class="text-truncate">{{ tenantBrandName }}</span>
       </template>
       <template v-else>
         <img src="/Noyo.svg" alt="Noyo Logo" class="brand-logo" />
@@ -188,6 +188,10 @@ const tenantName = computed(() => {
   }
   return ''
 });
+
+const tenantBrandName = computed(() => authStore.user?.tenant_name || '');
+const tenantBrandLogo = computed(() => authStore.user?.tenant_logo || '');
+const showTenantBrand = computed(() => !hidesTenantManagement(authStore.systemMode) && !!tenantBrandName.value);
 
 const currentProjectName = computed(() => {
   if (isGatewayRuntime.value) {

@@ -34,6 +34,8 @@ func (s *Server) handleUpdateSystemConfig(r *ghttp.Request) {
 	s.Config.Server = req.Server
 	s.Config.TSDB = req.TSDB
 	s.Config.Log = req.Log
+	SetLoggerLevel(req.Log.Level)
+	store.SetDBLogLevel(req.Log.Level)
 
 	// Save to database
 	if err := store.SaveGlobalConfig(s.Config); err != nil {

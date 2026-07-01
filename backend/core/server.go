@@ -92,6 +92,7 @@ func NewServer() (*Server, error) {
 	}
 
 	logger := InitLogger(cfg.Log)
+	store.SetDBLogLevel(cfg.Log.Level)
 
 	if err != nil && err.Error() != "record not found" {
 		logger.Warn("Failed to load global config from db, using defaults", zap.Error(err))

@@ -3,6 +3,7 @@ package core
 import (
 	"noyo/core/config"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 var (
 	// GlobalLogBroadcaster broadcasts log messages to active WebSocket clients
 	GlobalLogBroadcaster = NewLogBroadcaster()
+	globalLogLevel       = zap.NewAtomicLevelAt(zap.InfoLevel)
 )
 
 type LogMessage struct {
@@ -103,15 +105,7 @@ func (c *wsCore) Sync() error {
 
 // InitLogger creates a new zap.Logger based on the configuration
 func InitLogger(cfg config.LogConfig) *zap.Logger {
-	level := zap.InfoLevel
-	switch cfg.Level {
-	case "debug":
-		level = zap.DebugLevel
-	case "warn":
-		level = zap.WarnLevel
-	case "error":
-		level = zap.ErrorLevel
-	}
+	globalLogLevel.SetLevel(parseZapLogLevel(cfg.Level))
 
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
@@ -157,10 +151,27 @@ func InitLogger(cfg config.LogConfig) *zap.Logger {
 	}(lumberjackLogger)
 
 	core := zapcore.NewTee(
-		zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), level),
-		zapcore.NewCore(fileEncoder, zapcore.AddSync(lumberjackLogger), level),
-		&wsCore{LevelEnabler: level, enc: fileEncoder},
+		zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), globalLogLevel),
+		zapcore.NewCore(fileEncoder, zapcore.AddSync(lumberjackLogger), globalLogLevel),
+		&wsCore{LevelEnabler: globalLogLevel, enc: fileEncoder},
 	)
 
 	return zap.New(core, zap.AddCaller())
+}
+
+func SetLoggerLevel(level string) {
+	globalLogLevel.SetLevel(parseZapLogLevel(level))
+}
+
+func parseZapLogLevel(level string) zapcore.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return zap.DebugLevel
+	case "warn":
+		return zap.WarnLevel
+	case "error":
+		return zap.ErrorLevel
+	default:
+		return zap.InfoLevel
+	}
 }
