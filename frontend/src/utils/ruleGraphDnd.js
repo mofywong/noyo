@@ -11,6 +11,10 @@ export function insertActionAt(targetList, action, insertIndex) {
   return true
 }
 
+export function canActionNodeHandleDrop(node) {
+  return !!node && !node.empty && Array.isArray(node._list)
+}
+
 export function findActionById(actions, sourceId, nodeIdentity = defaultNodeIdentity) {
   for (const action of actions || []) {
     if (nodeIdentity(action) === sourceId) return action

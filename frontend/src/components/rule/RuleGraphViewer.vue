@@ -66,10 +66,6 @@
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_group_and', logic: 'and' }, 'condition_group')"><i class="bi bi-intersect text-warning"></i> 满足所有(AND)</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_group_or', logic: 'or' }, 'condition_group')"><i class="bi bi-union text-warning"></i> 满足任一(OR)</div>
         </div>
-        <div class="rg-palette-section rg-palette-section--ai mb-3">
-          <div class="text-muted small mb-2">{{ $t('rule_ai_capability', 'AI 能力') }}</div>
-          <div class="rg-palette-item rg-palette-item--ai border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm' }, 'action')"><i class="bi bi-stars text-info"></i> {{ $t('rule_action_ai_reasoning', 'AI 推理') }}</div>
-        </div>
         <div class="rg-palette-section mb-3">
           <div class="text-muted small mb-2">{{ $t('rule_actions', '执行动作') }}</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'set_property' }, 'action')"><i class="bi bi-pencil-square text-success"></i> 设置属性</div>
@@ -78,6 +74,7 @@
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'alarm' }, 'action')"><i class="bi bi-exclamation-triangle-fill text-success"></i> 触发告警</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'delay', delaySec: 1 }, 'action')"><i class="bi bi-hourglass-split text-success"></i> 延迟执行</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'text' }, 'action')"><i class="bi bi-text-paragraph text-success"></i> {{ $t('rule_action_text', '文本组件') }}</div>
+          <div class="rg-palette-item rg-palette-item--ai border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm' }, 'action')"><i class="bi bi-stars text-info"></i> {{ $t('rule_action_ai_reasoning', 'AI 推理') }}</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'voice_playback' }, 'action')"><i class="bi bi-volume-up-fill text-success"></i> 语音播放</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'parallel' }, 'action_group')"><i class="bi bi-cpu text-success"></i> 并行执行组</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'sequence' }, 'action_group')"><i class="bi bi-list-ol text-success"></i> 串行执行组</div>
@@ -521,7 +518,7 @@ import { defineComponent, computed, h, ref, reactive, provide, inject, watch, on
 import { useI18n } from 'vue-i18n'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
-import { insertActionAt, moveActionToList } from '../../utils/ruleGraphDnd.js'
+import { canActionNodeHandleDrop, insertActionAt, moveActionToList } from '../../utils/ruleGraphDnd.js'
 
 /* ============================================
  *  递归卡片节点组件
@@ -778,6 +775,7 @@ const RgActionNode = defineComponent({
         const rect = e.currentTarget.getBoundingClientRect()
         return e.clientY < rect.top + rect.height / 2 ? node._index : node._index + 1
       }
+      const canHandleOwnDrop = canActionNodeHandleDrop(node)
 
       const deleteBtn = ctxData.isEditing?.value
         ? h('button', {
@@ -798,24 +796,24 @@ const RgActionNode = defineComponent({
         onClick: (e) => {
           if (ctxData.isEditing?.value) { e.stopPropagation(); ctxData.selectNode(g, 'action') }
         },
-        draggable: ctxData.isEditing?.value,
+        draggable: ctxData.isEditing?.value && !node.empty,
         onDragstart: (e) => {
-          if (ctxData.isEditing?.value) {
+          if (ctxData.isEditing?.value && !node.empty) {
             const dragGroup = ctxData.dragGroupForNode?.(node) || 'action'
             e.dataTransfer.setData('text/plain', JSON.stringify({ item: g, group: dragGroup, isExisting: true, sourceId: g._id || g.id }))
             e.stopPropagation()
           }
         },
         onDragover: (e) => {
-          if (ctxData.isEditing?.value) { e.preventDefault(); e.stopPropagation(); ctxData.setDragOverGroup(g); }
+          if (ctxData.isEditing?.value && canHandleOwnDrop) { e.preventDefault(); e.stopPropagation(); ctxData.setDragOverGroup(g); }
         },
         onDragleave: () => { if (ctxData.isEditing?.value) ctxData.setDragOverGroup(null) },
         onDrop: (e) => {
-          if (ctxData.isEditing?.value) {
+          if (ctxData.isEditing?.value && canHandleOwnDrop) {
             e.preventDefault()
             e.stopPropagation()
             ctxData.setDragOverGroup(null)
-            if (Array.isArray(node._list)) ctxData.handleDropAction(e, node._list, node._parentGroup || null, dropIndexForNode(e))
+            ctxData.handleDropAction(e, node._list, node._parentGroup || null, dropIndexForNode(e))
           }
         }
       }
@@ -1956,13 +1954,6 @@ export default {
 [data-bs-theme="dark"] .rg-status--disabled { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
 [data-bs-theme="dark"] .rg-status--draft    { background: rgba(96, 165, 250, 0.15); color: #60a5fa; }
 [data-bs-theme="dark"] .rg-status--error    { background: rgba(248, 113, 113, 0.15); color: #f87171; }
-
-.rg-palette-section--ai {
-  padding: 0.65rem;
-  background: rgba(13, 202, 240, 0.06);
-  border: 1px solid rgba(13, 202, 240, 0.22);
-  border-radius: 0.5rem;
-}
 
 .rg-palette-item--ai {
   border-color: rgba(13, 202, 240, 0.32) !important;
