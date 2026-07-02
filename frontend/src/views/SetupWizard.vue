@@ -1,5 +1,5 @@
 <template>
-  <div class="setup-page" :class="`setup-mode-${form.mode}`">
+  <div class="setup-page" :class="`setup-mode-${form.mode}`" :style="setupBrandStyle">
     <div class="setup-backdrop" aria-hidden="true">
       <div class="backdrop-grid"></div>
       <div class="backdrop-panel panel-a"></div>
@@ -9,10 +9,10 @@
     <header class="setup-topbar">
       <div class="setup-brand">
         <div class="setup-logo-shell">
-          <img src="/Noyo.svg" alt="Noyo" class="setup-logo-img">
+          <img :src="appBrand.logoUrl" :alt="`${brandNameForLocale(currentLang)} Logo`" class="setup-logo-img">
         </div>
         <div>
-          <div class="setup-brand-name">Noyo</div>
+          <div class="setup-brand-name">{{ brandNameForLocale(currentLang) }}</div>
           <div class="setup-brand-subtitle">{{ tx('brandSubtitle') }}</div>
         </div>
       </div>
@@ -297,6 +297,7 @@ import axios from 'axios'
 import { clearSetupStatusCache } from '../router'
 import { useAuthStore } from '../stores/auth'
 import { SYSTEM_MODES, isSingleProjectMode } from '../utils/systemMode'
+import { appBrand, brandNameForLocale } from '../config/brand.js'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -312,7 +313,7 @@ const setupCopy = {
     brandSubtitle: '首次部署向导',
     wizardKicker: 'Deployment',
     title: '初始化配置',
-    subtitle: '选择 Noyo 的部署用途，创建第一个管理员，并按需配置级联连接。',
+    subtitle: '选择 {brand} 的部署用途，创建第一个管理员，并按需配置级联连接。',
     deploymentProfile: '部署配置',
     currentMode: '当前模式',
     runtime: '运行模式',
@@ -379,7 +380,7 @@ const setupCopy = {
     brandSubtitle: 'First-run setup',
     wizardKicker: 'Deployment',
     title: 'Initial Setup',
-    subtitle: 'Choose the deployment profile, create the first admin, and configure cascade connectivity when needed.',
+    subtitle: 'Choose the {brand} deployment profile, create the first admin, and configure cascade connectivity when needed.',
     deploymentProfile: 'Deployment Profile',
     currentMode: 'Current Mode',
     runtime: 'Runtime',
@@ -473,7 +474,13 @@ const form = reactive({
 })
 
 const currentLang = computed(() => String(locale.value || 'zh').startsWith('en') ? 'en' : 'zh')
-const tx = (key) => setupCopy[currentLang.value][key] || setupCopy.zh[key] || key
+const tx = (key) => {
+  const value = setupCopy[currentLang.value][key] || setupCopy.zh[key] || key
+  return typeof value === 'string' ? value.replaceAll('{brand}', brandNameForLocale(currentLang.value)) : value
+}
+const setupBrandStyle = computed(() => ({
+  '--setup-brand-logo-url': `url("${appBrand.logoUrl.replaceAll('"', '%22')}")`,
+}))
 
 const steps = computed(() => [
   { id: 'runtime', label: tx('runtime'), caption: tx('runtimeCaption') },
@@ -794,7 +801,7 @@ onMounted(loadSetupStatus)
   border: 1px solid rgba(88, 166, 255, 0.16);
   background:
     linear-gradient(135deg, rgba(23, 65, 122, 0.28), rgba(8, 18, 32, 0.14)),
-    url('/Noyo.svg') center / 62% no-repeat;
+    var(--setup-brand-logo-url) center / 62% no-repeat;
   opacity: 0.08;
   transform: rotate(-10deg);
 }

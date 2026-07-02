@@ -2,7 +2,6 @@ package mqtt_api
 
 import (
 	"context"
-	_ "embed"
 	"noyo/core"
 	"noyo/core/platform"
 	"sync"
@@ -12,9 +11,6 @@ import (
 	"github.com/gogf/gf/v2/net/ghttp"
 	"go.uber.org/zap"
 )
-
-//go:embed icon.svg
-var icon []byte
 
 // PublishJob represents a message to be published
 type PublishJob struct {
@@ -67,7 +63,6 @@ password: ""
 client_id: ""
 gateway_code: "gateway_001"
 `,
-		Icon: icon,
 	})
 }
 

@@ -18,15 +18,7 @@
 
     <!-- 品牌水印（大型半透明 Logo） -->
     <div class="brand-watermark">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 654 500" width="100%" height="100%">
-        <defs>
-          <linearGradient id="wm-grad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="rgba(56, 189, 248, 0.04)" />
-            <stop offset="100%" stop-color="rgba(6, 114, 192, 0.02)" />
-          </linearGradient>
-        </defs>
-        <path d="M 167.99 19.40 Q 156.00 19.00, 155.74 31.00 L 148.26 372.00 Q 148.00 384.00, 159.55 387.24 L 193.45 396.76 Q 205.00 400.00, 213.10 391.15 L 239.90 361.85 Q 248.00 353.00, 247.89 341.00 L 247.11 256.00 Q 247.00 244.00, 241.30 233.44 L 191.70 141.56 Q 186.00 131.00, 193.84 140.09 L 398.16 376.91 Q 406.00 386.00, 418.00 386.13 L 484.00 386.87 Q 496.00 387.00, 496.30 375.00 L 504.70 40.00 Q 505.00 28.00, 493.76 23.81 L 457.24 10.19 Q 446.00 6.00, 437.70 14.66 L 408.30 45.34 Q 400.00 54.00, 400.22 66.00 L 401.78 152.00 Q 402.00 164.00, 407.90 174.45 L 461.10 268.55 Q 467.00 279.00, 459.18 269.90 L 253.82 31.10 Q 246.00 22.00, 234.01 21.60 Z" fill="url(#wm-grad)" />
-      </svg>
+      <img :src="appBrand.logoUrl" alt="" class="brand-watermark-img">
     </div>
 
     <!-- 登录卡片 -->
@@ -38,25 +30,9 @@
           <img v-else :src="tenantLogo" alt="Logo" class="tenant-logo-img">
         </div>
         <div v-else class="noyo-logo-wrap">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 654 500" class="noyo-logo-svg">
-            <defs>
-              <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#38bdf8" />
-                <stop offset="50%" stop-color="#3b82f6" />
-                <stop offset="100%" stop-color="#0672C0" />
-              </linearGradient>
-              <filter id="logo-glow">
-                <feGaussianBlur stdDeviation="3" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <path d="M 167.99 19.40 Q 156.00 19.00, 155.74 31.00 L 148.26 372.00 Q 148.00 384.00, 159.55 387.24 L 193.45 396.76 Q 205.00 400.00, 213.10 391.15 L 239.90 361.85 Q 248.00 353.00, 247.89 341.00 L 247.11 256.00 Q 247.00 244.00, 241.30 233.44 L 191.70 141.56 Q 186.00 131.00, 193.84 140.09 L 398.16 376.91 Q 406.00 386.00, 418.00 386.13 L 484.00 386.87 Q 496.00 387.00, 496.30 375.00 L 504.70 40.00 Q 505.00 28.00, 493.76 23.81 L 457.24 10.19 Q 446.00 6.00, 437.70 14.66 L 408.30 45.34 Q 400.00 54.00, 400.22 66.00 L 401.78 152.00 Q 402.00 164.00, 407.90 174.45 L 461.10 268.55 Q 467.00 279.00, 459.18 269.90 L 253.82 31.10 Q 246.00 22.00, 234.01 21.60 Z" fill="url(#logo-grad)" filter="url(#logo-glow)" />
-          </svg>
+          <img :src="appBrand.logoUrl" :alt="`${brandNameForLocale(locale)} Logo`" class="noyo-logo-img">
         </div>
-        <h1 class="brand-title">{{ tenantName || 'Noyo' }}</h1>
+        <h1 class="brand-title">{{ tenantName || brandNameForLocale(locale) }}</h1>
         <p class="brand-subtitle">{{ $t('auth_login_subtitle') }}</p>
       </div>
 
@@ -129,7 +105,7 @@
 
     <!-- 页面底部版权 -->
     <div class="page-footer">
-      <span>© {{ new Date().getFullYear() }} Noyo · Intelligent IoT</span>
+      <span>© {{ new Date().getFullYear() }} {{ appBrand.footerText }}</span>
     </div>
   </div>
 </template>
@@ -141,11 +117,12 @@ import DOMPurify from 'dompurify'
 import { useAuthStore } from '../stores/auth'
 import { useI18n } from 'vue-i18n'
 import axios from 'axios'
+import { appBrand, brandNameForLocale } from '../config/brand.js'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const username = ref('')
 const password = ref('')
@@ -343,7 +320,7 @@ const handleLogin = async () => {
 
 <style scoped>
 /* ============================================================
-   Noyo Login — AIOT 科技感暗色主题
+   Login - AIOT 科技感暗色主题
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -439,6 +416,14 @@ const handleLogin = async () => {
   opacity: 0.4;
 }
 
+.brand-watermark-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: grayscale(1) brightness(1.8);
+  opacity: 0.18;
+}
+
 /* ---- 登录卡片 ---- */
 .login-card {
   position: relative;
@@ -479,9 +464,11 @@ const handleLogin = async () => {
   margin-bottom: 16px;
 }
 
-.noyo-logo-svg {
+.noyo-logo-img {
   height: 60px;
   width: auto;
+  max-width: 180px;
+  object-fit: contain;
   animation: logo-breathe 4s ease-in-out infinite;
 }
 
@@ -771,7 +758,7 @@ const handleLogin = async () => {
     bottom: -30px;
   }
 
-  .noyo-logo-svg {
+  .noyo-logo-img {
     height: 48px;
   }
 }

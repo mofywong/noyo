@@ -8,7 +8,7 @@
     <div class="card-body d-flex flex-column" :class="{ 'opacity-50': plugin.isPro && plugin.isUnauthorized }">
       <div class="d-flex justify-content-between align-items-start mb-3">
         <div class="bg-light rounded p-3 text-primary d-flex align-items-center justify-content-center" style="width: 64px; height: 64px;">
-          <img v-if="plugin.icon" :src="plugin.icon" style="width: 32px; height: 32px; object-fit: contain;">
+          <img v-if="pluginIconUrl(plugin.icon)" :src="pluginIconUrl(plugin.icon)" style="width: 32px; height: 32px; object-fit: contain;">
           <i v-else class="bi bi-box-seam fs-3"></i>
         </div>
         <div class="d-flex flex-column align-items-end">
@@ -46,6 +46,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n';
+import { pluginIconUrl } from '../utils/pluginIconBranding.js';
 
 const { locale } = useI18n();
 

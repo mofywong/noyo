@@ -93,6 +93,7 @@ import axios from 'axios';
 import { useI18n } from 'vue-i18n';
 import { usePlugins, loadPlugins } from '../plugins/registry';
 import DeviceDataModal from '../components/device/DeviceDataModal.vue';
+import { brandNameForLocale } from '../config/brand.js';
 
 const { t, locale } = useI18n();
 const { getPluginManifest, extensions } = usePlugins();
@@ -100,6 +101,12 @@ const container = ref(null);
 const loading = ref(false);
 let graph = null;
 const currentTheme = ref('dark');
+const topologyPlatformLabel = () => String(locale.value || '').startsWith('en')
+  ? `${brandNameForLocale(locale.value)} Platform`
+  : `${brandNameForLocale(locale.value)}平台`;
+const topologyEdgeGatewayLabel = () => String(locale.value || '').startsWith('en')
+  ? `${brandNameForLocale(locale.value)} Edge Gateway`
+  : `${brandNameForLocale(locale.value)}边缘网关`;
 
 const extensionDeviceActions = computed(() => extensions.value?.deviceActions || []);
 const activeExtensionModals = ref([]);
@@ -310,7 +317,7 @@ const buildGraphData = (devices, plugins) => {
     const gatewayId = 'root';
     
     // Determine the root node type based on cascade plugin
-    let rootLabel = 'Noyo边缘网关';
+    let rootLabel = topologyEdgeGatewayLabel();
     let rootType = 'gateway';
     
     if (plugins && plugins.length > 0) {
@@ -318,7 +325,7 @@ const buildGraphData = (devices, plugins) => {
         if (cascadePlugin && cascadePlugin.status === 'running') {
             const modeField = cascadePlugin.schema?.fields?.find(f => f.name === 'mode');
             if (modeField && modeField.value === 'platform') {
-                rootLabel = 'Noyo平台';
+                rootLabel = topologyPlatformLabel();
                 rootType = 'platform';
             }
         }
@@ -343,7 +350,7 @@ const buildGraphData = (devices, plugins) => {
     // 2. Platform Plugins (Northbound - Upstream)
     // Edges: Platform -> Gateway
     if (plugins && plugins.length > 0) {
-        // If cascade is in gateway mode, manually add the Noyo platform node
+        // If cascade is in gateway mode, manually add the upstream platform node
         const cascadePlugin = plugins.find(p => p.name === 'cascade');
         if (cascadePlugin && cascadePlugin.status === 'running') {
             const modeField = cascadePlugin.schema?.fields?.find(f => f.name === 'mode');
@@ -352,7 +359,7 @@ const buildGraphData = (devices, plugins) => {
                 nodes.push({
                     id: 'platform-noyo',
                     data: {
-                        label: 'Noyo平台',
+                        label: topologyPlatformLabel(),
                         type: 'platform',
                         status: cascadePlugin.detailedStatus || cascadePlugin.status || 'connected',
                         protocol: 'MQTT',
@@ -396,7 +403,7 @@ const buildGraphData = (devices, plugins) => {
             }
             
             if (p.name === 'cascade') {
-                localizedTitle = 'Noyo平台';
+                localizedTitle = topologyPlatformLabel();
                 protocol = 'MQTT';
             }
             
@@ -439,7 +446,7 @@ const buildGraphData = (devices, plugins) => {
             
             let label = d.name || d.code;
             if (d.product_code === 'noyo-gw') {
-                label = 'Noyo边缘网关';
+                label = topologyEdgeGatewayLabel();
                 protocol = 'MQTT';
             }
 
@@ -577,13 +584,13 @@ const initGraph = async () => {
                 let icon = '\uF77D'; // bi-plugin for other platforms
                 if (isRoot) {
                     if (type === 'platform') {
-                        icon = '\uF29E'; // bi-cloud-fill for Noyo platform
+                        icon = '\uF29E'; // bi-cloud-fill for platform
                     } else {
-                        icon = '\uF40D'; // bi-hdd-network for Noyo edge gateway
+                        icon = '\uF40D'; // bi-hdd-network for edge gateway
                     }
                 } else if (type === 'platform') {
                     if (d.data?.pluginName === 'cascade') {
-                        icon = '\uF29E'; // bi-cloud-fill for Noyo platform
+                        icon = '\uF29E'; // bi-cloud-fill for platform
                     }
                 } else if (isCamera) {
                     icon = '\uF21F'; // bi-camera-video

@@ -9,7 +9,7 @@
         <span class="text-truncate">{{ tenantBrandName }}</span>
       </template>
       <template v-else>
-        <img src="/Noyo.svg" alt="Noyo Logo" class="brand-logo" />
+        <img :src="appBrand.logoUrl" :alt="`${brandNameForLocale(locale)} Logo`" class="brand-logo" />
         <span>{{ $t('brand_name') }}</span>
       </template>
     </div>
@@ -82,7 +82,7 @@
                  class="nav-link" 
                  :class="{ active: currentRouteParams.name === plugin.name }"
                  @click.prevent="navigatePlugin(plugin.name)">
-                 <img v-if="plugin.icon" :src="plugin.icon" class="me-2" style="width: 16px; height: 16px;">
+                 <img v-if="pluginIconUrl(plugin.icon)" :src="pluginIconUrl(plugin.icon)" class="me-2" style="width: 16px; height: 16px;">
                  <i v-else class="bi bi-plugin"></i>
                  <span class="flex-grow-1 text-truncate">{{ plugin.title ? (plugin.title[locale] || plugin.title['en'] || plugin.name) : plugin.name }}</span>
                  <i class="bi bi-circle-fill text-success" style="font-size: 8px; width: auto; margin: 0;"></i>
@@ -122,7 +122,7 @@
     <div class="sidebar-footer mt-auto p-3 text-center border-top border-secondary border-opacity-25">
       <div class="text-muted" style="font-size: 0.75rem; opacity: 0.7;">
         <i class="bi bi-lightning-charge-fill text-warning me-1"></i>
-        <span>Powered by <strong>Noyo</strong></span>
+        <span>Powered by <strong>{{ appBrand.footerText }}</strong></span>
       </div>
     </div>
   </div>
@@ -157,6 +157,8 @@ import { usePlugins } from '../plugins/registry.js';
 import { gatewayText } from '../utils/gatewayLocale';
 import { useAuthStore } from '../stores/auth.js';
 import { hidesTenantManagement, isSingleProjectMode } from '../utils/systemMode.js';
+import { appBrand, brandNameForLocale } from '../config/brand.js';
+import { pluginIconUrl } from '../utils/pluginIconBranding.js';
 
 const { extensions } = usePlugins();
 const authStore = useAuthStore();

@@ -10,6 +10,8 @@
     "prebuild": "npm run sync-pro",
     "build": "vite build",
     "preview": "vite preview",
+    "test:brand-config": "node scripts/brand-config.test.mjs",
+    "test:plugin-icon-branding": "node scripts/plugin-icon-branding.test.mjs",
     "test:gateway-card-ui": "node scripts/gateway-management-card-ui.test.mjs",
     "test:gateway-redesign-ui": "node scripts/gateway-management-redesign-ui.test.mjs",
     "test:ai-scene-rules-ui": "node scripts/ai-scene-rules-ui.test.mjs",

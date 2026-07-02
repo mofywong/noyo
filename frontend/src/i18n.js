@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import { brandMessages } from './config/brand'
 
 const messages = {
     en: {
@@ -715,14 +716,14 @@ dev_tags: 'Tags',
         sys_build_info: 'Build Info',
         app_resources: 'Application Resources',
         gateway_subtitle: 'Know Your Needs, Deliver the Best.',
-        brand_name: 'Noyo',
+        brand_name: brandMessages.en.brand_name,
         resource_hint: 'Resource usage is collected every 3 seconds.',
         svc_mem_occupy: 'Occupies System Memory',
 
         // AI Copilot
-        ai_copilot: 'Noyo Copilot',
+        ai_copilot: brandMessages.en.ai_copilot,
         ai_welcome_title: 'How can I help you?',
-        ai_welcome_msg: 'Hello! I am Noyo Copilot.<br/>I can help you configure protocols, parse point lists, monitor status, or answer technical questions.',
+        ai_welcome_msg: brandMessages.en.ai_welcome_msg,
         ai_new_chat: 'New Chat',
         ai_history: 'Chat History',
         ai_clear_history: 'Clear History / New Chat',
@@ -899,7 +900,7 @@ dev_tags: 'Tags',
             test_error: 'Test error'
         },
         // Auth & User Management
-        auth_login_title: 'Noyo IoT',
+        auth_login_title: brandMessages.en.auth_login_title,
         auth_login_subtitle: 'Sign in to your account',
         auth_username: 'Username',
         auth_password: 'Password',
@@ -1195,7 +1196,7 @@ dev_tags: 'Tags',
         card_running: '运行中',
         card_stopped: '已停止',
         gateway_subtitle: '懂你所需，予你所优',
-        brand_name: '诺优 Noyo',
+        brand_name: brandMessages.zh.brand_name,
         resource_hint: '资源使用情况每3秒采集一次。',
         svc_mem_occupy: '占系统内存',
         quick_actions: '快捷操作',
@@ -1502,7 +1503,7 @@ dev_tags: 'Tags',
         script_generate: '生成脚本',
         script_editor_hint: '在此编辑您的 Lua 脚本。使用调试按钮进行测试。',
         // Auth & User Management
-        auth_login_title: 'Noyo IoT',
+        auth_login_title: brandMessages.zh.auth_login_title,
         auth_login_subtitle: '登录您的账户',
         auth_username: '用户名',
         auth_password: '密码',
@@ -2080,9 +2081,9 @@ dev_tags: '标签',
         app_resources: '应用资源',
 
         // AI Copilot
-        ai_copilot: 'AI 助手',
+        ai_copilot: brandMessages.zh.ai_copilot,
         ai_welcome_title: '有什么可以帮助您的？',
-        ai_welcome_msg: '你好！我是 诺优 Copilot。<br/>我可以帮你快速配置协议、解析复杂点表、监控系统状态或解答技术疑问。',
+        ai_welcome_msg: brandMessages.zh.ai_welcome_msg,
         ai_new_chat: '新对话',
         ai_history: '历史记录',
         ai_clear_history: '清空历史 / 新开对话',
