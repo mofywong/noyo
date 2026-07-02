@@ -63,7 +63,7 @@
                 </div>
               </div>
 
-              <div v-else-if="field.type === 'int' || field.type === 'float' || field.type === 'number'" class="mb-3">
+              <div v-else-if="field.type === 'int' || field.type === 'integer' || field.type === 'float' || field.type === 'number'" class="mb-3">
                 <label :for="'field-'+field.name" class="form-label fw-bold d-block mb-1">
                   {{ getLocalized(field.title) || field.name }}
                 </label>
@@ -96,6 +96,22 @@
                     {{ getLocalized(opt.label) || opt.value }}
                   </option>
                 </select>
+              </div>
+
+              <div v-else-if="field.type === 'textarea'" class="mb-3">
+                <label :for="'field-'+field.name" class="form-label fw-bold d-block mb-1">
+                  {{ getLocalized(field.title) || field.name }}
+                </label>
+                <div v-if="getLocalized(field.description)" class="form-text text-muted mb-2 mt-0">
+                  {{ getLocalized(field.description) }}
+                </div>
+                <textarea
+                  class="form-control"
+                  :id="'field-'+field.name"
+                  :value="formData[field.name]"
+                  rows="3"
+                  @input="updateField(field.name, $event.target.value)"
+                ></textarea>
               </div>
 
               <div v-else class="mb-3">

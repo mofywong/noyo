@@ -132,7 +132,7 @@ watch(pluginName, (newName) => {
 const saveConfig = async () => {
   saving.value = true;
   try {
-    const res = await axios.post(`/api/plugins/${pluginName.value}/config`, formData.value);
+    const res = await axios.post(`/api/plugins/${pluginName.value}/config`, expandDottedConfig(formData.value));
     if (res.data.code === 0) {
       showToast('success', 'Saved & Restarted Successfully');
       // Ideally trigger a plugin list refresh if status changed, but usually config doesn't change status directly
@@ -148,5 +148,31 @@ const saveConfig = async () => {
 
 const goBack = () => {
   router.push({ name: 'Marketplace' });
+};
+
+const expandDottedConfig = (data) => {
+  const result = {};
+  Object.entries(data || {}).forEach(([key, value]) => {
+    if (!key.includes('.')) {
+      result[key] = value;
+      return;
+    }
+
+    const parts = key.split('.').filter(Boolean);
+    if (parts.length === 0) return;
+
+    let target = result;
+    parts.forEach((part, index) => {
+      if (index === parts.length - 1) {
+        target[part] = value;
+        return;
+      }
+      if (!target[part] || typeof target[part] !== 'object' || Array.isArray(target[part])) {
+        target[part] = {};
+      }
+      target = target[part];
+    });
+  });
+  return result;
 };
 </script>

@@ -514,7 +514,7 @@ function on_init(ctx)
     -- TCP Server Listener Configuration / TCP 服务端监听配置
     servers.tcp = { 
         port = 8888,               -- [Required] Listening port / [必填] 监听端口
-        framer = "lines"           -- [Optional] Framer type (lines, packet, none) / [可选] 帧处理器
+        framer = "line"            -- [Optional] Framer type (line, json, length_field, fixed, delimiter) / [可选] 帧处理器
     }
 `;
     }
@@ -559,7 +559,7 @@ function on_init(ctx)
     clients.tcp = {
         host = "127.0.0.1",      -- [Required] Host / [必填] 地址
         port = 8888,             -- [Required] Port / [必填] 端口
-        framer = "lines"         -- [Optional] Framer type / [可选] 帧处理器
+        framer = "line"          -- [Optional] Framer type (line, json, length_field, fixed, delimiter) / [可选] 帧处理器
     }
 `;
     }
