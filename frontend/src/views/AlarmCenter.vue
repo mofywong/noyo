@@ -56,13 +56,14 @@
                   </div>
                 </td>
                 <td class="text-center">
-                  <div v-if="evt.params?.snapshot_url" 
-                       class="position-relative d-inline-block" 
-                       @click.stop="previewImage(evt.params.snapshot_url)">
-                    <img :src="evt.params.snapshot_url" 
-                         class="img-thumbnail rounded shadow-sm" 
-                         style="max-height: 80px;" 
-                         alt="snapshot" />
+                  <div v-if="snapshotUrl(evt)"
+                       class="position-relative d-inline-block"
+                       @click.stop="previewImage(snapshotUrl(evt, false))">
+                    <img :src="snapshotUrl(evt)"
+                         class="img-thumbnail rounded shadow-sm"
+                         style="max-height: 80px; max-width: 160px; object-fit: contain;"
+                         alt="snapshot"
+                         @error="retrySnapshotImage($event, evt)" />
                     <div class="position-absolute bottom-0 end-0 bg-dark text-white rounded-circle d-flex align-items-center justify-content-center m-1" style="width:20px;height:20px;opacity:0.8;">
                       <i class="bi bi-zoom-in" style="font-size:10px;"></i>
                     </div>
@@ -172,15 +173,16 @@
                   <div class="detail-value">{{ detailEvent.params.duration_seconds }} 秒</div>
                 </div>
               </div>
-              <div class="col-12" v-if="detailEvent.params?.snapshot_url">
+              <div class="col-12" v-if="snapshotUrl(detailEvent)">
                 <div class="detail-field">
                   <label class="detail-label">抓拍图片</label>
                   <div class="detail-value">
-                    <img :src="detailEvent.params.snapshot_url" 
-                         class="img-fluid rounded shadow-sm" 
-                         style="max-height: 400px; cursor: pointer;" 
+                    <img :src="snapshotUrl(detailEvent)"
+                         class="img-fluid rounded shadow-sm"
+                         style="max-height: 400px; cursor: pointer;"
                          alt="snapshot"
-                         @click="previewImage(detailEvent.params.snapshot_url)" />
+                         @click="previewImage(snapshotUrl(detailEvent, false))"
+                         @error="retrySnapshotImage($event, detailEvent)" />
                   </div>
                 </div>
               </div>
@@ -262,6 +264,46 @@ const formatDetailParams = (params) => {
   return JSON.stringify(copy, null, 2);
 };
 
+const cacheBustedUrl = (url, ts) => {
+  if (!url || url.startsWith('data:') || url.startsWith('blob:') || !ts) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}_t=${encodeURIComponent(ts)}`;
+};
+
+const normalizeSnapshotUrl = (url, ts, cacheBust = true) => {
+  if (typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (/^(data:|blob:|https?:\/\/)/i.test(trimmed)) {
+    return cacheBust ? cacheBustedUrl(trimmed, ts) : trimmed;
+  }
+  const normalized = trimmed.startsWith('/') ? trimmed : `/${trimmed.replace(/^\.?\//, '')}`;
+  return cacheBust ? cacheBustedUrl(normalized, ts) : normalized;
+};
+
+const snapshotBase64Url = (params) => {
+  const base64 = typeof params?.snapshot_base64 === 'string' ? params.snapshot_base64.trim() : '';
+  if (!base64) return '';
+  return base64.startsWith('data:image/') ? base64 : `data:image/jpeg;base64,${base64}`;
+};
+
+const snapshotUrl = (evt, cacheBust = true) => {
+  const params = evt?.params || {};
+  const fromUrl = normalizeSnapshotUrl(params.snapshot_url, evt?.ts, cacheBust);
+  if (fromUrl) return fromUrl;
+  return snapshotBase64Url(params);
+};
+
+const retrySnapshotImage = (event, evt) => {
+  const img = event?.target;
+  if (!img || img.dataset.retry === '1') return;
+  img.dataset.retry = '1';
+  setTimeout(() => {
+    const retryUrl = snapshotBase64Url(evt?.params) || normalizeSnapshotUrl(evt?.params?.snapshot_url, Date.now(), true);
+    if (retryUrl) img.src = retryUrl;
+  }, 800);
+};
+
 const getDeviceName = (code) => {
   if (!code) return '-';
   if (devices.value[code] && devices.value[code].name) {
@@ -283,7 +325,8 @@ const getEventDef = (evt) => {
 const sceneTranslations = {
   illegal_parking: '机动车违法停车',
   indoor_fire_passage_occupied: '室内消防通道占用',
-  object_missing: '物品丢失'
+  object_missing: '物品丢失',
+  area_intrusion: '区域入侵'
 };
 
 const getEventName = (evt) => {

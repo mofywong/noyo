@@ -496,19 +496,15 @@ func (dm *DeviceManager) CallDeviceService(deviceCode string, serviceId string, 
 // ReportDeviceEvent handles event reporting
 func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, params map[string]interface{}) error {
 	if base64Str, ok := params["snapshot_base64"].(string); ok && len(base64Str) > 0 {
-		b64Data := base64Str
-		if strings.HasPrefix(b64Data, "data:image/jpeg;base64,") {
-			b64Data = strings.TrimPrefix(b64Data, "data:image/jpeg;base64,")
-		}
+		b64Data, ext := normalizeSnapshotBase64(base64Str)
 		imgData, err := base64.StdEncoding.DecodeString(b64Data)
 		if err == nil {
-			filename := fmt.Sprintf("%s_%s_%d.jpg", meta.DeviceCode, eventId, time.Now().UnixMilli())
-			os.MkdirAll("./data/images", 0755)
-			if err := os.WriteFile("./data/images/"+filename, imgData, 0644); err == nil {
+			filename := fmt.Sprintf("%s_%s_%d%s", meta.DeviceCode, eventId, time.Now().UnixNano(), ext)
+			if err := os.MkdirAll("./data/images", 0755); err == nil && os.WriteFile("./data/images/"+filename, imgData, 0644) == nil {
 				params["snapshot_url"] = "/data/images/" + filename
+				delete(params, "snapshot_base64")
 			}
 		}
-		delete(params, "snapshot_base64")
 	}
 
 	if dm.TSDB != nil {
@@ -540,6 +536,24 @@ func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, para
 
 	// 3. Broadcast to Platform Plugins -> Removed, handled by DispatchService via EventBus
 	return nil
+}
+
+func normalizeSnapshotBase64(raw string) (string, string) {
+	data := strings.TrimSpace(raw)
+	ext := ".jpg"
+	if strings.HasPrefix(data, "data:image/") {
+		if comma := strings.Index(data, ","); comma >= 0 {
+			header := strings.ToLower(data[:comma])
+			switch {
+			case strings.Contains(header, "image/png"):
+				ext = ".png"
+			case strings.Contains(header, "image/webp"):
+				ext = ".webp"
+			}
+			data = data[comma+1:]
+		}
+	}
+	return strings.TrimSpace(data), ext
 }
 
 // ReportDeviceProperties handles data reporting

@@ -23,7 +23,7 @@
         <tr v-for="(evt, index) in events" :key="evt.identifier">
           <td>{{ evt.name }}</td>
           <td class="font-monospace">{{ evt.identifier }}</td>
-          <td>{{ evt.type || 'info' }}</td>
+          <td>{{ eventTypeLabel(evt.type) }}</td>
           <td class="text-end">
             <button class="btn btn-sm btn-link text-decoration-none" @click="openModal(evt, index)">{{ $t('tsl_edit') }}</button>
             <button class="btn btn-sm btn-link text-danger text-decoration-none" @click="removeEvent(index)">{{ $t('tsl_delete') }}</button>
@@ -99,6 +99,19 @@ const events = computed({
 const showModal = ref(false);
 const editingIndex = ref(-1);
 const currentEvt = ref({ name: '', identifier: '', type: 'info', outputData: [] });
+
+const eventTypeLabel = (type) => {
+  switch (type || 'info') {
+    case 'alert':
+      return t('tsl_evt_type_alert');
+    case 'error':
+      return t('tsl_evt_type_error');
+    case 'info':
+      return t('tsl_evt_type_info');
+    default:
+      return type;
+  }
+};
 
 const openModal = (evt, index = -1) => {
   editingIndex.value = index;
