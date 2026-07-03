@@ -298,6 +298,11 @@ import axios from 'axios';
 import { useI18n } from 'vue-i18n';
 import Sparkline from '../Sparkline.vue';
 import VChart from 'vue-echarts';
+import {
+  formatServiceOutputData,
+  getOutputValue,
+  hasServiceOutputParams
+} from './deviceServiceOutput.js';
 
 const props = defineProps({
   visible: Boolean,
@@ -940,63 +945,6 @@ const submitBatchWrite = async () => {
   }
 };
 
-
-const hasServiceOutputParams = (srv) => Array.isArray(srv?.outputData) && srv.outputData.length > 0;
-
-const getServiceOutputRawValue = (data, outParam, outputCount = 1) => {
-  if (data === null || data === undefined) return undefined;
-
-  const identifier = outParam?.identifier;
-  if (identifier && typeof data === 'object' && !Array.isArray(data)) {
-    if (Object.prototype.hasOwnProperty.call(data, identifier)) {
-      return data[identifier];
-    }
-    return undefined;
-  }
-
-  return outputCount === 1 ? data : undefined;
-};
-
-const formatServiceOutputValue = (value, outParam) => {
-  if (value === null || value === undefined) return '-';
-
-  const dataType = outParam?.dataType || {};
-  const type = dataType.type;
-  const specs = dataType.specs || {};
-
-  if (type === 'enum' && specs && value !== '-') {
-    const enumName = specs[value] ?? specs[String(value)];
-    if (enumName !== undefined) {
-      return `${enumName} (${value})`;
-    }
-  }
-
-  if ((type === 'int' || type === 'float' || type === 'double') && specs.unit) {
-    return `${value} ${specs.unit}`;
-  }
-
-  if (typeof value === 'object') {
-    return JSON.stringify(value);
-  }
-
-  return String(value);
-};
-
-const getOutputValue = (data, outParam, outputCount = 1) => {
-  return formatServiceOutputValue(getServiceOutputRawValue(data, outParam, outputCount), outParam);
-};
-
-const formatServiceOutputData = (data, srv) => {
-  if (!hasServiceOutputParams(srv)) {
-    return data;
-  }
-
-  const outputCount = srv.outputData.length;
-  return srv.outputData.reduce((acc, outParam) => {
-    acc[outParam.identifier] = getOutputValue(data, outParam, outputCount);
-    return acc;
-  }, {});
-};
 
 const formatServiceOutputJson = (data, srv) => {
   const formatted = formatServiceOutputData(data, srv);
