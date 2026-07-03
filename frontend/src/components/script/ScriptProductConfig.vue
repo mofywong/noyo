@@ -806,11 +806,11 @@ end
 -- @param service_id: Service ID (string) / 服务ID
 -- @param params: Service Parameters (Table) / 服务参数
 -- @return success (bool): operation success / 操作是否成功
--- @return result (table): result data map / 结果数据表
--- @return error_msg (string): error message if failed / 错误信息
+-- @return result (table): result data map keyed by output parameter identifiers / 按输出参数标识符返回的结果数据表
+-- @return error_msg (string|nil): error message only if failed; return nil on success / 仅失败时返回错误信息，成功时返回 nil
 function on_system_call_service(ctx, service_id, params)
     ctx:log("info", "System Call Service: " .. service_id)
-    return true, {}, ""
+    return true, {}, nil
 end
 
 -- Set property for a Child Device / 设置子设备属性
@@ -829,11 +829,11 @@ end
 -- @param service_id: Service ID / 服务ID
 -- @param params: Service Parameters (Table) / 服务参数
 -- @return success (bool): operation success / 操作是否成功
--- @return result (table): result data map / 结果数据表
--- @return error_msg (string): error message if failed / 错误信息
+-- @return result (table): result data map keyed by output parameter identifiers / 按输出参数标识符返回的结果数据表
+-- @return error_msg (string|nil): error message only if failed; return nil on success / 仅失败时返回错误信息，成功时返回 nil
 function on_device_call_service(ctx, service_id, params)
     ctx:log("info", "Device Call Service: " .. service_id)
-    return true, {}, ""
+    return true, {}, nil
 end
 `;
 

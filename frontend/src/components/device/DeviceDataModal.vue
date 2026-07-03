@@ -220,18 +220,18 @@
                       <div class="mb-3 text-muted small" v-if="srv.desc">{{ srv.desc }}</div>
                       
                       <!-- Input Form -->
-                      <h6 class="small fw-bold">输入参数 (Input):</h6>
-                      <div v-if="!srv.inputData || srv.inputData.length === 0" class="text-muted small mb-3">无输入参数</div>
+                      <h6 class="small fw-bold">{{ $t('device_service_input_label') }}</h6>
+                      <div v-if="!srv.inputData || srv.inputData.length === 0" class="text-muted small mb-3">{{ $t('device_service_no_input_params') }}</div>
                       <div class="row g-2 mb-3" v-else>
                         <div class="col-md-6 col-lg-4" v-for="param in srv.inputData" :key="param.identifier">
                           <label class="form-label small mb-1">{{ param.name }}<span v-if="param.required" class="text-danger ms-1">*</span> <span class="badge border text-secondary ms-1 p-1">{{ param.identifier }}</span> <span class="text-muted ms-1">({{ param.dataType?.type }})</span></label>
                           <select v-if="param.dataType?.type === 'bool'" class="form-select form-select-sm" v-model="serviceParams[key][param.identifier]">
-                            <option value="">-- 请选择 --</option>
+                            <option value="">{{ $t('device_service_select_placeholder') }}</option>
                             <option value="true">True</option>
                             <option value="false">False</option>
                           </select>
                           <select v-else-if="param.dataType?.type === 'enum'" class="form-select form-select-sm" v-model="serviceParams[key][param.identifier]">
-                            <option value="">-- 请选择 --</option>
+                            <option value="">{{ $t('device_service_select_placeholder') }}</option>
                             <option v-for="(val, k) in param.dataType.specs" :key="k" :value="k">{{ val }}</option>
                           </select>
                           <input v-else-if="param.dataType?.type === 'date'" type="datetime-local" class="form-control form-control-sm" v-model="serviceParams[key][param.identifier]">
@@ -241,36 +241,38 @@
 
                       <button class="btn btn-primary btn-sm mb-3" @click="invokeDeviceService(key)" :disabled="invokeServiceLoading[key]">
                         <span v-if="invokeServiceLoading[key]" class="spinner-border spinner-border-sm me-1"></span>
-                        <i v-else class="bi bi-send me-1"></i> 发送指令
+                        <i v-else class="bi bi-send me-1"></i> {{ $t('device_service_send_command') }}
                       </button>
 
                       <!-- Output Result -->
                       <div v-if="invokeServiceResult[key]" class="mt-3">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                          <h6 class="small fw-bold mb-0">调用结果 (Output):</h6>
-                          <div class="btn-group btn-group-sm" v-if="invokeServiceResult[key].success && srv.outputData && srv.outputData.length > 0">
-                            <button class="btn" :class="invokeServiceResultMode[key] === 'json' ? 'btn-secondary' : 'btn-outline-secondary'" @click="invokeServiceResultMode[key] = 'json'">JSON</button>
-                            <button class="btn" :class="invokeServiceResultMode[key] === 'ui' ? 'btn-secondary' : 'btn-outline-secondary'" @click="invokeServiceResultMode[key] = 'ui'">UI 视图</button>
+                        <template v-if="invokeServiceResult[key].success">
+                          <div class="d-flex justify-content-between align-items-center mb-1">
+                            <h6 class="small fw-bold mb-0">{{ $t('device_service_output_label') }}</h6>
+                            <div class="btn-group btn-group-sm" v-if="hasServiceOutputParams(srv)">
+                              <button class="btn" :class="invokeServiceResultMode[key] === 'json' ? 'btn-secondary' : 'btn-outline-secondary'" @click="invokeServiceResultMode[key] = 'json'">{{ $t('device_service_json_view') }}</button>
+                              <button class="btn" :class="invokeServiceResultMode[key] === 'ui' ? 'btn-secondary' : 'btn-outline-secondary'" @click="invokeServiceResultMode[key] = 'ui'">{{ $t('device_service_fields_view') }}</button>
+                            </div>
                           </div>
-                        </div>
-                        <div v-if="invokeServiceResult[key].success">
-                           <!-- UI Mode -->
-                           <div v-if="invokeServiceResultMode[key] === 'ui' && srv.outputData && srv.outputData.length > 0" class="row g-2 border rounded p-2 bg-white">
-                             <div class="col-md-6 col-lg-4" v-for="outParam in srv.outputData" :key="outParam.identifier">
-                               <label class="form-label small mb-1 text-muted">{{ outParam.name }}<span v-if="outParam.required" class="text-danger ms-1">*</span> <span class="badge border text-secondary ms-1 p-1">{{ outParam.identifier }}</span></label>
-                               <div class="form-control form-control-sm bg-light text-break overflow-auto" style="min-height:30px;">{{ getOutputValue(invokeServiceResult[key].data, outParam) }}</div>
-                             </div>
-                           </div>
-                           <!-- JSON Mode -->
-                           <div v-else class="position-relative">
-                             <div class="alert alert-success p-2 small mb-0 font-monospace" style="white-space: pre-wrap; overflow-x: auto; padding-right: 30px !important;">{{ JSON.stringify(invokeServiceResult[key].data, null, 2) || '调用成功 (无返回数据)' }}</div>
-                             <button class="btn btn-sm btn-link text-secondary position-absolute top-0 end-0 m-1 p-0" style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.8); border-radius: 4px;" @click="copyToClipboard(JSON.stringify(invokeServiceResult[key].data, null, 2) || '调用成功 (无返回数据)')" title="复制">
-                               <i class="bi bi-clipboard"></i>
-                             </button>
-                           </div>
-                        </div>
+                          <!-- UI Mode -->
+                          <div v-if="invokeServiceResultMode[key] === 'ui' && hasServiceOutputParams(srv)" class="row g-2 border rounded p-2 bg-white">
+                            <div class="col-md-6 col-lg-4" v-for="outParam in srv.outputData" :key="outParam.identifier">
+                              <label class="form-label small mb-1 text-muted">{{ outParam.name }}<span v-if="outParam.required" class="text-danger ms-1">*</span> <span class="badge border text-secondary ms-1 p-1">{{ outParam.identifier }}</span></label>
+                              <div class="form-control form-control-sm bg-light text-break overflow-auto" style="min-height:30px;">{{ getOutputValue(invokeServiceResult[key].data, outParam, srv.outputData.length) }}</div>
+                            </div>
+                          </div>
+                          <!-- JSON Mode -->
+                          <div v-else class="position-relative">
+                            <div class="alert alert-success p-2 small mb-0 font-monospace" style="white-space: pre-wrap; overflow-x: auto; padding-right: 30px !important;">{{ formatServiceOutputJson(invokeServiceResult[key].data, srv) }}</div>
+                            <button class="btn btn-sm btn-link text-secondary position-absolute top-0 end-0 m-1 p-0" style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.8); border-radius: 4px;" @click="copyToClipboard(formatServiceOutputJson(invokeServiceResult[key].data, srv))" :title="$t('common_copy')">
+                              <i class="bi bi-clipboard"></i>
+                            </button>
+                          </div>
+                        </template>
                         <div v-else class="alert alert-danger p-2 small mb-0">
-                          <i class="bi bi-exclamation-triangle me-1"></i> {{ invokeServiceResult[key].error }}
+                          <i class="bi bi-exclamation-triangle me-1"></i>
+                          <span class="fw-bold">{{ $t('device_service_invoke_failed') }}:</span>
+                          {{ getServiceOutputError(invokeServiceResult[key]) }}
                         </div>
                       </div>
                     </div>
@@ -939,33 +941,85 @@ const submitBatchWrite = async () => {
 };
 
 
-const getOutputValue = (data, outParam) => {
-  const identifier = outParam.identifier;
-  if (data === null || data === undefined) return '-';
-  let val = '-';
-  if (typeof data !== 'object') {
-    val = data;
-  } else {
-    val = data[identifier] !== undefined ? data[identifier] : '-';
+const hasServiceOutputParams = (srv) => Array.isArray(srv?.outputData) && srv.outputData.length > 0;
+
+const getServiceOutputRawValue = (data, outParam, outputCount = 1) => {
+  if (data === null || data === undefined) return undefined;
+
+  const identifier = outParam?.identifier;
+  if (identifier && typeof data === 'object' && !Array.isArray(data)) {
+    if (Object.prototype.hasOwnProperty.call(data, identifier)) {
+      return data[identifier];
+    }
+    return undefined;
   }
-  
-  if (outParam.dataType?.type === 'enum' && outParam.dataType?.specs && val !== '-') {
-    const enumName = outParam.dataType.specs[val];
+
+  return outputCount === 1 ? data : undefined;
+};
+
+const formatServiceOutputValue = (value, outParam) => {
+  if (value === null || value === undefined) return '-';
+
+  const dataType = outParam?.dataType || {};
+  const type = dataType.type;
+  const specs = dataType.specs || {};
+
+  if (type === 'enum' && specs && value !== '-') {
+    const enumName = specs[value] ?? specs[String(value)];
     if (enumName !== undefined) {
-      return `${enumName} (${val})`;
+      return `${enumName} (${value})`;
     }
   }
-  return val;
+
+  if ((type === 'int' || type === 'float' || type === 'double') && specs.unit) {
+    return `${value} ${specs.unit}`;
+  }
+
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+};
+
+const getOutputValue = (data, outParam, outputCount = 1) => {
+  return formatServiceOutputValue(getServiceOutputRawValue(data, outParam, outputCount), outParam);
+};
+
+const formatServiceOutputData = (data, srv) => {
+  if (!hasServiceOutputParams(srv)) {
+    return data;
+  }
+
+  const outputCount = srv.outputData.length;
+  return srv.outputData.reduce((acc, outParam) => {
+    acc[outParam.identifier] = getOutputValue(data, outParam, outputCount);
+    return acc;
+  }, {});
+};
+
+const formatServiceOutputJson = (data, srv) => {
+  const formatted = formatServiceOutputData(data, srv);
+  if (formatted === null || formatted === undefined || formatted === '') {
+    return t('device_service_success_no_output');
+  }
+
+  const json = JSON.stringify(formatted, null, 2);
+  return json || String(formatted);
+};
+
+const getServiceOutputError = (result) => {
+  return result?.error || t('device_service_unknown_error');
 };
 
 
 const copyToClipboard = async (text) => {
   try {
     await navigator.clipboard.writeText(text);
-    alert('已复制到剪贴板');
+    alert(t('script_copy_success'));
   } catch (err) {
     console.error('Failed to copy: ', err);
-    alert('复制失败');
+    alert(t('script_copy_fail'));
   }
 };
 
@@ -977,11 +1031,11 @@ const invokeDeviceService = async (serviceId) => {
   const params = serviceParams.value[serviceId] || {};
   
   const parsedParams = {};
-  const srv = currentDataTSLServiceMap.value[serviceId];
+  const srv = currentDataTSLServiceMap.value[serviceId] || {};
   for (const param of (srv.inputData || [])) {
     let val = params[param.identifier];
     if (param.required && (val === '' || val === null || val === undefined)) {
-      alert(`必填参数 [${param.name}] 不能为空！`);
+      alert(t('device_service_required_param_empty', { name: param.name }));
       invokeServiceLoading.value[serviceId] = false;
       return;
     }
@@ -1000,18 +1054,18 @@ const invokeDeviceService = async (serviceId) => {
       service_id: serviceId,
       params: parsedParams
     });
-    if (res.data.code === 0) {
+    if (Number(res.data?.code) === 0) {
       invokeServiceResult.value[serviceId] = { success: true, data: res.data.data };
-      if (srv.outputData && srv.outputData.length > 0) {
+      if (hasServiceOutputParams(srv)) {
           invokeServiceResultMode.value[serviceId] = 'ui';
       } else {
           invokeServiceResultMode.value[serviceId] = 'json';
       }
     } else {
-      invokeServiceResult.value[serviceId] = { success: false, error: res.data.message };
+      invokeServiceResult.value[serviceId] = { success: false, error: res.data?.message || t('device_service_unknown_error') };
     }
   } catch (err) {
-    invokeServiceResult.value[serviceId] = { success: false, error: err.message || err };
+    invokeServiceResult.value[serviceId] = { success: false, error: err.response?.data?.message || err.message || String(err) };
   } finally {
     invokeServiceLoading.value[serviceId] = false;
   }
