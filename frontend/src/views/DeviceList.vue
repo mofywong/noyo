@@ -2287,11 +2287,18 @@ const isChildOfCascade = (device) => {
 };
 
 const fetchProtocolSchema = async (protocolName, parentCode, profileCode, defaultConfig = null) => {
-    if (!protocolName && parentCode) {
+    if (parentCode) {
+        let parentDevice = devices.value.find(d => d.code === parentCode);
         try {
-            const res = await axios.get(`/api/devices/${parentCode}`);
-            if (res.data.code === 0 && res.data.data) {
-                protocolName = res.data.data.protocol_name;
+            if (!parentDevice) {
+                const res = await axios.get(`/api/devices/${parentCode}`);
+                if (res.data.code === 0 && res.data.data) {
+                    parentDevice = res.data.data;
+                }
+            }
+            if (parentDevice) {
+                protocolName = protocolName || parentDevice.protocol_name;
+                profileCode = profileCode || parentDevice.protocol_profile_code;
             }
         } catch (e) {
             console.error("Failed to fetch parent device for protocol", e);
