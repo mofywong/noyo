@@ -39,11 +39,11 @@
           <div v-for="toast in activeToasts" :key="toast.id" class="toast show align-items-start border-0 shadow-lg alarm-toast-item" role="alert" aria-live="assertive" aria-atomic="true">
             <div class="d-flex w-100">
               <div class="toast-body flex-grow-1 text-start py-3">
-                <div class="fw-bold text-danger d-flex align-items-center mb-1" style="font-size: 0.95rem;">
+                <div class="fw-bold d-flex align-items-center mb-1 alarm-toast-title" style="font-size: 0.95rem;">
                   <i class="bi bi-exclamation-circle-fill me-2 fs-5"></i>
                   <span>{{ toast.title }}</span>
                 </div>
-                <div class="small text-body-secondary lh-base" style="word-break: break-word;">{{ toast.message }}</div>
+                <div class="small lh-base alarm-toast-message">{{ toast.message }}</div>
               </div>
               <button type="button" class="btn-close me-2 mt-3" @click="closeToast(toast.id)"></button>
             </div>
@@ -621,6 +621,15 @@ onUnmounted(() => {
   animation: toast-slide-in 0.35s ease-out;
 }
 
+.alarm-toast-title {
+  color: #991b1b;
+}
+
+.alarm-toast-message {
+  color: #3f1f1f;
+  word-break: break-word;
+}
+
 @keyframes toast-slide-in {
   from { opacity: 0; transform: translateX(20px); }
   to { opacity: 0.98; transform: translateX(0); }
@@ -630,6 +639,14 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #3a1a1a 0%, #2d1010 100%) !important;
   border-color: rgba(220, 53, 69, 0.5) !important;
   box-shadow: 0 8px 32px rgba(220, 53, 69, 0.25), 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-bs-theme="dark"] .alarm-toast-title {
+  color: #fecaca;
+}
+
+[data-bs-theme="dark"] .alarm-toast-message {
+  color: #fee2e2;
 }
 </style>
 

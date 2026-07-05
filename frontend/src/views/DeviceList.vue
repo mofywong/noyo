@@ -395,12 +395,15 @@
                     <option v-for="p in products" :key="p.code" :value="p.code">{{ p.name }} ({{ p.code }})</option>
                   </select>
                 </div>
-                <div class="mb-3">
+                <div class="mb-3" v-if="!isSubDeviceForm">
                   <label class="form-label">{{ $t('sidebar_device_drivers', '设备驱动') }}</label>
                   <select v-model="newDevice.protocol_profile_code" class="form-select" @change="handleProtocolProfileChange">
                     <option value="">{{ $t('none', '无') }}</option>
                     <option v-for="d in drivers" :key="d.code" :value="d.code">{{ d.name }} ({{ d.code }})</option>
                   </select>
+                </div>
+                <div v-else class="alert alert-info py-2 small">
+                  <i class="bi bi-info-circle me-1"></i>{{ $t('dev_sub_device_driver_inherited', '子设备不需要选择设备驱动，将依附父子系统的协议接入。') }}
                 </div>
                 <div class="mb-3">
                   <label class="form-label">{{ $t('dev_code') }}</label>
@@ -915,6 +918,7 @@ const showProjectColumn = computed(() => {
   return Number(localStorage.getItem('current_project_id') || 0) === 0;
 });
 const newDevice = ref({ code: '', name: '', product_code: '', protocol_profile_code: '', protocol_name: '', parent_code: '', enabled: true, config: {} });
+const isSubDeviceForm = computed(() => !isEditing.value && !!newDevice.value.parent_code);
 const currentSchema = ref(null);
 const isEditing = ref(false);
 const selectedDevices = ref([]);
@@ -2344,6 +2348,11 @@ const handleProductChange = () => {
   };
 
 const handleProtocolProfileChange = () => {
+    if (isSubDeviceForm.value) {
+      clearDeviceDriverSelection();
+      fetchProtocolSchema('', newDevice.value.parent_code, '');
+      return;
+    }
     newDevice.value.config = {}; // Reset config
     const selectedDriver = drivers.value.find(d => d.code === newDevice.value.protocol_profile_code);
     if (selectedDriver) {
@@ -2363,8 +2372,18 @@ const handleProtocolProfileChange = () => {
     }
   };
 
+const clearDeviceDriverSelection = () => {
+  newDevice.value.protocol_profile_code = '';
+  newDevice.value.protocol_name = '';
+};
+
 // 监听父设备变化，重新加载 Schema（子设备 Schema 可能不同）
 watch(() => newDevice.value.parent_code, (newParentCode) => {
+    if (isSubDeviceForm.value) {
+      clearDeviceDriverSelection();
+      fetchProtocolSchema('', newParentCode, '');
+      return;
+    }
     fetchProtocolSchema(newDevice.value.protocol_name, newParentCode, newDevice.value.protocol_profile_code);
   });
 
@@ -2550,6 +2569,8 @@ const saveDevice = async () => {
     // Prepare payload: stringify config
     const payload = {
       ...newDevice.value,
+      protocol_profile_code: isSubDeviceForm.value ? '' : newDevice.value.protocol_profile_code,
+      protocol_name: isSubDeviceForm.value ? '' : newDevice.value.protocol_name,
       config: JSON.stringify(newDevice.value.config)
     };
 
@@ -2595,10 +2616,13 @@ const openCreateSubDeviceModal = (parentDevice) => {
     code: '', 
     name: '',
     product_code: '', 
+    protocol_profile_code: '',
+    protocol_name: '',
     parent_code: parentDevice.code, 
     enabled: true, 
     config: {} 
   };
+  clearDeviceDriverSelection();
   currentSchema.value = null;
   showCreateModal.value = true;
 };

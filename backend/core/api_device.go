@@ -139,7 +139,6 @@ func (s *Server) handleCreateProduct(r *ghttp.Request) {
 		return
 	}
 
-
 	if err := store.SaveProduct(&p); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
@@ -441,6 +440,22 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 	})
 }
 
+func validateDeviceProtocolBinding(device store.Device, parentDevice *store.Device) error {
+	if device.ParentCode != "" {
+		if parentDevice == nil {
+			return fmt.Errorf("Parent device is required for sub-device")
+		}
+		if parentDevice.ProtocolName == "" {
+			return fmt.Errorf("Parent device has no bound protocol")
+		}
+		return nil
+	}
+	if device.ProtocolName == "" {
+		return fmt.Errorf("Direct device must bind a communication protocol")
+	}
+	return nil
+}
+
 func (s *Server) handleCreateDevice(r *ghttp.Request) {
 	var d store.Device
 	if err := json.Unmarshal(r.GetBody(), &d); err != nil {
@@ -480,14 +495,12 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 			return
 		}
-	} else if d.ParentCode == "" {
-		r.Response.WriteJson(g.Map{"code": 400, "message": "直连设备必须绑定通信协议"})
-		return
 	}
 
+	var parentDevice *store.Device
 	if d.ParentCode != "" {
 		// 子设备：验证父设备存在
-		parentDevice, err := store.GetDevice(d.ParentCode)
+		parentDevice, err = store.GetDevice(d.ParentCode)
 		if err != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备不存在"})
 			return
@@ -501,16 +514,11 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 			return
 		}
 
-		if parentDevice.ProtocolName == "" {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备没有绑定协议"})
-			return
-		}
+	}
 
-		// 如果父设备是级联网关，则该设备视作直连设备，自身必须绑定协议
-		if parentDevice.ProtocolName == "cascade" && d.ProtocolName == "" {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "级联网关下的设备（视作直连设备）必须绑定协议"})
-			return
-		}
+	if err := validateDeviceProtocolBinding(d, parentDevice); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
 	}
 
 	if err := store.SaveDevice(&d); err != nil {
@@ -591,13 +599,11 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 			return
 		}
-	} else if d.ParentCode == "" {
-		r.Response.WriteJson(g.Map{"code": 400, "message": "直连设备必须绑定通信协议"})
-		return
 	}
 
+	var parentDevice *store.Device
 	if d.ParentCode != "" {
-		parentDevice, err := store.GetDevice(d.ParentCode)
+		parentDevice, err = store.GetDevice(d.ParentCode)
 		if err != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备不存在"})
 			return
@@ -611,15 +617,11 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 			return
 		}
 
-		if parentDevice.ProtocolName == "" {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "父设备没有绑定协议"})
-			return
-		}
+	}
 
-		if parentDevice.ProtocolName == "cascade" && d.ProtocolName == "" {
-			r.Response.WriteJson(g.Map{"code": 400, "message": "级联网关下的设备（视作直连设备）必须绑定协议"})
-			return
-		}
+	if err := validateDeviceProtocolBinding(d, parentDevice); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
 	}
 
 	if err := store.UpdateDevice(&d); err != nil {
