@@ -59,10 +59,12 @@
                   <div v-if="snapshotUrl(evt)"
                        class="position-relative d-inline-block"
                        @click.stop="previewImage(snapshotUrl(evt, false))">
-                    <img :src="snapshotUrl(evt)"
+                    <img :key="snapshotImageKey(evt)"
+                         :src="snapshotImageUrl(evt)"
                          class="img-thumbnail rounded shadow-sm"
                          style="max-height: 80px; max-width: 160px; object-fit: contain;"
                          alt="snapshot"
+                         @load="markSnapshotImageLoaded(evt)"
                          @error="retrySnapshotImage($event, evt)" />
                     <div class="position-absolute bottom-0 end-0 bg-dark text-white rounded-circle d-flex align-items-center justify-content-center m-1" style="width:20px;height:20px;opacity:0.8;">
                       <i class="bi bi-zoom-in" style="font-size:10px;"></i>
@@ -177,11 +179,13 @@
                 <div class="detail-field">
                   <label class="detail-label">抓拍图片</label>
                   <div class="detail-value">
-                    <img :src="snapshotUrl(detailEvent)"
+                    <img :key="snapshotImageKey(detailEvent)"
+                         :src="snapshotImageUrl(detailEvent)"
                          class="img-fluid rounded shadow-sm"
                          style="max-height: 400px; cursor: pointer;"
                          alt="snapshot"
                          @click="previewImage(snapshotUrl(detailEvent, false))"
+                         @load="markSnapshotImageLoaded(detailEvent)"
                          @error="retrySnapshotImage($event, detailEvent)" />
                   </div>
                 </div>
@@ -241,6 +245,10 @@ const devices = ref({});
 const products = ref({});
 
 let eventSource = null;
+const snapshotRetryDelays = [500, 1500, 3000, 6000];
+const snapshotRetryAttempts = ref({});
+const snapshotRetryTokens = ref({});
+const snapshotRetryTimers = new Map();
 
 const formatTime = (ts) => {
   if (!ts) return '-';
@@ -294,14 +302,75 @@ const snapshotUrl = (evt, cacheBust = true) => {
   return snapshotBase64Url(params);
 };
 
-const retrySnapshotImage = (event, evt) => {
-  const img = event?.target;
-  if (!img || img.dataset.retry === '1') return;
-  img.dataset.retry = '1';
-  setTimeout(() => {
-    const retryUrl = snapshotBase64Url(evt?.params) || normalizeSnapshotUrl(evt?.params?.snapshot_url, Date.now(), true);
-    if (retryUrl) img.src = retryUrl;
-  }, 800);
+const snapshotKeyPart = (value) => (value === undefined || value === null ? '' : String(value));
+
+const snapshotSourceKey = (params) => {
+  const url = typeof params?.snapshot_url === 'string' ? params.snapshot_url.trim() : '';
+  if (url) return url;
+  const base64 = typeof params?.snapshot_base64 === 'string' ? params.snapshot_base64.trim() : '';
+  if (!base64) return '';
+  return `base64:${base64.length}:${base64.slice(0, 32)}`;
+};
+
+const snapshotImageKey = (evt) => {
+  const source = snapshotSourceKey(evt?.params || {});
+  if (!source) return '';
+  return [
+    evt?._record_id,
+    evt?.ts,
+    evt?.device_code,
+    evt?.event_id,
+    source,
+  ].map(snapshotKeyPart).join('|');
+};
+
+const snapshotImageUrl = (evt) => {
+  const params = evt?.params || {};
+  const key = snapshotImageKey(evt);
+  const retryToken = key ? snapshotRetryTokens.value[key] : '';
+  const fromUrl = normalizeSnapshotUrl(params.snapshot_url, retryToken || evt?.ts, true);
+  if (fromUrl) return fromUrl;
+  return snapshotBase64Url(params);
+};
+
+const removeSnapshotRetryAttempt = (key) => {
+  if (!key || snapshotRetryAttempts.value[key] === undefined) return;
+  const next = { ...snapshotRetryAttempts.value };
+  delete next[key];
+  snapshotRetryAttempts.value = next;
+};
+
+const markSnapshotImageLoaded = (evt) => {
+  const key = snapshotImageKey(evt);
+  if (!key) return;
+  const timer = snapshotRetryTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    snapshotRetryTimers.delete(key);
+  }
+  removeSnapshotRetryAttempt(key);
+};
+
+const retrySnapshotImage = (_, evt) => {
+  const key = snapshotImageKey(evt);
+  if (!key || snapshotBase64Url(evt?.params)) return;
+  const attempts = snapshotRetryAttempts.value[key] || 0;
+  if (attempts >= snapshotRetryDelays.length || snapshotRetryTimers.has(key)) return;
+
+  snapshotRetryAttempts.value = {
+    ...snapshotRetryAttempts.value,
+    [key]: attempts + 1,
+  };
+
+  const timer = setTimeout(() => {
+    snapshotRetryTimers.delete(key);
+    snapshotRetryTokens.value = {
+      ...snapshotRetryTokens.value,
+      [key]: Date.now(),
+    };
+  }, snapshotRetryDelays[attempts]);
+
+  snapshotRetryTimers.set(key, timer);
 };
 
 const getDeviceName = (code) => {
@@ -539,6 +608,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  snapshotRetryTimers.forEach((timer) => clearTimeout(timer));
+  snapshotRetryTimers.clear();
   if (eventSource) {
     eventSource.close();
     eventSource = null;
