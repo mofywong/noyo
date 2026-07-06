@@ -435,7 +435,10 @@ func (re *RuleEngine) triggerMatches(trigger RuleTrigger, event types.Event) boo
 			return false
 		}
 		payload, _ := event.Payload.(map[string]interface{})
-		return stringValue(payload["eventId"]) == trigger.EventID
+		if stringValue(payload["eventId"]) != trigger.EventID {
+			return false
+		}
+		return eventFilterMatches(payload, trigger.EventFilter)
 	case RuleTriggerDeviceStatus:
 		if event.Type != types.EventDeviceStatusChanged {
 			return false
@@ -448,6 +451,34 @@ func (re *RuleEngine) triggerMatches(trigger RuleTrigger, event types.Event) boo
 	default:
 		return false
 	}
+}
+
+func eventFilterMatches(payload map[string]interface{}, filters []PropertyCondition) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	params, _ := payload["params"].(map[string]interface{})
+	for _, filter := range filters {
+		key := filter.Key
+		if key == "" {
+			return false
+		}
+		value, exists := params[key]
+		if !exists {
+			value, exists = payload[key]
+		}
+		if !exists {
+			return false
+		}
+		operator := filter.Operator
+		if operator == "" {
+			operator = "eq"
+		}
+		if !compareValues(value, operator, filter.Value) {
+			return false
+		}
+	}
+	return true
 }
 
 func (re *RuleEngine) evaluateConditions(group *RuleConditionGroup) bool {

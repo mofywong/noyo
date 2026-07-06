@@ -252,7 +252,8 @@ const handleProjectChange = async () => {
 // 场景告警事件ID列表（只有这些才在消息盒子中展示）
 const ALARM_EVENT_IDS = [
   'illegal_parking_alarm', 'fire_lane_occupied_alarm',
-  'indoor_fire_passage_occupied_alarm', 'object_missing_alarm'
+  'indoor_fire_passage_occupied_alarm', 'object_missing_alarm',
+  'area_intrusion_alarm', 'area_intrusion_leave'
 ];
 
 // 从 TSDB list 中过滤出真正的场景告警
@@ -266,7 +267,8 @@ const recentAlarms = computed(() => {
 const sceneTranslations = {
   illegal_parking: '机动车违法停车',
   indoor_fire_passage_occupied: '室内消防通道占用',
-  object_missing: '物品丢失'
+  object_missing: '物品丢失',
+  area_intrusion: '区域入侵'
 };
 
 const getDeviceName = (code) => {
