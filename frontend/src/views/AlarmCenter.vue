@@ -154,7 +154,7 @@
               <div class="col-12" v-if="detailEvent.params?.scene_type">
                 <div class="detail-field">
                   <label class="detail-label">场景类型</label>
-                  <div class="detail-value">{{ sceneTranslations[detailEvent.params.scene_type] || detailEvent.params.scene_type }}</div>
+                  <div class="detail-value">{{ getSceneLabel(detailEvent.params.scene_type) }}</div>
                 </div>
               </div>
               <div class="col-md-6" v-if="detailEvent.params?.target_class">
@@ -230,10 +230,17 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 import axios from 'axios';
+import {
+  getAlarmEventName,
+  getAlarmEventTypeLabel,
+  getAlarmSceneLabel
+} from '../utils/alarmEvents.js';
 
 const route = useRoute();
 const router = useRouter();
+const { locale } = useI18n();
 const events = ref([]);
 const total = ref(0);
 const page = ref(1);
@@ -391,37 +398,16 @@ const getEventDef = (evt) => {
   return prod.model.events.find(e => e.key === evt.event_id);
 };
 
-const sceneTranslations = {
-  illegal_parking: '机动车违法停车',
-  indoor_fire_passage_occupied: '室内消防通道占用',
-  object_missing: '物品丢失',
-  area_intrusion: '区域入侵'
-};
-
 const getEventName = (evt) => {
-  const def = getEventDef(evt);
-  if (def && def.name) {
-    return def.name;
-  }
-  if (evt.params?.rule_name) {
-    return evt.params.rule_name;
-  }
-  if (evt.params?.scene_type && sceneTranslations[evt.params.scene_type]) {
-    return sceneTranslations[evt.params.scene_type];
-  }
-  return evt.event_id || '-';
+  return getAlarmEventName(evt, getEventDef(evt), locale.value);
 };
 
 const getEventTypeLabel = (evt) => {
-  const def = getEventDef(evt);
-  if (def && def.type) {
-    if (def.type === 'alarm') return '告警';
-    if (def.type === 'fault') return '故障';
-    if (def.type === 'info') return '消息';
-    return def.type;
-  }
-  if (evt.params?.scene_type) return '告警';
-  return evt._type === 2 ? '告警' : '消息';
+  return getAlarmEventTypeLabel(evt, getEventDef(evt), locale.value);
+};
+
+const getSceneLabel = (sceneType) => {
+  return getAlarmSceneLabel(sceneType, locale.value);
 };
 
 const getEventTypeColor = (evt) => {
@@ -601,10 +587,10 @@ const setupEventStream = () => {
   };
 };
 
-onMounted(async () => {
-  await fetchDataMetadata();
-  fetchEvents();
+onMounted(() => {
   setupEventStream();
+  fetchDataMetadata();
+  fetchEvents();
 });
 
 onUnmounted(() => {

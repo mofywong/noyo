@@ -507,35 +507,53 @@ func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, para
 		}
 	}
 
-	if dm.TSDB != nil {
-		data := map[string]interface{}{
-			"event_id": eventId,
-			"params":   params,
-		}
-		payload, err := json.Marshal(data)
-		if err == nil {
-			record := &tsdb.Record{
-				Ts:         time.Now().UnixMilli(),
-				DeviceCode: meta.DeviceCode,
-				Type:       tsdb.TypeEvent,
-				Payload:    payload,
-			}
-			dm.TSDB.Push(record)
-		} else {
-			dm.Server.Logger.Error("Failed to marshal event for TSDB", zap.Error(err))
-		}
-	}
+	eventTs := time.Now().UnixMilli()
 
-	// 2. Publish Event
+	// Publish first so UI/SSE subscribers and rule engine workers do not wait for TSDB serialization.
 	dm.EventBus.Publish(types.Event{
 		Type:      types.EventEventReported,
 		Topic:     meta.DeviceCode,
 		Payload:   map[string]interface{}{"eventId": eventId, "params": params},
-		Timestamp: time.Now().UnixMilli(),
+		Timestamp: eventTs,
 	})
+	dm.pushDeviceEventToTSDB(meta, eventId, params, eventTs)
 
-	// 3. Broadcast to Platform Plugins -> Removed, handled by DispatchService via EventBus
 	return nil
+}
+
+func (dm *DeviceManager) pushDeviceEventToTSDB(meta DeviceMeta, eventId string, params map[string]interface{}, eventTs int64) {
+	if dm.TSDB == nil {
+		return
+	}
+	paramsForTSDB := cloneEventParams(params)
+	go func() {
+		data := map[string]interface{}{
+			"event_id": eventId,
+			"params":   paramsForTSDB,
+		}
+		payload, err := json.Marshal(data)
+		if err != nil {
+			dm.Server.Logger.Error("Failed to marshal event for TSDB", zap.Error(err))
+			return
+		}
+		dm.TSDB.Push(&tsdb.Record{
+			Ts:         eventTs,
+			DeviceCode: meta.DeviceCode,
+			Type:       tsdb.TypeEvent,
+			Payload:    payload,
+		})
+	}()
+}
+
+func cloneEventParams(params map[string]interface{}) map[string]interface{} {
+	if params == nil {
+		return nil
+	}
+	cloned := make(map[string]interface{}, len(params))
+	for key, value := range params {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func normalizeSnapshotBase64(raw string) (string, string) {

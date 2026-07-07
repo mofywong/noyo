@@ -24,7 +24,7 @@
                 <small class="text-muted">{{ formatTimeAgo(evt.ts) }}</small>
               </div>
               <p class="mb-1 small text-truncate">
-                <span class="badge text-bg-danger me-1">告警</span>
+                <span class="badge text-bg-danger me-1">{{ getEventTypeLabel(evt) }}</span>
                 {{ getEventName(evt) }}
               </p>
             </a>
@@ -174,6 +174,13 @@ import { gatewayText } from '../utils/gatewayLocale';
 import GB28181PlayerWidget from '@/plugins/pro/protocol/gb28181/GB28181PlayerWidget.vue';
 import { useAuthStore } from '../stores/auth.js';
 import { isSingleProjectMode, SYSTEM_MODES, systemModeLabel } from '../utils/systemMode.js';
+import {
+  findAlarmVideoDevice,
+  getAlarmEventName,
+  getAlarmEventTypeLabel,
+  getAlarmToastMessage,
+  isAlarmEvent
+} from '../utils/alarmEvents.js';
 
 defineProps({
   title: String,
@@ -208,6 +215,7 @@ const unreadCount = ref(0);
 const devices = ref({});
 const products = ref({});
 const floatingVideoDevice = ref(null);
+const pendingVideoAlarmEvents = [];
 let lastSeenTs = parseInt(localStorage.getItem('noyo_alarms_last_seen') || '0');
 let eventSource = null;
 
@@ -249,27 +257,10 @@ const handleProjectChange = async () => {
   window.location.reload();
 };
 
-// 场景告警事件ID列表（只有这些才在消息盒子中展示）
-const ALARM_EVENT_IDS = [
-  'illegal_parking_alarm', 'fire_lane_occupied_alarm',
-  'indoor_fire_passage_occupied_alarm', 'object_missing_alarm',
-  'area_intrusion_alarm', 'area_intrusion_leave'
-];
-
 // 从 TSDB list 中过滤出真正的场景告警
 const recentAlarms = computed(() => {
-  return recentEvents.value.filter(evt => {
-    // TSDB 返回格式: { event_id, params, ts, device_code, _type }
-    return evt.params?.scene_type || ALARM_EVENT_IDS.includes(evt.event_id);
-  });
+  return recentEvents.value.filter(isAlarmEvent);
 });
-
-const sceneTranslations = {
-  illegal_parking: '机动车违法停车',
-  indoor_fire_passage_occupied: '室内消防通道占用',
-  object_missing: '物品丢失',
-  area_intrusion: '区域入侵'
-};
 
 const getDeviceName = (code) => {
   if (!code) return '-';
@@ -293,18 +284,34 @@ const isGb28181Device = (device) => {
   return device?.protocol_name === 'gb28181';
 };
 
+const openAlarmVideoIfReady = (evt) => {
+  const device = findAlarmVideoDevice([evt], devices.value, isGb28181Device);
+  if (!device) return false;
+  floatingVideoDevice.value = device;
+  return true;
+};
+
+const queueAlarmVideoOpen = (evt) => {
+  if (openAlarmVideoIfReady(evt)) return;
+  pendingVideoAlarmEvents.push(evt);
+  if (pendingVideoAlarmEvents.length > 20) {
+    pendingVideoAlarmEvents.shift();
+  }
+};
+
+const flushPendingVideoAlarmOpen = () => {
+  const device = findAlarmVideoDevice(pendingVideoAlarmEvents, devices.value, isGb28181Device);
+  if (!device) return;
+  floatingVideoDevice.value = device;
+  pendingVideoAlarmEvents.length = 0;
+};
+
 const getEventName = (evt) => {
-  const def = getEventDef(evt);
-  if (def && def.name) {
-    return def.name;
-  }
-  if (evt.params?.rule_name) {
-    return evt.params.rule_name;
-  }
-  if (evt.params?.scene_type && sceneTranslations[evt.params.scene_type]) {
-    return sceneTranslations[evt.params.scene_type];
-  }
-  return evt.event_id || '-';
+  return getAlarmEventName(evt, getEventDef(evt), locale.value);
+};
+
+const getEventTypeLabel = (evt) => {
+  return getAlarmEventTypeLabel(evt, getEventDef(evt), locale.value);
 };
 
 const activeToasts = ref([]);
@@ -350,7 +357,7 @@ const fetchRecentEvents = async () => {
       // 只统计告警事件的未读数
       let newCount = 0;
       for (const evt of list) {
-        const isAlarm = evt.params?.scene_type || ALARM_EVENT_IDS.includes(evt.event_id);
+        const isAlarm = isAlarmEvent(evt);
         if (isAlarm && evt.ts > lastSeenTs) {
           newCount++;
           
@@ -360,12 +367,9 @@ const fetchRecentEvents = async () => {
             if (Date.now() - evt.ts < 30000) {
               const alarmName = getEventName(evt);
               const deviceName = getDeviceName(evt.device_code);
-              showToast(alarmName, `设备: ${deviceName} 发生了告警事件`);
+              showToast(alarmName, getAlarmToastMessage(evt, deviceName, locale.value));
               
-              const dev = devices.value[evt.device_code];
-              if (isGb28181Device(dev)) {
-                floatingVideoDevice.value = dev;
-              }
+              queueAlarmVideoOpen(evt);
             }
           }
         }
@@ -397,7 +401,7 @@ const setupEventStream = () => {
         ts: data.Timestamp
       };
       
-      const isAlarm = evt.params?.scene_type || ALARM_EVENT_IDS.includes(evt.event_id);
+      const isAlarm = isAlarmEvent(evt);
       if (isAlarm) {
         recentEvents.value.unshift(evt);
         if (recentEvents.value.length > 50) {
@@ -410,12 +414,9 @@ const setupEventStream = () => {
           toastShownForTs.add(evt.ts);
           const alarmName = getEventName(evt);
           const deviceName = getDeviceName(evt.device_code);
-          showToast(alarmName, `设备: ${deviceName} 发生了告警事件`);
+          showToast(alarmName, getAlarmToastMessage(evt, deviceName, locale.value));
           
-          const dev = devices.value[evt.device_code];
-          if (isGb28181Device(dev)) {
-            floatingVideoDevice.value = dev;
-          }
+          queueAlarmVideoOpen(evt);
         }
         
         if (toastShownForTs.size > 100) {
@@ -451,6 +452,7 @@ const fetchDataMetadata = async () => {
         devMap[d.code] = d;
       });
       devices.value = devMap;
+      flushPendingVideoAlarmOpen();
     }
     
     if (prodRes.data.code === 0 && prodRes.data.data) {
@@ -510,17 +512,16 @@ const openProfileModal = () => {
   }
 };
 
-onMounted(async () => {
+onMounted(() => {
   if (profileModalRef.value) {
     profileModal = new Modal(profileModalRef.value);
   }
-  await fetchDataMetadata();
-  await fetchRecentEvents();
   setupEventStream();
+  fetchDataMetadata().then(() => fetchRecentEvents());
   document.addEventListener('click', closeAllDropdowns);
   window.addEventListener('project-updated', loadProjects);
   if (authStore.user && authStore.user.tenant_id > 0) {
-    await loadProjects();
+    loadProjects();
   }
 });
 
