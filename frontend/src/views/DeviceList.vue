@@ -528,41 +528,53 @@
             <div class="row h-100">
               <!-- Left side: Form -->
               <div class="col-md-4 border-end">
-                <h6 class="mb-3 fw-bold">守护参数配置</h6>
+                <h6 class="mb-3 fw-bold">{{ aiText('守护配置', 'Guardian Settings') }}</h6>
+                <div class="alert alert-info py-2 px-3 small mb-3">
+                  <i class="bi bi-info-circle me-1"></i>
+                  {{ aiText('首次启用或重新校准时，请确认设备处于正常工况；系统会把随后一段稳定数据学习为正常基线。', 'Before enabling or recalibrating, make sure the device is operating normally. The system will learn the next stable data segment as the normal baseline.') }}
+                </div>
                 <div class="mb-3">
-                  <label class="form-label small fw-bold">监控属性 (数值型)</label>
+                  <label class="form-label small fw-bold">{{ aiText('监测点', 'Monitoring Point') }}</label>
                   <select class="form-select form-select-sm" v-model="aiConfig.property">
-                     <option value="" disabled>-- 请选择 --</option>
+                     <option value="" disabled>{{ aiText('-- 请选择数值型属性 --', '-- Select numeric property --') }}</option>
                      <option v-for="prop in getSingleAINumericProperties()" :key="prop.key" :value="prop.key">
                        {{ prop.name }} ({{ prop.key }})
                      </option>
                   </select>
+                  <div class="form-text">{{ aiText('选择最能代表设备状态的温度、压力、电流等数值点位。', 'Choose a numeric point such as temperature, pressure, or current that best represents device condition.') }}</div>
                 </div>
                 <div class="mb-3">
                   <label class="form-label small fw-bold">
-                    输入序列窗长
-                    <i class="bi bi-info-circle text-muted ms-1" title="AI 分析趋势时参考的最近历史数据点数量。设置越大，参考的背景趋势越久。"></i>
+                    {{ aiText('回顾数据量', 'Review Points') }}
+                    <i class="bi bi-info-circle text-muted ms-1" :title="aiText('每次评分前需要参考的最近数据点数量。点数越多越稳，点数越少响应越快。', 'Number of recent points used before each score. More points are steadier; fewer points respond faster.')"></i>
                   </label>
                   <div class="d-flex justify-content-between mb-1">
-                     <span class="text-muted small">回顾时长</span>
-                     <span class="text-muted small fw-bold">{{ aiConfig.window_size }} pt</span>
+                     <span class="text-muted small">{{ aiText('用于判断趋势的最近数据', 'Recent data used for trend judgment') }}</span>
+                     <span class="text-muted small fw-bold">{{ aiConfig.window_size }} {{ aiText('点', 'points') }}</span>
                   </div>
                   <input type="range" class="form-range" min="10" max="200" step="10" v-model.number="aiConfig.window_size">
+                  <div class="form-text">{{ aiWindowSizeHelp }}</div>
                 </div>
                 <div class="mb-3">
                   <label class="form-label small fw-bold">
-                    异常判定阈值 ($\sigma$)
-                    <i class="bi bi-info-circle text-muted ms-1" title="衡量波动是否异常的标准差倍数。设置越小越灵敏（易报），设置越大越宽松（稳健）。"></i>
+                    {{ aiText('告警灵敏度', 'Alert Sensitivity') }}
+                    <i class="bi bi-info-circle text-muted ms-1" :title="aiText('越灵敏越容易发现小幅异常，也更可能误报；越宽松越少误报，但可能延迟发现异常。', 'Higher sensitivity catches smaller anomalies but may raise more false alarms. Lower sensitivity is quieter but may detect later.')"></i>
                   </label>
                   <div class="d-flex justify-content-between mb-1">
-                     <span class="text-muted small">灵敏度因子</span>
+                     <span class="text-muted small">{{ aiSensitivityLabel }}</span>
                      <span class="text-muted small fw-bold">{{ aiConfig.threshold_sigma }}</span>
                   </div>
+                  <div class="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="AI sensitivity presets">
+                    <button type="button" class="btn" :class="aiConfig.threshold_sigma === 2.5 ? 'btn-warning' : 'btn-outline-secondary'" @click="aiConfig.threshold_sigma = 2.5">{{ aiText('灵敏', 'Sensitive') }}</button>
+                    <button type="button" class="btn" :class="aiConfig.threshold_sigma === 3.5 ? 'btn-warning' : 'btn-outline-secondary'" @click="aiConfig.threshold_sigma = 3.5">{{ aiText('均衡', 'Balanced') }}</button>
+                    <button type="button" class="btn" :class="aiConfig.threshold_sigma === 5.0 ? 'btn-warning' : 'btn-outline-secondary'" @click="aiConfig.threshold_sigma = 5.0">{{ aiText('稳健', 'Stable') }}</button>
+                  </div>
                   <input type="range" class="form-range" min="1.0" max="10.0" step="0.5" v-model.number="aiConfig.threshold_sigma">
+                  <div class="form-text">{{ aiSensitivityHelp }}</div>
                 </div>
                 <div class="form-check form-switch mt-4">
                   <input class="form-check-input" type="checkbox" role="switch" id="singleEnableSwitch" v-model="aiConfig.enabled">
-                  <label class="form-check-label text-warning fw-bold" for="singleEnableSwitch">启用 AI 设备守护</label>
+                  <label class="form-check-label text-warning fw-bold" for="singleEnableSwitch">{{ aiText('启用 AI 设备守护', 'Enable AI Device Guardian') }}</label>
                 </div>
               </div>
               
@@ -586,9 +598,30 @@
                     </span>
                     <span v-else-if="aiLatestAnomaly" class="badge bg-danger animation-blink me-2">异常警告</span>
                     
+                    <button v-if="aiConfig.property" class="btn btn-sm btn-outline-primary py-0 px-2 me-2" style="font-size: 0.75rem" :disabled="aiRecalibrating || !aiConfig.enabled" @click="restartAIBaselineCalibration" title="重新学习当前正常基线">
+                      <span v-if="aiRecalibrating" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                      <i v-else class="bi bi-arrow-clockwise"></i> 重新校准基线
+                    </button>
                     <button v-if="aiLatestLatched" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.75rem" @click="clearLatchedState" title="解除异常锁定状态">
                       <i class="bi bi-unlock"></i> 解除
                     </button>
+                  </div>
+                </div>
+                <div v-if="aiConfig.enabled && aiConfig.property" class="border rounded bg-white px-3 py-2 mb-2">
+                  <div class="d-flex justify-content-between align-items-center small mb-1">
+                    <span class="fw-bold">
+                      <i class="bi bi-activity me-1 text-primary"></i>
+                      {{ aiText('计算进度', 'Calculation Progress') }}
+                    </span>
+                    <span class="text-muted">{{ aiProgress.current }} / {{ aiProgress.required }} · {{ aiProgress.percent }}%</span>
+                  </div>
+                  <div class="progress" style="height: 8px;">
+                    <div class="progress-bar" :class="aiProgressBarClass" role="progressbar" :style="{ width: aiProgress.percent + '%' }" :aria-valuenow="aiProgress.percent" aria-valuemin="0" aria-valuemax="100"></div>
+                  </div>
+                  <div class="small text-muted mt-1">
+                    {{ aiProgress.message }}
+                    <span v-if="aiProgress.stage === 'calibrating'">{{ aiText('：正在采集正常样本，请保持设备在正常工况。', ': collecting normal samples. Keep the device operating normally.') }}</span>
+                    <span v-else-if="aiProgress.stage === 'collecting_evaluation_window'">{{ aiText('：收到足够数据后会生成新的健康得分。', ': a new health score will be generated after enough data is received.') }}</span>
                   </div>
                 </div>
                 <div v-if="aiLatestLatched" class="alert alert-warning py-2 px-3 mb-2 d-flex align-items-center" style="font-size: 0.85rem">
@@ -680,12 +713,12 @@
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title"><i class="bi bi-shield-check text-warning me-2"></i>AI 设备守护批量配置</h5>
+            <h5 class="modal-title"><i class="bi bi-shield-check text-warning me-2"></i>{{ aiText('AI 设备守护批量配置', 'AI Device Guardian Batch Settings') }}</h5>
             <button type="button" class="btn-close" @click="showBatchAIModal = false"></button>
           </div>
           <div class="modal-body">
             <div class="alert alert-info py-2 small">
-               <i class="bi bi-info-circle me-1"></i> 批量为统一产品下的多个设备下发相同的 AI 设备守护参数。
+               <i class="bi bi-info-circle me-1"></i> {{ aiText('批量为同一产品下的多个设备下发相同守护配置。启用后，请确认这些设备当前都处于正常工况，系统会自动学习正常基线。', 'Apply the same guardian settings to devices of one product. Before enabling, make sure these devices are operating normally because baseline learning assumes normal operation.') }}
             </div>
             
             <div class="row g-3">
@@ -697,9 +730,9 @@
                   </select>
                </div>
                <div class="col-md-6">
-                  <label class="form-label fw-bold small">监控属性 (数值型)</label>
+                  <label class="form-label fw-bold small">{{ aiText('监测点', 'Monitoring Point') }}</label>
                   <select class="form-select" v-model="batchAiConfig.property" :disabled="!batchAiConfig.product_code">
-                     <option value="" disabled>-- 请选择 --</option>
+                     <option value="" disabled>{{ aiText('-- 请选择数值型属性 --', '-- Select numeric property --') }}</option>
                      <option v-for="prop in batchProductProperties" :key="prop.key" :value="prop.key">
                        {{ prop.name }} ({{ prop.key }})
                      </option>
@@ -730,24 +763,31 @@
             <div class="row g-3 mt-3">
                <div class="col-md-6">
                   <label class="form-label small fw-bold d-flex justify-content-between">
-                     <span>输入序列窗长 (Window Size)</span>
-                     <span class="text-muted">{{ batchAiConfig.window_size }} pt</span>
+                     <span>{{ aiText('回顾数据量', 'Review Points') }}</span>
+                     <span class="text-muted">{{ batchAiConfig.window_size }} {{ aiText('点', 'points') }}</span>
                   </label>
                   <input type="range" class="form-range" min="10" max="200" step="10" v-model.number="batchAiConfig.window_size">
+                  <div class="form-text small">{{ aiText('点数越少响应越快，点数越多越稳健。', 'Fewer points respond faster; more points are steadier.') }}</div>
                </div>
                <div class="col-md-6">
                   <label class="form-label small fw-bold d-flex justify-content-between">
-                     <span>异常判定阈值 ($\sigma$)</span>
+                     <span>{{ aiText('告警灵敏度', 'Alert Sensitivity') }}</span>
                      <span class="text-muted">{{ batchAiConfig.threshold_sigma }}</span>
                   </label>
+                  <div class="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Batch AI sensitivity presets">
+                    <button type="button" class="btn" :class="batchAiConfig.threshold_sigma === 2.5 ? 'btn-warning' : 'btn-outline-secondary'" @click="batchAiConfig.threshold_sigma = 2.5">{{ aiText('灵敏', 'Sensitive') }}</button>
+                    <button type="button" class="btn" :class="batchAiConfig.threshold_sigma === 3.5 ? 'btn-warning' : 'btn-outline-secondary'" @click="batchAiConfig.threshold_sigma = 3.5">{{ aiText('均衡', 'Balanced') }}</button>
+                    <button type="button" class="btn" :class="batchAiConfig.threshold_sigma === 5.0 ? 'btn-warning' : 'btn-outline-secondary'" @click="batchAiConfig.threshold_sigma = 5.0">{{ aiText('稳健', 'Stable') }}</button>
+                  </div>
                   <input type="range" class="form-range" min="1.0" max="10.0" step="0.5" v-model.number="batchAiConfig.threshold_sigma">
+                  <div class="form-text small">{{ aiText('灵敏更容易发现小变化；稳健更少误报。', 'Sensitive catches smaller changes; stable reduces false alarms.') }}</div>
                </div>
             </div>
           </div>
           <div class="modal-footer d-flex justify-content-between">
             <div class="form-check form-switch mt-1">
                <input class="form-check-input" type="checkbox" role="switch" id="batchEnableSwitch" v-model="batchAiConfig.enabled">
-               <label class="form-check-label text-warning fw-bold" for="batchEnableSwitch">立即启用监控</label>
+               <label class="form-check-label text-warning fw-bold" for="batchEnableSwitch">{{ aiText('立即启用监控', 'Enable Monitoring Now') }}</label>
             </div>
             <div>
                <button type="button" class="btn btn-secondary me-2" @click="showBatchAIModal = false">取消</button>
@@ -1007,6 +1047,119 @@ const resetSSEHeartbeat = () => {
   }, 45000); // 后端心跳间隔15秒，给3倍容忍
 };
 
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+const numericAIValue = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+};
+
+const isAIStatePayload = (properties) => {
+  if (!properties || typeof properties !== 'object') return false;
+  return Object.keys(properties).some(key =>
+    key.endsWith('_ai_health') ||
+    key.endsWith('_ai_anomaly') ||
+    key.endsWith('_ai_latched') ||
+    key.endsWith('_ai_health_trigger')
+  );
+};
+
+const mergeAIStateIntoDevice = (device, properties) => {
+  if (!device || !isAIStatePayload(properties)) return device;
+
+  const patch = {};
+  const healthDetails = { ...(device.ai_health_details || {}) };
+  const latchedDetails = { ...(device._ai_latched_details || {}) };
+  const anomalyDetails = { ...(device._ai_anomaly_details || {}) };
+  let healthChanged = false;
+  let latchedChanged = false;
+  let anomalyChanged = false;
+
+  Object.entries(properties).forEach(([key, value]) => {
+    if (key.endsWith('_ai_health') && !key.endsWith('_ai_health_trigger')) {
+      const prop = key.slice(0, -'_ai_health'.length);
+      const score = numericAIValue(value);
+      healthChanged = true;
+      if (score === null) {
+        delete healthDetails[prop];
+      } else {
+        healthDetails[prop] = score;
+      }
+      return;
+    }
+
+    if (key.endsWith('_ai_latched')) {
+      const prop = key.slice(0, -'_ai_latched'.length);
+      latchedDetails[prop] = value === true;
+      latchedChanged = true;
+      return;
+    }
+
+    if (key.endsWith('_ai_anomaly')) {
+      const prop = key.slice(0, -'_ai_anomaly'.length);
+      anomalyDetails[prop] = value === true;
+      anomalyChanged = true;
+      return;
+    }
+
+    if (key.endsWith('_ai_health_trigger')) {
+      patch.ai_health_trigger = numericAIValue(value);
+    }
+  });
+
+  if (healthChanged) {
+    const scores = Object.values(healthDetails).filter(value => Number.isFinite(Number(value))).map(Number);
+    patch.ai_health_details = scores.length > 0 ? healthDetails : null;
+    patch.ai_health_score = scores.length > 0 ? Math.min(...scores) : null;
+  }
+
+  if (latchedChanged) {
+    patch._ai_latched_details = latchedDetails;
+    patch.ai_latched = Object.values(latchedDetails).some(Boolean);
+    if (!patch.ai_latched && !hasOwn(patch, 'ai_health_trigger')) {
+      patch.ai_health_trigger = null;
+    }
+  }
+
+  if (anomalyChanged) {
+    patch._ai_anomaly_details = anomalyDetails;
+    patch.ai_anomaly = Object.values(anomalyDetails).some(Boolean);
+  }
+
+  return { ...device, ...patch };
+};
+
+const applyAIStatePayload = (deviceCode, properties) => {
+  if (!deviceCode || !isAIStatePayload(properties)) return;
+
+  const idx = devices.value.findIndex(device => device.code === deviceCode);
+  if (idx !== -1) {
+    devices.value[idx] = mergeAIStateIntoDevice(devices.value[idx], properties);
+  }
+
+  if (currentSingleAIDevice.value?.code === deviceCode) {
+    currentSingleAIDevice.value = mergeAIStateIntoDevice(currentSingleAIDevice.value, properties);
+
+    if (hasOwn(currentSingleAIDevice.value, 'ai_health_score')) {
+      aiLatestHealth.value = currentSingleAIDevice.value.ai_health_score ?? null;
+    }
+    if (hasOwn(currentSingleAIDevice.value, 'ai_anomaly')) {
+      aiLatestAnomaly.value = currentSingleAIDevice.value.ai_anomaly === true;
+    }
+    if (hasOwn(currentSingleAIDevice.value, 'ai_latched')) {
+      aiLatestLatched.value = currentSingleAIDevice.value.ai_latched === true;
+    }
+    if (hasOwn(currentSingleAIDevice.value, 'ai_health_trigger')) {
+      aiLatchTriggerScore.value = currentSingleAIDevice.value.ai_health_trigger ?? null;
+    }
+  }
+
+  if (healthTooltipDevice.value?.code === deviceCode) {
+    healthTooltipDevice.value = mergeAIStateIntoDevice(healthTooltipDevice.value, properties);
+  }
+};
+
 const setupSSE = () => {
   if (eventSource) {
     eventSource.close();
@@ -1032,6 +1185,18 @@ const setupSSE = () => {
 
   eventSource.addEventListener('device.list.changed', handleSSE);
   eventSource.addEventListener('device.status.changed', handleSSE);
+  eventSource.addEventListener('property.reported', (event) => {
+    resetSSEHeartbeat();
+    try {
+      const data = JSON.parse(event.data);
+      const properties = data.Payload || {};
+      if (isAIStatePayload(properties)) {
+        applyAIStatePayload(data.Topic, properties);
+      }
+    } catch (err) {
+      console.error('[SSE] Failed to parse property.reported event', err);
+    }
+  });
 
   // 后端每15秒发送一次心跳事件，用于前端检测连接是否存活
   eventSource.addEventListener('heartbeat', () => {
@@ -1334,6 +1499,7 @@ const aiConfig = ref({
   prediction_length: 1,
   threshold_sigma: 3.5,
   is_calibrated: false,
+  progress: null,
 });
 const aiLatestHealth = ref(null);
 const aiLatestAnomaly = ref(false);
@@ -1341,11 +1507,78 @@ const aiLatestLatched = ref(false);
 const aiLatchTriggerScore = ref(null);
 const aiChartOption = ref({});
 const aiChartLoading = ref(false);
+const aiRecalibrating = ref(false);
 let aiChartTimer = null;
 let aiConfigSaveTimer = null;
 const singleAIModalVisible = ref(false);
 const currentSingleAIDevice = ref(null);
 const singleAITSLMap = ref({});
+
+const aiText = (zh, en) => {
+  const currentLocale = String(locale.value || locale || '').toLowerCase();
+  return currentLocale.startsWith('en') ? en : zh;
+};
+
+const defaultAIProgress = () => ({
+  stage: aiConfig.value.enabled ? 'collecting_evaluation_window' : 'disabled',
+  current: 0,
+  required: aiConfig.value.window_size || 50,
+  percent: 0,
+  message: '',
+  is_learning: false,
+});
+
+const aiProgressMessage = (stage, fallback) => {
+  const messages = {
+    disabled: aiText('AI 设备守护未启用', 'AI Device Guardian is disabled'),
+    collecting_window: aiText('正在收集回顾数据', 'Collecting review data'),
+    calibrating: aiText('正在学习正常基线', 'Learning the normal baseline'),
+    collecting_evaluation_window: aiText('正在收集本次评分所需的回顾数据', 'Collecting review data for the next score'),
+    ready: aiText('回顾数据已就绪，正在持续监测', 'Review data is ready; monitoring is active'),
+  };
+  return messages[stage] || fallback || aiText('正在等待设备数据', 'Waiting for device data');
+};
+
+const aiProgress = computed(() => {
+  const progress = aiConfig.value.progress || defaultAIProgress();
+  const required = Number(progress.required || aiConfig.value.window_size || 50);
+  const current = Math.min(Number(progress.current || 0), required);
+  const percent = Math.max(0, Math.min(100, Number(progress.percent ?? (required > 0 ? Math.round(current * 100 / required) : 0))));
+  return {
+    ...progress,
+    current,
+    required,
+    percent,
+    message: aiProgressMessage(progress.stage, progress.message),
+  };
+});
+
+const aiProgressBarClass = computed(() => {
+  if (aiProgress.value.stage === 'ready') return 'bg-success';
+  if (aiProgress.value.stage === 'calibrating') return 'bg-warning';
+  if (aiProgress.value.stage === 'disabled') return 'bg-secondary';
+  return 'bg-info';
+});
+
+const aiSensitivityLabel = computed(() => {
+  const value = Number(aiConfig.value.threshold_sigma || 3.5);
+  if (value <= 2.5) return aiText('灵敏：更早发现异常', 'Sensitive: detects anomalies earlier');
+  if (value >= 5) return aiText('稳健：减少误报', 'Stable: reduces false alarms');
+  return aiText('均衡：推荐设置', 'Balanced: recommended');
+});
+
+const aiSensitivityHelp = computed(() => {
+  const value = Number(aiConfig.value.threshold_sigma || 3.5);
+  if (value <= 2.5) return aiText('适合关键设备或异常代价高的场景，可能增加误报。', 'Best for critical equipment or costly anomalies; may increase false alarms.');
+  if (value >= 5) return aiText('适合波动较大的点位，告警更保守。', 'Best for noisy points; alerts are more conservative.');
+  return aiText('适合大多数温度、压力、电流等连续数值点位。', 'Works well for most continuous points such as temperature, pressure, and current.');
+});
+
+const aiWindowSizeHelp = computed(() => {
+  if (aiConfig.value.window_size <= 30) return aiText('响应更快，适合变化频繁的点位。', 'Responds faster; suitable for frequently changing points.');
+  if (aiConfig.value.window_size >= 100) return aiText('更稳健，适合慢变化设备。', 'More stable; suitable for slow-changing equipment.');
+  return aiText('均衡设置，适合大多数设备。', 'Balanced setting for most devices.');
+});
 
 // AI History Modal State
 const aiHistoryModalVisible = ref(false);
@@ -1560,25 +1793,48 @@ const fetchDeviceAIConfig = async () => {
             ...aiConfig.value,
             ...task,
             // Map nested baseline parameter to flat form field
-            threshold_sigma: task.baseline?.threshold_sigma || 3.5
+            threshold_sigma: task.baseline?.threshold_sigma || 3.5,
+            progress: task.progress || null,
         };
-     } else {
-        // default
-        aiConfig.value = { enabled: false, property: '', window_size: 50, prediction_length: 1, threshold_sigma: 3.5, is_calibrated: false };
+      } else {
+         // default
+        aiConfig.value = { enabled: false, property: '', window_size: 50, prediction_length: 1, threshold_sigma: 3.5, is_calibrated: false, progress: null };
+      }
+   } catch (e) {
+      aiConfig.value.enabled = false;
+   }
+};
+
+const fetchAIProgress = async () => {
+  if (!currentSingleAIDevice.value || !aiConfig.value.property) return;
+  try {
+     const res = await axios.get(`/api/plugins/ai_predict/config/tasks/${currentSingleAIDevice.value.code}`);
+     if (res.data.code === 0 && res.data.data && res.data.data.property === aiConfig.value.property) {
+        aiConfig.value.progress = res.data.data.progress || null;
+        aiConfig.value.is_calibrated = res.data.data.is_calibrated === true;
+        aiConfig.value.is_latched = res.data.data.is_latched === true;
+        if (res.data.data.baseline?.threshold_sigma) {
+           aiConfig.value.baseline = {
+              ...(aiConfig.value.baseline || {}),
+              ...res.data.data.baseline,
+           };
+        }
      }
   } catch (e) {
-     aiConfig.value.enabled = false;
+     // Keep the previous progress display if the lightweight refresh fails.
   }
 };
 
 const saveSingleAIConfig = async () => {
     if (!currentSingleAIDevice.value) return;
     try {
+        const { progress, ...configForSave } = aiConfig.value;
         // Wrap flat UI fields into the structured WatchTask for backend
         const payload = {
-            ...aiConfig.value,
+            ...configForSave,
             device_code: currentSingleAIDevice.value.code,
             baseline: {
+                ...(aiConfig.value.baseline || {}),
                 threshold_sigma: aiConfig.value.threshold_sigma
             }
         };
@@ -1586,6 +1842,7 @@ const saveSingleAIConfig = async () => {
         if (res.data.code === 0) {
             alert('AI 设备守护配置已成功保存并应用');
             fetchConfiguredTasks();
+            fetchDeviceAIConfig();
             fetchAITrend(); // Refresh chart to show latest status
         } else {
             alert('保存失败: ' + res.data.message);
@@ -1931,15 +2188,33 @@ const fetchAITrend = async () => {
           isEndingInCalculating = (lastPoint[1] !== null);
       }
 
-      if (deviceInMemoryScore === null || deviceInMemoryScore === undefined) {
-        // Device list says "generating" — respect that, don't override with stale DB data
-        aiLatestHealth.value = null;
-      } else if (isEndingInCalculating) {
+      if (isEndingInCalculating) {
         // If the chart shows "Calculating" (dashed line), the text should also show "-" (null)
         aiLatestHealth.value = null;
+      } else if (newestHealth !== null) {
+        // The chart is already showing a fresh health line; keep the header in sync.
+        aiLatestHealth.value = newestHealth;
+      } else if (deviceInMemoryScore === null || deviceInMemoryScore === undefined) {
+        aiLatestHealth.value = null;
       } else {
-        // Device list has a live score — use the freshest from DB or in-memory
-        aiLatestHealth.value = newestHealth !== null ? newestHealth : deviceInMemoryScore;
+        aiLatestHealth.value = deviceInMemoryScore;
+      }
+
+      const chartStatePayload = {};
+      if (newestHealth !== null) {
+        chartStatePayload[healthKey] = aiLatestHealth.value;
+      }
+      if (foundNewestAnomaly) {
+        chartStatePayload[anomalyKey] = aiLatestAnomaly.value;
+      }
+      if (foundNewestLatched) {
+        chartStatePayload[latchedKey] = aiLatestLatched.value;
+      }
+      if (aiLatchTriggerScore.value !== null) {
+        chartStatePayload[triggerKey] = aiLatchTriggerScore.value;
+      }
+      if (Object.keys(chartStatePayload).length > 0) {
+        applyAIStatePayload(currentSingleAIDevice.value.code, chartStatePayload);
       }
 
       aiChartOption.value = {
@@ -2037,6 +2312,7 @@ const fetchAITrend = async () => {
    } catch (e) {
       console.error(e);
    } finally {
+      fetchAIProgress();
       aiChartLoading.value = false;
    }
 };
@@ -2159,21 +2435,72 @@ const closeSingleAIModal = () => {
 
 const clearLatchedState = async () => {
     if (!currentSingleAIDevice.value || !aiConfig.value.property) return;
-    if (!confirm("确定要解除异常锁定状态吗？\n解除后将立即恢复AI健康监测，系统将重新评估设备健康状态。")) return;
+    if (!confirm(aiText(
+        "确定要解除异常锁定状态吗？\n解除后将立即恢复AI健康监测，系统将重新评估设备健康状态。",
+        "Clear the anomaly lock?\nAfter clearing, AI health monitoring will resume and the system will recalculate the device health score."
+    ))) return;
     
     const taskId = `${currentSingleAIDevice.value.code}_${aiConfig.value.property}`;
     
     try {
         const res = await axios.post(`/api/plugins/ai_predict/latch/${taskId}/clear`);
         if (res.data.code === 0) {
-            alert("解除锁定成功");
+            alert(aiText("解除锁定成功", "Lock cleared"));
+            aiConfig.value.progress = {
+                stage: 'collecting_evaluation_window',
+                current: 0,
+                required: aiConfig.value.window_size || 50,
+                percent: 0,
+                message: '',
+                is_learning: false,
+            };
             fetchAITrend(); // Refresh status immediately
         } else {
-            alert("解除失败: " + res.data.message);
+            alert(aiText("解除失败: ", "Clear failed: ") + res.data.message);
         }
     } catch (e) {
         console.error(e);
-        alert("解除失败");
+        alert(aiText("解除失败", "Clear failed"));
+    }
+};
+
+const restartAIBaselineCalibration = async () => {
+    if (!currentSingleAIDevice.value || !aiConfig.value.property) return;
+    if (!confirm(aiText(
+        "确定要重新校准基线吗？\n系统会清除当前学习到的正常基线，并把接下来一段数据重新学习为正常工况。请确认设备现在处于正常状态。",
+        "Restart baseline calibration?\nThe system will clear the learned baseline and learn the next data segment as normal operation. Make sure the device is currently operating normally."
+    ))) return;
+
+    const taskId = `${currentSingleAIDevice.value.code}_${aiConfig.value.property}`;
+    aiRecalibrating.value = true;
+    try {
+        const res = await axios.post(`/api/plugins/ai_predict/calibration/${taskId}/restart`);
+        if (res.data.code === 0) {
+            aiLatestHealth.value = null;
+            aiLatestAnomaly.value = false;
+            aiLatestLatched.value = false;
+            aiLatchTriggerScore.value = null;
+            aiConfig.value.is_calibrated = false;
+            aiConfig.value.progress = {
+                stage: 'collecting_window',
+                current: 0,
+                required: aiConfig.value.window_size || 50,
+                percent: 0,
+                message: '',
+                is_learning: true,
+            };
+            await fetchDeviceAIConfig();
+            fetchConfiguredTasks();
+            fetchAITrend();
+            alert(aiText("已开始重新校准，请保持设备处于正常工况。", "Recalibration started. Keep the device operating normally."));
+        } else {
+            alert(aiText("重新校准失败: ", "Recalibration failed: ") + res.data.message);
+        }
+    } catch (e) {
+        console.error(e);
+        alert(aiText("重新校准失败", "Recalibration failed"));
+    } finally {
+        aiRecalibrating.value = false;
     }
 };
 
