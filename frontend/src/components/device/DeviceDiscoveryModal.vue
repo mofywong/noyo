@@ -51,7 +51,7 @@
                    <td>
                      <select class="form-select form-select-sm" v-model="dev.bindProductCode">
                         <option value="">{{ $t('select_product') }}</option>
-                        <option v-for="p in products" :key="p.code" :value="p.code">{{ p.name }}</option>
+                        <option v-for="p in products" :key="p.code" :value="p.code">{{ formatNamedReference(p.name, p.code) }}</option>
                      </select>
                    </td>
                    <td>
@@ -73,6 +73,7 @@
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
 import { useI18n } from 'vue-i18n';
+import { formatNamedReference } from '../../utils/entityDisplay.js';
 
 const { t } = useI18n();
 const emit = defineEmits(['close', 'device-added']);

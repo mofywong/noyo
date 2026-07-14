@@ -14,9 +14,10 @@ const (
 
 // Data Types (used in DataModel and Events)
 const (
-	DataTypeProperty = "property"
-	DataTypeEvent    = "event"
-	DataTypeStatus   = "status"
+	DataTypeProperty      = "property"
+	DataTypeEvent         = "event"
+	DataTypeStatus        = "status"
+	DataTypeServiceResult = "service_result"
 )
 
 // Common Metadata Keys

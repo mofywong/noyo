@@ -277,7 +277,7 @@ func ResolveUserAuthContext(userID, requestedTenantID, requestedProjectID uint) 
 	}
 	applyRoleBindings(ctx, roleBindings, user.Role)
 
-	if projectID > 0 && !ctx.CanAccessProject(projectID) {
+	if projectID > 0 && !ctx.IsSystemAdmin && !ctx.CanAccessProject(projectID) {
 		return nil, fmt.Errorf("project is outside allowed scope")
 	}
 	loadPermissions(ctx)
@@ -477,14 +477,18 @@ func applyRoleBindings(ctx *AuthContext, bindings []resolvedRoleBinding, legacyR
 }
 
 func loadPermissions(ctx *AuthContext) {
-	if ctx == nil || len(ctx.RoleIDs) == 0 {
+	if ctx == nil || (len(ctx.RoleIDs) == 0 && !ctx.IsSystemAdmin) {
 		return
 	}
 	var permissions []store.Permission
-	store.DB.Model(&store.Permission{}).
-		Joins("JOIN role_permissions ON role_permissions.permission_id = permissions.id").
-		Where("role_permissions.role_id IN ?", ctx.RoleIDs).
-		Find(&permissions)
+	if ctx.IsSystemAdmin {
+		store.DB.Model(&store.Permission{}).Find(&permissions)
+	} else {
+		store.DB.Model(&store.Permission{}).
+			Joins("JOIN role_permissions ON role_permissions.permission_id = permissions.id").
+			Where("role_permissions.role_id IN ?", ctx.RoleIDs).
+			Find(&permissions)
+	}
 	baseCodes := make(map[string]bool)
 	for _, permission := range permissions {
 		baseCodes[permission.Code] = true

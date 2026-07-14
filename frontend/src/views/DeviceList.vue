@@ -115,7 +115,7 @@
               <td class="ps-4">
                 <input class="form-check-input" type="checkbox" :checked="selectedDevices.includes(device.code)" @change="toggleSelection(device.code)">
               </td>
-              <td class="font-monospace fw-bold text-primary text-truncate" style="max-width: 150px;" :title="device.code" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.code }}</td>
+              <td class="fw-bold text-primary text-truncate" style="max-width: 220px;" :title="formatNamedReference(device.name, device.code)" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ formatNamedReference(device.name, device.code) }}</td>
               <td class="text-truncate" style="max-width: 150px;" :title="device.name" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.name || '-' }}</td>
               <td v-if="showProjectColumn">
                 <span class="badge text-bg-light border">{{ device.project_name || '-' }}</span>
@@ -917,6 +917,7 @@ import Sparkline from '../components/Sparkline.vue';
 import { usePlugins } from '../plugins/registry.js';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 import { applyDriverDefaults } from '../utils/deviceDriverDefaults.js';
+import { formatNamedReference } from '../utils/entityDisplay.js';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { LineChart, BarChart, ScatterChart } from 'echarts/charts';
@@ -1382,7 +1383,7 @@ const getProductName = (code) => {
 const getDriverName = (code) => {
   if (!code) return '';
   const d = drivers.value.find(drv => drv.code === code);
-  return d ? `${d.name}` : code;
+  return d ? formatNamedReference(d.name, d.code) : code;
 };
 
 const batchDelete = async () => {

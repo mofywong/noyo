@@ -456,7 +456,7 @@ func (dm *DeviceManager) SetDeviceProperties(deviceCode string, properties map[s
 }
 
 // CallDeviceService calls a service on a device
-func (dm *DeviceManager) CallDeviceService(deviceCode string, serviceId string, params map[string]interface{}) (interface{}, error) {
+func (dm *DeviceManager) CallDeviceService(deviceCode string, serviceId string, params map[string]interface{}) (result interface{}, err error) {
 	// 1. Get Device Info
 	_, ok := dm.Registry.GetDevice(deviceCode)
 	if !ok {
@@ -468,6 +468,12 @@ func (dm *DeviceManager) CallDeviceService(deviceCode string, serviceId string, 
 	if err != nil {
 		return nil, err
 	}
+	startedAt := time.Now()
+	defer func() {
+		if dm.EventBus != nil {
+			dm.EventBus.Publish(buildDeviceServiceResultEvent(deviceCode, serviceId, params, result, err, time.Since(startedAt)))
+		}
+	}()
 
 	// 3. Get Protocol Plugin
 	effectiveProtocol, err := dm.Registry.GetEffectiveProtocol(deviceCode)
@@ -488,9 +494,31 @@ func (dm *DeviceManager) CallDeviceService(deviceCode string, serviceId string, 
 	}
 
 	if caller, ok := plugin.(serviceCaller); ok {
-		return caller.CallService(*meta, serviceId, params)
+		result, err = caller.CallService(*meta, serviceId, params)
+		return result, err
 	}
-	return nil, fmt.Errorf("%w: plugin %s does not support CallService", types.ErrNotImplemented, effectiveProtocol)
+	err = fmt.Errorf("%w: plugin %s does not support CallService", types.ErrNotImplemented, effectiveProtocol)
+	return nil, err
+}
+
+func buildDeviceServiceResultEvent(deviceCode, serviceID string, params map[string]interface{}, result interface{}, callErr error, duration time.Duration) types.Event {
+	payload := map[string]interface{}{
+		"service_id":  serviceID,
+		"params":      cloneEventParams(params),
+		"success":     callErr == nil,
+		"duration_ms": duration.Milliseconds(),
+	}
+	if callErr != nil {
+		payload["error"] = callErr.Error()
+	} else {
+		payload["result"] = result
+	}
+	return types.Event{
+		Type:      types.EventDeviceServiceResult,
+		Topic:     deviceCode,
+		Payload:   payload,
+		Timestamp: time.Now().UnixMilli(),
+	}
 }
 
 // ReportDeviceEvent handles event reporting

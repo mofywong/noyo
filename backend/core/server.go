@@ -74,7 +74,7 @@ func (s *Server) wrapPluginHandler(handler interface{}) func(*ghttp.Request) {
 func NewServer() (*Server, error) {
 	// 0. Init Database
 	// Default to sqlite with file noyo.db
-	if err := store.InitDB("./data/db/noyo.db"); err != nil {
+	if err := store.InitDB("./data/db/noyo.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"); err != nil {
 		return nil, err
 	}
 	if err := cleanupSingleProjectRuntimePluginRows(); err != nil {
@@ -345,7 +345,7 @@ func (s *Server) handleListPlugins(r *ghttp.Request) {
 			continue
 		}
 
-		isPro := meta.Name == "ai_predict" || meta.Name == "ai_copilot" || strings.EqualFold(meta.Name, "script") || meta.Name == "gb28181" || meta.Name == "webrtc" || meta.Name == "voice_assistant" || meta.Name == "yolo_pro"
+		isPro := meta.Name == "ai_brain" || meta.Name == "ai_predict" || meta.Name == "ai_copilot" || strings.EqualFold(meta.Name, "script") || meta.Name == "gb28181" || meta.Name == "webrtc" || meta.Name == "voice_assistant" || meta.Name == "yolo_pro"
 		isAllowed := s.Manager.IsAllowed(meta)
 		isUnauthorized := isPro && !isAllowed
 

@@ -283,7 +283,7 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
-	s.Logger.Info("ListDevices fetched from DB", zap.Int("count", len(devices)), zap.Uint("reqTenantID", tenantID), zap.Uint("reqProjectID", projectID))
+	//s.Logger.Info("ListDevices fetched from DB", zap.Int("count", len(devices)), zap.Uint("reqTenantID", tenantID), zap.Uint("reqProjectID", projectID))
 
 	if authCtx := requestAuthContext(r); authCtx != nil {
 		filtered := make([]store.Device, 0, len(devices))
@@ -1095,6 +1095,7 @@ func (s *Server) handleWritePoint(r *ghttp.Request) {
 		return
 	}
 
+	s.recordDeviceControlEvidence(r, *deviceModel, req.PointID, pointConfig, req.Value)
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Write successful"})
 }
 

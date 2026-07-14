@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"noyo/core/store"
 	"strings"
@@ -26,12 +27,26 @@ type rulePayload struct {
 	RetryCount    int                 `json:"retry_count"`
 	Priority      int                 `json:"priority"`
 	Enable        bool                `json:"enable"`
+	SourceType    string              `json:"source_type"`
+	SourceID      string              `json:"source_id"`
 }
 
 type ruleGroupPayload struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	SortOrder   int    `json:"sort_order"`
+}
+
+func normalizeRuleSource(sourceType, sourceID string) (string, string, error) {
+	sourceType = strings.TrimSpace(sourceType)
+	sourceID = strings.TrimSpace(sourceID)
+	if (sourceType == "") != (sourceID == "") {
+		return "", "", fmt.Errorf("source_type and source_id must be provided together")
+	}
+	if len(sourceType) > 64 || len(sourceID) > 191 {
+		return "", "", fmt.Errorf("rule source identifier is too long")
+	}
+	return sourceType, sourceID, nil
 }
 
 func (s *Server) RegisterRuleRoutes(group *ghttp.RouterGroup) {
@@ -97,10 +112,30 @@ func (s *Server) handleCreateRule(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": scopeErr.Error()})
 		return
 	}
+	sourceType, sourceID, sourceErr := normalizeRuleSource(payload.SourceType, payload.SourceID)
+	if sourceErr != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": sourceErr.Error()})
+		return
+	}
+	if sourceType != "" {
+		existing, err := store.GetRuleBySource(tenantID, projectID, sourceType, sourceID)
+		if err == nil {
+			r.Response.WriteJson(g.Map{"code": 0, "data": existing})
+			return
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+			return
+		}
+	}
 	rule, err := s.buildRuleFromPayload("", payload, tenantID, projectID, requestUserID(r))
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 		return
+	}
+	if sourceType != "" {
+		rule.SourceType = &sourceType
+		rule.SourceID = &sourceID
 	}
 	if payload.Enable {
 		if err := s.validateRuleControlPermission(r, rule); err != nil {
@@ -111,6 +146,12 @@ func (s *Server) handleCreateRule(r *ghttp.Request) {
 		rule.Status = RuleStatusEnabled
 	}
 	if err := store.SaveRule(rule); err != nil {
+		if sourceType != "" {
+			if existing, findErr := store.GetRuleBySource(tenantID, projectID, sourceType, sourceID); findErr == nil {
+				r.Response.WriteJson(g.Map{"code": 0, "data": existing})
+				return
+			}
+		}
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -140,6 +181,8 @@ func (s *Server) handleUpdateRule(r *ghttp.Request) {
 	rule.TriggerCount = existing.TriggerCount
 	rule.ErrorMessage = existing.ErrorMessage
 	rule.EnabledBy = existing.EnabledBy
+	rule.SourceType = existing.SourceType
+	rule.SourceID = existing.SourceID
 	if payload.Enable {
 		if err := s.validateRuleControlPermission(r, rule); err != nil {
 			r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})

@@ -159,6 +159,12 @@ func permissionWithinAssignmentLimit(tx *gorm.DB, permissionID uint, targetRole 
 	if authCtx == nil || authCtx.TenantID == 0 {
 		return false
 	}
+
+	state, err := store.LoadSetupState()
+	if err == nil && state != nil && IsSingleProjectSetupMode(state.Mode) {
+		return true
+	}
+
 	if targetRole.ProjectID > 0 {
 		return permissionIDInScopeLimit(tx, permissionLimitScopeProject, authCtx.TenantID, targetRole.ProjectID, permissionID)
 	}

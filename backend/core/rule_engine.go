@@ -616,7 +616,11 @@ func (re *RuleEngine) writeLog(execCtx *RuleExecContext, trigger RuleTrigger, ev
 		log.GatewaySN = model.GatewaySN
 		log.ExecutedAs = model.EnabledBy
 	}
-	if err := store.CreateRuleExecLog(log); err == nil && success {
+	createErr := store.CreateRuleExecLog(log)
+	if createErr == nil && !success {
+		re.server.recordRuleExecutionFailureEvidence(log)
+	}
+	if createErr == nil && success {
 		now := time.Now().UnixMilli()
 		_ = store.DB.Model(&store.Rule{}).Where("code = ?", execCtx.Rule.Code).Updates(map[string]any{
 			"last_triggered_at": &now,

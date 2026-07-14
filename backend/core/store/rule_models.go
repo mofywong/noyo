@@ -4,8 +4,8 @@ import "gorm.io/gorm"
 
 type Rule struct {
 	ID          uint   `gorm:"primaryKey;autoIncrement" json:"id"`
-	TenantID    uint   `gorm:"index:idx_rule_tenant_project" json:"tenant_id"`
-	ProjectID   uint   `gorm:"index:idx_rule_tenant_project" json:"project_id"`
+	TenantID    uint   `gorm:"index:idx_rule_tenant_project;uniqueIndex:idx_rule_source,priority:1" json:"tenant_id"`
+	ProjectID   uint   `gorm:"index:idx_rule_tenant_project;uniqueIndex:idx_rule_source,priority:2" json:"project_id"`
 	Code        string `gorm:"uniqueIndex;size:64;not null" json:"code"`
 	Name        string `gorm:"size:128;not null" json:"name"`
 	Description string `gorm:"size:512" json:"description"`
@@ -31,10 +31,12 @@ type Rule struct {
 	SyncState string `gorm:"size:20" json:"sync_state"`
 	SyncError string `gorm:"size:512" json:"sync_error"`
 
-	LastTriggeredAt *int64 `json:"last_triggered_at"`
-	TriggerCount    int64  `gorm:"default:0" json:"trigger_count"`
-	ErrorMessage    string `gorm:"size:512" json:"error_message"`
-	EnabledBy       uint   `gorm:"index" json:"enabled_by"`
+	LastTriggeredAt *int64  `json:"last_triggered_at"`
+	TriggerCount    int64   `gorm:"default:0" json:"trigger_count"`
+	ErrorMessage    string  `gorm:"size:512" json:"error_message"`
+	EnabledBy       uint    `gorm:"index" json:"enabled_by"`
+	SourceType      *string `gorm:"size:64;uniqueIndex:idx_rule_source,priority:3" json:"source_type,omitempty"`
+	SourceID        *string `gorm:"size:191;uniqueIndex:idx_rule_source,priority:4" json:"source_id,omitempty"`
 
 	CreatedAt int64 `gorm:"autoCreateTime:milli" json:"created_at"`
 	UpdatedAt int64 `gorm:"autoUpdateTime:milli" json:"updated_at"`
@@ -119,6 +121,14 @@ func ListRules(page, pageSize int, tenantID, projectID uint) ([]Rule, int64, err
 func GetRule(code string) (*Rule, error) {
 	var rule Rule
 	if err := DB.Where("code = ?", code).First(&rule).Error; err != nil {
+		return nil, err
+	}
+	return &rule, nil
+}
+
+func GetRuleBySource(tenantID, projectID uint, sourceType, sourceID string) (*Rule, error) {
+	var rule Rule
+	if err := DB.Where("tenant_id = ? AND project_id = ? AND source_type = ? AND source_id = ?", tenantID, projectID, sourceType, sourceID).First(&rule).Error; err != nil {
 		return nil, err
 	}
 	return &rule, nil

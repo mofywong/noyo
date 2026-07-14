@@ -16,6 +16,7 @@ export const isProjectAdminUser = (user) => {
 
 export const hasUserPermission = (user, code) => {
   if (!user) return false
+  if (user.is_system_admin) return true
   return Array.isArray(user.permissions) && user.permissions.includes(code)
 }
 

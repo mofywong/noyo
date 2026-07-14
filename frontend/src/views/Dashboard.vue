@@ -173,7 +173,7 @@
             <div v-if="aiStats.anomalies && aiStats.anomalies.length > 0" class="list-group list-group-flush small">
               <div v-for="(item, idx) in aiStats.anomalies.slice(0, 3)" :key="idx" class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center bg-transparent">
                 <span class="text-truncate pe-2">
-                  {{ item.device_code }} <span class="text-muted">({{ item.property }})</span>
+                  {{ deviceDisplay(item.device_code) }} <span class="text-muted">({{ item.property }})</span>
                 </span>
                 <span class="badge bg-danger-subtle text-danger border border-danger-subtle flex-shrink-0">{{ item.health_score.toFixed(1) }}</span>
               </div>
@@ -310,6 +310,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import axios from 'axios';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth.js';
+import { formatNamedReference } from '../utils/entityDisplay.js';
 
 const { t } = useI18n();
 const authStore = useAuthStore();
@@ -349,6 +350,8 @@ const aiStats = ref({
     anomaly_count: 0,
     anomalies: []
 });
+const deviceNames = ref({});
+const deviceDisplay = (code) => formatNamedReference(deviceNames.value[code], code);
 
 const fetchAIStats = async () => {
     if (!authStore.hasPermission('plugin:list')) return;
@@ -397,16 +400,11 @@ const fetchDashboardData = async () => {
             const resDevices = await axios.get('/api/devices');
             if (resDevices.data.code === 0) {
                 const data = resDevices.data.data;
-                if (data.list) {
-                    stats.value.devices.total = data.total || data.list.length;
-                    stats.value.devices.online = data.list.filter(d => d.online).length;
-                    stats.value.devices.offline = stats.value.devices.total - stats.value.devices.online;
-                } else {
-                    const list = Array.isArray(data) ? data : [];
-                    stats.value.devices.total = list.length;
-                    stats.value.devices.online = list.filter(d => d.online).length;
-                    stats.value.devices.offline = stats.value.devices.total - stats.value.devices.online;
-                }
+                const list = Array.isArray(data?.list) ? data.list : (Array.isArray(data) ? data : []);
+                stats.value.devices.total = data?.total || list.length;
+                stats.value.devices.online = list.filter(d => d.online).length;
+                stats.value.devices.offline = stats.value.devices.total - stats.value.devices.online;
+                deviceNames.value = Object.fromEntries(list.map(device => [device.code, device.name]));
             }
         }
 

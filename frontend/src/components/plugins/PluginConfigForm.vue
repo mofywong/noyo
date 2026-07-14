@@ -114,6 +114,34 @@
                 ></textarea>
               </div>
 
+              <div v-else-if="field.type === 'time_array'" class="mb-3">
+                <label class="form-label fw-bold d-block mb-1">
+                  {{ getLocalized(field.title) || field.name }}
+                </label>
+                <div v-if="getLocalized(field.description)" class="form-text text-muted mb-2 mt-0">
+                  {{ getLocalized(field.description) }}
+                </div>
+                <div class="d-flex flex-column gap-2">
+                  <div v-for="(item, index) in (Array.isArray(formData[field.name]) ? formData[field.name] : [])" :key="index" class="d-flex align-items-center gap-2">
+                    <input
+                      type="time"
+                      class="form-control"
+                      style="max-width: 150px;"
+                      :value="item"
+                      @input="updateArrayItem(field.name, index, $event.target.value)"
+                    >
+                    <button type="button" class="btn btn-outline-danger" @click="removeArrayItem(field.name, index)">
+                      <i class="bi bi-dash"></i>
+                    </button>
+                  </div>
+                  <div>
+                    <button type="button" class="btn btn-outline-primary btn-sm" @click="addArrayItem(field.name, '00:00')">
+                      <i class="bi bi-plus"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <div v-else class="mb-3">
                 <label :for="'field-'+field.name" class="form-label fw-bold d-block mb-1">
                   {{ getLocalized(field.title) || field.name }}
@@ -194,6 +222,24 @@ const getLocalized = (obj) => {
 
 const updateField = (name, value) => {
   emit('update:form-data', { ...props.formData, [name]: value });
+};
+
+const updateArrayItem = (name, index, value) => {
+  const current = Array.isArray(props.formData[name]) ? [...props.formData[name]] : [];
+  current[index] = value;
+  updateField(name, current);
+};
+
+const removeArrayItem = (name, index) => {
+  const current = Array.isArray(props.formData[name]) ? [...props.formData[name]] : [];
+  current.splice(index, 1);
+  updateField(name, current);
+};
+
+const addArrayItem = (name, defaultValue) => {
+  const current = Array.isArray(props.formData[name]) ? [...props.formData[name]] : [];
+  current.push(defaultValue);
+  updateField(name, current);
 };
 
 const numberValue = (value) => {

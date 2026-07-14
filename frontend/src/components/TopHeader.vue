@@ -181,6 +181,7 @@ import {
   getAlarmToastMessage,
   isAlarmEvent
 } from '../utils/alarmEvents.js';
+import { formatNamedReference } from '../utils/entityDisplay.js';
 
 defineProps({
   title: String,
@@ -264,10 +265,7 @@ const recentAlarms = computed(() => {
 
 const getDeviceName = (code) => {
   if (!code) return '-';
-  if (devices.value[code] && devices.value[code].name) {
-    return devices.value[code].name;
-  }
-  return code;
+  return formatNamedReference(devices.value[code]?.name, code);
 };
 
 const getEventDef = (evt) => {

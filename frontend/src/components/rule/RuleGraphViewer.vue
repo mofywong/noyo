@@ -282,7 +282,7 @@
             <label class="form-label">设备</label>
             <select class="form-select form-select-sm" v-model="selectedNode.deviceCode">
               <option value="">请选择设备</option>
-              <option v-for="dev in devices" :key="dev.code" :value="dev.code">{{ dev.name || dev.code }}</option>
+              <option v-for="dev in devices" :key="dev.code" :value="dev.code">{{ formatNamedReference(dev.name, dev.code) }}</option>
             </select>
           </div>
 
@@ -519,6 +519,7 @@ import { useI18n } from 'vue-i18n'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import { canActionNodeHandleDrop, insertActionAt, moveActionToList } from '../../utils/ruleGraphDnd.js'
+import { formatNamedReference } from '../../utils/entityDisplay.js'
 
 /* ============================================
  *  递归卡片节点组件
@@ -614,14 +615,14 @@ const RgConditionGroup = defineComponent({
     function deviceName(code) {
       if (!code) return '-'
       const d = findDevice(code)
-      return d ? (d.name || d.code) : code
+      return d ? formatNamedReference(d.name, d.code) : code
     }
     function optKey(item) { return item?.key || item?.identifier || '' }
     function propName(devCode, propKey) {
       if (!propKey) return '-'
       const dev = findDevice(devCode)
       const p = (dev?.properties || []).find(item => optKey(item) === propKey)
-      return p ? (p.name || optKey(p)) : propKey
+      return p ? formatNamedReference(p.name, optKey(p)) : propKey
     }
     function opLabel(op) {
       const map = {
@@ -1509,26 +1510,26 @@ export default {
     function deviceName(code) {
       if (!code) return '-'
       const d = findDevice(code)
-      return d ? `${d.name || d.code}` : code
+      return d ? formatNamedReference(d.name, d.code) : code
     }
     function optKey(item) { return item?.key || item?.identifier || '' }
     function propName(devCode, propKey) {
       if (!propKey) return propKey
       const dev = findDevice(devCode)
       const p = (dev?.properties || []).find(item => optKey(item) === propKey)
-      return p ? (p.name || optKey(p)) : propKey
+      return p ? formatNamedReference(p.name, optKey(p)) : propKey
     }
     function eventName(devCode, eventId) {
       if (!eventId) return eventId
       const dev = findDevice(devCode)
       const e = (dev?.events || []).find(item => optKey(item) === eventId)
-      return e ? (e.name || optKey(e)) : eventId
+      return e ? formatNamedReference(e.name, optKey(e)) : eventId
     }
     function serviceName(devCode, serviceCode) {
       if (!serviceCode) return serviceCode
       const dev = findDevice(devCode)
       const s = (dev?.services || []).find(item => optKey(item) === serviceCode)
-      return s ? (s.name || optKey(s)) : serviceCode
+      return s ? formatNamedReference(s.name, optKey(s)) : serviceCode
     }
     function opLabel(op) {
       const map = {

@@ -42,6 +42,45 @@
       <router-view />
     </template>
     
+    <div v-if="activeHabitRuleSuggestion" class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true" style="background: rgba(0,0,0,0.45);">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ habitRuleText('title') }}</h5>
+          </div>
+          <div class="modal-body">
+            <template v-if="!createdHabitRule">
+              <p class="mb-3">{{ activeHabitRuleSuggestion.summary }}</p>
+              <div class="border rounded p-3 bg-body-tertiary">
+                <div><strong>{{ habitRuleText('ruleName') }}：</strong>{{ activeHabitRuleDescription.name }}</div>
+                <div class="mt-2"><strong>{{ habitRuleText('trigger') }}：</strong>{{ activeHabitRuleDescription.trigger }}</div>
+                <div class="mt-2"><strong>{{ habitRuleText('action') }}：</strong>{{ activeHabitRuleDescription.action }}</div>
+              </div>
+              <p class="text-muted small mt-3 mb-0">{{ habitRuleText('confirmationHint') }}</p>
+            </template>
+            <template v-else>
+              <div class="alert alert-success py-2">{{ habitRuleText('created') }}</div>
+              <div class="border rounded p-3 bg-body-tertiary">
+                <div><strong>{{ habitRuleText('ruleName') }}：</strong>{{ activeHabitRuleDescription.name }}</div>
+                <div class="mt-2"><strong>{{ habitRuleText('trigger') }}：</strong>{{ activeHabitRuleDescription.trigger }}</div>
+                <div class="mt-2"><strong>{{ habitRuleText('action') }}：</strong>{{ activeHabitRuleDescription.action }}</div>
+                <div class="mt-2"><strong>{{ habitRuleText('status') }}：</strong>{{ createdHabitRule.enabled ? habitRuleText('enabled') : habitRuleText('disabled') }}</div>
+              </div>
+            </template>
+          </div>
+          <div class="modal-footer">
+            <template v-if="!createdHabitRule">
+              <button type="button" class="btn btn-outline-secondary" :disabled="habitRuleActionLoading" @click="dismissHabitRuleSuggestion">{{ habitRuleText('no') }}</button>
+              <button type="button" class="btn btn-primary" :disabled="habitRuleActionLoading" @click="confirmHabitRuleSuggestion">
+                <span v-if="habitRuleActionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ habitRuleText('yes') }}
+              </button>
+            </template>
+            <button v-else type="button" class="btn btn-primary" @click="acknowledgeCreatedHabitRule">{{ habitRuleText('acknowledge') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <ToastContainer />
     
     <div class="modal fade" id="forceChangePasswordModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
@@ -86,6 +125,8 @@ import TopHeader from './components/TopHeader.vue';
 import ToastContainer from './components/ToastContainer.vue';
 import { useToast } from './composables/useToast';
 import { gatewayActionText, gatewayText } from './utils/gatewayLocale';
+import { isSuccessfulDeviceWriteResponse } from './utils/aiBrainSuggestionReminder';
+import { buildHabitRuleCreatePayload, describeHabitRule, isHabitRuleSuggestion } from './utils/aiBrainHabitRule';
 import { usePlugins } from './plugins/registry';
 import { Modal } from 'bootstrap';
 import { useAuthStore } from './stores/auth';
@@ -175,6 +216,37 @@ const updatePluginStatus = async (name, enabled) => {
 };
 
 let mqttStatusSSE = null;
+let aiBrainSuggestionTimer = null;
+let aiBrainSuggestionInterceptor = null;
+let lastNotifiedSuggestionCount = 0;
+const activeHabitRuleSuggestion = ref(null);
+const createdHabitRule = ref(null);
+const habitRuleActionLoading = ref(false);
+
+const habitRuleMessages = {
+  en: {
+    title: 'Xiaoyou discovered a usage habit', ruleName: 'Rule', trigger: 'Trigger', action: 'Action', status: 'Status',
+    confirmationHint: 'Choose Yes to create and enable this rule now. You can manage it later in Rule Scenarios.',
+    created: 'The automation rule was created and enabled.', enabled: 'Enabled', disabled: 'Disabled',
+    yes: 'Yes, create rule', no: 'No, dismiss', acknowledge: 'Got it', failed: 'Failed to process the AI Brain habit suggestion',
+  },
+  zh: {
+    title: '小优发现了您的使用习惯', ruleName: '具体规则', trigger: '触发条件', action: '执行动作', status: '当前状态',
+    confirmationHint: '选择“是”后将立即创建并启用该规则，之后可在规则场景中管理。',
+    created: '自动化规则已创建并启用。', enabled: '已启用', disabled: '未启用',
+    yes: '是，创建规则', no: '否，忽略建议', acknowledge: '我知道了', failed: 'AI 大脑习惯建议处理失败',
+  },
+};
+
+const habitRuleLanguage = computed(() => String(locale.value || '').toLowerCase().startsWith('en') ? 'en' : 'zh');
+const habitRuleText = (key) => habitRuleMessages[habitRuleLanguage.value][key] || habitRuleMessages.en[key] || key;
+const activeHabitRuleDescription = computed(() => {
+  try {
+    return describeHabitRule(activeHabitRuleSuggestion.value);
+  } catch (error) {
+    return { name: '-', trigger: '-', action: '-' };
+  }
+});
 
 const initMqttStatusSSE = () => {
   if (mqttStatusSSE) return;
@@ -208,10 +280,113 @@ const closeMqttStatusSSE = () => {
   }
 };
 
+const aiBrainSuggestionMessage = (count) => {
+  if (String(locale.value || '').toLowerCase().startsWith('en')) {
+    return `${count} AI Brain suggestion${count > 1 ? 's' : ''} need review.`;
+  }
+  return `有 ${count} 条 AI 大脑建议待处理。`;
+};
+
+const checkAIBrainSuggestions = async () => {
+  if (!authStore.hasPermission('ai_brain:suggestion')) return;
+  try {
+    const res = await axios.get('/api/plugins/ai_brain/suggestions', {
+      params: { status: 'pending', page_size: 50 },
+    });
+    if (!res.data || res.data.code !== 0) return;
+    const page = res.data.data;
+    const items = Array.isArray(page) ? page : (Array.isArray(page?.items) ? page.items : []);
+    const count = Array.isArray(page) ? page.length : Math.max(0, Number(page?.total) || items.length);
+    if (!activeHabitRuleSuggestion.value && !createdHabitRule.value) {
+      const habitSuggestion = items.find(isHabitRuleSuggestion);
+      if (habitSuggestion) activeHabitRuleSuggestion.value = habitSuggestion;
+    }
+    if (count > 0 && count !== lastNotifiedSuggestionCount) {
+      showToast('info', aiBrainSuggestionMessage(count));
+    }
+    lastNotifiedSuggestionCount = count;
+  } catch (e) {
+    lastNotifiedSuggestionCount = 0;
+  }
+};
+
+const transitionHabitRuleSuggestion = async (suggestion, action) => {
+  const response = await axios.post(`/api/plugins/ai_brain/suggestions/${suggestion.id}/${action}`, {});
+  if (!response.data || response.data.code !== 0) {
+    throw new Error(response.data?.message || habitRuleText('failed'));
+  }
+  return response.data.data;
+};
+
+const confirmHabitRuleSuggestion = async () => {
+  if (!activeHabitRuleSuggestion.value || habitRuleActionLoading.value) return;
+  habitRuleActionLoading.value = true;
+  try {
+    const payload = buildHabitRuleCreatePayload(activeHabitRuleSuggestion.value);
+    const response = await axios.post('/api/rules', payload);
+    if (!response.data || response.data.code !== 0) {
+      throw new Error(response.data?.message || habitRuleText('failed'));
+    }
+    await transitionHabitRuleSuggestion(activeHabitRuleSuggestion.value, 'accept');
+    createdHabitRule.value = response.data.data;
+    lastNotifiedSuggestionCount = Math.max(0, lastNotifiedSuggestionCount - 1);
+  } catch (error) {
+    showToast('danger', `${habitRuleText('failed')}: ${error.message || error}`);
+  } finally {
+    habitRuleActionLoading.value = false;
+  }
+};
+
+const dismissHabitRuleSuggestion = async () => {
+  if (!activeHabitRuleSuggestion.value || habitRuleActionLoading.value) return;
+  habitRuleActionLoading.value = true;
+  try {
+    await transitionHabitRuleSuggestion(activeHabitRuleSuggestion.value, 'dismiss');
+    activeHabitRuleSuggestion.value = null;
+    lastNotifiedSuggestionCount = Math.max(0, lastNotifiedSuggestionCount - 1);
+  } catch (error) {
+    showToast('danger', `${habitRuleText('failed')}: ${error.message || error}`);
+  } finally {
+    habitRuleActionLoading.value = false;
+  }
+};
+
+const acknowledgeCreatedHabitRule = () => {
+  activeHabitRuleSuggestion.value = null;
+  createdHabitRule.value = null;
+};
+
+const startAIBrainSuggestionReminder = () => {
+  if (aiBrainSuggestionTimer) return;
+  checkAIBrainSuggestions();
+  aiBrainSuggestionTimer = window.setInterval(checkAIBrainSuggestions, 120000);
+  aiBrainSuggestionInterceptor = axios.interceptors.response.use((response) => {
+    if (isSuccessfulDeviceWriteResponse(response)) {
+      window.setTimeout(checkAIBrainSuggestions, 0);
+    }
+    return response;
+  }, (error) => Promise.reject(error));
+};
+
+const stopAIBrainSuggestionReminder = () => {
+  if (aiBrainSuggestionTimer) {
+    window.clearInterval(aiBrainSuggestionTimer);
+    aiBrainSuggestionTimer = null;
+  }
+  if (aiBrainSuggestionInterceptor !== null) {
+    axios.interceptors.response.eject(aiBrainSuggestionInterceptor);
+    aiBrainSuggestionInterceptor = null;
+  }
+  lastNotifiedSuggestionCount = 0;
+  activeHabitRuleSuggestion.value = null;
+  createdHabitRule.value = null;
+};
+
 const loadShellData = () => {
   checkLicense();
   fetchPlugins();
   initMqttStatusSSE();
+  startAIBrainSuggestionReminder();
 
   axios.get('/api/setup/status').then(res => {
     if (res.data && res.data.code === 0) {
@@ -284,6 +459,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   closeMqttStatusSSE();
+  stopAIBrainSuggestionReminder();
 });
 
 watch(shouldLoadShellData, (enabled) => {
@@ -291,6 +467,7 @@ watch(shouldLoadShellData, (enabled) => {
     loadShellData();
   } else {
     closeMqttStatusSSE();
+    stopAIBrainSuggestionReminder();
     plugins.value = [];
     mqttStatus.value = null;
   }

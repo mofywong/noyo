@@ -60,6 +60,16 @@ func InitDB(dsn string) error {
 		return fmt.Errorf("failed to create database directory: %w", err)
 	}
 
+	// Append concurrency parameters if not present
+	if !strings.Contains(dsn, "?") {
+		dsn += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate"
+	} else if !strings.Contains(dsn, "_txlock") {
+		if !strings.Contains(dsn, "_pragma=busy_timeout") {
+			dsn += "&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+		}
+		dsn += "&_txlock=immediate"
+	}
+
 	// Use pure go sqlite
 	DB, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: newGormLogger("warn"),
@@ -165,22 +175,28 @@ func purgeLegacyPositionPermissions() error {
 }
 
 var superAdminDefaultPermissionCodes = map[string]bool{
-	"tenant:list":       true,
-	"tenant:create":     true,
-	"tenant:edit":       true,
-	"tenant:delete":     true,
-	"dashboard:view":    true,
-	"audit:list":        true,
-	"system:logs":       true,
-	"system:license":    true,
-	"rule:list":         true,
-	"rule:detail":       true,
-	"rule:create":       true,
-	"rule:edit":         true,
-	"rule:delete":       true,
-	"rule:enable":       true,
-	"rule:log":          true,
-	"rule_group:manage": true,
+	"tenant:list":         true,
+	"tenant:create":       true,
+	"tenant:edit":         true,
+	"tenant:delete":       true,
+	"dashboard:view":      true,
+	"audit:list":          true,
+	"system:logs":         true,
+	"system:license":      true,
+	"rule:list":           true,
+	"rule:detail":         true,
+	"rule:create":         true,
+	"rule:edit":           true,
+	"rule:delete":         true,
+	"rule:enable":         true,
+	"rule:log":            true,
+	"rule_group:manage":   true,
+	"ai_brain:view":       true,
+	"ai_brain:review":     true,
+	"ai_brain:edit":       true,
+	"ai_brain:delete":     true,
+	"ai_brain:suggestion": true,
+	"ai_brain:manage":     true,
 }
 
 var exclusiveTenantManagementPermissionCodes = map[string]bool{
@@ -215,6 +231,7 @@ var VoiceAssistantDefaultReadPermissionCodes = []string{
 	"system:config",
 	"system:logs",
 	"system:license",
+	"ai_brain:view",
 }
 
 func InitDefaultData() {
@@ -289,6 +306,13 @@ func InitPermissions() {
 		// Plugins
 		{Code: "plugin:list", Name: "插件列表", Module: "plugin", Type: "menu"},
 		{Code: "plugin:config", Name: "配置插件", Module: "plugin", Type: "button"},
+		// AI Brain
+		{Code: "ai_brain:view", Name: "AI大脑查看", Module: "ai_brain", Type: "menu"},
+		{Code: "ai_brain:review", Name: "AI大脑审核", Module: "ai_brain", Type: "button"},
+		{Code: "ai_brain:edit", Name: "AI大脑编辑", Module: "ai_brain", Type: "button"},
+		{Code: "ai_brain:delete", Name: "AI大脑删除", Module: "ai_brain", Type: "button"},
+		{Code: "ai_brain:suggestion", Name: "AI大脑建议处理", Module: "ai_brain", Type: "button"},
+		{Code: "ai_brain:manage", Name: "AI大脑管理", Module: "ai_brain", Type: "button"},
 		// Gateway
 		{Code: "gateway:list", Name: "网关管理", Module: "gateway", Type: "menu"},
 		{Code: "gateway:config", Name: "网关配置", Module: "gateway", Type: "button"},
@@ -474,7 +498,7 @@ func InitPermissions() {
 					})
 			}
 
-			if perm.Module == "user" || perm.Module == "role" || perm.Module == "product" || perm.Module == "device" || perm.Module == "device_tag" || perm.Module == "gateway" || perm.Module == "alarm" || perm.Module == "rule" || perm.Module == "plugin" {
+			if perm.Module == "user" || perm.Module == "role" || perm.Module == "product" || perm.Module == "device" || perm.Module == "device_tag" || perm.Module == "gateway" || perm.Module == "alarm" || perm.Module == "rule" || perm.Module == "plugin" || perm.Module == "ai_brain" {
 				DB.Where("role_id = ? AND permission_id = ?", projectAdminRole.ID, perm.ID).
 					FirstOrCreate(&RolePermission{
 						RoleID:       projectAdminRole.ID,

@@ -4,7 +4,7 @@
       <div class="modal-dialog modal-xl">
         <div class="modal-content" style="height: 90vh; display: flex; flex-direction: column;">
           <div class="modal-header">
-            <h5 class="modal-title">{{ $t('dev_data_title') }} - {{ currentDataDevice?.code }}</h5>
+            <h5 class="modal-title">{{ $t('dev_data_title') }} - {{ formatNamedReference(currentDataDevice?.name, currentDataDevice?.code) }}</h5>
             <button type="button" class="btn-close" @click="closeModal"></button>
           </div>
           <div class="modal-body d-flex flex-column">
@@ -303,6 +303,7 @@ import {
   getOutputValue,
   hasServiceOutputParams
 } from './deviceServiceOutput.js';
+import { formatNamedReference } from '../../utils/entityDisplay.js';
 
 const props = defineProps({
   visible: Boolean,

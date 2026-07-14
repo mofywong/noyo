@@ -30,7 +30,7 @@
               <td :colspan="showProjectColumn ? 6 : 5" class="py-4 text-muted">{{ $t('driver_no_data', '暂无驱动数据') }}</td>
             </tr>
             <tr v-for="driver in drivers" :key="driver.code">
-              <td class="ps-4 font-monospace d-none d-md-table-cell">{{ driver.code }}</td>
+              <td class="ps-4 d-none d-md-table-cell">{{ formatNamedReference(driver.name, driver.code) }}</td>
               <td class="fw-bold">{{ driver.name }}</td>
               <td v-if="showProjectColumn" class="d-none d-lg-table-cell">
                 <span class="badge text-bg-light border">{{ driver.project_name || '-' }}</span>
@@ -141,6 +141,7 @@ import SchemaForm from '../components/SchemaForm.vue';
 import ScriptProductConfig from '../components/script/ScriptProductConfig.vue';
 import { useAuthStore } from '../stores/auth';
 import { isSingleProjectMode } from '../utils/systemMode.js';
+import { formatNamedReference } from '../utils/entityDisplay.js';
 
 const { t, locale } = useI18n();
 const { showToast } = useToast();

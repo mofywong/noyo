@@ -76,7 +76,7 @@
               <div class="col-md-5">
                 <select class="form-select form-select-sm" v-model="productFilter">
                   <option value="">{{ $t('dev_product') }}: {{ $t('all') }}</option>
-                  <option v-for="code in productOptions" :key="code" :value="code">{{ code }}</option>
+                  <option v-for="code in productOptions" :key="code" :value="code">{{ productDisplay(code) }}</option>
                 </select>
               </div>
             </div>
@@ -108,9 +108,9 @@
                     <article v-for="device in assignedVisibleDevices" :key="device.code" class="device-list-item">
                       <div class="device-list-item__main">
                         <div class="device-name" :title="device.name || '-'">{{ device.name || '-' }}</div>
-                        <div class="device-code" :title="device.code">{{ device.code }}</div>
+                        <div class="device-code" :title="deviceDisplay(device)">{{ deviceDisplay(device) }}</div>
                         <div class="device-list-item__meta">
-                          <span class="product-pill" :title="device.product_code">{{ device.product_code || '-' }}</span>
+                          <span class="product-pill" :title="productDisplay(device.product_code)">{{ productDisplay(device.product_code) || '-' }}</span>
                           <span class="badge rounded-pill" :class="device.online ? 'bg-success' : 'bg-secondary'">
                             {{ device.online ? $t('dev_online') : $t('dev_offline') }}
                           </span>
@@ -142,9 +142,9 @@
                     <article v-for="device in unassignedVisibleDevices" :key="device.code" class="device-list-item">
                       <div class="device-list-item__main">
                         <div class="device-name" :title="device.name || '-'">{{ device.name || '-' }}</div>
-                        <div class="device-code" :title="device.code">{{ device.code }}</div>
+                        <div class="device-code" :title="deviceDisplay(device)">{{ deviceDisplay(device) }}</div>
                         <div class="device-list-item__meta">
-                          <span class="product-pill" :title="device.product_code">{{ device.product_code || '-' }}</span>
+                          <span class="product-pill" :title="productDisplay(device.product_code)">{{ productDisplay(device.product_code) || '-' }}</span>
                           <span class="badge rounded-pill" :class="device.online ? 'bg-success' : 'bg-secondary'">
                             {{ device.online ? $t('dev_online') : $t('dev_offline') }}
                           </span>
@@ -229,11 +229,13 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import axios from 'axios';
 import { useI18n } from 'vue-i18n';
+import { formatNamedReference, formatReferenceFromMap, referenceNameMap } from '../utils/entityDisplay.js';
 
 const { t } = useI18n();
 
 const tags = ref([]);
 const devices = ref([]);
+const products = ref([]);
 const selectedTag = ref(null);
 const assignedDeviceCodes = ref([]);
 const savedDeviceCodes = ref([]);
@@ -268,6 +270,9 @@ const assignmentListLimit = 80;
 const productOptions = computed(() => {
   return Array.from(new Set(devices.value.map(device => device.product_code).filter(Boolean))).sort();
 });
+const productNameMap = computed(() => referenceNameMap(products.value));
+const deviceDisplay = (device) => formatNamedReference(device?.name, device?.code);
+const productDisplay = (code) => formatReferenceFromMap(code, productNameMap.value);
 
 const filteredDevices = computed(() => {
   const keyword = deviceSearch.value.trim().toLowerCase();
@@ -325,6 +330,19 @@ const fetchDevices = async () => {
     console.error(e);
   } finally {
     loadingDevices.value = false;
+  }
+};
+
+const fetchProducts = async () => {
+  try {
+    const res = await axios.get('/api/products', { params: { pageSize: 1000, _t: Date.now() } });
+    if (res.data.code === 0) {
+      const data = res.data.data;
+      products.value = Array.isArray(data) ? data : (data?.list || []);
+    }
+  } catch (e) {
+    console.error(e);
+    products.value = [];
   }
 };
 
@@ -444,7 +462,7 @@ const saveAssignments = async () => {
 };
 
 onMounted(async () => {
-  await Promise.all([fetchTags(), fetchDevices()]);
+  await Promise.all([fetchTags(), fetchDevices(), fetchProducts()]);
   if (tags.value.length > 0) {
     selectTag(tags.value[0]);
   }

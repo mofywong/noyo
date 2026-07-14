@@ -30,7 +30,7 @@
               <td :colspan="showProjectColumn ? 7 : 6" class="py-4 text-muted">{{ $t('prod_no_products') }}</td>
             </tr>
             <tr v-for="product in products" :key="product.code">
-              <td class="ps-4 font-monospace d-none d-md-table-cell">{{ product.code }}</td>
+              <td class="ps-4 d-none d-md-table-cell">{{ formatNamedReference(product.name, product.code) }}</td>
               <td class="fw-bold">{{ product.name }}</td>
               <td v-if="showProjectColumn" class="d-none d-lg-table-cell">
                 <span class="badge text-bg-light border">{{ product.project_name || '-' }}</span>
@@ -154,6 +154,7 @@ import axios from 'axios';
 import { useI18n } from 'vue-i18n';
 import TSLEditor from '../components/tsl/TSLEditor.vue';
 import { isSingleProjectMode } from '../utils/systemMode.js';
+import { formatNamedReference } from '../utils/entityDisplay.js';
 
 const { t, locale } = useI18n();
 

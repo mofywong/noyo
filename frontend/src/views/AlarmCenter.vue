@@ -37,7 +37,6 @@
                 <td>{{ formatTime(evt.ts) }}</td>
                 <td>
                   <div class="fw-medium">{{ getDeviceName(evt.device_code) }}</div>
-                  <div class="small text-muted">{{ evt.device_code }}</div>
                 </td>
                 <td>
                   <span class="badge rounded-pill fw-normal px-2 py-1 alarm-badge" :class="getEventTypeColor(evt)">
@@ -135,7 +134,6 @@
                   <label class="detail-label">设备</label>
                   <div class="detail-value">
                     {{ getDeviceName(detailEvent.device_code) }}
-                    <span class="text-muted small ms-1">({{ detailEvent.device_code }})</span>
                   </div>
                 </div>
               </div>
@@ -237,6 +235,7 @@ import {
   getAlarmEventTypeLabel,
   getAlarmSceneLabel
 } from '../utils/alarmEvents.js';
+import { formatNamedReference } from '../utils/entityDisplay.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -382,10 +381,7 @@ const retrySnapshotImage = (_, evt) => {
 
 const getDeviceName = (code) => {
   if (!code) return '-';
-  if (devices.value[code] && devices.value[code].name) {
-    return devices.value[code].name;
-  }
-  return code;
+  return formatNamedReference(devices.value[code]?.name, code);
 };
 
 const getEventDef = (evt) => {

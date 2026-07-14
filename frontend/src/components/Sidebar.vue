@@ -59,6 +59,7 @@
       <a v-if="authStore.hasPermission('alarm:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AlarmCenter' }" @click.prevent="navigate('/alarms')">
         <i class="bi bi-bell-fill"></i> <span>{{ $t('sidebar_alarms', '告警中心') }}</span>
       </a>
+
       
       <!-- Dynamic Extension Menus -->
       <template v-for="menu in extensionMenus" :key="menu.name">

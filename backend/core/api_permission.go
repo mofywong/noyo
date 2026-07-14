@@ -306,8 +306,8 @@ func (s *Server) handleSetRolePermissions(r *ghttp.Request) {
 		return
 	}
 
-	if targetRole.IsBuiltin {
-		r.Response.WriteJson(g.Map{"code": 403, "message": "Cannot modify builtin roles"})
+	if targetRole.IsBuiltin || targetRole.Code == RoleCodeSuperAdmin {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Cannot modify super admin or builtin roles"})
 		return
 	}
 

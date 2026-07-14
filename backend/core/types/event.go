@@ -7,6 +7,7 @@ const (
 	EventDeviceStatusChanged EventType = "device.status.changed"
 	EventPropertyReported    EventType = "property.reported"
 	EventEventReported       EventType = "event.reported"
+	EventDeviceServiceResult EventType = "device.service.result"
 	EventDeviceListChanged   EventType = "device.list.changed"
 )
 

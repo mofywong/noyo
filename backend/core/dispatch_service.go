@@ -60,6 +60,7 @@ func (s *DispatchService) Start() {
 	s.EventBus.Subscribe(types.EventDeviceStatusChanged, s.handleDeviceStatusChanged)
 	s.EventBus.Subscribe(types.EventPropertyReported, s.handlePropertyReported)
 	s.EventBus.Subscribe(types.EventEventReported, s.handleEventReported)
+	s.EventBus.Subscribe(types.EventDeviceServiceResult, s.handleDeviceServiceResult)
 	s.Logger.Info("DispatchService started listening to events", zap.Int("workers", workers))
 }
 
@@ -93,27 +94,7 @@ func (s *DispatchService) processJob(job dispatchJob) {
 	data.Timestamp = job.timestamp
 	data.UniqueId = job.uniqueId // Only for event
 
-	// Map Payload
-	switch job.dataType {
-	case types.DataTypeStatus:
-		if status, ok := job.payload.(string); ok {
-			data.Payload["status"] = status
-		}
-	case types.DataTypeProperty:
-		if props, ok := job.payload.(map[string]interface{}); ok {
-			for k, v := range props {
-				data.Payload[k] = v
-			}
-		}
-	case types.DataTypeEvent:
-		if payloadMap, ok := job.payload.(map[string]interface{}); ok {
-			if params, ok := payloadMap["params"].(map[string]interface{}); ok {
-				for k, v := range params {
-					data.Payload[k] = v
-				}
-			}
-		}
-	}
+	copyDispatchPayload(data.Payload, job)
 
 	// Push to plugin
 	// Recover to be safe? Plugin might panic.
@@ -123,6 +104,35 @@ func (s *DispatchService) processJob(job dispatchJob) {
 			zap.String("plugin", job.plugin.GetMeta().Name),
 			zap.Error(err),
 		)
+	}
+}
+
+func copyDispatchPayload(target map[string]interface{}, job dispatchJob) {
+	switch job.dataType {
+	case types.DataTypeStatus:
+		if status, ok := job.payload.(string); ok {
+			target["status"] = status
+		}
+	case types.DataTypeProperty:
+		if props, ok := job.payload.(map[string]interface{}); ok {
+			for k, v := range props {
+				target[k] = v
+			}
+		}
+	case types.DataTypeEvent:
+		if payloadMap, ok := job.payload.(map[string]interface{}); ok {
+			if params, ok := payloadMap["params"].(map[string]interface{}); ok {
+				for k, v := range params {
+					target[k] = v
+				}
+			}
+		}
+	case types.DataTypeServiceResult:
+		if payloadMap, ok := job.payload.(map[string]interface{}); ok {
+			for k, v := range payloadMap {
+				target[k] = v
+			}
+		}
 	}
 }
 
@@ -221,6 +231,30 @@ func (s *DispatchService) handleEventReported(event types.Event) {
 			dataType:    types.DataTypeEvent,
 			timestamp:   event.Timestamp,
 			uniqueId:    eventId,
+			payload:     payloadMap,
+		})
+	}
+}
+
+func (s *DispatchService) handleDeviceServiceResult(event types.Event) {
+	payloadMap, ok := event.Payload.(map[string]interface{})
+	if !ok {
+		return
+	}
+	serviceID, _ := payloadMap["service_id"].(string)
+	productCode := s.getProductCode(event.Topic)
+	plugins := s.getPlatformPlugins()
+	for _, p := range plugins {
+		if !p.IsEnabled() {
+			continue
+		}
+		s.pushJob(dispatchJob{
+			plugin:      p,
+			deviceCode:  event.Topic,
+			productCode: productCode,
+			dataType:    types.DataTypeServiceResult,
+			timestamp:   event.Timestamp,
+			uniqueId:    serviceID,
 			payload:     payloadMap,
 		})
 	}

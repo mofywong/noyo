@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -58,7 +59,18 @@ func (r *Runtime) Generate(ctx context.Context, messages []*schema.Message) (*sc
 	if err != nil {
 		return nil, err
 	}
-	return model.Generate(ctx, messages)
+	if reqBytes, err := json.MarshalIndent(messages, "", "  "); err == nil {
+		fmt.Printf("========== LLM Generate Request ==========\n%s\n==========================================\n", string(reqBytes))
+	}
+	msg, err := model.Generate(ctx, messages)
+	if err == nil {
+		if respBytes, err := json.MarshalIndent(msg, "", "  "); err == nil {
+			fmt.Printf("========== LLM Generate Response ==========\n%s\n==========================================\n", string(respBytes))
+		}
+	} else {
+		fmt.Printf("========== LLM Generate Error ==========\n%v\n==========================================\n", err)
+	}
+	return msg, err
 }
 
 func (r *Runtime) Stream(ctx context.Context, messages []*schema.Message) (*schema.StreamReader[*schema.Message], error) {
@@ -130,6 +142,9 @@ func (r *Runtime) RunStreamToolLoop(ctx context.Context, messages []*schema.Mess
 
 	conversation := append([]*schema.Message(nil), messages...)
 	for turn := 0; turn < maxTurns; turn++ {
+		if reqBytes, err := json.MarshalIndent(conversation, "", "  "); err == nil {
+			fmt.Printf("========== LLM Stream Request (Turn %d) ==========\n%s\n==========================================\n", turn, string(reqBytes))
+		}
 		stream, err := r.Stream(ctx, conversation)
 		if err != nil {
 			return err
@@ -161,6 +176,9 @@ func (r *Runtime) RunStreamToolLoop(ctx context.Context, messages []*schema.Mess
 		msg, err := schema.ConcatMessages(chunks)
 		if err != nil {
 			return err
+		}
+		if respBytes, err := json.MarshalIndent(msg, "", "  "); err == nil {
+			fmt.Printf("========== LLM Stream Response (Turn %d) ==========\n%s\n==========================================\n", turn, string(respBytes))
 		}
 		if len(msg.ToolCalls) == 0 {
 			return nil

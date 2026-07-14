@@ -2,6 +2,7 @@
 package main
 
 import (
+	_ "noyo/plugins/pro/platform/ai_brain"
 	_ "noyo/plugins/pro/platform/ai_copilot"
 	_ "noyo/plugins/pro/platform/ai_predict"
 	_ "noyo/plugins/pro/platform/license_auth"
