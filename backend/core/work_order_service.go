@@ -622,6 +622,17 @@ func (s *WorkOrderService) SaveWorkflowDraft(scope WorkOrderScope, templateID ui
 	return template, nil
 }
 
+func clearUnpublishedAIDeviceMaintenanceWorkflowVersions(tx *gorm.DB, scope WorkOrderScope, template *store.WorkOrderTemplate) error {
+	if template.Code != DeviceMaintenanceWorkOrderTemplateCode || template.CurrentWorkflowVersion != 0 {
+		return nil
+	}
+	if err := tx.Unscoped().Where("tenant_id = ? AND project_id = ? AND template_id = ?", scope.TenantID, scope.ProjectID, template.ID).
+		Delete(&store.WorkOrderWorkflowVersion{}).Error; err != nil {
+		return fmt.Errorf("delete unpublished AI device maintenance workflow versions: %w", err)
+	}
+	return nil
+}
+
 // EnsureDeviceMaintenanceTemplate creates the scoped baseline used by the AI
 // suggestion adapter exactly once. Administrators can publish later versions
 // through the normal template APIs; existing versions are never overwritten.
@@ -704,6 +715,9 @@ func (s *WorkOrderService) EnsureDeviceMaintenanceTemplate(scope WorkOrderScope)
 				template.CurrentWorkflowVersion = 0
 				template.WorkflowDraftDefinition = string(encodedWorkflow)
 			}
+		}
+		if err := clearUnpublishedAIDeviceMaintenanceWorkflowVersions(tx, scope, &template); err != nil {
+			return err
 		}
 		return tx.Save(&template).Error
 	})
@@ -793,6 +807,9 @@ func (s *WorkOrderService) PublishWorkflowVersion(scope WorkOrderScope, template
 		}
 		if template.SystemManaged && template.Code != DeviceMaintenanceWorkOrderTemplateCode {
 			return fmt.Errorf("system-managed work order template cannot publish a custom workflow")
+		}
+		if err := clearUnpublishedAIDeviceMaintenanceWorkflowVersions(tx, scope, template); err != nil {
+			return err
 		}
 		if template.CurrentWorkflowVersion > 0 {
 			var current store.WorkOrderWorkflowVersion

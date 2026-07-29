@@ -24,7 +24,7 @@
         class="form-select"
       >
         <option value="">{{ text('select') }}</option>
-        <option v-for="option in field.options || []" :key="option" :value="option">{{ option }}</option>
+        <option v-for="option in field.options || []" :key="option" :value="option">{{ optionLabel(field, option) }}</option>
       </select>
       <div
         v-else-if="field.type === 'multi_select'"
@@ -35,7 +35,7 @@
       >
         <div v-for="(option, optionIndex) in field.options || []" :key="option" class="form-check">
           <input :id="`${inputId(field)}-${optionIndex}`" v-model="values[field.key]" class="form-check-input" type="checkbox" :value="option">
-          <label class="form-check-label" :for="`${inputId(field)}-${optionIndex}`">{{ option }}</label>
+          <label class="form-check-label" :for="`${inputId(field)}-${optionIndex}`">{{ optionLabel(field, option) }}</label>
         </div>
       </div>
       <select
@@ -170,6 +170,15 @@ const copy = {
   en: { select: 'Select', selectDevice: 'Select a device', triggerDevice: 'Triggering device (at rule runtime)', selectUser: 'Select a user', loadingDevices: 'Loading devices…', deviceLoadFailed: 'Unable to load devices. Try again later.', loadingUsers: 'Loading users…', userLoadFailed: 'Unable to load users. Try again later.', unavailableUser: 'Deleted or unavailable user', yes: 'Yes', uploadImages: 'Choose images (multiple allowed)', uploadingImages: 'Uploading images…', imageHint: 'JPG, PNG, GIF, WebP, or BMP; up to 10 MB each', imageUploadFailed: 'Unable to upload the image. Try again later.', invalidImageType: 'Use a JPG, PNG, GIF, WebP, or BMP image', imageTooLarge: 'Each image must be 10 MB or smaller', removeImage: 'Remove image', previewImages: 'Uploaded images', attachmentHint: 'Enter an uploaded attachment URL or storage reference', devicePlaceholder: 'Device code', userPlaceholder: 'User', attachmentPlaceholder: 'Attachment URL or storage reference' }
 }
 const text = key => copy[lang.value][key] || key
+
+function optionLabel(field, option) {
+  if (field?.key !== 'severity') return option
+  const labels = {
+    zh: { low: '低', normal: '普通', high: '高', urgent: '紧急' },
+    en: { low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent' }
+  }
+  return labels[lang.value][String(option)] || option
+}
 
 function normalizeValues(source = {}) {
   return { ...defaultFormValues(props.definition || {}), ...source }

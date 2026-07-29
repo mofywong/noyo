@@ -445,7 +445,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
@@ -533,6 +533,25 @@ const loading = ref(false)
 const actionLoading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+let feedbackDismissTimer = null
+
+watch([errorMessage, successMessage], ([nextErrorMessage, nextSuccessMessage]) => {
+  if (feedbackDismissTimer) {
+    window.clearTimeout(feedbackDismissTimer)
+    feedbackDismissTimer = null
+  }
+  if (!nextErrorMessage && !nextSuccessMessage) return
+  feedbackDismissTimer = window.setTimeout(() => {
+    errorMessage.value = ''
+    successMessage.value = ''
+    feedbackDismissTimer = null
+  }, 4500)
+})
+
+onBeforeUnmount(() => {
+  if (feedbackDismissTimer) window.clearTimeout(feedbackDismissTimer)
+})
+
 const templates = ref([])
 const orders = ref([])
 const orderTotal = ref(0)

@@ -171,10 +171,29 @@ func (ctx *AuthContext) CanManageProject(projectID uint) bool {
 	if ctx == nil {
 		return false
 	}
+	if ctx.IsSystemAdmin {
+		return projectID > 0 && ctx.canManageTenantUsers()
+	}
 	if ctx.IsTenantAdmin {
 		return true
 	}
 	return projectID > 0 && ctx.CanAccessProject(projectID)
+}
+
+func (ctx *AuthContext) canManageTenantUsers() bool {
+	if ctx == nil || !ctx.IsSystemAdmin {
+		return false
+	}
+	state, err := store.LoadSetupState()
+	if err != nil || state == nil {
+		return false
+	}
+	switch NormalizeSetupMode(state.Mode) {
+	case SetupModeMultiProjectPlatform, SetupModePlatformGateway, SetupModeLocalProject:
+		return true
+	default:
+		return false
+	}
 }
 
 func (ctx *AuthContext) CanManageRole(role store.Role) bool {
@@ -213,8 +232,11 @@ func (ctx *AuthContext) CanAssignRole(role store.Role, targetProjectID uint) boo
 	if ctx == nil {
 		return false
 	}
-	if ctx.IsSystemAdmin || role.Code == RoleCodeSuperAdmin {
+	if role.Code == RoleCodeSuperAdmin {
 		return false
+	}
+	if ctx.IsSystemAdmin {
+		return ctx.canManageTenantUsers() && targetProjectID > 0 && role.Code != RoleCodeTenantAdmin && (role.ProjectID == 0 || role.ProjectID == targetProjectID)
 	}
 	if role.Code == RoleCodeTenantAdmin && !ctx.IsTenantAdmin {
 		return false

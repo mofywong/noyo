@@ -150,6 +150,9 @@ func InitDB(dsn string) error {
 
 	// Initialize default super admin, tenant, project, and permissions
 	InitDefaultData()
+	if err := migrateLegacyWorkOrderScopePermissionLimits(DB); err != nil {
+		return fmt.Errorf("failed to migrate legacy work order permission limits: %w", err)
+	}
 
 	// Migrate plaintext AppKeys to bcrypt hashes
 	migrateAppKeys()
