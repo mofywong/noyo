@@ -45,7 +45,7 @@
                 <td>{{ p.admins || $t('common_none', '暂无') }}</td>
                 <td>{{ p.description }}</td>
 
-                <td>{{ new Date(p.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
+                <td>{{ formatDateTime(p.CreatedAt) }}</td>
                 <td class="text-end">
                   <div class="d-inline-flex align-items-center justify-content-end gap-2">
                     <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(p)" :title="$t('common_view_details', '查看详情')">
@@ -124,7 +124,7 @@
                   </div>
                   <div class="col-6">
                     <label class="text-muted small mb-1">{{ $t('user_created_at', '创建时间') }}</label>
-                    <div class="fw-medium">{{ new Date(currentProjectDetails.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</div>
+                    <div class="fw-medium">{{ formatDateTime(currentProjectDetails.CreatedAt) }}</div>
                   </div>
                 </div>
               </div>
@@ -188,6 +188,7 @@ import axios from 'axios'
 import PermissionDualMode from '../components/PermissionDualMode.vue'
 import { Modal } from 'bootstrap'
 import { useI18n } from 'vue-i18n'
+import { formatDateTime } from '../utils/dateTime.js'
 
 const { t } = useI18n()
 

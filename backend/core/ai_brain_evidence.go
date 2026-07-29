@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -59,6 +60,86 @@ func (s *Server) recordRuleExecutionFailureEvidence(log *store.RuleExecLog) {
 		return
 	}
 	recordRuleExecutionFailureEvidence(recorder, log)
+}
+
+func (s *Server) recordArchivedWorkOrderMemoryCandidate(order *store.WorkOrder) {
+	if s == nil || s.Manager == nil {
+		return
+	}
+	plugin := s.Manager.GetPlugin("ai_brain")
+	recorder, ok := plugin.(aiBrainSystemEvidenceRecorder)
+	if !ok {
+		return
+	}
+	recordArchivedWorkOrderMemoryCandidate(recorder, order)
+}
+
+func recordArchivedWorkOrderMemoryCandidate(recorder aiBrainSystemEvidenceRecorder, order *store.WorkOrder) {
+	if recorder == nil || order == nil || order.Status != "closed" || order.TenantID == 0 || order.ProjectID == 0 {
+		return
+	}
+	var resolution struct {
+		ActualProblem   string `json:"actual_problem"`
+		RootCause       string `json:"root_cause"`
+		HandlingProcess string `json:"handling_process"`
+		HandlingResult  string `json:"handling_result"`
+	}
+	if err := json.Unmarshal([]byte(order.ResolutionJSON), &resolution); err != nil {
+		return
+	}
+	if strings.TrimSpace(resolution.RootCause) == "" || strings.TrimSpace(resolution.HandlingProcess) == "" || strings.TrimSpace(resolution.HandlingResult) == "" {
+		return
+	}
+	publicID := firstNonEmptyString(order.PublicID, order.Code)
+	if publicID == "" {
+		return
+	}
+	sourceEventID := fmt.Sprintf("work_order:%s:archived:v%d", publicID, order.Version)
+	summary := strings.TrimSpace(resolution.HandlingResult)
+	_, _ = recorder.RecordSystemEvidence(coreassistant.Scope{
+		TenantID:  order.TenantID,
+		ProjectID: order.ProjectID,
+	}, map[string]any{
+		"source_type":     "work_order_resolution",
+		"source_event_id": sourceEventID,
+		"entity_type":     "work_order",
+		"entity_id":       publicID,
+		"event_time":      order.UpdatedAt,
+		"summary":         summary,
+		"payload": map[string]any{
+			"work_order_id":    order.ID,
+			"public_id":        order.PublicID,
+			"code":             order.Code,
+			"title":            order.Title,
+			"source_type":      order.SourceType,
+			"source_id":        order.SourceID,
+			"actual_problem":   resolution.ActualProblem,
+			"root_cause":       resolution.RootCause,
+			"handling_process": resolution.HandlingProcess,
+			"handling_result":  resolution.HandlingResult,
+		},
+		"weight":           1.0,
+		"create_candidate": true,
+		"candidate": map[string]any{
+			"scope_type":  "project",
+			"category":    "work_order_resolution",
+			"title":       firstNonEmptyString(order.Title, order.Code),
+			"summary":     summary,
+			"entity_type": "work_order",
+			"entity_id":   publicID,
+			"source_type": "work_order_resolution",
+			"source_id":   sourceEventID,
+			"confidence":  0.8,
+			"details": map[string]any{
+				"actual_problem":   resolution.ActualProblem,
+				"root_cause":       resolution.RootCause,
+				"handling_process": resolution.HandlingProcess,
+				"handling_result":  resolution.HandlingResult,
+				"work_order_code":  order.Code,
+				"work_order_title": order.Title,
+			},
+		},
+	})
 }
 
 func recordRuleExecutionFailureEvidence(recorder aiBrainSystemEvidenceRecorder, log *store.RuleExecLog) {

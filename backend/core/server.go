@@ -12,6 +12,7 @@ import (
 	"noyo/core/system"
 	"noyo/core/tsdb"
 	"noyo/core/types"
+	"noyo/core/workorder"
 
 	// "runtime"
 
@@ -29,15 +30,20 @@ import (
 
 // Server represents the gateway core server
 type Server struct {
-	Config          *config.GlobalConfig
-	Logger          *zap.Logger
-	Manager         *PluginManager
-	DeviceManager   *DeviceManager
-	DispatchService *DispatchService
-	RuleEngine      *RuleEngine
-	TSDB            *tsdb.TSDBManager
-	WebServer       *ghttp.Server
-	uiFS            fs.FS
+	Config            *config.GlobalConfig
+	Logger            *zap.Logger
+	Manager           *PluginManager
+	DeviceManager     *DeviceManager
+	DispatchService   *DispatchService
+	RuleEngine        *RuleEngine
+	WorkOrderService  *WorkOrderService
+	WorkOrderCommands workorder.CommandPort
+	AlarmInstances    workorder.AlarmInstanceService
+	AlarmCenter       *AlarmCenterService
+	Integrations      *workorder.GormIntegrationStore
+	TSDB              *tsdb.TSDBManager
+	WebServer         *ghttp.Server
+	uiFS              fs.FS
 }
 
 func (s *Server) SetUI(uiFS fs.FS) {
@@ -107,7 +113,13 @@ func NewServer() (*Server, error) {
 	s.DispatchService = NewDispatchService(s.Manager, s.DeviceManager.Registry, s.DeviceManager.EventBus, logger)
 	s.TSDB = tsdb.NewManager(cfg.TSDB, logger)
 	s.DeviceManager.TSDB = s.TSDB // Inject TSDB into DeviceManager
+	s.WorkOrderService = NewWorkOrderService(store.DB)
+	s.WorkOrderCommands = NewLocalCommandAdapter(s.WorkOrderService)
+	s.AlarmInstances = workorder.NewGormAlarmInstanceStore(store.DB)
+	s.AlarmCenter = NewAlarmCenterService(store.DB, s.AlarmInstances, s.WorkOrderService, s.WorkOrderCommands)
+	s.Integrations = workorder.NewGormIntegrationStore(store.DB)
 	s.RuleEngine = NewRuleEngine(s)
+	go s.AlarmCenter.RunAutoCloseLoop()
 
 	return s, nil
 }

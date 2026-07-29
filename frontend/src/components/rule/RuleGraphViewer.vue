@@ -72,6 +72,7 @@
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'call_service' }, 'action')"><i class="bi bi-gear-wide-connected text-success"></i> 调用服务</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'notification' }, 'action')"><i class="bi bi-chat-left-dots text-success"></i> 消息通知</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'alarm' }, 'action')"><i class="bi bi-exclamation-triangle-fill text-success"></i> 触发告警</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'create_work_order' }, 'action')"><i class="bi bi-ticket-detailed text-success"></i> 创建工单</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'delay', delaySec: 1 }, 'action')"><i class="bi bi-hourglass-split text-success"></i> 延迟执行</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'text' }, 'action')"><i class="bi bi-text-paragraph text-success"></i> {{ $t('rule_action_text', '文本组件') }}</div>
           <div class="rg-palette-item rg-palette-item--ai border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm' }, 'action')"><i class="bi bi-stars text-info"></i> {{ $t('rule_action_ai_reasoning', 'AI 推理') }}</div>
@@ -467,12 +468,48 @@
               </select>
             </div>
             <div class="mb-3">
+              <label class="form-label">{{ $t('rule_alarm_phase', 'Alarm phase / 告警阶段') }}</label>
+              <select class="form-select form-select-sm" v-model="selectedNode.alarmPhase">
+                <option value="triggered">{{ $t('rule_alarm_phase_triggered', 'Triggered / 触发') }}</option>
+                <option value="recovered">{{ $t('rule_alarm_phase_recovered', 'Recovered / 恢复') }}</option>
+              </select>
+            </div>
+            <div class="mb-3">
               <label class="form-label">告警名称</label>
               <VarInputWrapper v-model="selectedNode.alarmTitle" />
             </div>
             <div class="mb-3">
               <label class="form-label">告警内容</label>
               <VarInputWrapper :textarea="true" v-model="selectedNode.alarmContent" :rows="5" :maxRows="12" />
+            </div>
+          </template>
+
+          <template v-if="selectedNode.type === 'create_work_order'">
+            <div class="mb-3">
+              <label class="form-label">工单模板 *</label>
+              <select class="form-select form-select-sm" v-model.number="selectedNode.workOrderTemplateId" @change="handleWorkOrderTemplateChange">
+                <option :value="0">请选择模板</option>
+                <option v-for="template in workOrderTemplates" :key="template.ID" :value="template.ID">{{ template.name }}</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">工单名称 *</label>
+              <VarInputWrapper v-model="selectedNode.workOrderTitle" placeholder="支持 ${trigger.*} 等变量" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">工单摘要</label>
+              <VarInputWrapper :textarea="true" v-model="selectedNode.workOrderSummary" :rows="3" :maxRows="10" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">优先级</label>
+              <select class="form-select form-select-sm" v-model="selectedNode.workOrderPriority"><option value="low">低</option><option value="normal">普通</option><option value="high">高</option><option value="urgent">紧急</option></select>
+            </div>
+            <div v-if="selectedWorkOrderTemplateDetail" class="mb-3 rounded border p-3 bg-body-tertiary">
+              <div class="fw-semibold small mb-3">工单表单 *</div>
+              <WorkOrderFormFields :key="selectedNode.workOrderTemplateId" v-model="selectedNode.workOrderFormData" :definition="selectedWorkOrderTemplateDetail.form_definition" :id-prefix="`rule-work-order-${selectedNode.id || selectedNode._id}`" :allow-runtime-values="true" />
+            </div>
+            <div v-else-if="selectedNode.workOrderTemplateId" class="alert alert-warning py-2 small">
+              正在加载工单表单，请稍后再保存规则。
             </div>
           </template>
 
@@ -518,8 +555,11 @@ import { defineComponent, computed, h, ref, reactive, provide, inject, watch, on
 import { useI18n } from 'vue-i18n'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
+import axios from 'axios'
 import { canActionNodeHandleDrop, insertActionAt, moveActionToList } from '../../utils/ruleGraphDnd.js'
 import { formatNamedReference } from '../../utils/entityDisplay.js'
+import { formValidationMessages } from '../../utils/workOrderForm.js'
+import WorkOrderFormFields from '../work-order/WorkOrderFormFields.vue'
 
 /* ============================================
  *  递归卡片节点组件
@@ -899,7 +939,7 @@ function injectId(obj) {
 
 export default {
   name: 'RuleGraphViewer',
-  components: { VarInputWrapper, RgCard, RgConditionGroup, RgActionNode },
+  components: { VarInputWrapper, RgCard, RgConditionGroup, RgActionNode, WorkOrderFormFields },
   props: {
     rule: { type: Object, default: () => null },
     devices: { type: Array, default: () => [] },
@@ -916,6 +956,8 @@ export default {
     const savingEditing = ref(false)
     const saveMessage = ref('')
     const saveMessageType = ref('success')
+    const workOrderTemplates = ref([])
+    const workOrderTemplateDetails = ref({})
 
     const collapsed = reactive({
       time: false,
@@ -1045,13 +1087,20 @@ export default {
       notifyTitle: '',
       notifyContent: '',
       alarmLevel: 'warning',
+      alarmPhase: 'triggered',
       alarmTitle: '',
       alarmContent: '',
       alarmDevice: 'trigger',
       delaySec: 1,
       textContent: '',
       voiceText: '',
-      llmPrompt: ''
+      llmPrompt: '',
+      workOrderTemplateId: 0,
+      workOrderTitle: '',
+      workOrderSummary: '',
+      workOrderPriority: 'normal',
+      workOrderFormData: {},
+      workOrderIdempotencyKey: ''
     })
     const createTriggerNode = (item = {}) => {
       const type = item.type || 'property_change'
@@ -1119,6 +1168,67 @@ export default {
       })
     }
 
+    const loadWorkOrderTemplates = async () => {
+      try {
+        const response = await axios.get('/api/work-order-templates')
+        if (response.data?.code === 0) {
+          workOrderTemplates.value = response.data.data || []
+        }
+      } catch (_) {
+        workOrderTemplates.value = []
+      }
+    }
+
+    const workOrderTemplateName = (templateID) => workOrderTemplates.value.find(template => Number(template.ID) === Number(templateID))?.name || '未选择工单模板'
+
+    const loadWorkOrderTemplateDetail = async (templateID) => {
+      const id = Number(templateID || 0)
+      if (!id) return null
+      if (workOrderTemplateDetails.value[id]) return workOrderTemplateDetails.value[id]
+      try {
+        const response = await axios.get(`/api/work-order-templates/${id}`)
+        if (response.data?.code !== 0 || !response.data?.data) return null
+        workOrderTemplateDetails.value = { ...workOrderTemplateDetails.value, [id]: response.data.data }
+        return response.data.data
+      } catch (_) {
+        return null
+      }
+    }
+
+    const selectedWorkOrderTemplateDetail = computed(() => {
+      const id = Number(selectedNode.value?.workOrderTemplateId || 0)
+      return id ? workOrderTemplateDetails.value[id] || null : null
+    })
+
+    const handleWorkOrderTemplateChange = async () => {
+      if (!selectedNode.value || selectedNode.value.type !== 'create_work_order') return
+      selectedNode.value.workOrderFormData = {}
+      await loadWorkOrderTemplateDetail(selectedNode.value.workOrderTemplateId)
+    }
+
+    const collectWorkOrderActions = (actions = [], result = []) => {
+      for (const action of actions || []) {
+        if (action?.type === 'create_work_order') result.push(action)
+        if (Array.isArray(action?.subActions)) collectWorkOrderActions(action.subActions, result)
+      }
+      return result
+    }
+
+    const validateWorkOrderActionsForSave = async (ruleToSave) => {
+      for (const action of collectWorkOrderActions(ruleToSave.actions || [])) {
+        if (!Number(action.workOrderTemplateId || 0)) throw new Error('创建工单动作必须选择工单模板。')
+        if (!String(action.workOrderTitle || '').trim()) throw new Error('创建工单动作必须填写工单名称。')
+        const detail = await loadWorkOrderTemplateDetail(action.workOrderTemplateId)
+        if (!detail) throw new Error('无法加载工单模板表单，请刷新后重试。')
+        const messages = formValidationMessages(detail.form_definition || {}, action.workOrderFormData || {})
+        const firstInvalidKey = Object.keys(messages)[0]
+        if (firstInvalidKey) {
+          const field = (detail.form_definition?.fields || []).find(item => item.key === firstInvalidKey)
+          throw new Error(`请填写工单表单必填项：${field?.label || firstInvalidKey}`)
+        }
+      }
+    }
+
     const startEditing = () => {
       let cloned = JSON.parse(JSON.stringify(props.rule || {}))
       cloned.triggers = safeParse(cloned.triggers, [])
@@ -1138,14 +1248,23 @@ export default {
       editableRule.value = cloned
       isEditing.value = true
       saveMessage.value = ''
+      loadWorkOrderTemplates()
     }
 
-    const saveEditing = () => {
+    const saveEditing = async () => {
       if (savingEditing.value) return
       const ruleToSave = JSON.parse(JSON.stringify(editableRule.value))
       ensureBackendIds(ruleToSave)
       savingEditing.value = true
       saveMessage.value = ''
+      try {
+        await validateWorkOrderActionsForSave(ruleToSave)
+      } catch (error) {
+        savingEditing.value = false
+        saveMessageType.value = 'danger'
+        saveMessage.value = error?.message || '创建工单动作配置不完整。'
+        return
+      }
       ctx.emit('update-rule', ruleToSave, {
         done: (ok, message, savedRule) => {
           savingEditing.value = false
@@ -1160,6 +1279,10 @@ export default {
 
     watch(() => props.rule, (value) => {
       if (value && !value.code) startEditing()
+    }, { immediate: true })
+
+    watch(() => [selectedNode.value?.type, selectedNode.value?.workOrderTemplateId], ([type, templateID]) => {
+      if (type === 'create_work_order' && templateID) loadWorkOrderTemplateDetail(templateID)
     }, { immediate: true })
 
     const cancelEditing = () => {
@@ -1378,7 +1501,7 @@ export default {
         return ['property', 'device_status'].map(value => ({ value, label: typeLabel(value) }))
       }
       if (kind === 'action') {
-        return ['set_property', 'call_service', 'notification', 'alarm', 'delay', 'text', 'llm', 'voice_playback', 'parallel_group', 'sequence_group'].map(value => ({ value, label: typeLabel(value) }))
+        return ['set_property', 'call_service', 'notification', 'alarm', 'create_work_order', 'delay', 'text', 'llm', 'voice_playback', 'parallel_group', 'sequence_group'].map(value => ({ value, label: typeLabel(value) }))
       }
       return selectedNode.value?.type ? [{ value: selectedNode.value.type, label: typeLabel(selectedNode.value.type) }] : []
     })
@@ -1491,6 +1614,7 @@ export default {
         'call_service': t('rule_action_call_service', '调用服务'),
         'notification': t('rule_action_notification', '消息通知'),
         'alarm': t('rule_action_alarm', '告警'),
+        'create_work_order': '创建工单',
         'delay': t('rule_action_delay', '延迟执行'),
         'text': t('rule_action_text', '文本组件'),
         'llm': t('rule_action_ai_reasoning', 'AI 推理'),
@@ -1687,7 +1811,16 @@ export default {
           icon: 'bi-exclamation-triangle-fill',
           title: t('rule_action_alarm'),
           detail: action.alarmTitle || action.alarmContent || '-',
-          badges: [alarmLevelLabel(action.alarmLevel)]
+          badges: [alarmLevelLabel(action.alarmLevel), action.alarmPhase === 'recovered' ? $t('rule_alarm_phase_recovered', 'Recovered / 恢复') : $t('rule_alarm_phase_triggered', 'Triggered / 触发')]
+        }
+      }
+      if (action.type === 'create_work_order') {
+        return {
+          ...base,
+          icon: 'bi-ticket-detailed',
+          title: '创建工单',
+          detail: action.workOrderTitle || '请配置工单名称',
+          badges: [workOrderTemplateName(action.workOrderTemplateId), action.workOrderPriority || 'normal']
         }
       }
       return { ...base, icon: 'bi-question-circle', title: action.type, detail: JSON.stringify(action).substring(0, 80) }
@@ -1749,7 +1882,7 @@ export default {
     const hasReferenceContent = () => {
       const kind = selectedNode.value?._graphKind || ''
       const type = selectedNode.value?.type || ''
-      const actionTypes = ['set_property', 'call_service', 'notification', 'alarm', 'delay', 'text', 'llm', 'voice_playback', 'parallel_group', 'sequence_group']
+      const actionTypes = ['set_property', 'call_service', 'notification', 'alarm', 'create_work_order', 'delay', 'text', 'llm', 'voice_playback', 'parallel_group', 'sequence_group']
       return kind === 'condition' || kind === 'condition_group' || kind === 'action' || type === 'property' || actionTypes.includes(type)
     }
 
@@ -1813,7 +1946,8 @@ export default {
       typeLabel, syncSelectedCron, graphViewerRef, exportToImage, exportToPdf, selectedNodeTypeOptions, changeSelectedNodeType, canDeleteSelectedNode, deleteSelectedNode,
       isEditing, editableRule, startEditing, saveEditing, cancelEditing, selectedNode, onDragStart,
       onDropTrigger, onDropConditionRoot, onDropActionRoot,
-      collapsed, toggleSection, savingEditing, saveMessage, saveMessageType
+      collapsed, toggleSection, savingEditing, saveMessage, saveMessageType, workOrderTemplates, workOrderTemplateDetails,
+      selectedWorkOrderTemplateDetail, handleWorkOrderTemplateChange, validateWorkOrderActionsForSave
     }
   }
 }

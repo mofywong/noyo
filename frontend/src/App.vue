@@ -167,6 +167,11 @@ const copyToClipboard = async (text) => {
 const currentPluginName = computed(() => route.params.name);
 const isStandalonePage = computed(() => route.name === 'Login' || route.name === 'Setup');
 const shouldLoadShellData = computed(() => authStore.isLoggedIn && !isStandalonePage.value);
+const cascadePluginEnabled = computed(() => plugins.value.some((plugin) => {
+  const name = String(plugin?.name || plugin?.Name || '').trim().toLowerCase();
+  const status = String(plugin?.status || plugin?.Status || '').trim().toLowerCase();
+  return name === 'cascade' && (plugin?.enabled === true || plugin?.Enabled === true || status === 'running' || status === 'enabled');
+}));
 
 const pageTitle = computed(() => {
   const name = route.name;
@@ -193,6 +198,7 @@ const fetchPlugins = async () => {
     const res = await axios.get('/api/plugins');
     if (res.data.code === 0) {
       plugins.value = res.data.data;
+      syncMqttStatusSSE();
     }
   } catch (e) {
     console.error("Failed to fetch plugins", e);
@@ -216,9 +222,10 @@ const updatePluginStatus = async (name, enabled) => {
 };
 
 let mqttStatusSSE = null;
+let workOrderNotificationSSE = null;
+const shownWorkOrderNotificationIDs = new Set();
 let aiBrainSuggestionTimer = null;
 let aiBrainSuggestionInterceptor = null;
-let lastNotifiedSuggestionCount = 0;
 const activeHabitRuleSuggestion = ref(null);
 const createdHabitRule = ref(null);
 const habitRuleActionLoading = ref(false);
@@ -249,8 +256,10 @@ const activeHabitRuleDescription = computed(() => {
 });
 
 const initMqttStatusSSE = () => {
-  if (mqttStatusSSE) return;
-  mqttStatusSSE = new EventSource('/api/extension/cascade/stream');
+  if (mqttStatusSSE || !cascadePluginEnabled.value) return;
+  const token = encodeURIComponent(authStore.token || localStorage.getItem('access_token') || '');
+  if (!token) return;
+  mqttStatusSSE = new EventSource(`/api/extension/cascade/stream?token=${token}`);
   mqttStatusSSE.addEventListener('status', (e) => {
     try {
       const data = JSON.parse(e.data);
@@ -280,11 +289,55 @@ const closeMqttStatusSSE = () => {
   }
 };
 
-const aiBrainSuggestionMessage = (count) => {
-  if (String(locale.value || '').toLowerCase().startsWith('en')) {
-    return `${count} AI Brain suggestion${count > 1 ? 's' : ''} need review.`;
+const syncMqttStatusSSE = () => {
+  if (cascadePluginEnabled.value) {
+    initMqttStatusSSE();
+    return;
   }
-  return `有 ${count} 条 AI 大脑建议待处理。`;
+  closeMqttStatusSSE();
+  mqttStatus.value = null;
+};
+
+const initWorkOrderNotificationSSE = () => {
+  if (workOrderNotificationSSE || !authStore.hasPermission('work_order:list')) return;
+  const token = encodeURIComponent(authStore.token || localStorage.getItem('access_token') || '');
+  workOrderNotificationSSE = new EventSource(`/api/work-order-notifications/stream?token=${token}`);
+  workOrderNotificationSSE.addEventListener('snapshot', () => {
+    // Historical unread records are available from the durable inbox. They do
+    // not create a burst of popups when a browser reconnects.
+  });
+  workOrderNotificationSSE.addEventListener('notification', (event) => {
+    try {
+      const notification = JSON.parse(event.data);
+      const notificationID = notification.public_id || notification.PublicID;
+      if (!notificationID || shownWorkOrderNotificationIDs.has(notificationID)) return;
+      shownWorkOrderNotificationIDs.add(notificationID);
+      if (shownWorkOrderNotificationIDs.size > 200) {
+        const [first] = shownWorkOrderNotificationIDs;
+        if (first) shownWorkOrderNotificationIDs.delete(first);
+      }
+      const title = notification.title || '工单任务提醒';
+      const content = notification.content || notification.work_order_title || '有新的工单任务需要处理';
+      showToast('warning', `${title}：${content}`);
+    } catch (error) {
+      console.error('Failed to parse work-order notification event', error);
+    }
+  });
+  workOrderNotificationSSE.onerror = () => {
+    if (workOrderNotificationSSE?.readyState === EventSource.CLOSED) {
+      workOrderNotificationSSE.close();
+      workOrderNotificationSSE = null;
+      window.setTimeout(initWorkOrderNotificationSSE, 3000);
+    }
+  };
+};
+
+const closeWorkOrderNotificationSSE = () => {
+  if (workOrderNotificationSSE) {
+    workOrderNotificationSSE.close();
+    workOrderNotificationSSE = null;
+  }
+  shownWorkOrderNotificationIDs.clear();
 };
 
 const checkAIBrainSuggestions = async () => {
@@ -296,18 +349,11 @@ const checkAIBrainSuggestions = async () => {
     if (!res.data || res.data.code !== 0) return;
     const page = res.data.data;
     const items = Array.isArray(page) ? page : (Array.isArray(page?.items) ? page.items : []);
-    const count = Array.isArray(page) ? page.length : Math.max(0, Number(page?.total) || items.length);
     if (!activeHabitRuleSuggestion.value && !createdHabitRule.value) {
       const habitSuggestion = items.find(isHabitRuleSuggestion);
       if (habitSuggestion) activeHabitRuleSuggestion.value = habitSuggestion;
     }
-    if (count > 0 && count !== lastNotifiedSuggestionCount) {
-      showToast('info', aiBrainSuggestionMessage(count));
-    }
-    lastNotifiedSuggestionCount = count;
-  } catch (e) {
-    lastNotifiedSuggestionCount = 0;
-  }
+  } catch {}
 };
 
 const transitionHabitRuleSuggestion = async (suggestion, action) => {
@@ -329,7 +375,6 @@ const confirmHabitRuleSuggestion = async () => {
     }
     await transitionHabitRuleSuggestion(activeHabitRuleSuggestion.value, 'accept');
     createdHabitRule.value = response.data.data;
-    lastNotifiedSuggestionCount = Math.max(0, lastNotifiedSuggestionCount - 1);
   } catch (error) {
     showToast('danger', `${habitRuleText('failed')}: ${error.message || error}`);
   } finally {
@@ -343,7 +388,6 @@ const dismissHabitRuleSuggestion = async () => {
   try {
     await transitionHabitRuleSuggestion(activeHabitRuleSuggestion.value, 'dismiss');
     activeHabitRuleSuggestion.value = null;
-    lastNotifiedSuggestionCount = Math.max(0, lastNotifiedSuggestionCount - 1);
   } catch (error) {
     showToast('danger', `${habitRuleText('failed')}: ${error.message || error}`);
   } finally {
@@ -377,7 +421,6 @@ const stopAIBrainSuggestionReminder = () => {
     axios.interceptors.response.eject(aiBrainSuggestionInterceptor);
     aiBrainSuggestionInterceptor = null;
   }
-  lastNotifiedSuggestionCount = 0;
   activeHabitRuleSuggestion.value = null;
   createdHabitRule.value = null;
 };
@@ -385,7 +428,8 @@ const stopAIBrainSuggestionReminder = () => {
 const loadShellData = () => {
   checkLicense();
   fetchPlugins();
-  initMqttStatusSSE();
+  authStore.refreshProfile().catch(() => {});
+  initWorkOrderNotificationSSE();
   startAIBrainSuggestionReminder();
 
   axios.get('/api/setup/status').then(res => {
@@ -459,6 +503,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   closeMqttStatusSSE();
+  closeWorkOrderNotificationSSE();
   stopAIBrainSuggestionReminder();
 });
 
@@ -467,6 +512,7 @@ watch(shouldLoadShellData, (enabled) => {
     loadShellData();
   } else {
     closeMqttStatusSSE();
+    closeWorkOrderNotificationSSE();
     stopAIBrainSuggestionReminder();
     plugins.value = [];
     mqttStatus.value = null;

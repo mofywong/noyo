@@ -20,7 +20,7 @@ import AuditLogs from '../views/AuditLogs.vue'
 import Settings from '../views/Settings.vue'
 import Logs from '../views/Logs.vue'
 import License from '../views/License.vue'
-import AlarmCenter from '../views/AlarmCenter.vue'
+import WorkOrderCenter from '../views/WorkOrderCenter.vue'
 import Login from '../views/Login.vue'
 import SetupWizard from '../views/SetupWizard.vue'
 import { loadPlugins, usePlugins } from '../plugins/registry.js'
@@ -170,8 +170,14 @@ const routes = [
   {
     path: '/alarms',
     name: 'AlarmCenter',
-    component: AlarmCenter,
+    component: () => import('../views/AlarmCenter.vue'),
     meta: { requiresAuth: true, permission: 'alarm:list' }
+  },
+  {
+    path: '/work-orders',
+    name: 'WorkOrderCenter',
+    component: WorkOrderCenter,
+    meta: { requiresAuth: true, permission: 'work_order:list' }
   },
   {
     path: '/login/:suffix?',
@@ -273,17 +279,24 @@ router.beforeEach(async (to, from, next) => {
   next()
 })
 
-// Load plugins and register dynamic routes before starting
-loadPlugins().then(() => {
+// Plugin manifests are bundled eagerly, so routes must be registered before the
+// first history navigation. Otherwise a direct visit to any plugin menu is
+// resolved before Vue Router knows that route exists.
+const registerPluginRoutes = () => {
   const { extensions } = usePlugins()
   if (extensions.value.routes) {
     extensions.value.routes.forEach(route => {
       if (!route.meta) route.meta = {}
       if (!route.meta.requiresAuth) route.meta.requiresAuth = true
       if (!route.meta.permission) route.meta.permission = 'plugin:config'
-      router.addRoute(route)
+      if (!router.hasRoute(route.name)) {
+        router.addRoute(route)
+      }
     })
   }
-})
+}
+
+loadPlugins()
+registerPluginRoutes()
 
 export default router

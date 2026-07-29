@@ -274,6 +274,7 @@ import { useI18n } from 'vue-i18n'
 import { useToast } from '../composables/useToast'
 import axios from 'axios'
 import RuleGraphViewer from '@/components/rule/RuleGraphViewer.vue'
+import { formatDateTime } from '../utils/dateTime.js'
 
 function uid(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`
@@ -1126,7 +1127,7 @@ export default {
 
     function formatTime(value) {
       if (!value) return '-'
-      return new Date(Number(value)).toLocaleString()
+      return formatDateTime(Number(value))
     }
 
     function deviceLabel(device) {

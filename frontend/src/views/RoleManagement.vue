@@ -63,7 +63,7 @@
                   </template>
                 </td>
 
-                <td>{{ new Date(r.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
+                <td>{{ formatDateTime(r.CreatedAt) }}</td>
                 <td class="text-end">
                   <div class="d-inline-flex align-items-center justify-content-end gap-2">
                     <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(r)" :title="$t('common_view_details', '查看详情')">
@@ -176,7 +176,7 @@
                   </div>
                   <div class="col-12">
                     <label class="text-muted small mb-1">{{ $t('user_created_at') }}</label>
-                    <div class="fw-medium">{{ new Date(currentRoleDetails.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</div>
+                    <div class="fw-medium">{{ formatDateTime(currentRoleDetails.CreatedAt) }}</div>
                   </div>
                 </div>
               </div>
@@ -203,6 +203,7 @@ import RolePermissions from './RolePermissions.vue'
 import { useAuthStore } from '../stores/auth'
 import { isInheritedRoleReadOnlyForUser } from '../utils/authIdentity'
 import { isSingleProjectMode } from '../utils/systemMode'
+import { formatDateTime } from '../utils/dateTime.js'
 
 const { t } = useI18n()
 const authStore = useAuthStore()

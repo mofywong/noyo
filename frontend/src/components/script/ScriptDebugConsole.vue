@@ -44,6 +44,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
+import { formatDateTime } from '../../utils/dateTime.js';
 
 const props = defineProps({
     deviceCode: { type: String, required: true }
@@ -68,7 +69,7 @@ const getLogClass = (level) => {
 
 const appendLog = (level, msg) => {
   logs.value.push({
-    time: new Date().toLocaleTimeString(),
+    time: formatDateTime(new Date()),
     level,
     msg
   });

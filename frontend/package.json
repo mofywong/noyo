@@ -21,12 +21,15 @@
     "test:rule-graph-dnd": "node scripts/rule-graph-dnd.test.mjs",
     "test:rule-graph-draft": "node scripts/rule-graph-draft.test.mjs",
     "test:rule-engine-ui": "node scripts/rule-engine-ui.test.mjs",
-    "test:setup-wizard-ui": "node scripts/setup-wizard-ui.test.mjs"
+    "test:setup-wizard-ui": "node scripts/setup-wizard-ui.test.mjs",
+    "test:work-order-form": "node scripts/work-order-form.test.mjs",
+    "test:work-order-ui": "node scripts/work-order-ui.test.mjs"
   },
   "dependencies": {
     "@antv/g6": "^5.0.50",
     "@guolao/vue-monaco-editor": "^1.6.0",
     "@types/sortablejs": "^1.15.9",
+    "@vue-flow/core": "^1.48.2",
     "axios": "^1.13.2",
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",

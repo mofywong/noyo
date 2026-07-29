@@ -22,7 +22,7 @@
               <span class="ms-1 fw-medium">{{ connectionStatus.gateway_code || '-' }}</span>
             </div>
             <div v-if="connectionStatus.ts" class="col-12 text-end text-muted mt-1" style="font-size: 0.75rem;">
-              {{ $t('conn_last_check') }}: {{ new Date(connectionStatus.ts).toLocaleString() }}
+              {{ $t('conn_last_check') }}: {{ formatDateTime(connectionStatus.ts) }}
             </div>
           </div>
         </div>
@@ -34,6 +34,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
+import { formatDateTime } from '../../../../utils/dateTime.js';
 
 const props = defineProps({
   pluginName: {

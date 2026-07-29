@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -20,16 +21,17 @@ const (
 	RuleTriggerDeviceStatus = "device_status"
 	RuleTriggerCron         = "cron"
 
-	RuleActionSetProperty   = "set_property"
-	RuleActionCallService   = "call_service"
-	RuleActionNotification  = "notification"
-	RuleActionAlarm         = "alarm"
-	RuleActionDelay         = "delay"
-	RuleActionText          = "text"
-	RuleActionLLM           = "llm"
-	RuleActionVoicePlayback = "voice_playback"
-	RuleActionParallelGroup = "parallel_group"
-	RuleActionSequenceGroup = "sequence_group"
+	RuleActionSetProperty     = "set_property"
+	RuleActionCallService     = "call_service"
+	RuleActionNotification    = "notification"
+	RuleActionAlarm           = "alarm"
+	RuleActionDelay           = "delay"
+	RuleActionText            = "text"
+	RuleActionLLM             = "llm"
+	RuleActionVoicePlayback   = "voice_playback"
+	RuleActionCreateWorkOrder = "create_work_order"
+	RuleActionParallelGroup   = "parallel_group"
+	RuleActionSequenceGroup   = "sequence_group"
 
 	RuleEffectiveDaily   = "daily"
 	RuleEffectiveWeekly  = "weekly"
@@ -92,28 +94,37 @@ type PropertyCondition struct {
 }
 
 type RuleAction struct {
-	ID                string         `json:"id"`
-	Type              string         `json:"type"`
-	SubActions        []RuleAction   `json:"subActions,omitempty"`
-	DeviceCode        string         `json:"deviceCode,omitempty"`
-	DeviceName        string         `json:"deviceName,omitempty"`
-	PropertyKey       string         `json:"propertyKey,omitempty"`
-	Value             any            `json:"value,omitempty"`
-	ServiceCode       string         `json:"serviceCode,omitempty"`
-	ServiceParams     map[string]any `json:"serviceParams,omitempty"`
-	NotifyTitle       string         `json:"notifyTitle,omitempty"`
-	NotifyContent     string         `json:"notifyContent,omitempty"`
-	AlarmLevel        string         `json:"alarmLevel,omitempty"`
-	AlarmTitle        string         `json:"alarmTitle,omitempty"`
-	AlarmContent      string         `json:"alarmContent,omitempty"`
-	AlarmDevice       string         `json:"alarmDevice,omitempty"`
-	DelaySec          int            `json:"delaySec,omitempty"`
-	TextContent       string         `json:"textContent,omitempty"`
-	LLMPrompt         string         `json:"llmPrompt,omitempty"`
-	LLMPlayAudio      bool           `json:"llmPlayAudio,omitempty"`
-	LLMIncludeContext bool           `json:"llmIncludeContext,omitempty"`
-	OutputSchema      map[string]any `json:"outputSchema,omitempty"`
-	VoiceText         string         `json:"voiceText,omitempty"`
+	ID            string         `json:"id"`
+	Type          string         `json:"type"`
+	SubActions    []RuleAction   `json:"subActions,omitempty"`
+	DeviceCode    string         `json:"deviceCode,omitempty"`
+	DeviceName    string         `json:"deviceName,omitempty"`
+	PropertyKey   string         `json:"propertyKey,omitempty"`
+	Value         any            `json:"value,omitempty"`
+	ServiceCode   string         `json:"serviceCode,omitempty"`
+	ServiceParams map[string]any `json:"serviceParams,omitempty"`
+	NotifyTitle   string         `json:"notifyTitle,omitempty"`
+	NotifyContent string         `json:"notifyContent,omitempty"`
+	AlarmLevel    string         `json:"alarmLevel,omitempty"`
+	AlarmTitle    string         `json:"alarmTitle,omitempty"`
+	AlarmContent  string         `json:"alarmContent,omitempty"`
+	AlarmDevice   string         `json:"alarmDevice,omitempty"`
+	// AlarmPhase permits one rule action to close the same correlated alarm
+	// generation after its recovery condition becomes true.
+	AlarmPhase              string         `json:"alarmPhase,omitempty"`
+	DelaySec                int            `json:"delaySec,omitempty"`
+	TextContent             string         `json:"textContent,omitempty"`
+	LLMPrompt               string         `json:"llmPrompt,omitempty"`
+	LLMPlayAudio            bool           `json:"llmPlayAudio,omitempty"`
+	LLMIncludeContext       bool           `json:"llmIncludeContext,omitempty"`
+	OutputSchema            map[string]any `json:"outputSchema,omitempty"`
+	VoiceText               string         `json:"voiceText,omitempty"`
+	WorkOrderTemplateID     uint           `json:"workOrderTemplateId,omitempty"`
+	WorkOrderTitle          string         `json:"workOrderTitle,omitempty"`
+	WorkOrderSummary        string         `json:"workOrderSummary,omitempty"`
+	WorkOrderPriority       string         `json:"workOrderPriority,omitempty"`
+	WorkOrderFormData       map[string]any `json:"workOrderFormData,omitempty"`
+	WorkOrderIdempotencyKey string         `json:"workOrderIdempotencyKey,omitempty"`
 }
 
 type RuleEffectiveTime struct {
@@ -141,6 +152,8 @@ type RuleDefinition struct {
 }
 
 type RuleRuntime struct {
+	TenantID      uint                `json:"tenantId"`
+	ProjectID     uint                `json:"projectId"`
 	Code          string              `json:"code"`
 	Name          string              `json:"name"`
 	Description   string              `json:"description,omitempty"`
@@ -213,8 +226,21 @@ func validateAction(action RuleAction, depth int) error {
 		return errors.New("action id is required")
 	}
 	switch action.Type {
-	case RuleActionSetProperty, RuleActionCallService, RuleActionNotification, RuleActionAlarm, RuleActionText, RuleActionLLM, RuleActionVoicePlayback:
+	case RuleActionSetProperty, RuleActionCallService, RuleActionNotification, RuleActionText, RuleActionLLM, RuleActionVoicePlayback:
 		return nil
+	case RuleActionAlarm:
+		phase := strings.TrimSpace(action.AlarmPhase)
+		if phase != "" && phase != "triggered" && phase != "recovered" {
+			return errors.New("alarm action phase must be triggered or recovered")
+		}
+		return nil
+	case RuleActionCreateWorkOrder:
+		if action.WorkOrderTemplateID == 0 {
+			return errors.New("work order action requires a template")
+		}
+		if action.WorkOrderTitle == "" {
+			return errors.New("work order action requires a title")
+		}
 	case RuleActionDelay:
 		if action.DelaySec < 0 || action.DelaySec > 300 {
 			return fmt.Errorf("delaySec must be between 0 and 300, got %d", action.DelaySec)

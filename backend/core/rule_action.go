@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"noyo/core/types"
+	"noyo/core/workorder"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -99,32 +100,109 @@ func getPathPart(current any, part string) (any, bool) {
 }
 
 type ActionResult struct {
-	ActionID   string `json:"actionId"`
-	Type       string `json:"type"`
-	Status     string `json:"status"`
-	Error      string `json:"error,omitempty"`
-	DurationMs int64  `json:"durationMs"`
+	ActionID       string `json:"actionId"`
+	Type           string `json:"type"`
+	Status         string `json:"status"`
+	Error          string `json:"error,omitempty"`
+	DurationMs     int64  `json:"durationMs"`
+	IdempotencyKey string `json:"idempotencyKey,omitempty"`
 }
 
 type RuleExecContext struct {
-	Context       context.Context
-	Rule          RuleRuntime
-	TemplateVars  map[string]any
-	NodeResults   map[string]any
-	NodeResultsMu sync.RWMutex
-	SessionID     string
-	ActionTimeout time.Duration
-	RuleTimeout   time.Duration
-	MaxParallel   int
+	Context         context.Context
+	Rule            RuleRuntime
+	TemplateVars    map[string]any
+	NodeResults     map[string]any
+	NodeResultsMu   sync.RWMutex
+	ActionResults   map[string]ActionResult
+	ActionResultsMu sync.Mutex
+	SessionID       string
+	ActionTimeout   time.Duration
+	RuleTimeout     time.Duration
+	MaxParallel     int
 }
 
 type ActionExecutor struct {
 	deviceManager *DeviceManager
 	logger        *zap.Logger
+	// workOrderService is retained for compatibility with existing tests and
+	// diagnostics; all commands are routed through workOrderCommands.
+	workOrderService  *WorkOrderService
+	workOrderCommands workorder.CommandPort
 }
 
-func NewActionExecutor(deviceManager *DeviceManager, logger *zap.Logger) *ActionExecutor {
-	return &ActionExecutor{deviceManager: deviceManager, logger: logger}
+func interpolateWorkOrderFormData(data map[string]any, vars map[string]any) map[string]any {
+	if data == nil {
+		return nil
+	}
+	result := make(map[string]any, len(data))
+	for key, value := range data {
+		result[key] = interpolateWorkOrderValue(value, vars)
+	}
+	return result
+}
+
+func interpolateWorkOrderValue(value any, vars map[string]any) any {
+	switch typed := value.(type) {
+	case string:
+		return interpolateString(typed, vars)
+	case map[string]any:
+		result := make(map[string]any, len(typed))
+		for key, nested := range typed {
+			result[key] = interpolateWorkOrderValue(nested, vars)
+		}
+		return result
+	case []any:
+		result := make([]any, len(typed))
+		for index, nested := range typed {
+			result[index] = interpolateWorkOrderValue(nested, vars)
+		}
+		return result
+	default:
+		return value
+	}
+}
+
+func deterministicRuleActionKey(ctx *RuleExecContext, action RuleAction) string {
+	if strings.TrimSpace(action.WorkOrderIdempotencyKey) != "" {
+		return strings.TrimSpace(action.WorkOrderIdempotencyKey)
+	}
+	if ctx == nil {
+		return "rule-action:unknown:" + strings.TrimSpace(action.ID)
+	}
+	return fmt.Sprintf("rule-action:%d:%d:%s:%d:%s:%s", ctx.Rule.TenantID, ctx.Rule.ProjectID, ctx.Rule.Code, ctx.Rule.Version, ctx.SessionID, action.ID)
+}
+
+func ruleActionSourceSnapshot(ctx *RuleExecContext, action RuleAction) map[string]any {
+	if ctx == nil {
+		return nil
+	}
+	snapshot := map[string]any{
+		"rule_code":    ctx.Rule.Code,
+		"rule_version": ctx.Rule.Version,
+		"action_id":    action.ID,
+		"session_id":   ctx.SessionID,
+	}
+	if event, ok := ctx.TemplateVars["event"]; ok {
+		snapshot["event"] = event
+	}
+	return snapshot
+}
+
+func NewActionExecutor(deviceManager *DeviceManager, logger *zap.Logger, dependency any) *ActionExecutor {
+	executor := &ActionExecutor{deviceManager: deviceManager, logger: logger}
+	switch typed := dependency.(type) {
+	case *WorkOrderService:
+		executor.workOrderService = typed
+		executor.workOrderCommands = NewLocalCommandAdapter(typed)
+	case workorder.CommandPort:
+		executor.workOrderCommands = typed
+	}
+	return executor
+}
+
+func NewActionExecutorWithCommandPort(deviceManager *DeviceManager, logger *zap.Logger, commands workorder.CommandPort) *ActionExecutor {
+	return &ActionExecutor{deviceManager: deviceManager, logger: logger, workOrderCommands: commands}
 }
 
 func (ae *ActionExecutor) Execute(ctx *RuleExecContext) []ActionResult {
@@ -229,6 +307,10 @@ func (ae *ActionExecutor) executeParallelGroup(execCtx context.Context, ctx *Rul
 }
 
 func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *RuleExecContext, action RuleAction, llmOutputMode string) ActionResult {
+	key := deterministicRuleActionKey(ctx, action)
+	if previous, ok := ctx.actionResult(key); ok && previous.Status == "success" {
+		return previous
+	}
 	start := time.Now()
 	result := ActionResult{ActionID: action.ID, Type: action.Type, Status: "success"}
 	actionCtx, cancel := context.WithTimeout(execCtx, ctx.ActionTimeout)
@@ -259,6 +341,12 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 	action.TextContent = interpolateString(action.TextContent, mergedVars)
 	action.LLMPrompt = interpolateString(action.LLMPrompt, mergedVars)
 	action.VoiceText = interpolateString(action.VoiceText, mergedVars)
+	action.WorkOrderTitle = interpolateString(action.WorkOrderTitle, mergedVars)
+	action.WorkOrderSummary = interpolateString(action.WorkOrderSummary, mergedVars)
+	action.WorkOrderIdempotencyKey = interpolateString(action.WorkOrderIdempotencyKey, mergedVars)
+	action.WorkOrderIdempotencyKey = deterministicRuleActionKey(ctx, action)
+	action.WorkOrderFormData = interpolateWorkOrderFormData(action.WorkOrderFormData, mergedVars)
+	result.IdempotencyKey = action.WorkOrderIdempotencyKey
 
 	switch action.Type {
 	case RuleActionDelay:
@@ -325,17 +413,56 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 			err = metaErr
 			break
 		}
+		phase := strings.TrimSpace(action.AlarmPhase)
+		if phase == "" {
+			phase = "triggered"
+		}
 		alarmPayload := map[string]interface{}{
-			"rule_code":  ctx.Rule.Code,
-			"rule_name":  ctx.Rule.Name,
-			"title":      action.AlarmTitle,
-			"content":    action.AlarmContent,
-			"level":      action.AlarmLevel,
-			"deviceCode": deviceCode,
-			"eventId":    "rule_alarm",
+			"rule_code":         ctx.Rule.Code,
+			"rule_name":         ctx.Rule.Name,
+			"rule_action_id":    action.ID,
+			"alarm_fingerprint": fmt.Sprintf("rule:%s:action:%s", ctx.Rule.Code, action.ID),
+			"alarm_phase":       phase,
+			"alarm_title":       action.AlarmTitle,
+			"alarm_severity":    action.AlarmLevel,
+			"title":             action.AlarmTitle,
+			"content":           action.AlarmContent,
+			"level":             action.AlarmLevel,
+			"deviceCode":        deviceCode,
+			"eventId":           "rule_alarm",
 		}
 		actionOutput = alarmPayload
 		err = ae.deviceManager.ReportDeviceEvent(*meta, "rule_alarm", alarmPayload)
+	case RuleActionCreateWorkOrder:
+		if ae.workOrderCommands == nil {
+			err = fmt.Errorf("work order service is unavailable")
+			break
+		}
+		if ctx.Rule.TenantID == 0 || ctx.Rule.ProjectID == 0 {
+			err = fmt.Errorf("rule action requires tenant and project scope")
+			break
+		}
+		commandResult, createErr := ae.workOrderCommands.Create(actionCtx, workorder.CreateCommand{
+			Scope:        workorder.Scope{TenantID: ctx.Rule.TenantID, ProjectID: ctx.Rule.ProjectID, Principal: workorder.Principal{Type: "rule", Ref: ctx.Rule.Code}},
+			Meta:         workorder.CommandMeta{IdempotencyKey: action.WorkOrderIdempotencyKey, CorrelationID: ctx.SessionID, CausationID: ctx.Rule.Code},
+			TemplateCode: strconv.FormatUint(uint64(action.WorkOrderTemplateID), 10),
+			Title:        action.WorkOrderTitle, Summary: action.WorkOrderSummary, Priority: action.WorkOrderPriority,
+			SourceType: WorkOrderSourceRule, SourceRef: ctx.Rule.Code, SourceSnapshot: ruleActionSourceSnapshot(ctx, action), FormData: action.WorkOrderFormData,
+		})
+		if createErr != nil {
+			err = createErr
+			break
+		}
+		if ctx.TemplateVars == nil {
+			ctx.TemplateVars = make(map[string]any)
+		}
+		ctx.TemplateVars["work_order_id"] = commandResult.PublicID
+		ctx.TemplateVars["work_order_code"] = commandResult.Code
+		actionOutput = map[string]any{
+			"work_order_id":   commandResult.PublicID,
+			"work_order_code": commandResult.Code,
+			"created":         commandResult.Created,
+		}
 	case RuleActionLLM:
 		if ae.deviceManager != nil && ae.deviceManager.EventBus != nil {
 			responseTopic := fmt.Sprintf("rule.action.llm.response.%s.%d", ctx.Rule.Code, time.Now().UnixNano())
@@ -434,8 +561,32 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 		result.Error = err.Error()
 	}
 	result.DurationMs = time.Since(start).Milliseconds()
+	result.IdempotencyKey = key
+	ctx.rememberActionResult(key, result)
 	setActionNodeResult(ctx, result, actionOutput)
 	return result
+}
+
+func (ctx *RuleExecContext) actionResult(key string) (ActionResult, bool) {
+	if ctx == nil || strings.TrimSpace(key) == "" {
+		return ActionResult{}, false
+	}
+	ctx.ActionResultsMu.Lock()
+	defer ctx.ActionResultsMu.Unlock()
+	result, ok := ctx.ActionResults[key]
+	return result, ok
+}
+
+func (ctx *RuleExecContext) rememberActionResult(key string, result ActionResult) {
+	if ctx == nil || strings.TrimSpace(key) == "" {
+		return
+	}
+	ctx.ActionResultsMu.Lock()
+	defer ctx.ActionResultsMu.Unlock()
+	if ctx.ActionResults == nil {
+		ctx.ActionResults = make(map[string]ActionResult)
+	}
+	ctx.ActionResults[key] = result
 }
 
 func setActionNodeResult(ctx *RuleExecContext, result ActionResult, data any) {

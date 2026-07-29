@@ -1,3 +1,5 @@
+import { formatDateTime } from './dateTime.js';
+
 const gatewayMessages = {
   en: {
     gateway_management: 'Gateway Management',
@@ -101,14 +103,7 @@ export function gatewayActionText(locale, enabled) {
 }
 
 export function gatewayDateTime(locale, value) {
-  if (!value) {
-    return '-';
-  }
-
-  const lang = resolveGatewayLocale(locale);
-  const normalizedLocale = lang === 'zh' ? 'zh-CN' : 'en-US';
-
-  return new Date(value).toLocaleString(normalizedLocale);
+  return formatDateTime(value);
 }
 
 export { gatewayMessages };

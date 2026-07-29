@@ -182,6 +182,7 @@ import {
   isAlarmEvent
 } from '../utils/alarmEvents.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
+import { formatDateTime } from '../utils/dateTime.js';
 
 defineProps({
   title: String,
@@ -329,14 +330,7 @@ const closeToast = (id) => {
   activeToasts.value = activeToasts.value.filter(t => t.id !== id);
 };
 
-const formatTimeAgo = (ts) => {
-  const diff = Math.floor((Date.now() - ts) / 1000);
-  if (diff < 0) return '刚刚';
-  if (diff < 60) return `${diff}秒前`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`;
-  return `${Math.floor(diff / 86400)}天前`;
-};
+const formatTimeAgo = (ts) => formatDateTime(ts);
 
 const fetchRecentEvents = async () => {
   try {

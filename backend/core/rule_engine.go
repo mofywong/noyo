@@ -13,6 +13,7 @@ import (
 
 	"noyo/core/store"
 	"noyo/core/types"
+	"noyo/core/workorder"
 
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
@@ -21,44 +22,50 @@ import (
 )
 
 type RuleEngine struct {
-	server        *Server
-	eventBus      *EventBus
-	deviceManager *DeviceManager
-	registry      *DeviceRegistry
-	executor      *ActionExecutor
-	distributor   *RuleDistributor
-	cron          *cron.Cron
-	cronMu        sync.Mutex
-	cronEntries   map[string]cron.EntryID
-	controlMu     sync.Mutex
-	controls      map[string]*ruleExecutionControl
-	rules         sync.Map
-	execQueue     chan *RuleExecContext
-	workerCount   int
-	ruleTimeout   time.Duration
-	actionTimeout time.Duration
-	maxParallel   int
-	depthLimit    int
-	cancel        context.CancelFunc
+	server            *Server
+	eventBus          *EventBus
+	deviceManager     *DeviceManager
+	registry          *DeviceRegistry
+	executor          *ActionExecutor
+	distributor       *RuleDistributor
+	cron              *cron.Cron
+	cronMu            sync.Mutex
+	cronEntries       map[string]cron.EntryID
+	controlMu         sync.Mutex
+	controls          map[string]*ruleExecutionControl
+	rules             sync.Map
+	execQueue         chan *RuleExecContext
+	workerCount       int
+	ruleTimeout       time.Duration
+	actionTimeout     time.Duration
+	maxParallel       int
+	depthLimit        int
+	workOrderCommands workorder.CommandPort
+	cancel            context.CancelFunc
 }
 
 func NewRuleEngine(server *Server) *RuleEngine {
 	re := &RuleEngine{
-		server:        server,
-		eventBus:      server.DeviceManager.EventBus,
-		deviceManager: server.DeviceManager,
-		registry:      server.DeviceManager.Registry,
-		cron:          newRuleCronScheduler(),
-		cronEntries:   make(map[string]cron.EntryID),
-		controls:      make(map[string]*ruleExecutionControl),
-		execQueue:     make(chan *RuleExecContext, 2000),
-		workerCount:   20,
-		ruleTimeout:   60 * time.Second,
-		actionTimeout: 10 * time.Second,
-		maxParallel:   20,
-		depthLimit:    5,
+		server:            server,
+		eventBus:          server.DeviceManager.EventBus,
+		deviceManager:     server.DeviceManager,
+		registry:          server.DeviceManager.Registry,
+		cron:              newRuleCronScheduler(),
+		cronEntries:       make(map[string]cron.EntryID),
+		controls:          make(map[string]*ruleExecutionControl),
+		execQueue:         make(chan *RuleExecContext, 2000),
+		workerCount:       20,
+		ruleTimeout:       60 * time.Second,
+		actionTimeout:     10 * time.Second,
+		maxParallel:       20,
+		depthLimit:        5,
+		workOrderCommands: server.WorkOrderCommands,
 	}
-	re.executor = NewActionExecutor(re.deviceManager, server.Logger)
+	if re.workOrderCommands != nil {
+		re.executor = NewActionExecutorWithCommandPort(re.deviceManager, server.Logger, re.workOrderCommands)
+	} else {
+		re.executor = NewActionExecutor(re.deviceManager, server.Logger, server.WorkOrderService)
+	}
 	re.distributor = NewRuleDistributor(re.registry)
 	return re
 }
@@ -125,6 +132,8 @@ func (re *RuleEngine) loadRule(rule store.Rule) error {
 		return err
 	}
 	rt := &RuleRuntime{
+		TenantID:      rule.TenantID,
+		ProjectID:     rule.ProjectID,
 		Code:          rule.Code,
 		Name:          rule.Name,
 		Description:   rule.Description,

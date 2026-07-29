@@ -145,7 +145,7 @@
                   {{ device.online ? $t('dev_online') : $t('dev_offline') }}
                 </span>
                 <div v-if="device.last_active && new Date(device.last_active).getFullYear() > 1" class="small text-muted mt-1" style="font-size: 0.7rem">
-                   {{ new Date(device.last_active).toLocaleString() }}
+                   {{ formatDateTime(device.last_active) }}
                 </div>
               </td>
               <td class="text-truncate" style="max-width: 150px;" :title="getProductName(device.product_code)" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
@@ -163,8 +163,8 @@
                 <span v-else class="text-muted">-</span>
               </td>
               <td class="d-none d-xl-table-cell small text-muted" style="font-size: 0.75rem;" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
-                <div>{{ device.CreatedAt ? new Date(device.CreatedAt).toLocaleString() : '-' }}</div>
-                <div>{{ device.UpdatedAt ? new Date(device.UpdatedAt).toLocaleString() : '-' }}</div>
+                <div>{{ formatDateTime(device.CreatedAt) }}</div>
+                <div>{{ formatDateTime(device.UpdatedAt) }}</div>
               </td>
               <td @click.stop="openSingleAIModal(device)" style="position: relative;">
                 <!-- 在线 + 有得分 -->
@@ -278,35 +278,7 @@
         </table>
       </div>
     </div>
-    <div class="card-footer bg-transparent border-0 d-flex justify-content-end align-items-center py-3" v-if="total > 0">
-      <div class="d-flex align-items-center gap-2">
-        <select class="form-select form-select-sm" style="width: auto" v-model="pageSize" @change="changePageSize">
-          <option :value="10">10 / {{ $t('page') }}</option>
-          <option :value="20">20 / {{ $t('page') }}</option>
-          <option :value="50">50 / {{ $t('page') }}</option>
-        </select>
-        <nav>
-          <ul class="pagination pagination-sm mb-0">
-            <li class="page-item disabled me-2 d-flex align-items-center">
-              <span class="text-muted small border-0 bg-transparent">共 {{ total }} 条</span>
-            </li>
-            <li class="page-item" :class="{ disabled: page === 1 }">
-              <button class="page-link" @click="changePage(page - 1)">
-                <i class="bi bi-chevron-left"></i>
-              </button>
-            </li>
-            <li class="page-item disabled">
-              <span class="page-link">{{ page }} / {{ Math.ceil(total / pageSize) }}</span>
-            </li>
-            <li class="page-item" :class="{ disabled: page * pageSize >= total }">
-              <button class="page-link" @click="changePage(page + 1)">
-                <i class="bi bi-chevron-right"></i>
-              </button>
-            </li>
-          </ul>
-        </nav>
-      </div>
-    </div>
+    <ListPagination :page="page" :page-size="pageSize" :total="total" id-prefix="devices" @update:page="changePage" @update:page-size="changePageSize" />
 
     <!-- Hover Tooltip -->
     <div 
@@ -370,7 +342,7 @@
             <i class="bi bi-shield-slash fs-5 d-block mb-1"></i>
             <div class="fw-bold">设备离线</div>
             <div v-if="healthTooltipDevice.last_active && new Date(healthTooltipDevice.last_active).getFullYear() > 1" class="small mt-1" style="font-size: 0.75rem;">
-              最后在线: {{ new Date(healthTooltipDevice.last_active).toLocaleString() }}
+              最后在线: {{ formatDateTime(healthTooltipDevice.last_active) }}
             </div>
           </div>
         </template>
@@ -685,7 +657,7 @@
                    </thead>
                    <tbody>
                      <tr v-for="(evt, idx) in aiHistoryEvents" :key="idx">
-                       <td>{{ new Date(evt.ts).toLocaleString() }}</td>
+                       <td>{{ formatDateTime(evt.ts) }}</td>
                        <td>{{ evt.property }}</td>
                         <td>
                           <span :class="evt.health_score > 60 ? 'text-warning' : 'text-danger'" class="fw-bold">
@@ -913,11 +885,13 @@ import SchemaForm from '../components/SchemaForm.vue';
 import DeviceMappingEditor from '../components/device/DeviceMappingEditor.vue';
 import DeviceDiscoveryModal from '../components/device/DeviceDiscoveryModal.vue';
 import DeviceDataModal from '../components/device/DeviceDataModal.vue';
+import ListPagination from '../components/ListPagination.vue';
 import Sparkline from '../components/Sparkline.vue';
 import { usePlugins } from '../plugins/registry.js';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 import { applyDriverDefaults } from '../utils/deviceDriverDefaults.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
+import { formatDateTime } from '../utils/dateTime.js';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { LineChart, BarChart, ScatterChart } from 'echarts/charts';
@@ -1259,7 +1233,8 @@ const changePage = (p) => {
     page.value = p;
 };
 
-const changePageSize = () => {
+const changePageSize = (size) => {
+  pageSize.value = Number(size) || 10;
   page.value = 1;
 };
 
@@ -2226,9 +2201,9 @@ const fetchAITrend = async () => {
                let timeStr = '';
                const item0 = params[0];
                if (Array.isArray(item0.value)) {
-                  timeStr = new Date(Number(item0.value[0])).toLocaleString();
+                  timeStr = formatDateTime(Number(item0.value[0]));
                } else if (item0.axisValue) {
-                  timeStr = new Date(Number(item0.axisValue)).toLocaleString();
+                  timeStr = formatDateTime(Number(item0.axisValue));
                }
                
                let html = `<div style="margin-bottom: 3px; font-weight: bold;">${timeStr}</div>`;

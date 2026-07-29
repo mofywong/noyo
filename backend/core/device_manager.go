@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"noyo/core/store"
 	"noyo/core/tsdb"
 	"noyo/core/types"
+	"noyo/core/workorder"
 	"os"
 	"reflect"
 	"strings"
@@ -523,6 +525,9 @@ func buildDeviceServiceResultEvent(deviceCode, serviceID string, params map[stri
 
 // ReportDeviceEvent handles event reporting
 func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, params map[string]interface{}) error {
+	if params == nil {
+		params = make(map[string]interface{})
+	}
 	if base64Str, ok := params["snapshot_base64"].(string); ok && len(base64Str) > 0 {
 		b64Data, ext := normalizeSnapshotBase64(base64Str)
 		imgData, err := base64.StdEncoding.DecodeString(b64Data)
@@ -536,6 +541,7 @@ func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, para
 	}
 
 	eventTs := time.Now().UnixMilli()
+	dm.enrichAlarmEvent(meta, eventId, params)
 
 	// Publish first so UI/SSE subscribers and rule engine workers do not wait for TSDB serialization.
 	dm.EventBus.Publish(types.Event{
@@ -547,6 +553,140 @@ func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, para
 	dm.pushDeviceEventToTSDB(meta, eventId, params, eventTs)
 
 	return nil
+}
+
+func (dm *DeviceManager) enrichAlarmEvent(meta DeviceMeta, eventID string, params map[string]interface{}) {
+	if dm.Server == nil || dm.Server.AlarmInstances == nil {
+		return
+	}
+	device, err := store.GetDevice(meta.DeviceCode)
+	if err != nil || device.TenantID == 0 || device.ProjectID == 0 {
+		return
+	}
+	scope := workorder.Scope{TenantID: device.TenantID, ProjectID: device.ProjectID}
+	productName, eventName, eventLevel := resolveAlarmEventMetadata(meta.ProductCode, eventID)
+	signalMetadata := AlarmSignalMetadata{
+		SourceType:  "device_event",
+		SourceRef:   eventID,
+		ProductCode: meta.ProductCode,
+		EventLevel:  eventLevel,
+	}
+	if !isWorkOrderAlarmEvent(eventID, params) {
+		if dm.Server.AlarmCenter == nil {
+			return
+		}
+		matched, matchErr := dm.Server.AlarmCenter.HasMatchingPolicyForSignal(scope, signalMetadata)
+		if matchErr != nil || !matched {
+			return
+		}
+	}
+	fingerprint := workOrderAlarmFingerprint(meta.DeviceCode, eventID, params)
+	if isWorkOrderAlarmClearEvent(eventID, params) {
+		instance, err := dm.Server.AlarmInstances.GetActive(context.Background(), scope, fingerprint)
+		if err == nil {
+			if err := dm.Server.AlarmInstances.Clear(context.Background(), scope, instance.ID, map[string]any{"event_id": eventID, "params": cloneEventParams(params)}); err != nil {
+				dm.Server.Logger.Warn("clear alarm instance", zap.Error(err), zap.String("device_code", meta.DeviceCode), zap.String("event_id", eventID))
+			} else if dm.Server.AlarmCenter != nil {
+				if err := dm.Server.AlarmCenter.Recover(scope, instance.ID, map[string]any{"event_id": eventID, "params": cloneEventParams(params)}); err != nil {
+					dm.Server.Logger.Warn("recover alarm center instance", zap.Error(err), zap.String("device_code", meta.DeviceCode), zap.String("event_id", eventID))
+				}
+			}
+		}
+		return
+	}
+	instance, err := dm.Server.AlarmInstances.Open(context.Background(), scope, fingerprint, map[string]any{
+		"event_id": eventID, "device_code": meta.DeviceCode, "product_code": meta.ProductCode,
+		"event_name": eventName, "event_level": eventLevel, "device_name": device.Name, "product_name": productName,
+		"params": cloneEventParams(params), "reported_at": time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		dm.Server.Logger.Warn("open alarm instance", zap.Error(err), zap.String("device_code", meta.DeviceCode), zap.String("event_id", eventID))
+		return
+	}
+	params["_alarm_instance_id"] = instance.ID
+	params["_generation"] = instance.Generation
+	if dm.Server.AlarmCenter != nil {
+		severity, _ := params["alarm_severity"].(string)
+		if strings.TrimSpace(severity) == "" {
+			severity, _ = params["level"].(string)
+		}
+		title, _ := params["alarm_title"].(string)
+		if strings.TrimSpace(title) == "" {
+			title, _ = params["title"].(string)
+		}
+		if strings.TrimSpace(title) == "" {
+			title = eventName
+		}
+		signalMetadata.CorrelationKey = fingerprint
+		signalMetadata.Severity = severity
+		signalMetadata.Title = title
+		signalMetadata.OccurredAt = time.Now().UTC()
+		signalMetadata.Payload = map[string]any{
+			"event_id": eventID, "event_name": eventName, "event_level": eventLevel,
+			"device_code": meta.DeviceCode, "device_name": device.Name,
+			"product_code": meta.ProductCode, "product_name": productName,
+			"params": cloneEventParams(params),
+		}
+		if err := dm.Server.AlarmCenter.Observe(context.Background(), scope, instance.ID, signalMetadata); err != nil {
+			dm.Server.Logger.Warn("enrich alarm center instance", zap.Error(err), zap.String("device_code", meta.DeviceCode), zap.String("event_id", eventID))
+		}
+	}
+}
+
+func resolveAlarmEventMetadata(productCode, eventID string) (string, string, string) {
+	product, err := store.GetProduct(strings.TrimSpace(productCode))
+	if err != nil || product == nil {
+		return "", "", ""
+	}
+	tsl, err := ParseProductTSL(product.Config)
+	if err != nil {
+		return product.Name, "", ""
+	}
+	for _, event := range tsl.Events {
+		if strings.EqualFold(strings.TrimSpace(event.Key), strings.TrimSpace(eventID)) {
+			return product.Name, strings.TrimSpace(event.Name), strings.ToLower(strings.TrimSpace(event.Type))
+		}
+	}
+	return product.Name, "", ""
+}
+
+func isWorkOrderAlarmEvent(eventID string, params map[string]interface{}) bool {
+	if fingerprint, _ := params["alarm_fingerprint"].(string); strings.TrimSpace(fingerprint) != "" {
+		return true
+	}
+	if phase, _ := params["alarm_phase"].(string); strings.TrimSpace(phase) != "" {
+		return true
+	}
+	if sceneType, ok := params["scene_type"].(string); ok && strings.TrimSpace(sceneType) != "" {
+		return true
+	}
+	switch strings.TrimSpace(eventID) {
+	case "ai_fault", "illegal_parking_alarm", "fire_lane_occupied_alarm", "indoor_fire_passage_occupied_alarm", "object_missing_alarm", "area_intrusion_alarm", "area_intrusion_leave", "rule_alarm":
+		return true
+	default:
+		return false
+	}
+}
+
+func isWorkOrderAlarmClearEvent(eventID string, params map[string]interface{}) bool {
+	if strings.TrimSpace(eventID) == "area_intrusion_leave" {
+		return true
+	}
+	if phase, _ := params["alarm_phase"].(string); strings.EqualFold(strings.TrimSpace(phase), "recovered") {
+		return true
+	}
+	status, _ := params["alarm_status"].(string)
+	return strings.EqualFold(strings.TrimSpace(status), "left") || strings.EqualFold(strings.TrimSpace(status), "cleared")
+}
+
+func workOrderAlarmFingerprint(deviceCode, eventID string, params map[string]interface{}) string {
+	if fingerprint, ok := params["alarm_fingerprint"].(string); ok && strings.TrimSpace(fingerprint) != "" {
+		return strings.TrimSpace(deviceCode) + ":alarm:" + strings.TrimSpace(fingerprint)
+	}
+	if sceneType, ok := params["scene_type"].(string); ok && strings.TrimSpace(sceneType) != "" {
+		return strings.TrimSpace(deviceCode) + ":scene:" + strings.TrimSpace(sceneType)
+	}
+	return strings.TrimSpace(deviceCode) + ":event:" + strings.TrimSpace(eventID)
 }
 
 func (dm *DeviceManager) pushDeviceEventToTSDB(meta DeviceMeta, eventId string, params map[string]interface{}, eventTs int64) {

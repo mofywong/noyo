@@ -39,8 +39,8 @@
                 <span class="badge bg-info bg-opacity-10 text-info">{{ getPluginTitle(driver.protocol_name) }}</span>
               </td>
               <td class="small text-muted d-none d-xl-table-cell" style="font-size: 0.75rem;">
-                <div>{{ driver.CreatedAt ? new Date(driver.CreatedAt).toLocaleString() : '-' }}</div>
-                <div>{{ driver.UpdatedAt ? new Date(driver.UpdatedAt).toLocaleString() : '-' }}</div>
+                <div>{{ formatDateTime(driver.CreatedAt) }}</div>
+                <div>{{ formatDateTime(driver.UpdatedAt) }}</div>
               </td>
               <td class="text-end pe-4">
                 <div class="btn-group btn-group-sm me-2">
@@ -57,25 +57,15 @@
         </table>
       </div>
       
-      <!-- Pagination -->
-      <div v-if="total > 0" class="d-flex justify-content-between align-items-center p-3 border-top">
-        <div class="text-muted small">
-          {{ $t('pagination_total', { total: total }) }}
-        </div>
-        <nav :aria-label="$t('pagination_navigation')">
-          <ul class="pagination pagination-sm mb-0">
-            <li class="page-item" :class="{ disabled: page === 1 }">
-              <button class="page-link" @click="changePage(page - 1)"><i class="bi bi-chevron-left"></i></button>
-            </li>
-            <li class="page-item disabled">
-              <span class="page-link">{{ page }} / {{ Math.ceil(total / pageSize) }}</span>
-            </li>
-            <li class="page-item" :class="{ disabled: page >= Math.ceil(total / pageSize) }">
-              <button class="page-link" @click="changePage(page + 1)"><i class="bi bi-chevron-right"></i></button>
-            </li>
-          </ul>
-        </nav>
-      </div>
+      <ListPagination
+        :page="page"
+        :page-size="pageSize"
+        :total="total"
+        :disabled="loading"
+        id-prefix="device-drivers"
+        @update:page="changePage"
+        @update:page-size="changePageSize"
+      />
     </div>
 
     <!-- Create/Edit Modal -->
@@ -142,6 +132,8 @@ import ScriptProductConfig from '../components/script/ScriptProductConfig.vue';
 import { useAuthStore } from '../stores/auth';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
+import ListPagination from '../components/ListPagination.vue';
+import { formatDateTime } from '../utils/dateTime.js';
 
 const { t, locale } = useI18n();
 const { showToast } = useToast();
@@ -321,6 +313,12 @@ const deleteDriver = async (code) => {
 const changePage = (p) => {
   if (p < 1 || p > Math.ceil(total.value / pageSize.value)) return;
   page.value = p;
+  loadDrivers();
+};
+
+const changePageSize = (size) => {
+  pageSize.value = Number(size) || 10;
+  page.value = 1;
   loadDrivers();
 };
 

@@ -38,7 +38,7 @@
                 <td>{{ t.name }}</td>
                 <td>{{ t.contact }}</td>
                 <td>{{ t.phone }}</td>
-                <td>{{ new Date(t.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</td>
+                <td>{{ formatDateTime(t.CreatedAt) }}</td>
                 <td class="text-end">
                   <div class="d-inline-flex align-items-center justify-content-end gap-2">
                     <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(t)" :title="$t('common_view_details', '查看详情')">
@@ -139,7 +139,7 @@
                   </div>
                   <div class="col-12">
                     <label class="text-muted small mb-1">{{ $t('user_created_at', '创建时间') }}</label>
-                    <div class="fw-medium">{{ new Date(currentTenantDetails.CreatedAt).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-') }}</div>
+                    <div class="fw-medium">{{ formatDateTime(currentTenantDetails.CreatedAt) }}</div>
                   </div>
                 </div>
               </div>
@@ -320,6 +320,7 @@ import DOMPurify from 'dompurify'
 import { Modal } from 'bootstrap'
 import { useI18n } from 'vue-i18n'
 import PermissionDualMode from '../components/PermissionDualMode.vue'
+import { formatDateTime } from '../utils/dateTime.js'
 
 const { t } = useI18n()
 

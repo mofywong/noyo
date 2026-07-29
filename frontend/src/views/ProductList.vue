@@ -44,8 +44,8 @@
                 </span>
               </td>
               <td class="small text-muted d-none d-xl-table-cell" style="font-size: 0.75rem;">
-                <div>{{ product.CreatedAt ? new Date(product.CreatedAt).toLocaleString() : '-' }}</div>
-                <div>{{ product.UpdatedAt ? new Date(product.UpdatedAt).toLocaleString() : '-' }}</div>
+                <div>{{ formatDateTime(product.CreatedAt) }}</div>
+                <div>{{ formatDateTime(product.UpdatedAt) }}</div>
               </td>
               <td class="text-end pe-4">
                 <div class="btn-group btn-group-sm me-2">
@@ -116,35 +116,7 @@
         </div>
       </div>
     </div>
-    <div class="card-footer bg-transparent border-0 d-flex justify-content-end align-items-center py-3" v-if="total > 0">
-      <div class="d-flex align-items-center gap-2">
-        <select class="form-select form-select-sm" style="width: auto" v-model="pageSize" @change="changePageSize">
-          <option :value="10">10 / {{ $t('page') }}</option>
-          <option :value="20">20 / {{ $t('page') }}</option>
-          <option :value="50">50 / {{ $t('page') }}</option>
-        </select>
-        <nav>
-          <ul class="pagination pagination-sm mb-0">
-            <li class="page-item disabled me-2 d-flex align-items-center">
-              <span class="text-muted small border-0 bg-transparent">共 {{ total }} 条</span>
-            </li>
-            <li class="page-item" :class="{ disabled: page === 1 }">
-              <button class="page-link" @click="changePage(page - 1)">
-                <i class="bi bi-chevron-left"></i>
-              </button>
-            </li>
-            <li class="page-item disabled">
-              <span class="page-link">{{ page }} / {{ Math.ceil(total / pageSize) }}</span>
-            </li>
-            <li class="page-item" :class="{ disabled: page * pageSize >= total }">
-              <button class="page-link" @click="changePage(page + 1)">
-                <i class="bi bi-chevron-right"></i>
-              </button>
-            </li>
-          </ul>
-        </nav>
-      </div>
-    </div>
+    <ListPagination :page="page" :page-size="pageSize" :total="total" :disabled="loading" id-prefix="products" @update:page="changePage" @update:page-size="changePageSize" />
   </div>
 </template>
 
@@ -153,8 +125,10 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import axios from 'axios';
 import { useI18n } from 'vue-i18n';
 import TSLEditor from '../components/tsl/TSLEditor.vue';
+import ListPagination from '../components/ListPagination.vue';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
+import { formatDateTime } from '../utils/dateTime.js';
 
 const { t, locale } = useI18n();
 
@@ -227,7 +201,8 @@ const changePage = (newPage) => {
   fetchProducts();
 };
 
-const changePageSize = () => {
+const changePageSize = (size) => {
+  pageSize.value = Number(size) || 10;
   page.value = 1;
   fetchProducts();
 };

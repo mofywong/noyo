@@ -57,7 +57,10 @@
         <i class="bi bi-diagram-3"></i> <span>{{ $t('sidebar_rules') }}</span>
       </a>
       <a v-if="authStore.hasPermission('alarm:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AlarmCenter' }" @click.prevent="navigate('/alarms')">
-        <i class="bi bi-bell-fill"></i> <span>{{ $t('sidebar_alarms', '告警中心') }}</span>
+        <i class="bi bi-bell-fill"></i> <span>{{ $t('sidebar_alarms') }}</span>
+      </a>
+      <a v-if="authStore.hasPermission('work_order:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'WorkOrderCenter' }" @click.prevent="navigate('/work-orders')">
+        <i class="bi bi-ticket-detailed"></i> <span>{{ $t('sidebar_work_orders') }}</span>
       </a>
 
       

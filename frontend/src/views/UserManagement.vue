@@ -60,8 +60,8 @@
                     <span v-if="getPermissionsSummary(user).length === 0" class="text-muted small">{{ $t('user_no_permission', '无权限') }}</span>
                   </span>
                 </td>
-                <td>{{ user.last_login_at || $t('user_never') }}</td>
-                <td>{{ user.created_at }}</td>
+                <td>{{ user.last_login_at ? formatDateTime(user.last_login_at) : $t('user_never') }}</td>
+                <td>{{ formatDateTime(user.created_at) }}</td>
                 <td class="text-end">
                   <div class="d-inline-flex align-items-center justify-content-end gap-2">
                     <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(user)" :title="$t('common_view_details', '查看详情')">
@@ -86,19 +86,16 @@
           </table>
         </div>
       </div>
-      <div class="card-footer d-flex justify-content-between align-items-center">
-        <span class="text-muted small">Total: {{ total }}</span>
-        <nav v-if="total > pageSize">
-          <ul class="pagination pagination-sm mb-0">
-            <li class="page-item" :class="{ disabled: page === 1 }">
-              <button class="page-link" @click="changePage(page - 1)">Previous</button>
-            </li>
-            <li class="page-item" :class="{ disabled: page * pageSize >= total }">
-              <button class="page-link" @click="changePage(page + 1)">Next</button>
-            </li>
-          </ul>
-        </nav>
-      </div>
+      <ListPagination
+        class="card-footer"
+        :page="page"
+        :page-size="pageSize"
+        :total="total"
+        :disabled="loading"
+        id-prefix="users"
+        @update:page="changePage"
+        @update:page-size="changePageSize"
+      />
     </div>
 
     <!-- User Modal -->
@@ -246,11 +243,11 @@
                   </div>
                   <div class="col-6">
                     <label class="text-muted small mb-1">{{ $t('user_last_login') }}</label>
-                    <div class="fw-medium">{{ currentUserDetails.last_login_at || $t('user_never') }}</div>
+                    <div class="fw-medium">{{ currentUserDetails.last_login_at ? formatDateTime(currentUserDetails.last_login_at) : $t('user_never') }}</div>
                   </div>
                   <div class="col-6">
                     <label class="text-muted small mb-1">{{ $t('user_created_at') }}</label>
-                    <div class="fw-medium">{{ currentUserDetails.created_at }}</div>
+                    <div class="fw-medium">{{ formatDateTime(currentUserDetails.created_at) }}</div>
                   </div>
                 </div>
                 
@@ -306,6 +303,8 @@ import { Modal } from 'bootstrap'
 import { useAuthStore } from '../stores/auth'
 import { useI18n } from 'vue-i18n'
 import { isSingleProjectMode } from '../utils/systemMode'
+import ListPagination from '../components/ListPagination.vue'
+import { formatDateTime } from '../utils/dateTime.js'
 
 const authStore = useAuthStore()
 const currentUser = authStore.user
@@ -524,7 +523,14 @@ const loadAllProjects = async () => {
 }
 
 const changePage = (p) => {
+  if (p < 1 || p > Math.max(1, Math.ceil(total.value / pageSize.value))) return
   page.value = p
+  loadUsers()
+}
+
+const changePageSize = (size) => {
+  pageSize.value = Number(size) || 10
+  page.value = 1
   loadUsers()
 }
 

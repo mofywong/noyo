@@ -48,7 +48,7 @@
                     {{ a.status === 1 ? t('app_status_active') : t('app_status_disabled') }}
                   </span>
                 </td>
-                <td>{{ new Date(a.CreatedAt).toLocaleString() }}</td>
+                <td>{{ formatDateTime(a.CreatedAt) }}</td>
                 <td class="text-end">
                   <div class="d-inline-flex align-items-center justify-content-end gap-2">
                     <button class="btn btn-sm btn-outline-secondary" @click="openAccessModal(a)" :title="t('app_access')" v-permission="'app:edit'">
@@ -237,6 +237,7 @@ import axios from 'axios'
 import { Modal } from 'bootstrap'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { formatDateTime } from '../utils/dateTime.js'
 
 const router = useRouter()
 const { t } = useI18n()

@@ -45,7 +45,7 @@
                 <td colspan="8" class="text-center py-4 text-muted">暂无日志记录</td>
               </tr>
               <tr v-for="log in logs" :key="log.id" v-else>
-                <td>{{ new Date(log.created_at).toLocaleString() }}</td>
+                <td>{{ formatDateTime(log.created_at) }}</td>
                 <td>{{ log.username || '-' }}</td>
                 <td>{{ log.app_id || '-' }}</td>
                 <td>{{ log.module }}</td>
@@ -62,19 +62,15 @@
           </table>
         </div>
         
-        <!-- Pagination -->
-        <div class="d-flex justify-content-between align-items-center p-3 border-top">
-          <div class="text-muted small">共 {{ total }} 条记录</div>
-          <ul class="pagination pagination-sm mb-0">
-            <li class="page-item" :class="{ disabled: page === 1 }">
-              <button class="page-link" @click="changePage(page - 1)">上一页</button>
-            </li>
-            <li class="page-item active"><span class="page-link">{{ page }}</span></li>
-            <li class="page-item" :class="{ disabled: page * pageSize >= total }">
-              <button class="page-link" @click="changePage(page + 1)">下一页</button>
-            </li>
-          </ul>
-        </div>
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :disabled="loading"
+          id-prefix="audit-logs"
+          @update:page="changePage"
+          @update:page-size="changePageSize"
+        />
 
       </div>
     </div>
@@ -84,6 +80,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import ListPagination from '../components/ListPagination.vue'
+import { formatDateTime } from '../utils/dateTime.js'
 
 const logs = ref([])
 const loading = ref(false)
@@ -132,10 +130,16 @@ const resetFilters = () => {
 }
 
 const changePage = (newPage) => {
-  if (newPage >= 1) {
+  if (newPage >= 1 && newPage <= Math.max(1, Math.ceil(total.value / pageSize.value))) {
     page.value = newPage
     loadLogs()
   }
+}
+
+const changePageSize = (size) => {
+  pageSize.value = Number(size) || 20
+  page.value = 1
+  loadLogs()
 }
 
 const getActionBadgeClass = (action) => {

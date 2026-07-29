@@ -124,6 +124,9 @@ func InitDB(dsn string) error {
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
+	if err := MigrateWorkOrderModels(DB); err != nil {
+		return fmt.Errorf("failed to migrate work order database: %w", err)
+	}
 	_ = DB.Migrator().DropIndex(&AppRole{}, "idx_app_role")
 	_ = DB.Migrator().DropIndex(&RoleDeviceTagPermission{}, "idx_role_tag")
 	DB.Exec(`
@@ -175,28 +178,37 @@ func purgeLegacyPositionPermissions() error {
 }
 
 var superAdminDefaultPermissionCodes = map[string]bool{
-	"tenant:list":         true,
-	"tenant:create":       true,
-	"tenant:edit":         true,
-	"tenant:delete":       true,
-	"dashboard:view":      true,
-	"audit:list":          true,
-	"system:logs":         true,
-	"system:license":      true,
-	"rule:list":           true,
-	"rule:detail":         true,
-	"rule:create":         true,
-	"rule:edit":           true,
-	"rule:delete":         true,
-	"rule:enable":         true,
-	"rule:log":            true,
-	"rule_group:manage":   true,
-	"ai_brain:view":       true,
-	"ai_brain:review":     true,
-	"ai_brain:edit":       true,
-	"ai_brain:delete":     true,
-	"ai_brain:suggestion": true,
-	"ai_brain:manage":     true,
+	"tenant:list":            true,
+	"tenant:create":          true,
+	"tenant:edit":            true,
+	"tenant:delete":          true,
+	"dashboard:view":         true,
+	"audit:list":             true,
+	"system:logs":            true,
+	"system:license":         true,
+	"rule:list":              true,
+	"rule:detail":            true,
+	"rule:create":            true,
+	"rule:edit":              true,
+	"rule:delete":            true,
+	"rule:enable":            true,
+	"rule:log":               true,
+	"rule_group:manage":      true,
+	"ai_brain:view":          true,
+	"ai_brain:review":        true,
+	"ai_brain:edit":          true,
+	"ai_brain:delete":        true,
+	"ai_brain:suggestion":    true,
+	"ai_brain:manage":        true,
+	"work_order:list":        true,
+	"work_order:create":      true,
+	"work_order:process":     true,
+	"work_order:approve":     true,
+	"work_order:manage":      true,
+	"work_order:integration": true,
+	"alarm:list":             true,
+	"alarm:handle":           true,
+	"alarm:manage":           true,
 }
 
 var exclusiveTenantManagementPermissionCodes = map[string]bool{
@@ -319,6 +331,7 @@ func InitPermissions() {
 		// Alarm
 		{Code: "alarm:list", Name: "告警列表", Module: "alarm", Type: "menu"},
 		{Code: "alarm:handle", Name: "处理告警", Module: "alarm", Type: "button"},
+		{Code: "alarm:manage", Name: "告警策略管理", Module: "alarm", Type: "button"},
 		// Rules
 		{Code: "rule:list", Name: "规则列表", Module: "rule", Type: "menu"},
 		{Code: "rule:detail", Name: "规则详情", Module: "rule", Type: "button"},
@@ -328,6 +341,13 @@ func InitPermissions() {
 		{Code: "rule:enable", Name: "启用规则", Module: "rule", Type: "button"},
 		{Code: "rule:log", Name: "规则日志", Module: "rule", Type: "button"},
 		{Code: "rule_group:manage", Name: "规则分组管理", Module: "rule", Type: "button"},
+		// Work Orders
+		{Code: "work_order:list", Name: "工单列表", Module: "work_order", Type: "menu"},
+		{Code: "work_order:create", Name: "创建工单", Module: "work_order", Type: "button"},
+		{Code: "work_order:process", Name: "处理工单", Module: "work_order", Type: "button"},
+		{Code: "work_order:approve", Name: "审批工单", Module: "work_order", Type: "button"},
+		{Code: "work_order:manage", Name: "管理工单模板", Module: "work_order", Type: "button"},
+		{Code: "work_order:integration", Name: "管理工单集成", Module: "work_order", Type: "button"},
 		// History
 		{Code: "history:delete", Name: "删除历史记录", Module: "history", Type: "button"},
 		// Audit
@@ -498,7 +518,7 @@ func InitPermissions() {
 					})
 			}
 
-			if perm.Module == "user" || perm.Module == "role" || perm.Module == "product" || perm.Module == "device" || perm.Module == "device_tag" || perm.Module == "gateway" || perm.Module == "alarm" || perm.Module == "rule" || perm.Module == "plugin" || perm.Module == "ai_brain" {
+			if shouldGrantProjectAdminPermission(perm) {
 				DB.Where("role_id = ? AND permission_id = ?", projectAdminRole.ID, perm.ID).
 					FirstOrCreate(&RolePermission{
 						RoleID:       projectAdminRole.ID,
@@ -509,6 +529,18 @@ func InitPermissions() {
 	}
 	syncRolePermissionAllowlist(superAdminRole.ID, superAdminDefaultPermissionCodes)
 	removePermissionCodesFromOtherRoles(superAdminRole.ID, exclusiveTenantManagementPermissionCodes)
+}
+
+func shouldGrantProjectAdminPermission(perm Permission) bool {
+	if perm.Code == "work_order:integration" {
+		return false
+	}
+	switch perm.Module {
+	case "user", "role", "product", "device", "device_tag", "gateway", "alarm", "rule", "work_order", "plugin", "ai_brain":
+		return true
+	default:
+		return false
+	}
 }
 
 func EnsureVoiceAssistantScope(tx *gorm.DB, tenantID, projectID uint) error {

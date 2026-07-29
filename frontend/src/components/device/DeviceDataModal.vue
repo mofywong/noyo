@@ -161,7 +161,7 @@
                       <td :colspan="historyQuery.type === 'event' ? 3 : 2" class="text-center py-3 text-muted">{{ $t('tsl_no_data') }}</td>
                     </tr>
                     <tr v-else v-for="(item, index) in historyTableData" :key="index">
-                      <td style="white-space: nowrap;">{{ new Date(item.ts).toLocaleString() }}</td>
+                      <td style="white-space: nowrap;">{{ formatDateTime(item.ts) }}</td>
                       <td v-if="historyQuery.type === 'event'">{{ getEventTypeLabel(item) }}</td>
                       <td class="text-break">{{ formatHistoryData(item) }}</td>
                     </tr>
@@ -169,38 +169,17 @@
                 </table>
               </div>
 
-              <!-- History Pagination -->
-              <div class="d-flex justify-content-between align-items-center mt-2 border-top pt-2" v-if="historyTotal > 0">
-                <div class="text-muted small ms-1">{{ $t('total_records', { count: historyTotal }) }}</div>
-                <div class="d-flex align-items-center gap-2">
-                  <select class="form-select form-select-sm" style="width: auto" v-model="historyPageSize" @change="changeHistoryPageSize">
-                    <option :value="10">10 / {{ $t('page') }}</option>
-                    <option :value="20">20 / {{ $t('page') }}</option>
-                    <option :value="50">50 / {{ $t('page') }}</option>
-                  </select>
-                  <nav>
-                    <ul class="pagination pagination-sm mb-0">
-                      <li class="page-item" :class="{ disabled: historyPage === 1 }">
-                        <button class="page-link" @click="changeHistoryPage(historyPage - 1)">
-                          <i class="bi bi-chevron-left"></i>
-                        </button>
-                      </li>
-                      <li class="page-item disabled">
-                        <span class="page-link">{{ historyPage }} / {{ Math.ceil(historyTotal / historyPageSize) }}</span>
-                      </li>
-                      <li class="page-item" :class="{ disabled: historyPage * historyPageSize >= historyTotal }">
-                        <button class="page-link" @click="changeHistoryPage(historyPage + 1)">
-                          <i class="bi bi-chevron-right"></i>
-                        </button>
-                      </li>
-                    </ul>
-                  </nav>
-                  <div class="input-group input-group-sm" style="width: 120px">
-                    <input type="number" class="form-control" v-model.number="historyJumpPage" @keyup.enter="handleHistoryJump" placeholder="Go">
-                    <button class="btn btn-outline-secondary" type="button" @click="handleHistoryJump">Go</button>
-                  </div>
-                </div>
-              </div>
+              <ListPagination
+                class="mt-2"
+                :page="historyPage"
+                :page-size="historyPageSize"
+                :total="historyTotal"
+                :disabled="historyTableLoading"
+                :page-size-options="[10, 20, 50]"
+                id-prefix="device-history"
+                @update:page="changeHistoryPage"
+                @update:page-size="changeHistoryPageSize"
+              />
             </div>
 
             <!-- Services Tab -->
@@ -304,6 +283,8 @@ import {
   hasServiceOutputParams
 } from './deviceServiceOutput.js';
 import { formatNamedReference } from '../../utils/entityDisplay.js';
+import ListPagination from '../ListPagination.vue';
+import { formatDateTime } from '../../utils/dateTime.js';
 
 const props = defineProps({
   visible: Boolean,
@@ -348,7 +329,6 @@ const historyMaxPoints = ref(2000);
 const historyAggMethod = ref('avg'); 
 const historyPageSize = ref(10);
 const historyTotal = ref(0);
-const historyJumpPage = ref(1);
 const historyRange = ref('1d');
 
 const chartOption = ref(null);
@@ -492,16 +472,10 @@ const changeHistoryPage = (p) => {
 };
 
 
-const changeHistoryPageSize = () => {
+const changeHistoryPageSize = (size) => {
+  historyPageSize.value = Number(size) || 10;
   historyPage.value = 1;
   fetchHistoryTable();
-};
-
-
-const handleHistoryJump = () => {
-  const p = parseInt(historyJumpPage.value);
-  if (!p || isNaN(p)) return;
-  changeHistoryPage(p);
 };
 
 
@@ -730,7 +704,7 @@ const renderChart = () => {
       }]
     };
   } else {
-    // const timestamps = historyChartData.value.map(item => new Date(item.ts).toLocaleString());
+    // const timestamps = historyChartData.value.map(item => formatDateTime(item.ts));
     const series = [];
     const legendData = [];
 
@@ -769,14 +743,14 @@ const renderChart = () => {
             if (isNaN(ts)) return '';
 
             const date = new Date(ts);
-            let timeStr = date.toLocaleString();
+            let timeStr = formatDateTime(date);
             
             const interval = Number(historyChartInterval.value || 0);
 
             if (interval > 0) {
                const endDate = new Date(ts + interval);
                // Use time string for end time to keep it short
-               timeStr += ` ~ ${endDate.toLocaleTimeString()}`;
+               timeStr += ` ~ ${formatDateTime(endDate)}`;
             }
             
             let html = `<div style="margin-bottom: 3px; font-weight: bold;">${timeStr}</div>`;
