@@ -24,7 +24,8 @@
                 <th>{{ $t('project_name') }}</th>
                 <th>{{ $t('project_admin', '管理员') }}</th>
                 <th>{{ $t('project_description') }}</th>
-                                <th>{{ $t('user_created_at') }}</th>
+                <th>{{ $t('scope_permission_policy') }}</th>
+                <th>{{ $t('user_created_at') }}</th>
                 <th class="text-end">{{ $t('project_actions') }}</th>
               </tr>
             </thead>
@@ -44,14 +45,18 @@
                 <td>{{ p.name }}</td>
                 <td>{{ p.admins || $t('common_none', '暂无') }}</td>
                 <td>{{ p.description }}</td>
-
+                <td>
+                  <span class="badge" :class="p.permission_mode === 'custom' ? 'text-bg-info' : (p.permission_mode === 'all' ? 'text-bg-success' : 'text-bg-primary')">
+                    {{ $t(`scope_permission_mode_${p.permission_mode || 'custom'}`) }}
+                  </span>
+                </td>
                 <td>{{ formatDateTime(p.CreatedAt) }}</td>
                 <td class="text-end">
                   <div class="d-inline-flex align-items-center justify-content-end gap-2">
                     <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(p)" :title="$t('common_view_details', '查看详情')">
                       <i class="bi bi-eye"></i>
                     </button>
-                    <button class="btn btn-sm" :class="(p.permission_ids && p.permission_ids.length > 0) ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermissionModal(p)" :title="$t('project_permission_config', '权限配置')" v-permission="'project:edit'">
+                    <button class="btn btn-sm" :class="p.permission_mode === 'custom' ? 'btn-outline-info' : (p.permission_mode === 'all' ? 'btn-outline-success' : 'btn-outline-primary')" @click="openPermissionModal(p)" :title="$t('project_permission_config', '权限配置')" v-permission="'project:edit'">
                       <i class="bi bi-shield-check"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-primary" @click="openEditModal(p)" :title="$t('project_edit', '编辑')" v-permission="'project:edit'">
@@ -81,10 +86,12 @@
             <div v-if="projectPermissionOptions.length === 0" class="text-muted small mb-3">
               {{ $t('project_permission_empty', '暂无可分配权限') }}
             </div>
-            <PermissionDualMode
+            <ScopePermissionPolicyEditor
+              scope="project"
               :allPermissions="projectPermissionOptions"
-              v-model="form.permission_ids"
               :title="$t('project_permission_limit', '项目最大权限集')"
+              v-model:mode="form.permission_mode"
+              v-model:permission-ids="form.permission_ids"
             />
           </div>
           <div class="modal-footer">
@@ -183,9 +190,9 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import axios from 'axios'
-import PermissionDualMode from '../components/PermissionDualMode.vue'
+import ScopePermissionPolicyEditor from '../components/ScopePermissionPolicyEditor.vue'
 import { Modal } from 'bootstrap'
 import { useI18n } from 'vue-i18n'
 import { formatDateTime } from '../utils/dateTime.js'
@@ -213,25 +220,16 @@ const form = ref({
   code: '',
   name: '',
   description: '',
-    admin_user_id: '',
+  admin_user_id: '',
+  permission_mode: 'inherit',
   permission_ids: []
 })
-
-const groupedProjectPermissionOptions = computed(() => {
-  const groups = {}
-  projectPermissionOptions.value.forEach(permission => {
-    if (!groups[permission.module]) groups[permission.module] = []
-    groups[permission.module].push(permission)
-  })
-  return groups
-})
-
-
 
 const openPermissionModal = (item) => {
     form.value = {
       id: item.ID,
       name: item.name,
+      permission_mode: item.permission_mode || 'custom',
       permission_ids: item.permission_ids || []
     }
     projectPermissionModal.show()
@@ -239,9 +237,8 @@ const openPermissionModal = (item) => {
 
   const saveProjectPermission = async () => {
     try {
-      // Use the project update endpoint with just the permission_ids, or a specific permission endpoint
-      // based on original code, it was probably calling PUT /api/projects/:id
       const res = await axios.put(`/api/projects/${form.value.id}`, {
+        permission_mode: form.value.permission_mode,
         permission_ids: form.value.permission_ids
       })
       if (res.data.code === 0) {
@@ -313,7 +310,8 @@ const openCreateModal = () => {
     code: '',
     name: '',
     description: '',
-        admin_user_id: '',
+    admin_user_id: '',
+    permission_mode: 'inherit',
     permission_ids: []
   }
   projectModal.show()
@@ -326,7 +324,8 @@ const openEditModal = (item) => {
     code: item.code,
     name: item.name,
     description: item.description,
-        admin_user_id: item.admin_user_id || '',
+    admin_user_id: item.admin_user_id || '',
+    permission_mode: item.permission_mode || 'custom',
     permission_ids: item.permission_ids || []
   }
   projectModal.show()

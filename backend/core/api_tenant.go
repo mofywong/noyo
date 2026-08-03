@@ -33,7 +33,8 @@ func (s *Server) handleGetTenants(r *ghttp.Request) {
 
 	type TenantResponse struct {
 		store.Tenant
-		PermissionIDs []uint `json:"permission_ids"`
+		PermissionIDs  []uint `json:"permission_ids"`
+		PermissionMode string `json:"permission_mode"`
 	}
 	res := make([]TenantResponse, 0, len(tenants))
 	for _, tenant := range tenants {
@@ -42,7 +43,12 @@ func (s *Server) handleGetTenants(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch tenant permission limits"})
 			return
 		}
-		res = append(res, TenantResponse{Tenant: tenant, PermissionIDs: permissionIDs})
+		permissionMode, err := scopePermissionMode(store.DB, permissionLimitScopeTenant, tenant.ID, 0)
+		if err != nil {
+			r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch tenant permission policy"})
+			return
+		}
+		res = append(res, TenantResponse{Tenant: tenant, PermissionIDs: permissionIDs, PermissionMode: permissionMode})
 	}
 
 	r.Response.WriteJson(g.Map{"code": 0, "data": res, "total": total, "page": page, "pageSize": pageSize})
@@ -51,9 +57,10 @@ func (s *Server) handleGetTenants(r *ghttp.Request) {
 func (s *Server) handleCreateTenant(r *ghttp.Request) {
 	var req struct {
 		store.Tenant
-		AdminUsername string `json:"admin_username"`
-		AdminPassword string `json:"admin_password"`
-		PermissionIDs []uint `json:"permission_ids"`
+		AdminUsername  string `json:"admin_username"`
+		AdminPassword  string `json:"admin_password"`
+		PermissionIDs  []uint `json:"permission_ids"`
+		PermissionMode string `json:"permission_mode"`
 	}
 
 	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
@@ -65,8 +72,13 @@ func (s *Server) handleCreateTenant(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Admin username and password are required"})
 		return
 	}
+	permissionMode, err := normalizeTenantPermissionMode(req.PermissionMode)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
 
-	err := store.DB.Transaction(func(tx *gorm.DB) error {
+	err = store.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&req.Tenant).Error; err != nil {
 			return err
 		}
@@ -100,7 +112,7 @@ func (s *Server) handleCreateTenant(r *ghttp.Request) {
 			return err
 		}
 
-		return replaceTenantPermissionLimit(tx, req.Tenant.ID, req.PermissionIDs)
+		return replaceTenantPermissionPolicy(tx, req.Tenant.ID, permissionMode, req.PermissionIDs)
 	})
 
 	if err != nil {
@@ -121,30 +133,64 @@ func (s *Server) handleUpdateTenant(r *ghttp.Request) {
 
 	var update struct {
 		store.Tenant
-		PermissionIDs []uint `json:"permission_ids"`
+		PermissionIDs  []uint `json:"permission_ids"`
+		PermissionMode string `json:"permission_mode"`
 	}
 	if err := json.Unmarshal(r.GetBody(), &update); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
 		return
 	}
 
-	tenant.Name = update.Tenant.Name
-	tenant.Contact = update.Tenant.Contact
-	tenant.Phone = update.Tenant.Phone
-	tenant.Email = update.Tenant.Email
-	tenant.Description = update.Tenant.Description
-	tenant.Logo = update.Tenant.Logo
-	tenant.LoginSuffix = update.Tenant.LoginSuffix
-	tenant.MaxUsers = update.Tenant.MaxUsers
-	tenant.MaxDevices = update.Tenant.MaxDevices
-	tenant.ExpiresAt = update.Tenant.ExpiresAt
+	var rawUpdate map[string]json.RawMessage
+	if err := json.Unmarshal(r.GetBody(), &rawUpdate); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
+		return
+	}
+	hasTenantField := func(field string) bool {
+		_, ok := rawUpdate[field]
+		return ok
+	}
+	if hasTenantField("name") {
+		tenant.Name = update.Tenant.Name
+	}
+	if hasTenantField("contact") {
+		tenant.Contact = update.Tenant.Contact
+	}
+	if hasTenantField("phone") {
+		tenant.Phone = update.Tenant.Phone
+	}
+	if hasTenantField("email") {
+		tenant.Email = update.Tenant.Email
+	}
+	if hasTenantField("description") {
+		tenant.Description = update.Tenant.Description
+	}
+	if hasTenantField("logo") {
+		tenant.Logo = update.Tenant.Logo
+	}
+	if hasTenantField("login_suffix") {
+		tenant.LoginSuffix = update.Tenant.LoginSuffix
+	}
+	if hasTenantField("max_users") {
+		tenant.MaxUsers = update.Tenant.MaxUsers
+	}
+	if hasTenantField("max_devices") {
+		tenant.MaxDevices = update.Tenant.MaxDevices
+	}
+	if hasTenantField("expires_at") {
+		tenant.ExpiresAt = update.Tenant.ExpiresAt
+	}
 
 	err := store.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(&tenant).Error; err != nil {
 			return err
 		}
-		if update.PermissionIDs != nil {
-			return replaceTenantPermissionLimit(tx, tenant.ID, update.PermissionIDs)
+		if hasTenantField("permission_mode") || update.PermissionIDs != nil {
+			permissionMode := update.PermissionMode
+			if !hasTenantField("permission_mode") {
+				permissionMode = store.ScopePermissionModeCustom
+			}
+			return replaceTenantPermissionPolicy(tx, tenant.ID, permissionMode, update.PermissionIDs)
 		}
 		return nil
 	})

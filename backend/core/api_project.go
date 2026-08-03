@@ -109,10 +109,11 @@ func (s *Server) handleGetProjects(r *ghttp.Request) {
 
 	type ProjectResponse struct {
 		store.Project
-		Admins        string `json:"admins"`
-		AdminUserIDs  []uint `json:"admin_user_ids"`
-		AdminUserID   uint   `json:"admin_user_id"`
-		PermissionIDs []uint `json:"permission_ids"`
+		Admins         string `json:"admins"`
+		AdminUserIDs   []uint `json:"admin_user_ids"`
+		AdminUserID    uint   `json:"admin_user_id"`
+		PermissionIDs  []uint `json:"permission_ids"`
+		PermissionMode string `json:"permission_mode"`
 	}
 
 	res := make([]ProjectResponse, 0, len(projects))
@@ -127,12 +128,18 @@ func (s *Server) handleGetProjects(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch project permission limits"})
 			return
 		}
+		permissionMode, err := scopePermissionMode(store.DB, permissionLimitScopeProject, p.TenantID, p.ID)
+		if err != nil {
+			r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch project permission policy"})
+			return
+		}
 		res = append(res, ProjectResponse{
-			Project:       p,
-			Admins:        adminSummary.Names,
-			AdminUserIDs:  adminSummary.UserIDs,
-			AdminUserID:   adminSummary.UserID,
-			PermissionIDs: permissionIDs,
+			Project:        p,
+			Admins:         adminSummary.Names,
+			AdminUserIDs:   adminSummary.UserIDs,
+			AdminUserID:    adminSummary.UserID,
+			PermissionIDs:  permissionIDs,
+			PermissionMode: permissionMode,
 		})
 	}
 
@@ -184,16 +191,13 @@ func (s *Server) handleGetProjectPermissionOptions(r *ghttp.Request) {
 		return
 	}
 
+	db, err := tenantPermissionOptionsQuery(store.DB, authCtx.TenantID)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch tenant permission policy"})
+		return
+	}
 	var permissions []store.Permission
-	if err := store.DB.Model(&store.Permission{}).
-		Where(
-			"id IN (?)",
-			store.DB.Model(&store.ScopePermissionLimit{}).
-				Select("permission_id").
-				Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeTenant, authCtx.TenantID, 0),
-		).
-		Order("module asc, sort_order asc, code asc").
-		Find(&permissions).Error; err != nil {
+	if err := db.Order("module asc, sort_order asc, code asc").Find(&permissions).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch permissions"})
 		return
 	}
@@ -203,8 +207,9 @@ func (s *Server) handleGetProjectPermissionOptions(r *ghttp.Request) {
 func (s *Server) handleCreateProject(r *ghttp.Request) {
 	var req struct {
 		store.Project
-		AdminUserID   uint   `json:"admin_user_id"`
-		PermissionIDs []uint `json:"permission_ids"`
+		AdminUserID    uint   `json:"admin_user_id"`
+		PermissionIDs  []uint `json:"permission_ids"`
+		PermissionMode string `json:"permission_mode"`
 	}
 
 	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
@@ -223,13 +228,18 @@ func (s *Server) handleCreateProject(r *ghttp.Request) {
 		return
 	}
 	req.Project.TenantID = authCtx.TenantID
+	permissionMode, err := normalizeProjectPermissionMode(req.PermissionMode)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
 
-	err := store.DB.Transaction(func(tx *gorm.DB) error {
+	err = store.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&req.Project).Error; err != nil {
 			return err
 		}
 
-		if err := replaceProjectPermissionLimit(tx, req.Project.TenantID, req.Project.ID, req.PermissionIDs); err != nil {
+		if err := replaceProjectPermissionPolicy(tx, req.Project.TenantID, req.Project.ID, permissionMode, req.PermissionIDs); err != nil {
 			return err
 		}
 		return replaceProjectAdmin(tx, req.Project.TenantID, req.Project.ID, req.AdminUserID)
@@ -257,8 +267,9 @@ func (s *Server) handleUpdateProject(r *ghttp.Request) {
 
 	var update struct {
 		store.Project
-		AdminUserID   uint   `json:"admin_user_id"`
-		PermissionIDs []uint `json:"permission_ids"`
+		AdminUserID    uint   `json:"admin_user_id"`
+		PermissionIDs  []uint `json:"permission_ids"`
+		PermissionMode string `json:"permission_mode"`
 	}
 	if err := json.Unmarshal(r.GetBody(), &update); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
@@ -296,8 +307,12 @@ func (s *Server) handleUpdateProject(r *ghttp.Request) {
 				return err
 			}
 		}
-		if update.PermissionIDs != nil {
-			return replaceProjectPermissionLimit(tx, project.TenantID, project.ID, update.PermissionIDs)
+		if hasProjectField("permission_mode") || update.PermissionIDs != nil {
+			permissionMode := update.PermissionMode
+			if !hasProjectField("permission_mode") {
+				permissionMode = store.ScopePermissionModeCustom
+			}
+			return replaceProjectPermissionPolicy(tx, project.TenantID, project.ID, permissionMode, update.PermissionIDs)
 		}
 		return nil
 	})

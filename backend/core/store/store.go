@@ -101,6 +101,7 @@ func InitDB(dsn string) error {
 		&UserRoleBinding{},
 		&RolePermission{},
 		&ScopePermissionLimit{},
+		&ScopePermissionPolicy{},
 		&RoleDeviceTagPermission{},
 		&PluginModel{},
 		&Product{},
@@ -150,8 +151,8 @@ func InitDB(dsn string) error {
 
 	// Initialize default super admin, tenant, project, and permissions
 	InitDefaultData()
-	if err := migrateLegacyWorkOrderScopePermissionLimits(DB); err != nil {
-		return fmt.Errorf("failed to migrate legacy work order permission limits: %w", err)
+	if err := migrateLegacyScopePermissionPolicies(DB); err != nil {
+		return fmt.Errorf("failed to migrate legacy scope permission policies: %w", err)
 	}
 
 	// Migrate plaintext AppKeys to bcrypt hashes

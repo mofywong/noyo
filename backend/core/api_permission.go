@@ -18,7 +18,10 @@ func (s *Server) handleGetSystemPermissions(r *ghttp.Request) {
 		return
 	}
 
-	db := store.DB.Model(&store.Permission{})
+	var (
+		db  *gorm.DB
+		err error
+	)
 	switch {
 	case authCtx.IsSystemAdmin:
 		db = tenantPermissionOptionQuery(store.DB)
@@ -29,19 +32,9 @@ func (s *Server) handleGetSystemPermissions(r *ghttp.Request) {
 				r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied to this project"})
 				return
 			}
-			db = db.Where(
-				"id IN (?)",
-				store.DB.Model(&store.ScopePermissionLimit{}).
-					Select("permission_id").
-					Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeProject, authCtx.TenantID, projectID),
-			)
+			db, err = projectPermissionOptionsQuery(store.DB, authCtx.TenantID, projectID)
 		} else {
-			db = db.Where(
-				"id IN (?)",
-				store.DB.Model(&store.ScopePermissionLimit{}).
-					Select("permission_id").
-					Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeTenant, authCtx.TenantID, 0),
-			)
+			db, err = tenantPermissionOptionsQuery(store.DB, authCtx.TenantID)
 		}
 	default:
 		projectID := r.Get("project_id").Uint()
@@ -55,12 +48,11 @@ func (s *Server) handleGetSystemPermissions(r *ghttp.Request) {
 			r.Response.WriteJson(g.Map{"code": 0, "data": []store.Permission{}, "total": 0})
 			return
 		}
-		db = db.Where(
-			"id IN (?)",
-			store.DB.Model(&store.ScopePermissionLimit{}).
-				Select("permission_id").
-				Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeProject, authCtx.TenantID, projectID),
-		)
+		db, err = projectPermissionOptionsQuery(store.DB, authCtx.TenantID, projectID)
+	}
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to fetch permission policy"})
+		return
 	}
 
 	var perms []store.Permission

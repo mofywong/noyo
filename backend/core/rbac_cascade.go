@@ -47,6 +47,9 @@ func deleteProjectCascade(tx *gorm.DB, project store.Project) error {
 	if err := tx.Unscoped().Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeProject, project.TenantID, project.ID).Delete(&store.ScopePermissionLimit{}).Error; err != nil {
 		return err
 	}
+	if err := tx.Unscoped().Where("scope_type = ? AND tenant_id = ? AND project_id = ?", permissionLimitScopeProject, project.TenantID, project.ID).Delete(&store.ScopePermissionPolicy{}).Error; err != nil {
+		return err
+	}
 	if err := tx.Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.UserRoleBinding{}).Error; err != nil {
 		return err
 	}
@@ -138,6 +141,9 @@ func deleteTenantCascade(tx *gorm.DB, tenantID uint) error {
 		return err
 	}
 	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.ScopePermissionLimit{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.ScopePermissionPolicy{}).Error; err != nil {
 		return err
 	}
 	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.AuditLog{}).Error; err != nil {

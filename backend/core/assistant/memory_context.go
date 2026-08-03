@@ -19,11 +19,14 @@ type MemoryContext struct {
 }
 
 type MemoryContextItem struct {
-	Code       string `json:"code"`
-	Title      string `json:"title"`
-	Summary    string `json:"summary"`
-	TrustLevel string `json:"trust_level"`
-	ScopeType  string `json:"scope_type"`
-	EntityType string `json:"entity_type,omitempty"`
-	EntityID   string `json:"entity_id,omitempty"`
+	Code              string `json:"code"`
+	Title             string `json:"title"`
+	Summary           string `json:"summary"`
+	TrustLevel        string `json:"trust_level"`
+	ScopeType         string `json:"scope_type"`
+	EntityType        string `json:"entity_type,omitempty"`
+	EntityID          string `json:"entity_id,omitempty"`
+	Details           any    `json:"details,omitempty"`
+	VerificationCount int    `json:"verification_count,omitempty"`
+	LastVerifiedAt    string `json:"last_verified_at,omitempty"`
 }

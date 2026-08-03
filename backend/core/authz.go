@@ -6,6 +6,8 @@ import (
 
 	"noyo/core/store"
 	"noyo/core/utils"
+
+	"gorm.io/gorm"
 )
 
 const authContextKey = "auth_context"
@@ -535,36 +537,103 @@ func applyPermissionLimits(ctx *AuthContext, baseCodes map[string]bool) map[stri
 		return filteredCodes
 	}
 
-	var projectLimit map[string]bool
 	if ctx.ProjectID > 0 {
-		projectLimit = permissionLimitCodeSet("project", ctx.TenantID, ctx.ProjectID)
-	} else {
-		projectLimit = projectPermissionLimitUnionCodeSet(ctx.TenantID, ctx.AllowedProjectIDs)
+		projectMode, err := scopePermissionMode(store.DB, permissionLimitScopeProject, ctx.TenantID, ctx.ProjectID)
+		if err != nil {
+			return map[string]bool{}
+		}
+		if projectMode != store.ScopePermissionModeCustom {
+			return filteredCodes
+		}
+		return intersectPermissionCodes(filteredCodes, permissionLimitCodeSet(permissionLimitScopeProject, ctx.TenantID, ctx.ProjectID))
+	}
+
+	projectLimit, unrestricted := projectPermissionLimitUnionCodeSet(ctx.TenantID, ctx.AllowedProjectIDs)
+	if unrestricted {
+		return filteredCodes
 	}
 	return intersectPermissionCodes(filteredCodes, projectLimit)
 }
 
 func permissionLimitCodeSet(scopeType string, tenantID, projectID uint) map[string]bool {
-	var codes []string
-	store.DB.Model(&store.Permission{}).
-		Select("permissions.code").
-		Joins("JOIN scope_permission_limits ON scope_permission_limits.permission_id = permissions.id").
-		Where("scope_permission_limits.scope_type = ? AND scope_permission_limits.tenant_id = ? AND scope_permission_limits.project_id = ?", scopeType, tenantID, projectID).
-		Scan(&codes)
-	return permissionCodeSet(codes)
+	if scopeType == permissionLimitScopeTenant {
+		codes, err := tenantPermissionPolicyCodeSet(store.DB, tenantID)
+		if err != nil {
+			return map[string]bool{}
+		}
+		return codes
+	}
+	if scopeType == permissionLimitScopeProject {
+		codes, _, err := projectPermissionPolicyCodeSet(store.DB, tenantID, projectID)
+		if err != nil {
+			return map[string]bool{}
+		}
+		return codes
+	}
+	return map[string]bool{}
 }
 
-func projectPermissionLimitUnionCodeSet(tenantID uint, projectIDs []uint) map[string]bool {
-	if len(projectIDs) == 0 {
-		return map[string]bool{}
+func permissionCodeSetFromQuery(db *gorm.DB) (map[string]bool, error) {
+	var codes []string
+	if err := db.Select("permissions.code").Scan(&codes).Error; err != nil {
+		return nil, err
 	}
+	return permissionCodeSet(codes), nil
+}
+
+func tenantPermissionPolicyCodeSet(db *gorm.DB, tenantID uint) (map[string]bool, error) {
+	query, err := tenantPermissionOptionsQuery(db, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return permissionCodeSetFromQuery(query)
+}
+
+func projectPermissionPolicyCodeSet(db *gorm.DB, tenantID, projectID uint) (map[string]bool, bool, error) {
+	mode, err := scopePermissionMode(db, permissionLimitScopeProject, tenantID, projectID)
+	if err != nil {
+		return nil, false, err
+	}
+	if mode != store.ScopePermissionModeCustom {
+		codes, err := tenantPermissionPolicyCodeSet(db, tenantID)
+		return codes, true, err
+	}
+	query, err := projectPermissionOptionsQuery(db, tenantID, projectID)
+	if err != nil {
+		return nil, false, err
+	}
+	codes, err := permissionCodeSetFromQuery(query)
+	return codes, false, err
+}
+
+func projectPermissionLimitUnionCodeSet(tenantID uint, projectIDs []uint) (map[string]bool, bool) {
+	if len(projectIDs) == 0 {
+		return map[string]bool{}, false
+	}
+
+	var unrestrictedCount int64
+	if err := store.DB.Model(&store.ScopePermissionPolicy{}).
+		Where(
+			"scope_type = ? AND tenant_id = ? AND project_id IN ? AND mode IN ?",
+			permissionLimitScopeProject,
+			tenantID,
+			projectIDs,
+			[]string{store.ScopePermissionModeAll, store.ScopePermissionModeInherit},
+		).
+		Count(&unrestrictedCount).Error; err != nil {
+		return map[string]bool{}, false
+	}
+	if unrestrictedCount > 0 {
+		return map[string]bool{}, true
+	}
+
 	var codes []string
 	store.DB.Model(&store.Permission{}).
 		Select("permissions.code").
 		Joins("JOIN scope_permission_limits ON scope_permission_limits.permission_id = permissions.id").
 		Where("scope_permission_limits.scope_type = ? AND scope_permission_limits.tenant_id = ? AND scope_permission_limits.project_id IN ?", "project", tenantID, projectIDs).
 		Scan(&codes)
-	return permissionCodeSet(codes)
+	return permissionCodeSet(codes), false
 }
 
 func permissionCodeSet(codes []string) map[string]bool {

@@ -134,7 +134,7 @@
                 <div class="fw-bold small mb-3 text-secondary"><i class="bi bi-card-text me-1"></i>{{ tx('formContent') }}</div>
                 <dl class="row small mb-0 g-2">
                   <template v-for="field in selectedOrder.form_definition.fields || []" :key="field.key">
-                    <dt class="col-sm-4 text-muted fw-normal">{{ field.label }}</dt>
+                    <dt class="col-sm-4 text-muted fw-normal">{{ workOrderFormFieldLabel(field) }}</dt>
                     <dd class="col-sm-8 text-break fw-medium">
                       <div v-if="field.type === 'images' && imageFormValues(selectedOrder.form_data[field.key]).length" class="work-order-detail-images">
                         <a v-for="(imageUrl, imageIndex) in imageFormValues(selectedOrder.form_data[field.key])" :key="`${imageUrl}-${imageIndex}`" :href="imageUrl" target="_blank" rel="noopener noreferrer"><img :src="imageUrl" :alt="`${field.label} ${imageIndex + 1}`"></a>
@@ -148,6 +148,33 @@
                   <dl class="row small mb-0 g-2"><template v-for="detail in alarmSourceDetails" :key="detail.id"><dt class="col-sm-4 text-muted fw-normal">{{ detail.label }}</dt><dd class="col-sm-8 text-break fw-medium">{{ detail.value }}</dd></template></dl>
                 </div>
               </div>
+
+              <section v-if="historicalGuidance" class="mb-4 work-order-history-guidance rounded p-3" aria-labelledby="work-order-history-guidance-title">
+                <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                  <div>
+                    <div id="work-order-history-guidance-title" class="fw-bold text-success-emphasis"><i class="bi bi-shield-check me-2"></i>{{ tx('historicalGuidance') }}</div>
+                    <div class="small text-body-secondary mt-1">{{ tx('historicalGuidanceHint') }}</div>
+                  </div>
+                  <span v-if="historicalGuidance.verificationCount" class="badge rounded-pill work-order-history-guidance__verified">{{ txf('historicalVerifiedCount', { count: historicalGuidance.verificationCount }) }}</span>
+                </div>
+                <p v-if="historicalGuidance.summary" class="small mb-0 mt-3 work-order-history-guidance__summary">{{ historicalGuidance.summary }}</p>
+                <div class="work-order-history-guidance__list mt-3">
+                  <article v-for="(experience, experienceIndex) in historicalGuidance.experiences" :key="experience.id" class="work-order-history-experience">
+                    <header class="work-order-history-experience__head">
+                      <span class="work-order-history-experience__index">{{ experienceIndex + 1 }}</span>
+                      <strong>{{ txf('historicalExperience', { index: experienceIndex + 1 }) }}</strong>
+                      <span v-if="experience.verificationCount" class="badge rounded-pill work-order-history-experience__count">{{ txf('historicalVerifiedCount', { count: experience.verificationCount }) }}</span>
+                      <span v-if="experience.lastVerifiedAt" class="small text-body-secondary ms-auto"><i class="bi bi-clock me-1"></i>{{ formatTime(experience.lastVerifiedAt) }}</span>
+                    </header>
+                    <dl class="row small mb-0 g-2 work-order-history-experience__details">
+                      <template v-for="item in experience.details" :key="item.labelKey">
+                        <dt class="col-sm-4 text-body-secondary fw-normal">{{ tx(item.labelKey) }}</dt>
+                        <dd class="col-sm-8 mb-0 text-break fw-medium">{{ item.value }}</dd>
+                      </template>
+                    </dl>
+                  </article>
+                </div>
+              </section>
 
               <div class="mb-4 work-order-action-panel rounded p-3 border">
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -458,6 +485,7 @@ import ListPagination from '../components/ListPagination.vue'
 import { loadAllWorkOrderParticipants, workOrderApi, workOrderApiErrorMessage } from '../utils/workOrderApi.js'
 import { workOrderRelationFiltersForLocale, workOrderNodeLabel } from '../utils/workOrderUi.js'
 import { formatDateTime } from '../utils/dateTime.js'
+import { normalizeWorkOrderHistoricalGuidance } from '../utils/workOrderHistoricalGuidance.js'
 
 const authStore = useAuthStore()
 const { locale } = useI18n()
@@ -494,7 +522,12 @@ Object.assign(workOrderCopy.zh, {
   alarmEvidence: '告警信息',
   alarmDevice: '设备',
   alarmEvent: '事件',
-  autoCreatedFromAlarm: '由告警自动创建：{device} · {event}'
+  autoCreatedFromAlarm: '由告警自动创建：{device} · {event}',
+  historicalGuidance: '历史处置参考',
+  historicalGuidanceHint: '来自同一设备、同类故障证据的已验证处置记忆，仅供本次处理参考，请结合现场情况判断。',
+  historicalExperience: '处置经验 {index}',
+  historicalVerifiedCount: '已验证 {count} 次',
+  handlingOpinion: '处理记录'
 })
 Object.assign(workOrderCopy.en, {
 	copyTemplate: 'Copy template',
@@ -518,7 +551,12 @@ Object.assign(workOrderCopy.en, {
   alarmEvidence: 'Alarm information',
   alarmDevice: 'Device',
   alarmEvent: 'Event',
-  autoCreatedFromAlarm: 'Automatically created from alarm: {device} · {event}'
+  autoCreatedFromAlarm: 'Automatically created from alarm: {device} · {event}',
+  historicalGuidance: 'Historical resolution reference',
+  historicalGuidanceHint: 'Verified handling history for the same device and fault evidence. Use it as guidance and confirm conditions on site.',
+  historicalExperience: 'Resolution experience {index}',
+  historicalVerifiedCount: 'Verified {count} times',
+  handlingOpinion: 'Handling record'
 })
 const workOrderPaginationCopy = {
   zh: { itemsPerPage: '每页显示', pagination: '工单列表分页', previous: '上一页', next: '下一页', goToPage: '前往第 {page} 页' },
@@ -686,6 +724,7 @@ const availableTransitions = computed(() => selectedOrder.value?.available_actio
 const workOrderDeviceByCode = computed(() => new Map(workOrderCatalogDevices.value.map(device => [String(device.code || '').trim(), device])))
 const workOrderProductByCode = computed(() => new Map(workOrderCatalogProducts.value.map(product => [String(product.code || '').trim(), product])))
 const alarmSourceDetails = computed(() => selectedOrder.value ? alarmWorkOrderDetails(selectedOrder.value) : [])
+const historicalGuidance = computed(() => normalizeWorkOrderHistoricalGuidance(selectedOrder.value))
 const templateDetailWorkflow = computed(() => templateDetail.value ? normalizeGraphWorkflow(templateDetail.value.has_workflow_draft ? templateDetail.value.workflow_draft_definition : templateDetail.value.workflow_definition) : defaultGraphWorkflow())
 const hasPendingApproval = computed(() => approvalTasks.value.some(task => task.status === 'pending' && String(task.approver_user_id) === String(currentUserId.value)))
 const currentApprovalTask = computed(() => approvalTasks.value.find(task => task.status === 'pending') || {})
@@ -1523,7 +1562,34 @@ function statusClass(value) { return ({ open: 'text-bg-primary', in_progress: 't
 function formatTime(value) { return formatDateTime(value) }
 function displayFormValue(value, field = {}) {
   if (field.type === 'user') return value ? (assigneeNames.value.get(String(value)) || tx('unavailableUser')) : '-'
+  if (field.key === 'severity') return severityFormValueLabel(value)
+  if (field.key === 'fault_type') return faultTypeFormValueLabel(value)
   return Array.isArray(value) ? value.join(currentLang.value === 'en' ? ', ' : '、') : value === true ? tx('yes') : value === false ? tx('no') : value ?? '-'
+}
+function workOrderFormFieldLabel(field = {}) {
+  const labels = {
+    zh: { device_code: '设备编码', device_name: '设备名称', fault_type: '故障类型', severity: '严重程度', description: '故障描述', diagnostic_checks: '诊断检查项', ai_suggestion_id: 'AI 建议编号' },
+    en: { device_code: 'Device code', device_name: 'Device name', fault_type: 'Fault type', severity: 'Severity', description: 'Fault description', diagnostic_checks: 'Diagnostic checks', ai_suggestion_id: 'AI suggestion ID' }
+  }
+  return labels[currentLang.value]?.[field.key] || field.label || field.key || '-'
+}
+function faultTypeFormValueLabel(value) {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (!normalized) return '-'
+  const labels = {
+    zh: { frequent_status_flapping: '设备频繁上下线', temperature_high: '设备温度过高' },
+    en: { frequent_status_flapping: 'Frequent online/offline switching', temperature_high: 'High device temperature' }
+  }
+  return labels[currentLang.value]?.[normalized] || value
+}
+function severityFormValueLabel(value) {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (!normalized) return '-'
+  const labels = {
+    zh: { low: '低', normal: '普通', high: '高', urgent: '紧急' },
+    en: { low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent' }
+  }
+  return labels[currentLang.value][normalized] || String(value)
 }
 function imageFormValues(value) { return Array.isArray(value) ? value.filter(item => typeof item === 'string' && item.trim()) : [] }
 function workOrderId(order) { return order?.ID || order?.id || 0 }
@@ -1607,6 +1673,52 @@ watch(() => route.query.template, async () => {
 }
 .work-order-form-section,
 .work-order-action-panel { background: var(--wo-surface-muted); }
+.work-order-history-guidance {
+  border: 1px solid color-mix(in srgb, var(--bs-success) 42%, var(--bs-border-color));
+  background: color-mix(in srgb, var(--bs-success) 7%, var(--wo-surface-muted));
+}
+.work-order-history-guidance__verified,
+.work-order-history-experience__count {
+  border: 1px solid color-mix(in srgb, var(--bs-success) 34%, transparent);
+  background: color-mix(in srgb, var(--bs-success) 16%, transparent);
+  color: var(--bs-success-text-emphasis);
+}
+.work-order-history-guidance__summary {
+  padding: 0.75rem;
+  border-left: 3px solid var(--bs-success);
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--bs-success) 8%, var(--wo-surface));
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.work-order-history-guidance__list { display: grid; gap: 0.75rem; }
+.work-order-history-experience {
+  overflow: hidden;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.65rem;
+  background: var(--wo-surface);
+}
+.work-order-history-experience__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  background: var(--wo-surface-muted);
+}
+.work-order-history-experience__index {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bs-primary);
+  color: #fff;
+  font-weight: 700;
+}
+.work-order-history-experience__details { padding: 0.8rem; }
+.work-order-history-experience__details dd { line-height: 1.55; white-space: pre-wrap; }
 .work-order-detail-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr)); gap: .5rem; }
 .work-order-detail-images a { display: block; overflow: hidden; border: 1px solid var(--bs-border-color); border-radius: .5rem; background: var(--bs-tertiary-bg); aspect-ratio: 4 / 3; }
 .work-order-detail-images img { display: block; width: 100%; height: 100%; object-fit: cover; }

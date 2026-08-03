@@ -18,33 +18,39 @@
                 <th>{{ $t('tenant_name') }}</th>
                 <th>{{ $t('admin_name', '管理员姓名') }}</th>
                 <th>{{ $t('tenant_phone') }}</th>
+                <th>{{ $t('scope_permission_policy') }}</th>
                 <th>{{ $t('user_created_at') }}</th>
                 <th class="text-end">{{ $t('tenant_actions') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="loading">
-                <td colspan="8" class="text-center py-4">
+                <td colspan="7" class="text-center py-4">
                   <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Loading...</span>
                   </div>
                 </td>
               </tr>
               <tr v-else-if="tenants.length === 0">
-                <td colspan="8" class="text-center py-4 text-muted">{{ $t('tenant_no_data') }}</td>
+                <td colspan="7" class="text-center py-4 text-muted">{{ $t('tenant_no_data') }}</td>
               </tr>
               <tr v-for="t in tenants" :key="t.ID" v-else>
                 <td><strong>{{ t.code }}</strong></td>
                 <td>{{ t.name }}</td>
                 <td>{{ t.contact }}</td>
                 <td>{{ t.phone }}</td>
+                <td>
+                  <span class="badge" :class="t.permission_mode === 'custom' ? 'text-bg-info' : 'text-bg-success'">
+                    {{ $t(`scope_permission_mode_${t.permission_mode || 'custom'}`) }}
+                  </span>
+                </td>
                 <td>{{ formatDateTime(t.CreatedAt) }}</td>
                 <td class="text-end">
                   <div class="d-inline-flex align-items-center justify-content-end gap-2">
                     <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(t)" :title="$t('common_view_details', '查看详情')">
                       <i class="bi bi-eye"></i>
                     </button>
-                    <button class="btn btn-sm" :class="(t.permission_ids && t.permission_ids.length > 0) ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermissionModal(t)" :title="$t('tenant_permission_config', '权限配置')" v-permission="'tenant:edit'">
+                    <button class="btn btn-sm" :class="t.permission_mode === 'custom' ? 'btn-outline-info' : 'btn-outline-success'" @click="openPermissionModal(t)" :title="$t('tenant_permission_config', '权限配置')" v-permission="'tenant:edit'">
                       <i class="bi bi-shield-check"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-warning" @click="openResetPasswordModal(t)" :title="$t('reset_password', '重置密码')" v-permission="'tenant:edit'">
@@ -80,10 +86,12 @@
             <div v-if="tenantPermissionOptions.length === 0" class="text-muted small mb-3">
               {{ $t('tenant_permission_empty', '暂无可分配权限') }}
             </div>
-            <PermissionDualMode
+            <ScopePermissionPolicyEditor
+              scope="tenant"
               :allPermissions="tenantPermissionOptions"
-              v-model="form.permission_ids"
               :title="$t('tenant_permission_limit', '租户最大权限集')"
+              v-model:mode="form.permission_mode"
+              v-model:permission-ids="form.permission_ids"
             />
           </div>
           <div class="modal-footer">
@@ -319,7 +327,7 @@ import axios from 'axios'
 import DOMPurify from 'dompurify'
 import { Modal } from 'bootstrap'
 import { useI18n } from 'vue-i18n'
-import PermissionDualMode from '../components/PermissionDualMode.vue'
+import ScopePermissionPolicyEditor from '../components/ScopePermissionPolicyEditor.vue'
 import { formatDateTime } from '../utils/dateTime.js'
 
 const { t } = useI18n()
@@ -367,6 +375,7 @@ const form = ref({
     admin_username: '',
   admin_password: '',
   admin_password_confirm: '',
+  permission_mode: 'all',
   permission_ids: []
 })
 
@@ -454,6 +463,7 @@ const openCreateModal = () => {
         admin_username: '',
     admin_password: '',
     admin_password_confirm: '',
+    permission_mode: 'all',
     permission_ids: []
   }
   showAdminPassword.value = false
@@ -475,7 +485,8 @@ const openEditModal = (item) => {
     login_suffix: item.login_suffix,
     max_users: item.max_users,
     max_devices: item.max_devices,
-        permission_ids: item.permission_ids || []
+    permission_mode: item.permission_mode || 'custom',
+    permission_ids: item.permission_ids || []
   }
   tenantModal.show()
 }
@@ -484,6 +495,7 @@ const openPermissionModal = (item) => {
   form.value = {
     id: item.ID,
     name: item.name,
+    permission_mode: item.permission_mode || 'custom',
     permission_ids: item.permission_ids || []
   }
   tenantPermissionModal.show()
@@ -492,6 +504,7 @@ const openPermissionModal = (item) => {
 const saveTenantPermission = async () => {
   try {
     const res = await axios.put(`/api/tenants/${form.value.id}`, {
+      permission_mode: form.value.permission_mode,
       permission_ids: form.value.permission_ids
     })
     if (res.data.code === 0) {

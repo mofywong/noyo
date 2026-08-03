@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"noyo/core/store"
@@ -93,11 +94,66 @@ var ErrWorkOrderApprovalPending = errors.New("work order has pending approval")
 var ErrWorkOrderVersionConflict = errors.New("work order version conflict")
 
 type WorkOrderService struct {
-	db *gorm.DB
+	db               *gorm.DB
+	closedHandlersMu sync.RWMutex
+	closedHandlers   map[string]WorkOrderClosedHandler
 }
 
 func NewWorkOrderService(db *gorm.DB) *WorkOrderService {
-	return &WorkOrderService{db: db}
+	return &WorkOrderService{db: db, closedHandlers: make(map[string]WorkOrderClosedHandler)}
+}
+
+// WorkOrderClosedHandler runs in the same transaction that archives a work
+// order. Returning an error aborts the archive operation so lifecycle data
+// cannot be silently lost by a dependent module.
+type WorkOrderClosedHandler func(tx *gorm.DB, order *store.WorkOrder, actorUserID uint) error
+
+// RegisterWorkOrderClosedHandler replaces the handler registered under name.
+// Plugins use a stable name so reinitialization cannot register duplicates.
+func (s *WorkOrderService) RegisterWorkOrderClosedHandler(name string, handler WorkOrderClosedHandler) {
+	name = strings.TrimSpace(name)
+	if s == nil || name == "" || handler == nil {
+		return
+	}
+	s.closedHandlersMu.Lock()
+	defer s.closedHandlersMu.Unlock()
+	if s.closedHandlers == nil {
+		s.closedHandlers = make(map[string]WorkOrderClosedHandler)
+	}
+	s.closedHandlers[name] = handler
+}
+
+func (s *WorkOrderService) UnregisterWorkOrderClosedHandler(name string) {
+	name = strings.TrimSpace(name)
+	if s == nil || name == "" {
+		return
+	}
+	s.closedHandlersMu.Lock()
+	defer s.closedHandlersMu.Unlock()
+	delete(s.closedHandlers, name)
+}
+
+func (s *WorkOrderService) runWorkOrderClosedHandlers(tx *gorm.DB, order *store.WorkOrder, actorUserID uint) error {
+	if s == nil || order == nil {
+		return nil
+	}
+	s.closedHandlersMu.RLock()
+	names := make([]string, 0, len(s.closedHandlers))
+	for name := range s.closedHandlers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	handlers := make([]WorkOrderClosedHandler, 0, len(names))
+	for _, name := range names {
+		handlers = append(handlers, s.closedHandlers[name])
+	}
+	s.closedHandlersMu.RUnlock()
+	for index, handler := range handlers {
+		if err := handler(tx, order, actorUserID); err != nil {
+			return fmt.Errorf("run work order closed handler %q: %w", names[index], err)
+		}
+	}
+	return nil
 }
 
 type WorkOrderScope struct {
@@ -693,6 +749,8 @@ func (s *WorkOrderService) EnsureDeviceMaintenanceTemplate(scope WorkOrderScope)
 				return fmt.Errorf("create AI device maintenance form version: %w", err)
 			}
 			template.CurrentFormVersion = version.Version
+		} else if err := ensureAIDeviceMaintenanceDeviceNameField(tx, scope, &template); err != nil {
+			return err
 		}
 		defaultWorkflow := defaultDeviceMaintenanceWorkflowDefinition()
 		if err := ValidateWorkOrderWorkflowDefinition(defaultWorkflow); err != nil {
@@ -725,6 +783,60 @@ func (s *WorkOrderService) EnsureDeviceMaintenanceTemplate(scope WorkOrderScope)
 		return nil, err
 	}
 	return &template, nil
+}
+
+func ensureAIDeviceMaintenanceDeviceNameField(tx *gorm.DB, scope WorkOrderScope, template *store.WorkOrderTemplate) error {
+	var current store.WorkOrderFormVersion
+	if err := tx.Where("tenant_id = ? AND project_id = ? AND template_id = ? AND version = ?",
+		scope.TenantID, scope.ProjectID, template.ID, template.CurrentFormVersion).First(&current).Error; err != nil {
+		return fmt.Errorf("load AI device maintenance form: %w", err)
+	}
+	definition, err := decodeWorkOrderFormDefinition(current.Definition)
+	if err != nil {
+		return err
+	}
+	for _, field := range definition.Fields {
+		if field.Key == "device_name" {
+			return nil
+		}
+	}
+	deviceNameField := WorkOrderFormField{Key: "device_name", Label: "设备名称", Type: WorkOrderFormFieldText}
+	fields := make([]WorkOrderFormField, 0, len(definition.Fields)+1)
+	inserted := false
+	for _, field := range definition.Fields {
+		fields = append(fields, field)
+		if field.Key == "device_code" {
+			fields = append(fields, deviceNameField)
+			inserted = true
+		}
+	}
+	if !inserted {
+		fields = append([]WorkOrderFormField{deviceNameField}, fields...)
+	}
+	definition.Fields = fields
+	if err := ValidateWorkOrderFormDefinition(definition); err != nil {
+		return err
+	}
+	compiled, err := compileLegacyWorkOrderForm(definition)
+	if err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(definition)
+	if err != nil {
+		return fmt.Errorf("encode upgraded AI device maintenance form: %w", err)
+	}
+	version := store.WorkOrderFormVersion{
+		TenantID: scope.TenantID, ProjectID: scope.ProjectID, TemplateID: template.ID,
+		Version: template.CurrentFormVersion + 1, Definition: string(encoded), Checksum: compiled.Checksum,
+		SchemaJSON: string(compiledSnapshot(compiled, "schema")), UISchemaJSON: string(compiledSnapshot(compiled, "ui_schema")),
+		DefaultsJSON: string(compiledSnapshot(compiled, "defaults")), RequiredJSON: string(compiledSnapshot(compiled, "required")),
+		FieldOrderJSON: string(compiledSnapshot(compiled, "field_order")), ResourceFieldsJSON: string(compiledSnapshot(compiled, "resource_fields")), PublishedBy: scope.ActorUserID,
+	}
+	if err := tx.Create(&version).Error; err != nil {
+		return fmt.Errorf("create upgraded AI device maintenance form version: %w", err)
+	}
+	template.CurrentFormVersion = version.Version
+	return nil
 }
 
 func (s *WorkOrderService) PublishFormVersion(scope WorkOrderScope, templateID uint, definition WorkOrderFormDefinition) (*store.WorkOrderFormVersion, error) {
@@ -3105,6 +3217,11 @@ func (s *WorkOrderService) applyWorkOrderStatusWithExpectedVersion(tx *gorm.DB, 
 			return err
 		}
 	}
+	if targetStatus.Category == WorkOrderStatusClosed {
+		if err := s.runWorkOrderClosedHandlers(tx, order, actorUserID); err != nil {
+			return err
+		}
+	}
 	return s.createPendingApprovalTasks(tx, order, workflow, actorUserID)
 }
 
@@ -3341,7 +3458,14 @@ func (s *WorkOrderService) finishGraphWorkOrderWorkflow(tx *gorm.DB, order *stor
 		return err
 	}
 	if status == WorkOrderStatusResolved || status == WorkOrderStatusClosed {
-		return closeLinkedAlarmsForWorkOrder(tx, order, actorUserID, "")
+		if err := closeLinkedAlarmsForWorkOrder(tx, order, actorUserID, ""); err != nil {
+			return err
+		}
+	}
+	if status == WorkOrderStatusClosed {
+		if err := s.runWorkOrderClosedHandlers(tx, order, actorUserID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -3879,6 +4003,7 @@ func isSupportedWorkOrderSource(value string) bool {
 func defaultDeviceMaintenanceFormDefinition() WorkOrderFormDefinition {
 	return WorkOrderFormDefinition{Fields: []WorkOrderFormField{
 		{Key: "device_code", Label: "设备编码", Type: WorkOrderFormFieldText, Required: true},
+		{Key: "device_name", Label: "设备名称", Type: WorkOrderFormFieldText},
 		{Key: "fault_type", Label: "故障类型", Type: WorkOrderFormFieldText, Required: true},
 		{Key: "severity", Label: "严重程度", Type: WorkOrderFormFieldSelect, Required: true, Options: []string{"low", "normal", "high", "urgent"}, DefaultValue: "normal"},
 		{Key: "description", Label: "故障描述", Type: WorkOrderFormFieldTextarea},

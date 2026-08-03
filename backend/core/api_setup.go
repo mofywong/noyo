@@ -605,10 +605,10 @@ func bootstrapGatewayAdminRBAC(tx *gorm.DB, userID, tenantID, projectID uint) er
 	}).Error; err != nil {
 		return err
 	}
-	if err := replaceScopePermissionLimit(tx, permissionLimitScopeTenant, tenantID, 0, permissionIDs); err != nil {
+	if err := replaceTenantPermissionPolicy(tx, tenantID, store.ScopePermissionModeAll, nil); err != nil {
 		return err
 	}
-	return replaceScopePermissionLimit(tx, permissionLimitScopeProject, tenantID, projectID, permissionIDs)
+	return replaceProjectPermissionPolicy(tx, tenantID, projectID, store.ScopePermissionModeInherit, nil)
 }
 
 func bootstrapMultiProjectPlatformAdminRBAC(tx *gorm.DB, userID, tenantID uint) error {
@@ -642,11 +642,7 @@ func bootstrapMultiProjectPlatformAdminRBAC(tx *gorm.DB, userID, tenantID uint) 
 		return err
 	}
 
-	permissionIDs, err := allPermissionIDs(tx)
-	if err != nil {
-		return err
-	}
-	return replaceScopePermissionLimit(tx, permissionLimitScopeTenant, tenantID, 0, permissionIDs)
+	return replaceTenantPermissionPolicy(tx, tenantID, store.ScopePermissionModeAll, nil)
 }
 
 func allPermissionIDs(tx *gorm.DB) ([]uint, error) {

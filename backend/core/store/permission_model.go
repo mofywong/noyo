@@ -38,3 +38,19 @@ type ScopePermissionLimit struct {
 	ProjectID    uint   `gorm:"not null;default:0;uniqueIndex:idx_scope_permission_limit;index" json:"project_id"`
 	PermissionID uint   `gorm:"not null;uniqueIndex:idx_scope_permission_limit;index" json:"permission_id"`
 }
+
+const (
+	ScopePermissionModeAll     = "all"
+	ScopePermissionModeCustom  = "custom"
+	ScopePermissionModeInherit = "inherit"
+)
+
+// ScopePermissionPolicy defines how a tenant or project determines its maximum
+// permission boundary. ScopePermissionLimit rows are used only in custom mode.
+type ScopePermissionPolicy struct {
+	gorm.Model
+	ScopeType string `gorm:"size:16;not null;uniqueIndex:idx_scope_permission_policy" json:"scope_type"` // tenant, project
+	TenantID  uint   `gorm:"not null;uniqueIndex:idx_scope_permission_policy;index" json:"tenant_id"`
+	ProjectID uint   `gorm:"not null;default:0;uniqueIndex:idx_scope_permission_policy;index" json:"project_id"`
+	Mode      string `gorm:"size:16;not null;default:custom" json:"mode"` // all, custom, inherit (project only)
+}
