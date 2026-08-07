@@ -110,10 +110,18 @@ func (a *LocalCommandAdapter) Execute(ctx context.Context, command workorder.Exe
 			if task.WorkOrderID != order.ID {
 				return workorder.CommandResult{}, workorder.NewError(workorder.CodeValidationFailed, "work order task does not belong to the work order")
 			}
-			updated, err = a.service.CompleteWorkOrderTask(serviceScope, taskPublicID, WorkOrderTaskCompletionInput{Comment: command.Comment})
+			attachments := make([]WorkOrderAttachment, 0, len(command.Attachments))
+			for _, att := range command.Attachments {
+				attachments = append(attachments, WorkOrderAttachment{Name: att.Name, URL: att.URL, Size: att.Size, Type: att.Type})
+			}
+			updated, err = a.service.CompleteWorkOrderTask(serviceScope, taskPublicID, WorkOrderTaskCompletionInput{Comment: command.Comment, Attachments: attachments})
 		} else if strings.EqualFold(strings.TrimSpace(command.Action), "claim") {
 			updated, err = a.service.ClaimWorkOrderWithVersion(serviceScope, order.ID, command.Meta.ExpectedVersion)
 		} else {
+			attachments := make([]WorkOrderAttachment, 0, len(command.Attachments))
+			for _, att := range command.Attachments {
+				attachments = append(attachments, WorkOrderAttachment{Name: att.Name, URL: att.URL, Size: att.Size, Type: att.Type})
+			}
 			updated, err = a.service.TransitionWorkOrderWithVersion(serviceScope, order.ID, WorkOrderTransitionInput{
 				Key: command.Action, Comment: command.Comment,
 				Resolution: WorkOrderResolution{
@@ -121,6 +129,7 @@ func (a *LocalCommandAdapter) Execute(ctx context.Context, command workorder.Exe
 					HandlingProcess: command.Resolution.HandlingProcess, HandlingResult: command.Resolution.HandlingResult,
 					AttachmentIDs: command.Resolution.AttachmentIDs,
 				},
+				Attachments: attachments,
 			}, command.Meta.ExpectedVersion)
 		}
 		if err != nil {

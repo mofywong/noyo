@@ -38,6 +38,7 @@ export const workOrderApi = {
   publishWorkflow(id, definition) { return axios.post(`/api/work-order-templates/${id}/workflow-versions`, { definition }) },
   validateForm(id, definition) { return axios.post(`/api/work-order-templates/${id}/form-schema/validate`, { definition }) },
   create(payload) { return axios.post('/api/work-orders', payload) },
+  uploadAttachment(formData) { return axios.post('/api/work-orders/attachments', formData) },
   execute(id, action, payload = {}) { return axios.post(`/api/work-orders/${id}/${action}`, payload) },
   transition(id, payload) { return axios.post(`/api/work-orders/${id}/transitions`, payload) },
   approve(id, payload) { return axios.post(`/api/work-orders/${id}/approve`, payload) },

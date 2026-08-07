@@ -54,6 +54,23 @@
             <div class="small text-body-secondary mt-1"><i class="bi bi-person me-1"></i>{{ item.actor }}<span class="mx-2">·</span>{{ formatTime(item.event?.CreatedAt || item.event?.created_at) }}</div>
             <div v-if="item.transferRecipient" class="small text-body-secondary mt-1"><i class="bi bi-arrow-right me-1"></i>{{ item.transferRecipient }}</div>
             <p v-if="item.payload?.comment" class="flow-trace__comment small mb-0 mt-2">{{ item.payload.comment }}</p>
+            <div v-if="item.payload?.attachments?.length" class="flow-trace__attachments mt-2 pt-2 border-top">
+              <div class="small fw-semibold text-body-secondary mb-1">
+                <i class="bi bi-paperclip me-1"></i>{{ text('attachments') }} ({{ item.payload.attachments.length }})
+              </div>
+              <div class="d-flex flex-wrap gap-2 align-items-center">
+                <template v-for="(att, attIdx) in item.payload.attachments" :key="attIdx">
+                  <a v-if="isImageAttachment(att)" :href="att.url" target="_blank" rel="noopener noreferrer" class="flow-trace__attachment-img-link" :title="att.name">
+                    <img :src="att.url" :alt="att.name" class="flow-trace__attachment-thumb rounded border">
+                  </a>
+                  <a v-else :href="att.url" target="_blank" rel="noopener noreferrer" class="border rounded-pill p-2 px-3 text-decoration-none d-inline-flex align-items-center gap-1 text-body flow-trace__attachment-doc" :title="att.name">
+                    <i class="bi" :class="getFileIcon(att)"></i>
+                    <span class="text-truncate" style="max-width: 150px;">{{ att.name }}</span>
+                    <small v-if="att.size" class="text-body-secondary">({{ formatFileSize(att.size) }})</small>
+                  </a>
+                </template>
+              </div>
+            </div>
           </div>
         </li>
       </ol>
@@ -74,8 +91,8 @@ const props = defineProps({
 })
 
 const copy = {
-  zh: { trajectory: '流程轨迹', trajectoryHint: '按流程结构展示当前进度，并行任务会展开为独立分支。', stages: '个阶段', parallelStage: '并行处理', parallelHint: '所有分支在此同时推进，完成后继续汇聚。', emptyBranch: '此分支没有业务节点', noTrajectory: '此工单没有可展示的图形化流程', activity: '操作记录', activityHint: '按发生顺序保留完整流转证据。', records: '条记录', noActivity: '暂无操作记录', completed: '已完成', active: '处理中', rejected: '已驳回', waiting: '未开始', assignee: '处理人' },
-  en: { trajectory: 'Flow trace', trajectoryHint: 'Progress follows the workflow structure; parallel tasks are expanded into branches.', stages: 'stages', parallelStage: 'Parallel stage', parallelHint: 'All branches progress together and merge before the next stage.', emptyBranch: 'No business step in this branch', noTrajectory: 'No visual workflow is available for this work order', activity: 'Activity log', activityHint: 'A complete chronological record of every transition.', records: 'records', noActivity: 'No activity yet', completed: 'Completed', active: 'In progress', rejected: 'Rejected', waiting: 'Not started', assignee: 'Assignee' }
+  zh: { trajectory: '流程轨迹', trajectoryHint: '按流程结构展示当前进度，并行任务会展开为独立分支。', stages: '个阶段', parallelStage: '并行处理', parallelHint: '所有分支在此同时推进，完成后继续汇聚。', emptyBranch: '此分支没有业务节点', noTrajectory: '此工单没有可展示的图形化流程', activity: '操作记录', activityHint: '按发生顺序保留完整流转证据。', records: '条记录', noActivity: '暂无操作记录', completed: '已完成', active: '处理中', rejected: '已驳回', waiting: '未开始', assignee: '处理人', attachments: '流转附件' },
+  en: { trajectory: 'Flow trace', trajectoryHint: 'Progress follows the workflow structure; parallel tasks are expanded into branches.', stages: 'stages', parallelStage: 'Parallel stage', parallelHint: 'All branches progress together and merge before the next stage.', emptyBranch: 'No business step in this branch', noTrajectory: 'No visual workflow is available for this work order', activity: 'Activity log', activityHint: 'A complete chronological record of every transition.', records: 'records', noActivity: 'No activity yet', completed: 'Completed', active: 'In progress', rejected: 'Rejected', waiting: 'Not started', assignee: 'Assignee', attachments: 'Transition attachments' }
 }
 
 const lang = computed(() => String(props.locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh')
@@ -84,6 +101,30 @@ const trace = computed(() => buildWorkOrderFlowTrace(props.workflow, props.tasks
 const statusText = status => text(status || 'waiting')
 const statusClass = status => ({ completed: 'text-bg-success', active: 'text-bg-primary', rejected: 'text-bg-danger', waiting: 'text-bg-secondary' })[status] || 'text-bg-secondary'
 const formatTime = value => formatDateTime(value)
+
+function isImageAttachment(att) {
+  if (!att) return false
+  const ext = (att.type || att.name || '').toLowerCase()
+  return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].some(e => ext.endsWith(e))
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || isNaN(bytes)) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function getFileIcon(att) {
+  const ext = (att.type || att.name || '').toLowerCase()
+  if (['.pdf'].some(e => ext.endsWith(e))) return 'bi-file-earmark-pdf text-danger'
+  if (['.doc', '.docx'].some(e => ext.endsWith(e))) return 'bi-file-earmark-word text-primary'
+  if (['.xls', '.xlsx', '.csv'].some(e => ext.endsWith(e))) return 'bi-file-earmark-excel text-success'
+  if (['.ppt', '.pptx'].some(e => ext.endsWith(e))) return 'bi-file-earmark-ppt text-warning'
+  if (['.zip', '.rar', '.7z'].some(e => ext.endsWith(e))) return 'bi-file-earmark-zip text-secondary'
+  if (['.txt'].some(e => ext.endsWith(e))) return 'bi-file-earmark-text text-info'
+  return 'bi-file-earmark text-secondary'
+}
 
 const FlowNodeCard = defineComponent({
   props: { step: { type: Object, required: true }, locale: { type: String, default: 'zh' } },
@@ -146,6 +187,13 @@ const FlowNodeCard = defineComponent({
 .flow-trace__audit-dot { position: absolute; top: .85rem; left: -.32rem; width: .62rem; height: .62rem; border: 2px solid var(--bs-body-bg); border-radius: 50%; background: var(--bs-primary); box-shadow: 0 0 0 1px var(--bs-primary); }
 .flow-trace__audit-card { padding: .65rem .75rem; border: 1px solid var(--bs-border-color); border-radius: .65rem; background: var(--bs-body-bg); }
 .flow-trace__comment { padding: .5rem .65rem; border-radius: .45rem; background: var(--trace-muted); overflow-wrap: anywhere; }
+.flow-trace__attachment-thumb { width: 44px; height: 44px; object-fit: cover; }
+.flow-trace__attachment-img-link:hover .flow-trace__attachment-thumb { opacity: .85; }
+.flow-trace__attachment-doc {
+  background-color: var(--bs-tertiary-bg, var(--bs-body-tertiary-bg, rgba(255,255,255,0.06))) !important;
+  color: var(--bs-body-color) !important;
+  border-color: var(--bs-border-color) !important;
+}
 :global([data-bs-theme='dark']) .flow-trace { --trace-surface: #202631; --trace-muted: #1b2028; }
 @media (max-width: 767px) { .flow-trace__section-head { align-items: flex-start; } .flow-trace__branches { grid-template-columns: 1fr; } .flow-trace__branch { min-width: 0; } }
 </style>

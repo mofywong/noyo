@@ -390,10 +390,44 @@
             <div class="col-12 col-md-6"><label class="form-label" for="resolution-result">{{ tx('handlingResult') }} *</label><textarea id="resolution-result" v-model.trim="resolutionDraft.handling_result" class="form-control" rows="3"></textarea></div>
           </div>
         </div>
-        <div>
+        <div class="mb-3">
           <label class="form-label" for="process-opinion">{{ tx('processOpinion') }} *</label>
           <textarea id="process-opinion" v-model="processOpinion" class="form-control" rows="4" maxlength="2000" :placeholder="tx('processOpinionPlaceholder')"></textarea>
           <div class="form-text">{{ tx('processOpinionHint') }}</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label d-flex align-items-center justify-content-between">
+            <span><i class="bi bi-paperclip me-1"></i>{{ tx('attachments') }}</span>
+            <span class="small text-body-secondary fw-normal">{{ tx('optional') }}</span>
+          </label>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <label class="btn btn-sm btn-outline-secondary mb-0 d-inline-flex align-items-center gap-1" :class="{ disabled: processAttachmentUploading }">
+              <span v-if="processAttachmentUploading" class="spinner-border spinner-border-sm"></span>
+              <i v-else class="bi bi-upload"></i>
+              <span>{{ tx('uploadAttachment') }}</span>
+              <input type="file" multiple class="d-none" :disabled="processAttachmentUploading" @change="uploadProcessAttachments">
+            </label>
+            <span class="small text-body-secondary">{{ tx('attachmentHint') }}</span>
+          </div>
+          <div v-if="processAttachmentError" class="alert alert-danger p-2 small mb-2">{{ processAttachmentError }}</div>
+          <div v-if="processAttachments.length" class="d-flex flex-wrap gap-2 pt-2 align-items-center">
+            <template v-for="(att, attIdx) in processAttachments" :key="attIdx">
+              <div v-if="isImageAttachment(att)" class="position-relative border rounded overflow-hidden shadow-sm work-order-attachment-card" :title="`${att.name} (${formatFileSize(att.size)})`">
+                <a :href="att.url" target="_blank" rel="noopener noreferrer">
+                  <img :src="att.url" :alt="att.name" class="d-block work-order-attachment-img">
+                </a>
+                <button type="button" class="btn btn-sm btn-danger d-flex align-items-center justify-content-center work-order-attachment-del" :aria-label="tx('delete')" :title="tx('delete')" @click.stop.prevent="removeProcessAttachment(attIdx)">
+                  <i class="bi bi-x"></i>
+                </button>
+              </div>
+              <div v-else class="border rounded-pill p-2 px-3 d-inline-flex align-items-center gap-2 shadow-sm work-order-attachment-doc" :title="`${att.name} (${formatFileSize(att.size)})`">
+                <i class="bi" :class="getFileIcon(att)"></i>
+                <span class="text-truncate" style="max-width: 180px;">{{ att.name }}</span>
+                <small v-if="att.size" class="text-body-secondary">({{ formatFileSize(att.size) }})</small>
+                <button type="button" class="btn-close ms-1" style="font-size: 0.65rem;" :aria-label="tx('delete')" @click="removeProcessAttachment(attIdx)"></button>
+              </div>
+            </template>
+          </div>
         </div>
       </div><div class="modal-footer"><button class="btn btn-outline-secondary" @click="closeProcessModal">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading || !selectedProcessActionID || !processOpinion.trim() || (currentProcessAction?.requiresResolution && !isResolutionComplete)" @click="submitProcessAction"><span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ tx('submitProcess') }}</button></div></div></div>
     </div>
@@ -527,7 +561,13 @@ Object.assign(workOrderCopy.zh, {
   historicalGuidanceHint: '来自同一设备、同类故障证据的已验证处置记忆，仅供本次处理参考，请结合现场情况判断。',
   historicalExperience: '处置经验 {index}',
   historicalVerifiedCount: '已验证 {count} 次',
-  handlingOpinion: '处理记录'
+  handlingOpinion: '处理记录',
+  attachments: '附件',
+  uploadAttachment: '上传附件',
+  attachmentHint: '支持图片（JPG, PNG, GIF等）和文档（PDF, Word, Excel, PPT, ZIP, TXT等），单文件最大 25MB',
+  uploadFailed: '附件上传失败',
+  fileTooLarge: '文件超出大小限制（最大 25MB）',
+  invalidFileType: '不支持的文件格式'
 })
 Object.assign(workOrderCopy.en, {
 	copyTemplate: 'Copy template',
@@ -556,7 +596,13 @@ Object.assign(workOrderCopy.en, {
   historicalGuidanceHint: 'Verified handling history for the same device and fault evidence. Use it as guidance and confirm conditions on site.',
   historicalExperience: 'Resolution experience {index}',
   historicalVerifiedCount: 'Verified {count} times',
-  handlingOpinion: 'Handling record'
+  handlingOpinion: 'Handling record',
+  attachments: 'Attachments',
+  uploadAttachment: 'Upload attachment',
+  attachmentHint: 'Supports images (JPG, PNG, GIF, etc.) and documents (PDF, Word, Excel, PPT, ZIP, TXT, etc.), max 25MB per file.',
+  uploadFailed: 'Failed to upload attachment',
+  fileTooLarge: 'File exceeds size limit (max 25MB)',
+  invalidFileType: 'Unsupported file type'
 })
 const workOrderPaginationCopy = {
   zh: { itemsPerPage: '每页显示', pagination: '工单列表分页', previous: '上一页', next: '下一页', goToPage: '前往第 {page} 页' },
@@ -624,6 +670,9 @@ const showProcessModal = ref(false)
 const selectedProcessActionID = ref('')
 const processOpinion = ref('')
 const resolutionDraft = ref({ actual_problem: '', root_cause: '', handling_process: '', handling_result: '' })
+const processAttachments = ref([])
+const processAttachmentUploading = ref(false)
+const processAttachmentError = ref('')
 const connectors = ref([])
 const bindings = ref([])
 const mappings = ref([])
@@ -1194,6 +1243,8 @@ function openProcessModal() {
   selectedProcessActionID.value = processActionOptions.value[0].id
   processOpinion.value = ''
   resolutionDraft.value = { actual_problem: '', root_cause: '', handling_process: '', handling_result: '' }
+  processAttachments.value = []
+  processAttachmentError.value = ''
   showProcessModal.value = true
 }
 
@@ -1202,29 +1253,104 @@ function closeProcessModal() {
   showProcessModal.value = false
   selectedProcessActionID.value = ''
   processOpinion.value = ''
+  processAttachments.value = []
+  processAttachmentError.value = ''
+}
+
+function isImageAttachment(att) {
+  if (!att) return false
+  const ext = (att.type || att.name || '').toLowerCase()
+  return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].some(e => ext.endsWith(e))
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || isNaN(bytes)) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function getFileIcon(att) {
+  const ext = (att.type || att.name || '').toLowerCase()
+  if (['.pdf'].some(e => ext.endsWith(e))) return 'bi-file-earmark-pdf text-danger'
+  if (['.doc', '.docx'].some(e => ext.endsWith(e))) return 'bi-file-earmark-word text-primary'
+  if (['.xls', '.xlsx', '.csv'].some(e => ext.endsWith(e))) return 'bi-file-earmark-excel text-success'
+  if (['.ppt', '.pptx'].some(e => ext.endsWith(e))) return 'bi-file-earmark-ppt text-warning'
+  if (['.zip', '.rar', '.7z'].some(e => ext.endsWith(e))) return 'bi-file-earmark-zip text-secondary'
+  if (['.txt'].some(e => ext.endsWith(e))) return 'bi-file-earmark-text text-info'
+  return 'bi-file-earmark text-secondary'
+}
+
+async function uploadProcessAttachments(event) {
+  const input = event.target
+  const files = [...(input.files || [])]
+  input.value = ''
+  if (!files.length) return
+  const allowedExtensions = new Set([
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.txt', '.csv', '.zip', '.rar', '.7z'
+  ])
+  if (files.some(file => {
+    const ext = '.' + file.name.split('.').pop().toLowerCase()
+    return !allowedExtensions.has(ext)
+  })) {
+    processAttachmentError.value = tx('invalidFileType')
+    return
+  }
+  if (files.some(file => file.size > 25 * 1024 * 1024)) {
+    processAttachmentError.value = tx('fileTooLarge')
+    return
+  }
+  processAttachmentUploading.value = true
+  processAttachmentError.value = ''
+  try {
+    for (const file of files) {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await workOrderApi.uploadAttachment(formData)
+      if (response.data?.code !== 0 || !response.data?.data?.url) {
+        throw new Error(response.data?.message || tx('uploadFailed'))
+      }
+      processAttachments.value.push({
+        name: response.data.data.name || file.name,
+        url: response.data.data.url,
+        size: response.data.data.size || file.size,
+        type: response.data.data.type || ('.' + file.name.split('.').pop().toLowerCase())
+      })
+    }
+  } catch (err) {
+    processAttachmentError.value = err?.message || tx('uploadFailed')
+  } finally {
+    processAttachmentUploading.value = false
+  }
+}
+
+function removeProcessAttachment(index) {
+  processAttachments.value.splice(index, 1)
 }
 
 async function transitionOrder(transition, opinion, resolution = null) {
-	const payload = { key: transition.key, comment: opinion, expected_version: selectedOrder.value.work_order.version }
+	const payload = { key: transition.key, comment: opinion, expected_version: selectedOrder.value.work_order.version, attachments: [...processAttachments.value] }
 	if (transition.requires_resolution) payload.resolution = resolution
 	const success = transition.key === 'close' ? tx('orderArchived') : transition.requires_resolution ? tx('orderResolved') : tx('orderStatusUpdated')
 	return executeOrderAction(`/api/work-orders/${workOrderId(selectedOrder.value.work_order)}/transitions`, payload, success)
 }
 
 async function approveOrder(opinion) {
-  return executeOrderAction(`/api/work-orders/${workOrderId(selectedOrder.value.work_order)}/approve`, { comment: opinion, expected_version: selectedOrder.value.work_order.version }, tx('approvalPassed'))
+  return executeOrderAction(`/api/work-orders/${workOrderId(selectedOrder.value.work_order)}/approve`, { comment: opinion, expected_version: selectedOrder.value.work_order.version, attachments: [...processAttachments.value] }, tx('approvalPassed'))
 }
 
 async function rejectOrder(opinion) {
-  return executeOrderAction(`/api/work-orders/${workOrderId(selectedOrder.value.work_order)}/reject`, { comment: opinion, expected_version: selectedOrder.value.work_order.version }, tx('approvalRejected'))
+  return executeOrderAction(`/api/work-orders/${workOrderId(selectedOrder.value.work_order)}/reject`, { comment: opinion, expected_version: selectedOrder.value.work_order.version, attachments: [...processAttachments.value] }, tx('approvalRejected'))
 }
 
 async function completeGraphTask(task, opinion) {
-  return executeOrderAction(`/api/work-orders/${workOrderId(selectedOrder.value.work_order)}/tasks/${task.public_id}/complete`, { comment: opinion, expected_version: selectedOrder.value.work_order.version }, tx('taskCompleted'))
+  return executeOrderAction(`/api/work-orders/${workOrderId(selectedOrder.value.work_order)}/tasks/${task.public_id}/complete`, { comment: opinion, expected_version: selectedOrder.value.work_order.version, attachments: [...processAttachments.value] }, tx('taskCompleted'))
 }
 
 async function rejectGraphTask(task, opinion) {
-  return executeOrderAction(`/api/work-orders/${workOrderId(selectedOrder.value.work_order)}/tasks/${task.public_id}/reject`, { comment: opinion, expected_version: selectedOrder.value.work_order.version }, tx('taskRejected'))
+  return executeOrderAction(`/api/work-orders/${workOrderId(selectedOrder.value.work_order)}/tasks/${task.public_id}/reject`, { comment: opinion, expected_version: selectedOrder.value.work_order.version, attachments: [...processAttachments.value] }, tx('taskRejected'))
 }
 
 async function submitProcessAction() {
@@ -1762,4 +1888,38 @@ watch(() => route.query.template, async () => {
 @media (max-width: 767.98px) { .work-order-drawer, .template-detail-drawer { width: 100vw; } .template-detail-workflow, .template-detail-workflow :deep(.work-order-workflow-editor) { min-height: 34rem; } }
 @media (max-width: 991px) { .work-order-template-editor-dialog { margin: 0; max-width: 100vw; min-height: 100vh; } .work-order-template-editor-dialog .modal-content { height: 100vh; max-height: 100vh; } .template-editor-tabs { align-items: flex-start; flex-wrap: wrap; } .template-editor-description { flex: 1 0 100%; order: 3; } .template-editor-readonly { order: 2; } .template-editor-actions { margin-left: auto; order: 1; } .template-editor-workflow-panel { overflow: auto; } .work-order-template-editor-dialog :deep(.workflow-editor-content) { height: auto; min-height: 0; } }
 @media (max-width: 767.98px) { .work-order-center .nav-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; border-bottom: 0; } .work-order-center .nav-item, .work-order-center .nav-link { width: 100%; margin: 0; border: 1px solid var(--bs-border-color); border-radius: .45rem; text-align: center; } .work-order-filter-card .row > [class*='col-'] { width: 100%; } .work-order-relation-filter { align-items: stretch !important; } .work-order-relation-filter > span { flex-basis: 100%; } .work-order-relation-filter .btn { flex: 1 1 calc(50% - .5rem); } .work-order-table thead { display: none; } .work-order-table, .work-order-table tbody, .work-order-table tr, .work-order-table td { display: block; width: 100%; } .work-order-row { margin: .65rem; width: calc(100% - 1.3rem); border: 1px solid var(--bs-border-color); border-radius: .65rem; overflow: hidden; } .work-order-row > td { padding: .65rem .8rem; border: 0; } .work-order-row--selected > td:first-child { box-shadow: inset 3px 0 0 var(--wo-selected-accent); } .work-order-row > td[data-label] { display: flex; align-items: center; justify-content: space-between; gap: 1rem; } .work-order-row > td[data-label]::before { content: attr(data-label); color: var(--bs-secondary-color); font-size: .78rem; } .work-order-actions-cell .btn-group { width: 100%; } .work-order-actions-cell .btn { flex: 1; } }
+.work-order-attachment-card {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  background: var(--bs-tertiary-bg, var(--bs-body-tertiary-bg, #f8f9fa));
+  border-color: var(--bs-border-color) !important;
+}
+.work-order-attachment-img {
+  width: 68px;
+  height: 68px;
+  object-fit: cover;
+  transition: opacity 0.15s ease-in-out;
+}
+.work-order-attachment-card:hover .work-order-attachment-img {
+  opacity: 0.82;
+}
+.work-order-attachment-del {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.9rem;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+  z-index: 5;
+}
+.work-order-attachment-doc {
+  background-color: var(--bs-tertiary-bg, var(--bs-body-tertiary-bg, #f8f9fa)) !important;
+  color: var(--bs-body-color) !important;
+  border-color: var(--bs-border-color) !important;
+}
 </style>

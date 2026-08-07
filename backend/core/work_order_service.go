@@ -289,10 +289,18 @@ type WorkOrderCreateInput struct {
 	FormData   map[string]any
 }
 
+type WorkOrderAttachment struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+	Size int64  `json:"size,omitempty"`
+	Type string `json:"type,omitempty"`
+}
+
 type WorkOrderTransitionInput struct {
-	Key        string              `json:"key"`
-	Comment    string              `json:"comment"`
-	Resolution WorkOrderResolution `json:"resolution"`
+	Key         string                `json:"key"`
+	Comment     string                `json:"comment"`
+	Resolution  WorkOrderResolution   `json:"resolution"`
+	Attachments []WorkOrderAttachment `json:"attachments,omitempty"`
 }
 
 type WorkOrderResolution struct {
@@ -316,7 +324,8 @@ func requiredProcessingOpinion(comment string) (string, error) {
 }
 
 type WorkOrderTaskCompletionInput struct {
-	Comment string `json:"comment"`
+	Comment     string                `json:"comment"`
+	Attachments []WorkOrderAttachment `json:"attachments,omitempty"`
 }
 
 type WorkOrderTransferInput struct {
@@ -1582,6 +1591,9 @@ func (s *WorkOrderService) transitionWorkOrder(scope WorkOrderScope, workOrderID
 			"transition_key": transition.Key,
 			"comment":        strings.TrimSpace(input.Comment),
 		}
+		if len(input.Attachments) > 0 {
+			payload["attachments"] = input.Attachments
+		}
 		if transition.RequireResolution {
 			resolution, err := normalizeWorkOrderResolution(input.Resolution)
 			if err != nil {
@@ -2254,12 +2266,16 @@ func (s *WorkOrderService) CompleteWorkOrderTask(scope WorkOrderScope, taskPubli
 		task.Status = WorkOrderTaskCompleted
 		task.Comment = comment
 		task.CompletedAt = &now
-		if err := s.appendWorkOrderEvent(tx, order, "workflow.task.completed", scope.ActorUserID, map[string]any{
+		eventPayload := map[string]any{
 			"task_public_id": task.PublicID,
 			"node_id":        node.ID,
 			"task_kind":      node.TaskKind,
 			"comment":        comment,
-		}); err != nil {
+		}
+		if len(input.Attachments) > 0 {
+			eventPayload["attachments"] = input.Attachments
+		}
+		if err := s.appendWorkOrderEvent(tx, order, "workflow.task.completed", scope.ActorUserID, eventPayload); err != nil {
 			return err
 		}
 

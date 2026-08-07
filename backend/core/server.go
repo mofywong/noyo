@@ -177,11 +177,19 @@ func (s *Server) Run() error {
 
 	// Serve UI
 	if s.uiFS != nil {
-		// Serve static images from /data/images
+		// Serve static images from /data/images and attachments from /data/attachments
 		s.WebServer.BindHandler("/data/images/*", func(r *ghttp.Request) {
 			path := strings.TrimPrefix(r.Request.URL.Path, "/data/images/")
 			if path != "" {
 				r.Response.ServeFile("./data/images/" + path)
+			} else {
+				r.Response.WriteStatus(404)
+			}
+		})
+		s.WebServer.BindHandler("/data/attachments/*", func(r *ghttp.Request) {
+			path := strings.TrimPrefix(r.Request.URL.Path, "/data/attachments/")
+			if path != "" {
+				r.Response.ServeFile("./data/attachments/" + path)
 			} else {
 				r.Response.WriteStatus(404)
 			}

@@ -40,6 +40,7 @@ func (s *Server) RegisterWorkOrderRoutes(group *ghttp.RouterGroup) {
 	permissionGET(group, "/work-orders", "work_order:list", s.handleListWorkOrders)
 	permissionPOST(group, "/work-orders", "work_order:create", s.handleCreateWorkOrder)
 	permissionPOST(group, "/work-orders/images", "work_order:create", s.handleUploadWorkOrderImage)
+	permissionPOST(group, "/work-orders/attachments", "work_order:process", s.handleUploadWorkOrderAttachment)
 	permissionPOST(group, "/work-orders/from-alarm", "work_order:create", s.handleCreateWorkOrderFromAlarm)
 	permissionPOST(group, "/external-work-orders", "work_order:integration", s.handleCreateExternalWorkOrder)
 	permissionGET(group, "/work-orders/public/:public_id", "work_order:list", s.handleGetWorkOrderByPublicID)
@@ -95,6 +96,44 @@ func (s *Server) handleUploadWorkOrderImage(r *ghttp.Request) {
 		return
 	}
 	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{"url": "/data/images/" + filepath.Base(filename)}})
+}
+
+func (s *Server) handleUploadWorkOrderAttachment(r *ghttp.Request) {
+	file := r.GetUploadFile("file")
+	if file == nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "No file uploaded"})
+		return
+	}
+	extension := strings.ToLower(filepath.Ext(file.Filename))
+	allowedExtensions := map[string]bool{
+		".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".bmp": true,
+		".pdf": true, ".doc": true, ".docx": true, ".xls": true, ".xlsx": true, ".ppt": true, ".pptx": true,
+		".txt": true, ".csv": true, ".zip": true, ".rar": true, ".7z": true,
+	}
+	if file.Size <= 0 || file.Size > 25*1024*1024 || !allowedExtensions[extension] {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "File format not supported or exceeds 25 MB size limit"})
+		return
+	}
+	const attachmentDirectory = "./data/attachments"
+	if err := os.MkdirAll(attachmentDirectory, 0755); err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to prepare attachment storage"})
+		return
+	}
+	filename, err := file.Save(attachmentDirectory, true)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to save attachment"})
+		return
+	}
+	savedBaseName := filepath.Base(filename)
+	r.Response.WriteJson(g.Map{
+		"code": 0,
+		"data": g.Map{
+			"name": file.Filename,
+			"url":  "/data/attachments/" + savedBaseName,
+			"size": file.Size,
+			"type": extension,
+		},
+	})
 }
 
 func (s *Server) handleListWorkOrderParticipants(r *ghttp.Request) {
@@ -742,10 +781,11 @@ func (s *Server) handleTransitionWorkOrder(r *ghttp.Request) {
 		return
 	}
 	var payload struct {
-		Key             string               `json:"key"`
-		Comment         string               `json:"comment"`
-		ExpectedVersion *int                 `json:"expected_version"`
-		Resolution      workorder.Resolution `json:"resolution"`
+		Key             string                   `json:"key"`
+		Comment         string                   `json:"comment"`
+		ExpectedVersion *int                     `json:"expected_version"`
+		Resolution      workorder.Resolution     `json:"resolution"`
+		Attachments     []workorder.AttachmentItem `json:"attachments"`
 	}
 	if !decodeWorkOrderRequest(r, &payload) {
 		return
@@ -761,7 +801,7 @@ func (s *Server) handleTransitionWorkOrder(r *ghttp.Request) {
 	}
 	result, err := s.workOrderCommandPort().Execute(r.Context(), workorder.ExecuteCommand{
 		Scope: workOrderCommandScope(scope), Meta: workorder.CommandMeta{IdempotencyKey: key, ExpectedVersion: payload.ExpectedVersion},
-		WorkOrderPublicID: order.PublicID, Action: payload.Key, Comment: payload.Comment, Resolution: payload.Resolution,
+		WorkOrderPublicID: order.PublicID, Action: payload.Key, Comment: payload.Comment, Resolution: payload.Resolution, Attachments: payload.Attachments,
 	})
 	if err != nil {
 		writeWorkOrderError(r, err)
@@ -959,8 +999,9 @@ func (s *Server) handleCompleteWorkOrderTask(r *ghttp.Request) {
 		return
 	}
 	var payload struct {
-		Comment         string `json:"comment"`
-		ExpectedVersion *int   `json:"expected_version"`
+		Comment         string                   `json:"comment"`
+		ExpectedVersion *int                     `json:"expected_version"`
+		Attachments     []workorder.AttachmentItem `json:"attachments"`
 	}
 	if !decodeWorkOrderRequest(r, &payload) {
 		return
@@ -981,6 +1022,7 @@ func (s *Server) handleCompleteWorkOrderTask(r *ghttp.Request) {
 		TaskPublicID:      r.Get("task_public_id").String(),
 		Action:            "complete",
 		Comment:           payload.Comment,
+		Attachments:       payload.Attachments,
 	})
 	if err != nil {
 		writeWorkOrderError(r, err)

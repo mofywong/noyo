@@ -38,18 +38,26 @@ type CreateCommand struct {
 	FormData       map[string]any `json:"form_data,omitempty"`
 }
 
+type AttachmentItem struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+	Size int64  `json:"size,omitempty"`
+	Type string `json:"type,omitempty"`
+}
+
 type ExecuteCommand struct {
-	Scope             Scope          `json:"scope"`
-	Meta              CommandMeta    `json:"meta"`
-	WorkOrderPublicID string         `json:"work_order_public_id"`
-	TaskPublicID      string         `json:"task_public_id,omitempty"`
-	Action            string         `json:"action"`
-	Comment           string         `json:"comment,omitempty"`
-	Resolution        Resolution     `json:"resolution,omitempty"`
-	SourceType        string         `json:"source_type,omitempty"`
-	SourceRef         string         `json:"source_ref,omitempty"`
-	SourceSnapshot    map[string]any `json:"source_snapshot,omitempty"`
-	FormData          map[string]any `json:"form_data,omitempty"`
+	Scope             Scope            `json:"scope"`
+	Meta              CommandMeta      `json:"meta"`
+	WorkOrderPublicID string           `json:"work_order_public_id"`
+	TaskPublicID      string           `json:"task_public_id,omitempty"`
+	Action            string           `json:"action"`
+	Comment           string           `json:"comment,omitempty"`
+	Resolution        Resolution       `json:"resolution,omitempty"`
+	Attachments       []AttachmentItem `json:"attachments,omitempty"`
+	SourceType        string           `json:"source_type,omitempty"`
+	SourceRef         string           `json:"source_ref,omitempty"`
+	SourceSnapshot    map[string]any   `json:"source_snapshot,omitempty"`
+	FormData          map[string]any   `json:"form_data,omitempty"`
 }
 
 type Resolution struct {
