@@ -21,6 +21,28 @@
     --sidebar-active-bg: rgba(59, 130, 246, 0.1);
     --sidebar-hover-bg: rgba(255, 255, 255, 0.05);
 
+    /* Semantic Colors (Light) — Noyo UX Guidelines §3.2 */
+    --color-success: #16a34a;
+    --color-warning: #d97706;
+    --color-danger: #dc2626;
+    --color-info: #0284c7;
+
+    /* Interaction surfaces — Noyo UX Guidelines §3.5 */
+    --bg-hover: rgba(15, 23, 42, 0.04);
+
+    /* Chart Palette (Light) — Noyo UX Guidelines §9.2 */
+    --chart-1: #3b82f6;
+    --chart-2: #10b981;
+    --chart-3: #f59e0b;
+    --chart-4: #ef4444;
+    --chart-5: #8b5cf6;
+    --chart-6: #06b6d4;
+
+    /* Radius tokens — Noyo UX Guidelines §7.3 */
+    --radius-card: 10px;
+    --radius-control: 8px;
+    --radius-modal: 12px;
+
     /* Bootstrap Overrides */
     --bs-body-bg: var(--bg-body);
     --bs-body-color: var(--text-main);
@@ -49,6 +71,23 @@
     --card-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.5);
     --sidebar-active-bg: rgba(96, 165, 250, 0.15);
     --sidebar-hover-bg: rgba(255, 255, 255, 0.08);
+
+    /* Semantic Colors (Dark) — Noyo UX Guidelines §3.2 */
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
+    --color-danger: #f87171;
+    --color-info: #38bdf8;
+
+    /* Interaction surfaces — Noyo UX Guidelines §3.5 */
+    --bg-hover: rgba(255, 255, 255, 0.06);
+
+    /* Chart Palette (Dark) — Noyo UX Guidelines §9.2 */
+    --chart-1: #60a5fa;
+    --chart-2: #34d399;
+    --chart-3: #fbbf24;
+    --chart-4: #f87171;
+    --chart-5: #a78bfa;
+    --chart-6: #22d3ee;
 
     /* Bootstrap Overrides */
     --bs-body-bg: var(--bg-body);
