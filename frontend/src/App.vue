@@ -82,6 +82,7 @@
     </div>
 
     <ToastContainer />
+    <ConfirmDialog />
     
     <div class="modal fade" id="forceChangePasswordModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
@@ -123,6 +124,7 @@ import axios from 'axios';
 import Sidebar from './components/Sidebar.vue';
 import TopHeader from './components/TopHeader.vue';
 import ToastContainer from './components/ToastContainer.vue';
+import ConfirmDialog from './components/ConfirmDialog.vue';
 import { useToast } from './composables/useToast';
 import { gatewayActionText, gatewayText } from './utils/gatewayLocale';
 import { isSuccessfulDeviceWriteResponse } from './utils/aiBrainSuggestionReminder';
@@ -214,7 +216,11 @@ const updatePluginStatus = async (name, enabled) => {
     if (res.data && res.data.code !== 0) {
       throw new Error(res.data.message || 'API Error');
     }
-    showToast('success', gt('gateway_plugin_status_updated', { action: gatewayActionText(locale.value, enabled) }));
+    // 可逆操作：即时执行 + Toast 撤销（§10.3）
+    showToast('success', gt('gateway_plugin_status_updated', { action: gatewayActionText(locale.value, enabled) }), {
+      actionLabel: t('common_undo', '撤销 Undo'),
+      onAction: () => updatePluginStatus(name, !enabled)
+    });
     await fetchPlugins(); // Refresh list
   } catch (e) {
     showToast('danger', `${gt('gateway_plugin_status_update_failed')}: ${e.message}`);

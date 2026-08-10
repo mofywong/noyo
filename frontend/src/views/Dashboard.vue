@@ -5,303 +5,331 @@
     <p class="text-muted">{{ $t('no_permission_dashboard', 'You do not have permission to access the dashboard.') }}</p>
   </div>
   <div v-else class="dashboard-container">
-    <!-- Header Row -->
-    <div class="row g-3 mb-3">
-      <!-- Welcome Header -->
-      <div class="col-lg-8">
-        <div class="card tech-card border-0 h-100 welcome-card">
-          <div class="welcome-card-shimmer"></div>
-          <div class="card-body p-3 d-flex align-items-center position-relative z-1">
-            <div class="flex-grow-1">
-              <h4 class="fw-bold mb-1">{{ $t('page_dashboard') }}</h4>
-              <p class="mb-0 opacity-75 small">{{ $t('gateway_subtitle') }}</p>
-            </div>
-            <div class="d-flex gap-4 px-4 border-start border-light border-opacity-25">
-              <div class="text-center">
-                <span class="d-block small opacity-75">{{ $t('sys_version') }}</span>
-                <span class="fw-bold font-monospace">{{ sysStats.version }}</span>
-              </div>
-              <div class="text-center">
-                <span class="d-block small opacity-75">{{ $t('sys_ip') }}</span>
-                <span class="fw-bold font-monospace">{{ sysStats.ip || '-' }}</span>
-              </div>
-              <div class="text-center">
-                <span class="d-block small opacity-75">{{ $t('sys_uptime') }}</span>
-                <span class="fw-bold font-monospace">{{ formatUptime(sysStats.uptime) }}</span>
-              </div>
+    <!-- Page Header（UX 规范 §7.2 页面三段式） -->
+    <div class="page-header d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+      <div>
+        <h1 class="page-title mb-1">{{ $t('page_dashboard', 'Dashboard') }}</h1>
+        <p class="page-subtitle mb-0">{{ $t('gateway_subtitle') }}</p>
+      </div>
+      <div class="d-flex align-items-center gap-3">
+        <span class="freshness small text-secondary">
+          <i class="bi bi-arrow-repeat me-1"></i>{{ $t('updated_at', 'Updated') }}
+          <span class="font-monospace">{{ timeStr }}</span>
+        </span>
+        <button class="btn btn-sm btn-outline-secondary" @click="handleRefresh">
+          <i class="bi bi-arrow-clockwise me-1"></i>{{ $t('refresh', 'Refresh') }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 首屏骨架屏（UX 规范 §8.7，轮询期间不闪烁） -->
+    <template v-if="initialLoading">
+      <div class="row g-3 mb-3">
+        <div class="col-6 col-lg-3" v-for="i in 4" :key="'skeleton-kpi-' + i">
+          <div class="card dash-card h-100">
+            <div class="card-body p-4">
+              <div class="skeleton mb-3" style="width: 44px; height: 44px; border-radius: var(--radius-control);"></div>
+              <div class="skeleton mb-2" style="width: 55%; height: 12px;"></div>
+              <div class="skeleton" style="width: 35%; height: 26px;"></div>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- Online Rate Card -->
-      <div class="col-lg-4">
-        <div class="card tech-card h-100">
-          <div class="card-body p-3 d-flex align-items-center">
-            <div class="icon-box-sm bg-success bg-opacity-10 text-success rounded-3 me-3">
-              <i class="bi bi-activity"></i>
+      <div class="row g-3">
+        <div class="col-lg-4">
+          <div class="card dash-card h-100">
+            <div class="card-body p-4">
+              <div class="skeleton mb-3" style="width: 40%; height: 18px;"></div>
+              <div class="skeleton mb-2" style="height: 52px;"></div>
+              <div class="skeleton" style="height: 52px;"></div>
             </div>
-            <div class="flex-grow-1">
-              <h6 class="text-muted text-uppercase mb-1 small fw-bold">{{ $t('card_online_rate') }}</h6>
-              <div class="d-flex align-items-center gap-3">
-                <span class="fs-4 fw-bold">{{ onlineRate }}%</span>
-                <div class="progress flex-grow-1" style="height: 8px;">
+          </div>
+        </div>
+        <div class="col-lg-5">
+          <div class="card dash-card h-100">
+            <div class="card-body p-4">
+              <div class="skeleton mb-4" style="width: 30%; height: 18px;"></div>
+              <div class="d-flex justify-content-around">
+                <div class="skeleton skeleton-round" style="width: 92px; height: 92px;" v-for="j in 3" :key="'ring-' + j"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-3">
+          <div class="card dash-card h-100">
+            <div class="card-body p-4">
+              <div class="skeleton mb-3" style="width: 40%; height: 18px;"></div>
+              <div class="skeleton mb-2" style="height: 24px;"></div>
+              <div class="skeleton mb-2" style="height: 24px;"></div>
+              <div class="skeleton" style="height: 24px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <template v-else>
+      <!-- KPI 行（UX 规范 §7.3 卡片网格） -->
+      <div class="row g-3 mb-3">
+        <div class="col-6 col-lg-3">
+          <div class="card dash-card h-100">
+            <div class="card-body p-4 d-flex align-items-center">
+              <div class="icon-box-sm icon-chart-5 me-3">
+                <i class="bi bi-plugin"></i>
+              </div>
+              <div class="flex-grow-1">
+                <h6 class="kpi-label mb-2">{{ $t('card_total_plugins', 'Total Plugins') }}</h6>
+                <div class="d-flex align-items-baseline gap-2">
+                  <span class="kpi-value font-monospace">{{ stats.plugins.total }}</span>
+                  <span class="badge bg-success-subtle text-success border border-success-subtle small">
+                    <i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i>{{ stats.plugins.active }} {{ $t('card_active_plugins', 'Active') }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-6 col-lg-3">
+          <div class="card dash-card h-100">
+            <div class="card-body p-4 d-flex align-items-center">
+              <div class="icon-box-sm icon-chart-1 me-3">
+                <i class="bi bi-grid-3x3-gap-fill"></i>
+              </div>
+              <div class="flex-grow-1">
+                <h6 class="kpi-label mb-2">{{ $t('card_total_products', 'Total Products') }}</h6>
+                <span class="kpi-value font-monospace">{{ stats.products.total }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-6 col-lg-3">
+          <div class="card dash-card h-100">
+            <div class="card-body p-4 d-flex align-items-center">
+              <div class="icon-box-sm icon-chart-2 me-3">
+                <i class="bi bi-router"></i>
+              </div>
+              <div class="flex-grow-1">
+                <h6 class="kpi-label mb-2">{{ $t('card_total_devices', 'Total Devices') }}</h6>
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <span class="kpi-value font-monospace">{{ stats.devices.total }}</span>
+                  <span class="small">
+                    <span class="text-success">{{ stats.devices.online }} {{ $t('dev_online', 'Online') }}</span>
+                    <span class="text-secondary"> / {{ stats.devices.offline }} {{ $t('dev_offline', 'Offline') }}</span>
+                  </span>
+                </div>
+                <div class="progress" style="height: 6px;">
                   <div class="progress-bar bg-success" :style="{ width: onlineRate + '%' }"></div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Stats Row -->
-    <div class="row g-3 mb-3">
-      <div class="col-6 col-lg-3">
-        <div class="card tech-card h-100">
-          <div class="card-body p-3 d-flex align-items-center">
-            <div class="icon-box-sm bg-primary bg-opacity-10 text-primary rounded-3 me-3">
-              <i class="bi bi-plugin"></i>
-            </div>
-            <div>
-              <h6 class="text-muted text-uppercase mb-1 small fw-bold">{{ $t('card_total_plugins') }}</h6>
-              <div class="d-flex align-items-baseline gap-2">
-                <span class="fs-4 fw-bold">{{ stats.plugins.total }}</span>
-                <span class="badge bg-success bg-opacity-10 text-success small">
-                  <i class="bi bi-circle-fill" style="font-size: 6px;"></i> {{ stats.plugins.active }} {{ $t('card_active_plugins') }}
+        <div class="col-6 col-lg-3">
+          <div class="card dash-card h-100 ai-copilot-card cursor-pointer" @click="openAICopilot">
+            <div class="card-body p-4 d-flex align-items-center">
+              <div class="icon-box-sm icon-brand me-3">
+                <i class="bi bi-robot"></i>
+              </div>
+              <div class="flex-grow-1">
+                <h6 class="kpi-label mb-2">{{ $t('ai_copilot', 'AI Copilot') }}</h6>
+                <span class="badge bg-success-subtle text-success border border-success-subtle">
+                  <i class="bi bi-check-lg me-1"></i> {{ $t('status_running', 'Running') }}
                 </span>
               </div>
+              <i class="bi bi-chat-dots-fill text-primary fs-4"></i>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="col-6 col-lg-3">
-        <div class="card tech-card h-100">
-          <div class="card-body p-3 d-flex align-items-center">
-            <div class="icon-box-sm rounded-3 me-3" style="background-color: rgba(111, 66, 193, 0.1); color: #6f42c1;">
-              <i class="bi bi-grid-3x3-gap-fill"></i>
-            </div>
-            <div>
-              <h6 class="text-muted text-uppercase mb-1 small fw-bold">{{ $t('card_total_products') }}</h6>
-              <span class="fs-4 fw-bold">{{ stats.products.total }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="col-6 col-lg-3">
-        <div class="card tech-card h-100">
-          <div class="card-body p-3 d-flex align-items-center">
-            <div class="icon-box-sm bg-info bg-opacity-10 text-info rounded-3 me-3">
-              <i class="bi bi-router"></i>
-            </div>
-            <div>
-              <h6 class="text-muted text-uppercase mb-1 small fw-bold">{{ $t('card_total_devices') }}</h6>
-              <div class="d-flex align-items-center gap-2">
-                <span class="fs-4 fw-bold">{{ stats.devices.total }}</span>
-                <span class="small">
-                  <span class="text-success">{{ stats.devices.online }} {{ $t('dev_online') }}</span>
-                  <span class="text-muted"> / {{ stats.devices.offline }} {{ $t('dev_offline') }}</span>
-                </span>
+      <!-- 主内容行 -->
+      <div class="row g-3">
+        <!-- AI 守护 -->
+        <div class="col-lg-4">
+          <div class="card dash-card h-100">
+            <div class="card-header dash-card-header d-flex align-items-center">
+              <div class="icon-box-xs icon-warning me-2">
+                <i class="bi bi-shield-check"></i>
               </div>
+              <h6 class="mb-0 fw-bold">{{ $t('ai_guardian', 'AI Guardian') }}</h6>
+              <span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-auto">{{ aiStats.anomaly_count }} {{ $t('ai_anomalies', 'Anomalies') }}</span>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="col-6 col-lg-3">
-        <div class="card tech-card h-100 ai-copilot-card cursor-pointer" @click="openAICopilot">
-          <div class="card-body p-3 d-flex align-items-center">
-            <div class="icon-box-sm bg-primary bg-opacity-10 text-primary rounded-3 me-3">
-              <i class="bi bi-robot"></i>
-            </div>
-            <div class="flex-grow-1">
-              <h6 class="text-muted text-uppercase mb-1 small fw-bold">{{ $t('ai_copilot') }}</h6>
-              <span class="badge bg-success-subtle text-success border border-success-subtle">
-                <i class="bi bi-check-lg me-1"></i> Online
-              </span>
-            </div>
-            <i class="bi bi-chat-dots-fill text-primary fs-4"></i>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Main Content Row -->
-    <div class="row g-3">
-      <!-- AI Guardian -->
-      <div class="col-lg-4">
-        <div class="card tech-card h-100">
-          <div class="card-header bg-transparent border-0 py-2 px-3 d-flex align-items-center">
-            <div class="icon-box-xs bg-warning bg-opacity-10 text-warning rounded-2 me-2">
-              <i class="bi bi-shield-check"></i>
-            </div>
-            <h6 class="mb-0 fw-bold">{{ $t('ai_guardian') }}</h6>
-            <span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-auto">{{ aiStats.anomaly_count }} {{ $t('ai_anomalies') }}</span>
-          </div>
-          <div class="card-body pt-0 px-3">
-            <div class="row g-2 mb-3">
-              <div class="col-4">
-                <div class="bg-body-tertiary rounded-2 p-2 text-center">
-                  <h4 class="fw-bold mb-0 text-primary">{{ aiStats.active_tasks }}</h4>
-                  <small class="text-muted">{{ $t('ai_active_tasks') }}</small>
+            <div class="card-body pt-0 px-4 pb-4">
+              <div class="row g-2 mb-3">
+                <div class="col-4">
+                  <div class="metric-block p-3 text-center">
+                    <div class="metric-value font-monospace text-primary">{{ aiStats.active_tasks }}</div>
+                    <div class="metric-label">{{ $t('ai_active_tasks', 'Active Tasks') }}</div>
+                  </div>
+                </div>
+                <div class="col-4">
+                  <div class="metric-block p-3 text-center">
+                    <div class="metric-value font-monospace" :class="getHealthColorClass(aiStats.avg_health)">
+                      {{ aiStats.avg_health > 0 ? aiStats.avg_health.toFixed(1) : '-' }}
+                    </div>
+                    <div class="metric-label">{{ $t('ai_health_avg', 'Avg Health') }}</div>
+                  </div>
+                </div>
+                <div class="col-4">
+                  <div class="metric-block p-3 text-center">
+                    <div class="metric-value font-monospace text-danger">{{ aiStats.anomaly_count }}</div>
+                    <div class="metric-label">{{ $t('ai_anomalies', 'Anomalies') }}</div>
+                  </div>
                 </div>
               </div>
-              <div class="col-4">
-                <div class="bg-body-tertiary rounded-2 p-2 text-center">
-                  <h4 class="fw-bold mb-0" :class="getHealthColorClass(aiStats.avg_health)">
-                    {{ aiStats.avg_health > 0 ? aiStats.avg_health.toFixed(1) : '-' }}
-                  </h4>
-                  <small class="text-muted">{{ $t('ai_health_avg') }}</small>
-                </div>
-              </div>
-              <div class="col-4">
-                <div class="bg-body-tertiary rounded-2 p-2 text-center position-relative">
-                  <h4 class="fw-bold mb-0 text-danger">{{ aiStats.anomaly_count }}</h4>
-                  <small class="text-muted">{{ $t('ai_anomalies') }}</small>
-                  <span v-if="aiStats.anomaly_count > 0" class="position-absolute top-0 end-0 translate-middle badge rounded-circle bg-danger p-1">
-                    <span class="visually-hidden">alert</span>
+
+              <h6 class="text-danger small fw-bold text-uppercase mb-2" v-if="aiStats.anomalies && aiStats.anomalies.length > 0">
+                <i class="bi bi-exclamation-triangle-fill me-1"></i> {{ $t('ai_risk_devices', 'Risk Devices') }}
+              </h6>
+              <div v-if="aiStats.anomalies && aiStats.anomalies.length > 0" class="list-group list-group-flush small">
+                <div v-for="(item, idx) in aiStats.anomalies.slice(0, 3)" :key="idx" class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center bg-transparent">
+                  <span class="text-truncate pe-2">
+                    {{ deviceDisplay(item.device_code) }} <span class="text-secondary">({{ item.property }})</span>
                   </span>
+                  <span class="badge bg-danger-subtle text-danger border border-danger-subtle flex-shrink-0 font-monospace">{{ item.health_score.toFixed(1) }}</span>
                 </div>
               </div>
-            </div>
-
-            <h6 class="text-danger small fw-bold text-uppercase mb-2" v-if="aiStats.anomalies && aiStats.anomalies.length > 0">
-              <i class="bi bi-exclamation-triangle-fill me-1"></i> {{ $t('ai_risk_devices') }}
-            </h6>
-            <div v-if="aiStats.anomalies && aiStats.anomalies.length > 0" class="list-group list-group-flush small">
-              <div v-for="(item, idx) in aiStats.anomalies.slice(0, 3)" :key="idx" class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center bg-transparent">
-                <span class="text-truncate pe-2">
-                  {{ deviceDisplay(item.device_code) }} <span class="text-muted">({{ item.property }})</span>
-                </span>
-                <span class="badge bg-danger-subtle text-danger border border-danger-subtle flex-shrink-0">{{ item.health_score.toFixed(1) }}</span>
-              </div>
-            </div>
-            <div v-else class="text-center text-success py-3">
-              <i class="bi bi-check-circle-fill me-1"></i> {{ $t('ai_no_anomalies') }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- System Resources -->
-      <div class="col-lg-5">
-        <div class="card tech-card h-100">
-          <div class="card-header bg-transparent border-0 py-2 px-3 d-flex align-items-center">
-            <i class="bi bi-server me-2 text-primary"></i>
-            <h6 class="mb-0 fw-bold">{{ $t('sys_resources') }}</h6>
-          </div>
-          <div class="card-body pt-0">
-            <div class="row g-3">
-              <div class="col-4 text-center">
-                <div class="d-inline-block position-relative" style="width: 100px; height: 100px;">
-                  <svg viewBox="0 0 100 100" class="w-100 h-100">
-                    <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" stroke-width="8" opacity="0.1"/>
-                    <circle cx="50" cy="50" r="42" fill="none" stroke="var(--accent-color)" stroke-width="8" 
-                      :stroke-dasharray="`${sysStats.cpu * 2.64} 264`" stroke-linecap="round"
-                      transform="rotate(-90 50 50)" style="transition: stroke-dasharray 0.5s ease;"/>
-                  </svg>
-                  <div class="position-absolute top-50 start-50 translate-middle">
-                    <span class="fw-bold fs-5">{{ sysStats.cpu.toFixed(0) }}%</span>
-                  </div>
-                </div>
-                <div class="small fw-bold text-uppercase text-muted mt-2">{{ $t('sys_cpu') }}</div>
-              </div>
-
-              <div class="col-4 text-center">
-                <div class="d-inline-block position-relative" style="width: 100px; height: 100px;">
-                  <svg viewBox="0 0 100 100" class="w-100 h-100">
-                    <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" stroke-width="8" opacity="0.1"/>
-                    <circle cx="50" cy="50" r="42" fill="none" stroke="#6f42c1" stroke-width="8" 
-                      :stroke-dasharray="`${sysStats.memoryPercent * 2.64} 264`" stroke-linecap="round"
-                      transform="rotate(-90 50 50)" style="transition: stroke-dasharray 0.5s ease;"/>
-                  </svg>
-                  <div class="position-absolute top-50 start-50 translate-middle text-center">
-                    <span class="fw-bold fs-5">{{ sysStats.memoryPercent.toFixed(0) }}%</span>
-                  </div>
-                </div>
-                <div class="small fw-bold text-uppercase text-muted mt-2">{{ $t('sys_memory') }}</div>
-                <div class="small text-muted">{{ formatBytes(sysStats.memoryUsed) }} / {{ formatBytes(sysStats.memoryTotal) }}</div>
-              </div>
-
-              <div class="col-4 text-center">
-                <div class="d-inline-block position-relative" style="width: 100px; height: 100px;">
-                  <svg viewBox="0 0 100 100" class="w-100 h-100">
-                    <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" stroke-width="8" opacity="0.1"/>
-                    <circle cx="50" cy="50" r="42" fill="none" stroke="#0dcaf0" stroke-width="8" 
-                      :stroke-dasharray="`${sysStats.diskPercent * 2.64} 264`" stroke-linecap="round"
-                      transform="rotate(-90 50 50)" style="transition: stroke-dasharray 0.5s ease;"/>
-                  </svg>
-                  <div class="position-absolute top-50 start-50 translate-middle">
-                    <span class="fw-bold fs-5">{{ sysStats.diskPercent.toFixed(0) }}%</span>
-                  </div>
-                </div>
-                <div class="small fw-bold text-uppercase text-muted mt-2">{{ $t('sys_disk') }}</div>
-                <div class="small text-muted">{{ formatBytes(sysStats.diskUsed) }} / {{ formatBytes(sysStats.diskTotal) }}</div>
+              <div v-else class="empty-state text-center">
+                <i class="bi bi-check-circle-fill text-success me-1"></i> {{ $t('ai_no_anomalies', 'No anomalies detected') }}
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Service Resources -->
-      <div class="col-lg-3">
-        <div class="card tech-card h-100">
-          <div class="card-header bg-transparent border-0 py-2 px-3 d-flex align-items-center">
-            <i class="bi bi-gear-wide-connected me-2" style="color: #6f42c1;"></i>
-            <h6 class="mb-0 fw-bold">{{ $t('svc_resources') }}</h6>
+        <!-- 系统资源 -->
+        <div class="col-lg-5">
+          <div class="card dash-card h-100">
+            <div class="card-header dash-card-header d-flex align-items-center">
+              <i class="bi bi-server me-2 text-primary"></i>
+              <h6 class="mb-0 fw-bold">{{ $t('sys_resources', 'System Resources') }}</h6>
+            </div>
+            <div class="card-body pt-0 px-4 pb-4">
+              <div class="row g-3">
+                <div class="col-4 text-center">
+                  <div class="d-inline-block position-relative" style="width: 100px; height: 100px;">
+                    <svg viewBox="0 0 100 100" class="w-100 h-100">
+                      <circle cx="50" cy="50" r="42" fill="none" stroke="var(--chart-1)" stroke-width="8" opacity="0.1"/>
+                      <circle cx="50" cy="50" r="42" fill="none" stroke="var(--chart-1)" stroke-width="8"
+                        :stroke-dasharray="`${sysStats.cpu * 2.64} 264`" stroke-linecap="round"
+                        transform="rotate(-90 50 50)" style="transition: stroke-dasharray 0.5s ease;"/>
+                    </svg>
+                    <div class="position-absolute top-50 start-50 translate-middle">
+                      <span class="fw-bold fs-5 font-monospace">{{ sysStats.cpu.toFixed(0) }}%</span>
+                    </div>
+                  </div>
+                  <div class="small fw-bold text-uppercase text-secondary mt-2">{{ $t('sys_cpu', 'CPU') }}</div>
+                </div>
+
+                <div class="col-4 text-center">
+                  <div class="d-inline-block position-relative" style="width: 100px; height: 100px;">
+                    <svg viewBox="0 0 100 100" class="w-100 h-100">
+                      <circle cx="50" cy="50" r="42" fill="none" stroke="var(--chart-5)" stroke-width="8" opacity="0.1"/>
+                      <circle cx="50" cy="50" r="42" fill="none" stroke="var(--chart-5)" stroke-width="8"
+                        :stroke-dasharray="`${sysStats.memoryPercent * 2.64} 264`" stroke-linecap="round"
+                        transform="rotate(-90 50 50)" style="transition: stroke-dasharray 0.5s ease;"/>
+                    </svg>
+                    <div class="position-absolute top-50 start-50 translate-middle text-center">
+                      <span class="fw-bold fs-5 font-monospace">{{ sysStats.memoryPercent.toFixed(0) }}%</span>
+                    </div>
+                  </div>
+                  <div class="small fw-bold text-uppercase text-secondary mt-2">{{ $t('sys_memory', 'Memory') }}</div>
+                  <div class="small text-secondary font-monospace">{{ formatBytes(sysStats.memoryUsed) }} / {{ formatBytes(sysStats.memoryTotal) }}</div>
+                </div>
+
+                <div class="col-4 text-center">
+                  <div class="d-inline-block position-relative" style="width: 100px; height: 100px;">
+                    <svg viewBox="0 0 100 100" class="w-100 h-100">
+                      <circle cx="50" cy="50" r="42" fill="none" stroke="var(--chart-6)" stroke-width="8" opacity="0.1"/>
+                      <circle cx="50" cy="50" r="42" fill="none" stroke="var(--chart-6)" stroke-width="8"
+                        :stroke-dasharray="`${sysStats.diskPercent * 2.64} 264`" stroke-linecap="round"
+                        transform="rotate(-90 50 50)" style="transition: stroke-dasharray 0.5s ease;"/>
+                    </svg>
+                    <div class="position-absolute top-50 start-50 translate-middle">
+                      <span class="fw-bold fs-5 font-monospace">{{ sysStats.diskPercent.toFixed(0) }}%</span>
+                    </div>
+                  </div>
+                  <div class="small fw-bold text-uppercase text-secondary mt-2">{{ $t('sys_disk', 'Disk') }}</div>
+                  <div class="small text-secondary font-monospace">{{ formatBytes(sysStats.diskUsed) }} / {{ formatBytes(sysStats.diskTotal) }}</div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="card-body pt-0">
-            <div class="mb-3">
-              <div class="d-flex justify-content-between mb-1">
-                <span class="small text-muted text-uppercase fw-bold">{{ $t('svc_cpu') }}</span>
-                <span class="fw-bold" style="color: #6f42c1;">{{ sysStats.serviceCPU.toFixed(2) }}%</span>
+        </div>
+
+        <!-- 服务资源 -->
+        <div class="col-lg-3">
+          <div class="card dash-card h-100">
+            <div class="card-header dash-card-header d-flex align-items-center">
+              <i class="bi bi-gear-wide-connected me-2" style="color: var(--chart-5);"></i>
+              <h6 class="mb-0 fw-bold">{{ $t('svc_resources', 'Service Resources') }}</h6>
+            </div>
+            <div class="card-body pt-0 px-4 pb-4">
+              <div class="mb-3">
+                <div class="d-flex justify-content-between mb-1">
+                  <span class="small text-secondary text-uppercase fw-bold">{{ $t('svc_cpu', 'Service CPU') }}</span>
+                  <span class="fw-bold font-monospace" style="color: var(--chart-5);">{{ sysStats.serviceCPU.toFixed(2) }}%</span>
+                </div>
+                <div class="progress rounded-pill" style="height: 6px;">
+                  <div class="progress-bar" style="background-color: var(--chart-5);" :style="{ width: Math.min(sysStats.serviceCPU * 10, 100) + '%' }"></div>
+                </div>
               </div>
-              <div class="progress rounded-pill" style="height: 6px;">
-                <div class="progress-bar" style="background-color: #6f42c1;" :style="{ width: Math.min(sysStats.serviceCPU * 10, 100) + '%' }"></div>
+
+              <div class="mb-3">
+                <div class="d-flex justify-content-between mb-1">
+                  <span class="small text-secondary text-uppercase fw-bold">{{ $t('svc_mem', 'Service Memory') }}</span>
+                  <span class="fw-bold font-monospace" style="color: var(--chart-5);">{{ formatBytes(sysStats.serviceMemory) }}</span>
+                </div>
+                <div class="progress rounded-pill" style="height: 6px;">
+                  <div class="progress-bar" style="background-color: var(--chart-5);" :style="{ width: Math.min(sysStats.serviceMemory / sysStats.memoryTotal * 100 * 5, 100) + '%' }"></div>
+                </div>
+              </div>
+
+              <hr class="my-3">
+
+              <div class="small">
+                <div class="d-flex justify-content-between py-1">
+                  <span class="text-secondary">{{ $t('sys_pid', 'PID') }}</span>
+                  <span class="fw-bold font-monospace">{{ sysStats.pid }}</span>
+                </div>
+                <div class="d-flex justify-content-between py-1">
+                  <span class="text-secondary">{{ $t('sys_go_routines', 'Go Routines') }}</span>
+                  <span class="fw-bold font-monospace">{{ sysStats.numGoroutine }}</span>
+                </div>
+                <div class="d-flex justify-content-between py-1">
+                  <span class="text-secondary">{{ $t('sys_gc_cycles', 'GC Cycles') }}</span>
+                  <span class="fw-bold font-monospace">{{ sysStats.numGC }}</span>
+                </div>
+                <div class="d-flex justify-content-between py-1">
+                  <span class="text-secondary">{{ $t('sys_build_info', 'Build Info') }}</span>
+                  <span class="fw-bold font-monospace text-truncate" style="max-width: 80px;">{{ sysStats.goVersion }}</span>
+                </div>
+              </div>
+
+              <hr class="my-3">
+
+              <!-- 运行信息（原欢迎卡信息，UX 规范 §7.2 信息重组） -->
+              <div class="small">
+                <div class="d-flex justify-content-between py-1">
+                  <span class="text-secondary">{{ $t('sys_version', 'Version') }}</span>
+                  <span class="fw-bold font-monospace">{{ sysStats.version }}</span>
+                </div>
+                <div class="d-flex justify-content-between py-1">
+                  <span class="text-secondary">{{ $t('sys_ip', 'IP Address') }}</span>
+                  <span class="fw-bold font-monospace">{{ sysStats.ip || '-' }}</span>
+                </div>
+                <div class="d-flex justify-content-between py-1">
+                  <span class="text-secondary">{{ $t('sys_uptime', 'Uptime') }}</span>
+                  <span class="fw-bold font-monospace">{{ formatUptime(sysStats.uptime) }}</span>
+                </div>
               </div>
             </div>
-
-            <div class="mb-3">
-              <div class="d-flex justify-content-between mb-1">
-                <span class="small text-muted text-uppercase fw-bold">{{ $t('svc_mem') }}</span>
-                <span class="fw-bold" style="color: #6f42c1;">{{ formatBytes(sysStats.serviceMemory) }}</span>
-              </div>
-              <div class="progress rounded-pill" style="height: 6px;">
-                <div class="progress-bar" style="background-color: #6f42c1;" :style="{ width: Math.min(sysStats.serviceMemory / sysStats.memoryTotal * 100 * 5, 100) + '%' }"></div>
-              </div>
-            </div>
-
-            <hr class="my-3">
-
-            <div class="small">
-              <div class="d-flex justify-content-between py-1">
-                <span class="text-muted">{{ $t('sys_pid') }}</span>
-                <span class="fw-bold font-monospace">{{ sysStats.pid }}</span>
-              </div>
-              <div class="d-flex justify-content-between py-1">
-                <span class="text-muted">{{ $t('sys_go_routines') }}</span>
-                <span class="fw-bold font-monospace">{{ sysStats.numGoroutine }}</span>
-              </div>
-              <div class="d-flex justify-content-between py-1">
-                <span class="text-muted">{{ $t('sys_gc_cycles') }}</span>
-                <span class="fw-bold font-monospace">{{ sysStats.numGC }}</span>
-              </div>
-              <div class="d-flex justify-content-between py-1">
-                <span class="text-muted">{{ $t('sys_build_info') }}</span>
-                <span class="fw-bold font-monospace text-truncate" style="max-width: 80px;">{{ sysStats.goVersion }}</span>
-              </div>
-            </div>
-          </div>
-          <div class="card-footer bg-transparent border-0 py-2 text-center">
-            <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" @click="fetchSystemStats">
-              <i class="bi bi-arrow-clockwise me-1"></i> {{ $t('refresh') }}
-            </button>
           </div>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -353,6 +381,18 @@ const aiStats = ref({
 const deviceNames = ref({});
 const deviceDisplay = (code) => formatNamedReference(deviceNames.value[code], code);
 
+// 数据新鲜度（UX 规范 §10.1）：最近一次成功拉取时间
+const lastUpdated = ref(null);
+const timeStr = computed(() => {
+  if (!lastUpdated.value) return '--:--:--';
+  const d = lastUpdated.value;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+});
+
+// 首屏骨架屏（UX 规范 §8.7）：首次数据返回后关闭，轮询期间不闪烁
+const initialLoading = ref(true);
+
 const fetchAIStats = async () => {
     if (!authStore.hasPermission('plugin:list')) return;
     try {
@@ -376,7 +416,6 @@ const openAICopilot = () => {
     window.dispatchEvent(new CustomEvent('noyo-open-copilot'));
 };
 
-const loading = ref(true);
 let pollTimer = null;
 
 const onlineRate = computed(() => {
@@ -385,7 +424,6 @@ const onlineRate = computed(() => {
 });
 
 const fetchDashboardData = async () => {
-    loading.value = true;
     try {
         if (authStore.hasPermission('plugin:list')) {
             const resPlugins = await axios.get('/api/plugins');
@@ -424,7 +462,7 @@ const fetchDashboardData = async () => {
     } catch (e) {
         console.error("Dashboard fetch error", e);
     } finally {
-        loading.value = false;
+        initialLoading.value = false;
     }
 };
 
@@ -454,10 +492,18 @@ const fetchSystemStats = async () => {
                 numGC: data.num_gc,
                 goVersion: data.go_version
             };
+            lastUpdated.value = new Date();
+            initialLoading.value = false;
         }
     } catch (e) {
         console.error("System stats error", e);
     }
+}
+
+const handleRefresh = () => {
+    fetchDashboardData();
+    fetchSystemStats();
+    fetchAIStats();
 }
 
 const formatBytes = (bytes, decimals = 2) => {
@@ -470,10 +516,8 @@ const formatBytes = (bytes, decimals = 2) => {
 }
 
 const formatUptime = (seconds) => {
-    // Mock uptime if backend doesn't send it yet (system.go didn't have uptime in struct)
-    // We can just increase it locally or mock.
-    // Let's use a placeholder if 0
-    if (!seconds) return '3d 2h 15m'; // Mock
+    // UX 规范 §10.3：无数据时返回占位符，不使用模拟数据
+    if (!seconds) return '-';
     const d = Math.floor(seconds / (3600*24));
     const h = Math.floor(seconds % (3600*24) / 3600);
     const m = Math.floor(seconds % 3600 / 60);
@@ -501,102 +545,86 @@ onUnmounted(() => {
   padding-bottom: 1rem;
 }
 
-.text-purple { color: #6f42c1 !important; }
-.bg-purple { background-color: #6f42c1 !important; }
-.text-indigo { color: #6610f2 !important; }
-.bg-indigo-subtle { background-color: #e0cffc !important; }
-.border-indigo-subtle { border-color: #e0cffc !important; }
-
-[data-bs-theme="dark"] .bg-indigo-subtle { background-color: rgba(102, 16, 242, 0.2) !important; color: #b38df7 !important; border-color: rgba(102, 16, 242, 0.2) !important; }
-
-.tech-card {
-  background: var(--bs-body-bg);
-  border: 1px solid rgba(0,0,0,0.06);
-  border-radius: 12px;
-  transition: transform 0.2s, box-shadow 0.2s;
+/* ===== Page Header（UX 规范 §7.2） ===== */
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-main);
 }
 
-[data-bs-theme="dark"] .tech-card {
-  background: #1e2126; 
-  border-color: rgba(255, 255, 255, 0.05);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+.page-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }
 
-.tech-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
-}
-
-[data-bs-theme="dark"] .tech-card:hover {
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
-  border-color: rgba(var(--bs-primary-rgb), 0.3);
-}
-
-.welcome-card {
-  background: linear-gradient(135deg, #0d6efd 0%, #6f42c1 100%);
-  color: white;
-  overflow: hidden;
-  position: relative;
-}
-
-[data-bs-theme="dark"] .welcome-card {
-  background: linear-gradient(135deg, rgba(13, 110, 253, 0.7) 0%, rgba(111, 66, 193, 0.7) 100%);
-  border: 1px solid rgba(255,255,255,0.1);
-}
-
-.welcome-card-shimmer {
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 60%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.05) 25%,
-    rgba(255, 255, 255, 0.15) 50%,
-    rgba(255, 255, 255, 0.05) 75%,
-    transparent 100%
-  );
-  animation: shimmer 4s infinite;
-  pointer-events: none;
-}
-
-[data-bs-theme="dark"] .welcome-card-shimmer {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.08) 25%,
-    rgba(255, 255, 255, 0.2) 50%,
-    rgba(255, 255, 255, 0.08) 75%,
-    transparent 100%
-  );
-}
-
-@keyframes shimmer {
-  0% {
-    left: -100%;
-  }
-  100% {
-    left: 200%;
-  }
-}
-
-.icon-box {
-  width: 60px;
-  height: 60px;
-  display: flex;
+.freshness {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius-control);
+  background: var(--bg-hover);
+}
+
+/* ===== 卡片（UX 规范 §3.5 / §7.3） ===== */
+.dash-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  box-shadow: var(--card-shadow);
+  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.dash-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+[data-bs-theme="dark"] .dash-card {
+  box-shadow: var(--card-shadow);
+}
+
+[data-bs-theme="dark"] .dash-card:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  border-color: rgba(96, 165, 250, 0.3);
+}
+
+.dash-card-header {
+  background-color: transparent;
+  border-bottom: 1px solid var(--border-color);
+  padding: 0.875rem 1.5rem;
+}
+
+.dash-card .card-body {
+  padding: 1.5rem;
+}
+
+/* ===== KPI（UX 规范 §7.3 / §5.1） ===== */
+.kpi-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.kpi-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-main);
 }
 
 .icon-box-sm {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  border-radius: var(--radius-control);
+  font-size: 1.25rem;
 }
 
 .icon-box-xs {
@@ -606,30 +634,89 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-}
-
-.icon-box-sm i, .icon-box-xs i {
-  font-size: 1.25rem;
+  border-radius: var(--radius-control);
 }
 
 .icon-box-xs i {
   font-size: 0.875rem;
 }
 
+/* 图表色图标（UX 规范 §9.2 调色板，双主题 10-15% 底色） */
+.icon-chart-1 { color: var(--chart-1); background-color: rgba(59, 130, 246, 0.10); }
+.icon-chart-2 { color: var(--chart-2); background-color: rgba(16, 185, 129, 0.10); }
+.icon-chart-5 { color: var(--chart-5); background-color: rgba(139, 92, 246, 0.10); }
+[data-bs-theme="dark"] .icon-chart-1 { background-color: rgba(96, 165, 250, 0.15); }
+[data-bs-theme="dark"] .icon-chart-2 { background-color: rgba(52, 211, 153, 0.15); }
+[data-bs-theme="dark"] .icon-chart-5 { background-color: rgba(167, 139, 250, 0.15); }
+
+.icon-brand {
+  color: var(--accent-color);
+  background-color: var(--sidebar-active-bg);
+}
+
+.icon-warning {
+  color: var(--color-warning, #d97706);
+  background-color: rgba(217, 119, 6, 0.10);
+}
+
+[data-bs-theme="dark"] .icon-warning {
+  color: #fbbf24;
+  background-color: rgba(251, 191, 36, 0.15);
+}
+
+/* ===== 指标块（AI 守护） ===== */
+.metric-block {
+  background: var(--bg-hover);
+  border-radius: var(--radius-control);
+}
+
+.metric-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.metric-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.125rem;
+}
+
+.empty-state {
+  color: var(--text-secondary);
+  padding: 1rem 0;
+}
+
+/* ===== 骨架屏（UX 规范 §8.7） ===== */
+.skeleton {
+  background: var(--bg-hover);
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-round {
+  border-radius: 50%;
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  animation: skeleton-shimmer 1.2s infinite;
+}
+
+[data-bs-theme="dark"] .skeleton::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+}
+
+@keyframes skeleton-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
 .cursor-pointer {
   cursor: pointer;
 }
-
-:root {
-  --bs-card-bg: #fff;
-}
-[data-bs-theme="dark"] {
-  --bs-card-bg: #1e2126;
-  --bs-gray-200: #2c3036;
-}
-
-[data-bs-theme="dark"] .bg-body-tertiary {
-  background-color: rgba(255, 255, 255, 0.05) !important;
-}
-
 </style>

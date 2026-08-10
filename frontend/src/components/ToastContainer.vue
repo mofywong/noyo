@@ -1,13 +1,15 @@
 <template>
-  <div class="toast-container position-fixed bottom-0 end-0 p-3">
-    <div 
-      v-for="toast in toasts" 
-      :key="toast.id" 
-      class="toast show align-items-stretch border-0 shadow-lg noyo-toast-item"
+  <div class="toast-container position-fixed bottom-0 end-0 p-3 noyo-toast-stack">
+    <div
+      v-for="toast in toasts"
+      :key="toast.id"
+      class="toast show align-items-stretch border-0 noyo-toast-item"
       :class="toastVariant(toast.type)"
-      role="alert" 
-      aria-live="assertive" 
+      role="status"
+      aria-live="polite"
       aria-atomic="true"
+      @mouseenter="pauseToast(toast.id)"
+      @mouseleave="resumeToast(toast.id)"
     >
       <div class="d-flex w-100">
         <div class="noyo-toast-accent"></div>
@@ -17,8 +19,17 @@
             <span>{{ toastTitle(toast.type) }}</span>
           </div>
           <div class="noyo-toast-message">{{ toast.message }}</div>
+          <button
+            v-if="toast.actionLabel"
+            type="button"
+            class="btn btn-sm noyo-toast-action"
+            :class="toastActionClass(toast.type)"
+            @click="triggerAction(toast.id)"
+          >
+            {{ toast.actionLabel }}
+          </button>
         </div>
-        <button type="button" class="btn-close noyo-toast-close me-2 mt-3" @click="removeToast(toast.id)" aria-label="Close"></button>
+        <button type="button" class="btn-close noyo-toast-close me-2 mt-3" @click="removeToast(toast.id)" :aria-label="$t('common_close', '关闭 Close')"></button>
       </div>
     </div>
   </div>
@@ -27,7 +38,7 @@
 <script setup>
 import { useToast } from '../composables/useToast';
 
-const { toasts, removeToast } = useToast();
+const { toasts, removeToast, pauseToast, resumeToast, triggerAction } = useToast();
 
 const toastVariant = (type) => {
   if (type === 'success') return 'toast-item--success';
@@ -46,16 +57,32 @@ const toastTitle = (type) => {
   if (type === 'warning') return '操作提醒 / Notice';
   return '操作失败 / Error';
 };
+
+const toastActionClass = (type) => {
+  if (type === 'success') return 'noyo-toast-action--success';
+  if (type === 'warning') return 'noyo-toast-action--warning';
+  return 'noyo-toast-action--danger';
+};
 </script>
 
 <style scoped>
+/* Noyo UX Guidelines §8.9：右下角堆叠、宽 360px、语义色左条 + 10-15% 底（双主题） */
+.noyo-toast-stack {
+  z-index: 1090;
+}
+
 .noyo-toast-item {
   border-radius: 8px;
-  color: #111827;
+  color: var(--text-primary);
   min-width: min(360px, calc(100vw - 2rem));
   max-width: min(420px, calc(100vw - 2rem));
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: opacity 0.2s ease;
+  box-shadow: var(--shadow-floating) !important;
+}
+
+[data-bs-theme='dark'] .noyo-toast-item {
+  box-shadow: var(--shadow-floating), var(--surface-highlight) !important;
 }
 
 .noyo-toast-accent {
@@ -82,35 +109,65 @@ const toastTitle = (type) => {
 }
 
 .toast-item--success {
-  background: #ecfdf5;
-  border: 1px solid #10b981 !important;
-  box-shadow: 0 12px 30px rgba(6, 95, 70, 0.22) !important;
-  color: #064e3b;
+  background: color-mix(in srgb, var(--color-success) 10%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--color-success) 35%, transparent) !important;
+  color: var(--text-primary);
 }
 
 .toast-item--success .noyo-toast-accent {
-  background: #059669;
+  background: var(--color-success);
+}
+
+.toast-item--success .noyo-toast-title {
+  color: var(--color-success);
 }
 
 .toast-item--warning {
-  background: #fffbeb;
-  border: 1px solid #f59e0b !important;
-  box-shadow: 0 12px 30px rgba(146, 64, 14, 0.22) !important;
-  color: #78350f;
+  background: color-mix(in srgb, var(--color-warning) 10%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent) !important;
+  color: var(--text-primary);
 }
 
 .toast-item--warning .noyo-toast-accent {
-  background: #d97706;
+  background: var(--color-warning);
+}
+
+.toast-item--warning .noyo-toast-title {
+  color: var(--color-warning);
 }
 
 .toast-item--danger {
-  background: #fef2f2;
-  border: 1px solid #ef4444 !important;
-  box-shadow: 0 12px 30px rgba(127, 29, 29, 0.24) !important;
-  color: #7f1d1d;
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent) !important;
+  color: var(--text-primary);
 }
 
 .toast-item--danger .noyo-toast-accent {
-  background: #dc2626;
+  background: var(--color-danger);
+}
+
+.toast-item--danger .noyo-toast-title {
+  color: var(--color-danger);
+}
+
+.noyo-toast-action {
+  margin-top: 8px;
+  padding: 2px 12px;
+  font-weight: 500;
+}
+
+.noyo-toast-action--success {
+  color: var(--color-success);
+  border: 1px solid color-mix(in srgb, var(--color-success) 40%, transparent);
+}
+
+.noyo-toast-action--warning {
+  color: var(--color-warning);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+}
+
+.noyo-toast-action--danger {
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
 }
 </style>
