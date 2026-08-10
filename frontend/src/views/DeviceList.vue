@@ -1,122 +1,205 @@
 <template>
-  <div class="card border-0 shadow-sm h-100">
-    <div class="card-header bg-transparent border-0 py-3">
-      <div v-if="selectedDevices.length > 0" class="d-flex align-items-center p-2 rounded bg-secondary bg-opacity-10">
-        <span class="me-3 fw-bold">{{ selectedDevices.length }} {{ $t('selected') }}</span>
-        <div class="btn-group btn-group-sm">
-          <button class="btn btn-outline-success" @click="batchEnable" v-permission="'device:control'">
-            <i class="bi bi-check-circle"></i> {{ $t('dev_enable') }}
-          </button>
-          <button class="btn btn-outline-secondary" @click="batchDisable" v-permission="'device:control'">
-            <i class="bi bi-x-circle"></i> {{ $t('dev_disable') }}
-          </button>
-          <button class="btn btn-outline-danger" @click="batchDelete" v-permission="'device:delete'">
-            <i class="bi bi-trash"></i> {{ $t('dev_delete') }}
-          </button>
-        </div>
-        <button class="btn btn-link text-muted ms-auto" @click="selectedDevices = []">
-          <i class="bi bi-x-lg"></i>
+  <div>
+    <!-- Page Header（§7.2） -->
+    <div class="page-header">
+      <div>
+        <h1>{{ $t('sidebar_devices') }}</h1>
+        <p class="page-subtitle">{{ $t('dev_subtitle') }}</p>
+      </div>
+      <div class="d-flex gap-2 align-items-center">
+        <button class="btn btn-outline-primary" @click="openAIBatchConfigModal" v-permission="'device:edit'">
+          <i class="bi bi-shield-check me-1"></i> {{ $t('ai_batch_config') }}
+        </button>
+        <button class="btn btn-primary" @click="openCreateModal" v-permission="'device:create'">
+          <i class="bi bi-plus-lg me-1"></i> {{ $t('dev_create') }}
         </button>
       </div>
-      <div v-else class="d-flex justify-content-between align-items-center">
-        <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_devices') }}</h2>
-        <div class="d-flex gap-2">
-          <button class="btn btn-outline-primary btn-sm" @click="downloadTemplate" v-permission="'device:create'">
-            <i class="bi bi-download me-1"></i> {{ $t('download_template') }}
-          </button>
-          <button class="btn btn-outline-primary btn-sm" @click="triggerImport" v-permission="'device:create'">
-            <i class="bi bi-upload me-1"></i> {{ $t('import_devices') }}
-          </button>
-          <input type="file" ref="fileInput" class="d-none" accept=".xlsx" @change="handleFileUpload">
-          <button class="btn btn-primary btn-sm" @click="openCreateModal" v-permission="'device:create'">
-            <i class="bi bi-plus-lg me-1"></i> {{ $t('dev_create') }}
-          </button>
-          <button class="btn btn-outline-warning btn-sm fw-bold" @click="openAIBatchConfigModal" v-permission="'device:edit'">
-            <i class="bi bi-shield-check me-1"></i> AI 批量配置
-          </button>
-          <button class="btn btn-outline-info btn-sm" @click="showDiscoveryModal = true" :title="$t('discover_devices')" v-permission="'device:create'">
-            <i class="bi bi-search"></i>
-          </button>
+    </div>
+
+    <!-- KPI 统计行（§7.3 / §3.3 语义色） -->
+    <div class="row g-3 mb-3">
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="kpi-card">
+          <div class="kpi-label">{{ $t('dev_stat_total') }}</div>
+          <div class="kpi-value">{{ stats.total }}</div>
         </div>
       </div>
-
-      <!-- Filters -->
-      <div class="row g-2 mt-3">
-        <div class="col-md-3">
-          <select class="form-select form-select-sm" v-model="filterProduct">
-            <option value="">{{ $t('dev_product') }}: {{ $t('all') }}</option>
-            <option v-for="p in products" :key="p.code" :value="p.code">{{ p.name }}</option>
-          </select>
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="kpi-card">
+          <div class="kpi-label"><span class="status-dot status-dot--online me-1 align-middle"></span>{{ $t('dev_stat_online') }}</div>
+          <div class="kpi-value">{{ stats.online }}</div>
         </div>
-        <div class="col-md-3">
-          <select class="form-select form-select-sm" v-model="filterParent">
-            <option value="">{{ $t('dev_parent') }}: {{ $t('all') }}</option>
-            <option v-for="p in uniqueParents" :key="p.code" :value="p.code">{{ p.name }}</option>
-          </select>
+      </div>
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="kpi-card">
+          <div class="kpi-label"><span class="status-dot status-dot--offline me-1 align-middle"></span>{{ $t('dev_stat_offline') }}</div>
+          <div class="kpi-value">{{ stats.offline }}</div>
         </div>
-        <div class="col-md-3">
-          <select class="form-select form-select-sm" v-model="filterEnabled">
-             <option value="">{{ $t('dev_status') }}: {{ $t('all') }}</option>
-             <option value="true">{{ $t('dev_enabled') }}</option>
-             <option value="false">{{ $t('dev_disabled') }}</option>
-          </select>
-        </div>
-        <div class="col-md-3">
-          <select class="form-select form-select-sm" v-model="filterOnline">
-             <option value="">{{ $t('dev_online_status') }}: {{ $t('all') }}</option>
-             <option value="true">{{ $t('dev_online') }}</option>
-             <option value="false">{{ $t('dev_offline') }}</option>
-          </select>
-        </div>
-        <div class="col-md-3">
-          <select class="form-select form-select-sm" v-model="filterTag">
-            <option value="">{{ $t('dev_tags') }}: {{ $t('all') }}</option>
-            <option v-for="tag in deviceTags" :key="tag.ID" :value="String(tag.ID)">{{ tag.name }}</option>
-          </select>
+      </div>
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="kpi-card">
+          <div class="kpi-label"><i class="bi bi-shield-fill-x me-1" style="color: var(--color-danger);"></i>{{ $t('dev_stat_alarm') }}</div>
+          <div class="kpi-value" style="color: var(--color-danger);">{{ stats.alarm }}</div>
         </div>
       </div>
     </div>
-    <div class="card-body p-0">
-      <div class="table-responsive device-table-wrap" style="min-height: 400px;">
-        <table class="table table-hover align-middle mb-0">
-          <thead class="bg-light">
-            <tr>
-              <th class="ps-4" style="width: 40px">
-                <input class="form-check-input" type="checkbox" :checked="allSelected" @change="toggleAll">
-              </th>
-              <th>{{ $t('dev_code') }}</th>
-              <th>{{ $t('dev_name') }}</th>
-              <th v-if="showProjectColumn">{{ $t('project_name') }}</th>
-              <th>{{ $t('dev_tags') }}</th>
-              <th>{{ $t('dev_online_status') }}</th>
-              <th>{{ $t('dev_product') }}</th>
-              <th class="d-none d-lg-table-cell">{{ $t('dev_parent') }}</th>
-              <th class="d-none d-xl-table-cell" style="font-size: 0.8rem; color: #6c757d;">
-                <div style="line-height: 1.2;">{{ $t('dev_created') }}</div>
-                <div style="line-height: 1.2;">{{ $t('dev_updated') }}</div>
-              </th>
-              <th>AI 健康</th>
-              <th>{{ $t('dev_status') }}</th>
-              <th class="text-end pe-4">{{ $t('tsl_actions') }}</th>
-            </tr>
-          </thead>
+
+    <!-- Toolbar（§7.2：搜索 + 筛选折叠 + 批量操作条） -->
+    <div class="page-toolbar">
+      <div class="input-group" style="max-width: 320px;">
+        <span class="input-group-text bg-transparent"><i class="bi bi-search"></i></span>
+        <input v-model="search" type="search" class="form-control" :placeholder="$t('dev_search_placeholder')" :aria-label="$t('dev_search_placeholder')">
+      </div>
+      <div class="dropdown" v-if="devices.length > 0">
+        <button class="btn btn-outline-secondary" type="button" @click="showFilters = !showFilters" :aria-expanded="showFilters">
+          <i class="bi bi-funnel me-1"></i> {{ $t('dev_filter_toggle') }}
+          <span v-if="hasActiveFilters" class="badge text-bg-primary ms-1">&bull;</span>
+        </button>
+        <div v-if="showFilters" class="noyo-filter-panel">
+          <div class="row g-2">
+            <div class="col-md-6 col-xl-4">
+              <select class="form-select form-select-sm" v-model="filterProduct" :aria-label="$t('dev_product')">
+                <option value="">{{ $t('dev_product') }}: {{ $t('all') }}</option>
+                <option v-for="p in products" :key="p.code" :value="p.code">{{ p.name }}</option>
+              </select>
+            </div>
+            <div class="col-md-6 col-xl-4">
+              <select class="form-select form-select-sm" v-model="filterParent" :aria-label="$t('dev_parent')">
+                <option value="">{{ $t('dev_parent') }}: {{ $t('all') }}</option>
+                <option v-for="p in uniqueParents" :key="p.code" :value="p.code">{{ p.name }}</option>
+              </select>
+            </div>
+            <div class="col-md-6 col-xl-4">
+              <select class="form-select form-select-sm" v-model="filterEnabled" :aria-label="$t('dev_status')">
+                <option value="">{{ $t('dev_status') }}: {{ $t('all') }}</option>
+                <option value="true">{{ $t('dev_enabled') }}</option>
+                <option value="false">{{ $t('dev_disabled') }}</option>
+              </select>
+            </div>
+            <div class="col-md-6 col-xl-4">
+              <select class="form-select form-select-sm" v-model="filterOnline" :aria-label="$t('dev_online_status')">
+                <option value="">{{ $t('dev_online_status') }}: {{ $t('all') }}</option>
+                <option value="true">{{ $t('dev_online') }}</option>
+                <option value="false">{{ $t('dev_offline') }}</option>
+              </select>
+            </div>
+            <div class="col-md-6 col-xl-4">
+              <select class="form-select form-select-sm" v-model="filterTag" :aria-label="$t('dev_tags')">
+                <option value="">{{ $t('dev_tags') }}: {{ $t('all') }}</option>
+                <option v-for="tag in deviceTags" :key="tag.ID" :value="String(tag.ID)">{{ tag.name }}</option>
+              </select>
+            </div>
+            <div class="col-md-6 col-xl-4 d-flex align-items-center">
+              <button v-if="hasActiveFilters" class="btn btn-link btn-sm text-decoration-none p-0" @click="clearFilters">
+                <i class="bi bi-x-circle me-1"></i>{{ $t('dev_clear_filters') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ms-auto d-flex gap-2 align-items-center">
+        <!-- 批量操作条（§8.3：选中后出现，不改变页面布局） -->
+        <div v-if="selectedDevices.length > 0" class="noyo-batch-bar">
+          <span class="fw-bold me-2">{{ selectedDevices.length }} {{ $t('selected') }}</span>
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-success" @click="batchEnable" v-permission="'device:control'">
+              <i class="bi bi-check-circle me-1"></i>{{ $t('dev_enable') }}
+            </button>
+            <button class="btn btn-outline-secondary" @click="batchDisable" v-permission="'device:control'">
+              <i class="bi bi-x-circle me-1"></i>{{ $t('dev_disable') }}
+            </button>
+            <button class="btn btn-outline-danger" @click="batchDelete" v-permission="'device:delete'">
+              <i class="bi bi-trash me-1"></i>{{ $t('dev_delete') }}
+            </button>
+          </div>
+          <button class="btn btn-link text-muted p-0 ms-2" @click="selectedDevices = []" :aria-label="$t('common_close')">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>
+        <!-- 次要操作（ghost 按钮，§8.1） -->
+        <button class="btn btn-outline-primary btn-sm" @click="downloadTemplate" v-permission="'device:create'">
+          <i class="bi bi-download me-1"></i> {{ $t('download_template') }}
+        </button>
+        <button class="btn btn-outline-primary btn-sm" @click="triggerImport" v-permission="'device:create'">
+          <i class="bi bi-upload me-1"></i> {{ $t('import_devices') }}
+        </button>
+        <input type="file" ref="fileInput" class="d-none" accept=".xlsx" @change="handleFileUpload">
+        <button class="btn btn-outline-info btn-sm" @click="showDiscoveryModal = true" :title="$t('discover_devices')" v-permission="'device:create'">
+          <i class="bi bi-search"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- 表格容器 -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive device-table-wrap" style="min-height: 400px;">
+          <table class="table table-hover align-middle mb-0 table-compact">
+            <thead>
+              <tr>
+                <th class="ps-4" style="width: 36px">
+                  <input class="form-check-input" type="checkbox" :checked="allSelected" @change="toggleAll" :aria-label="$t('selected')">
+                </th>
+                <th>{{ $t('dev_code') }}</th>
+                <th>{{ $t('dev_name') }}</th>
+                <th v-if="showProjectColumn">{{ $t('project_name') }}</th>
+                <th>{{ $t('dev_tags') }}</th>
+                <th>{{ $t('dev_online_status') }}</th>
+                <th>{{ $t('dev_product') }}</th>
+                <th>{{ $t('ai_health') }}</th>
+                <th>{{ $t('dev_status') }}</th>
+                <th class="text-end pe-4">{{ $t('tsl_actions') }}</th>
+              </tr>
+            </thead>
           <tbody>
-            <tr v-if="loading" class="text-center">
-              <td :colspan="showProjectColumn ? 12 : 11" class="py-4 text-muted">{{ $t('loading') }}</td>
+            <!-- 骨架屏（§8.7：镜像表格结构） -->
+            <tr v-if="loading" v-for="n in 6" :key="'sk-' + n">
+              <td class="ps-4"><div class="skeleton" style="width: 16px; height: 16px;"></div></td>
+              <td><div class="skeleton" style="width: 110px; height: 16px;"></div></td>
+              <td><div class="skeleton" style="width: 130px; height: 16px;"></div></td>
+              <td v-if="showProjectColumn"><div class="skeleton" style="width: 80px; height: 16px;"></div></td>
+              <td><div class="skeleton" style="width: 100px; height: 16px;"></div></td>
+              <td><div class="skeleton" style="width: 90px; height: 20px;"></div></td>
+              <td><div class="skeleton" style="width: 110px; height: 24px;"></div></td>
+              <td><div class="skeleton" style="width: 80px; height: 20px;"></div></td>
+              <td><div class="skeleton" style="width: 60px; height: 20px;"></div></td>
+              <td class="text-end pe-4"><div class="skeleton ms-auto" style="width: 96px; height: 24px;"></div></td>
             </tr>
-            <tr v-else-if="filteredDevices.length === 0" class="text-center">
-              <td :colspan="showProjectColumn ? 12 : 11" class="py-4 text-muted">{{ $t('dev_no_devices') }}</td>
-            </tr>
-            <tr 
-              v-for="device in paginatedDevices" 
-              :key="device.code"
-              style="cursor: pointer"
-            >
-              <td class="ps-4">
-                <input class="form-check-input" type="checkbox" :checked="selectedDevices.includes(device.code)" @change="toggleSelection(device.code)">
+            <!-- 空状态：无设备（§8.6） -->
+            <tr v-else-if="devices.length === 0">
+              <td :colspan="showProjectColumn ? 11 : 10" class="p-0">
+                <div class="empty-state">
+                  <i class="bi bi-hdd-network"></i>
+                  <p>{{ $t('dev_empty_message') }}</p>
+                  <button v-permission="'device:create'" type="button" class="btn btn-primary" @click="openCreateModal">
+                    {{ $t('dev_create') }}
+                  </button>
+                </div>
               </td>
-              <td class="fw-bold text-primary text-truncate" style="max-width: 220px;" :title="formatNamedReference(device.name, device.code)" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ formatNamedReference(device.name, device.code) }}</td>
-              <td class="text-truncate" style="max-width: 150px;" :title="device.name" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData" @click="openDataModal(device, 'realtime')">{{ device.name || '-' }}</td>
+            </tr>
+            <!-- 空状态：搜索/筛选无结果（§10.3 空结果规则） -->
+            <tr v-else-if="filteredDevices.length === 0">
+              <td :colspan="showProjectColumn ? 11 : 10" class="p-0">
+                <div class="empty-state">
+                  <i class="bi bi-funnel"></i>
+                  <p>{{ $t('dev_search_no_match') }}</p>
+                  <button type="button" class="btn btn-primary" @click="clearFilters">
+                    {{ $t('dev_clear_filters') }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr
+              v-for="device in paginatedDevices"
+              :key="device.code"
+              class="device-row"
+              @click="openDrawer(device)"
+            >
+              <td class="ps-4" @click.stop>
+                <input class="form-check-input" type="checkbox" :checked="selectedDevices.includes(device.code)" @change="toggleSelection(device.code)" :aria-label="device.name || device.code">
+              </td>
+              <td class="fw-bold text-primary text-truncate font-mono" style="max-width: 200px;" :title="device.code">{{ device.code }}</td>
+              <td class="text-truncate" style="max-width: 160px;" :title="device.name">{{ device.name || '-' }}</td>
               <td v-if="showProjectColumn">
                 <span class="badge text-bg-light border">{{ device.project_name || '-' }}</span>
               </td>
@@ -139,16 +222,17 @@
                 </div>
                 <span v-else class="text-muted small">-</span>
               </td>
-              <td @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
-                <span class="badge rounded-pill" :class="device.online ? 'bg-success' : 'bg-secondary'">
-                  <i class="bi me-1" :class="device.online ? 'bi-circle-fill' : 'bi-circle-fill text-white-50'"></i>
+              <td>
+                <!-- 状态指示器（§3.3：在线呼吸点 / 离线灰点） -->
+                <span class="spec-badge" :class="device.online ? 'spec-badge--success' : 'spec-badge--neutral'">
+                  <span class="status-dot" :class="device.online ? 'status-dot--online' : 'status-dot--offline'"></span>
                   {{ device.online ? $t('dev_online') : $t('dev_offline') }}
                 </span>
-                <div v-if="device.last_active && new Date(device.last_active).getFullYear() > 1" class="small text-muted mt-1" style="font-size: 0.7rem">
-                   {{ formatDateTime(device.last_active) }}
+                <div v-if="device.last_active && new Date(device.last_active).getFullYear() > 1" class="small text-muted mt-1 font-mono" style="font-size: 0.7rem">
+                  {{ formatDateTime(device.last_active) }}
                 </div>
               </td>
-              <td class="text-truncate" style="max-width: 150px;" :title="getProductName(device.product_code)" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
+              <td class="text-truncate" style="max-width: 150px;" :title="getProductName(device.product_code)">
                 <div class="d-flex flex-column align-items-start">
                   <span class="badge bg-light text-body border text-truncate w-100" style="vertical-align: middle;">{{ getProductName(device.product_code) }}</span>
                   <span v-if="device.protocol_profile_code" class="badge bg-primary-subtle text-primary border border-primary-subtle mt-1 text-truncate" style="font-size: 0.65rem; max-width: 100%;">
@@ -156,62 +240,48 @@
                   </span>
                 </div>
               </td>
-              <td class="d-none d-lg-table-cell text-truncate" style="max-width: 150px;" :title="device.parent_code ? getDeviceName(device.parent_code) : ''" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
-                <span v-if="device.parent_code" class="text-muted small">
-                  <i class="bi bi-arrow-return-right"></i> {{ getDeviceName(device.parent_code) }}
-                </span>
-                <span v-else class="text-muted">-</span>
-              </td>
-              <td class="d-none d-xl-table-cell small text-muted" style="font-size: 0.75rem;" @mouseenter="showHoverData(device, $event)" @mouseleave="hideHoverData">
-                <div>{{ formatDateTime(device.CreatedAt) }}</div>
-                <div>{{ formatDateTime(device.UpdatedAt) }}</div>
-              </td>
-              <td @click.stop="openSingleAIModal(device)" style="position: relative;">
+              <td @click.stop="openSingleAIModal(device)">
                 <!-- 在线 + 有得分 -->
                 <div v-if="device.online && device.ai_health_score !== undefined && device.ai_health_score !== null"
                      class="d-flex align-items-center ai-health-cell"
-                     :class="device.ai_latched ? 'text-danger' : (device.ai_health_score > 80 ? 'text-success' : (device.ai_health_score > 60 ? 'text-warning' : 'text-danger'))"
-                     @mouseenter="showHealthTooltip(device, $event)"
-                     @mouseleave="hideHealthTooltip">
+                     :class="device.ai_latched ? 'text-danger' : (device.ai_health_score > 80 ? 'text-success' : (device.ai_health_score > 60 ? 'text-warning' : 'text-danger'))">
                   <i :class="device.ai_latched ? 'bi bi-shield-fill-x' : 'bi bi-shield-fill-check'" class="fs-5 me-1"></i>
-                  <span class="fw-bold">{{ device.ai_latched ? (device.ai_health_trigger != null ? device.ai_health_trigger.toFixed(1) : '异常') : device.ai_health_score.toFixed(1) }}</span>
-                  <i v-if="device.ai_latched" class="bi bi-lock-fill ms-1" title="异常锁定"></i>
+                  <span class="fw-bold font-mono">{{ device.ai_latched ? (device.ai_health_trigger != null ? device.ai_health_trigger.toFixed(1) : aiText('异常', 'Anomaly')) : device.ai_health_score.toFixed(1) }}</span>
+                  <i v-if="device.ai_latched" class="bi bi-lock-fill ms-1" :title="$t('ai_latched')"></i>
                 </div>
-                <!-- 离线 + 已配置AI设备守护 -->
+                <!-- 离线 + 已配置 AI 设备守护 -->
                 <div v-else-if="!device.online && (device.ai_health_details || configuredDeviceCodes.has(device.code))"
                      class="d-flex align-items-center text-secondary ai-health-cell"
-                     style="opacity: 0.5"
-                     @mouseenter="showHealthTooltip(device, $event)"
-                     @mouseleave="hideHealthTooltip">
+                     style="opacity: 0.5">
                   <i class="bi bi-shield-slash fs-5 me-1"></i>
-                  <span class="small">离线</span>
+                  <span class="small">{{ $t('ai_offline') }}</span>
                 </div>
-                <!-- 已配置但还在生成中 (无得分) -->
-                <div v-else-if="configuredDeviceCodes.has(device.code)" 
+                <!-- 已配置但还在生成中 -->
+                <div v-else-if="configuredDeviceCodes.has(device.code)"
                      class="d-flex align-items-center text-primary ai-health-cell"
                      style="opacity: 0.8"
-                     title="AI守护已配置，正在生成初始数据...">
+                     :title="aiText('AI守护已配置，正在生成初始数据...', 'AI Guardian configured; generating initial data…')">
                   <i class="bi bi-shield-check fs-5 me-1 animation-blink"></i>
-                  <span class="small">生成中...</span>
+                  <span class="small">{{ $t('ai_generating') }}</span>
                 </div>
                 <!-- 未配置 -->
-                <div v-else class="text-muted small d-flex align-items-center" title="点击配置 AI 设备守护" style="opacity: 0.6">
+                <div v-else class="text-muted small d-flex align-items-center" :title="aiText('点击配置 AI 设备守护', 'Click to configure AI Device Guardian')" style="opacity: 0.6">
                   <i class="bi bi-shield me-1"></i>
-                  未配置
+                  {{ $t('ai_not_configured') }}
                 </div>
               </td>
-              <td>
+              <td @click.stop>
                 <div class="form-check form-switch" v-permission="'device:control'">
                   <input class="form-check-input" type="checkbox" role="switch" :checked="device.enabled" @click.prevent="toggleDevice(device)">
                   <label class="form-check-label small text-muted ms-1">{{ device.enabled ? $t('dev_enabled') : $t('dev_disabled') }}</label>
                 </div>
               </td>
-              <td class="text-end pe-4">
-                <button v-if="isCameraDevice(device)" class="btn btn-sm btn-outline-primary rounded-circle me-1 d-inline-flex align-items-center justify-content-center" style="width: 28px; height: 28px; padding: 0;" @click.stop="playVideo(device)" title="播放实时视频" v-permission="'device:control'">
+              <td class="text-end pe-4" @click.stop>
+                <button v-if="isCameraDevice(device)" class="btn btn-sm btn-outline-primary rounded-circle me-1 d-inline-flex align-items-center justify-content-center" style="width: 28px; height: 28px; padding: 0;" @click="playVideo(device)" :title="aiText('播放实时视频', 'Play live video')" v-permission="'device:control'">
                   <i class="bi bi-play-fill fs-6"></i>
                 </button>
                 <div class="d-inline-block">
-                  <button class="btn btn-sm btn-light border-0" type="button" :aria-expanded="activeDeviceActionMenu === device.code" @click.stop="openDeviceActionMenu(device, $event)">
+                  <button class="btn btn-sm btn-light border-0" type="button" :aria-expanded="activeDeviceActionMenu === device.code" @click="openDeviceActionMenu(device, $event)">
                     <i class="bi bi-three-dots-vertical"></i>
                   </button>
                   <ul
@@ -240,7 +310,7 @@
                     </li>
                     <li v-permission="'device:edit'">
                       <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openSingleAIModal(device))">
-                        <i class="bi bi-shield-check me-2 text-warning"></i> AI 设备守护 (Device Guardian)
+                        <i class="bi bi-shield-check me-2 text-warning"></i> {{ aiText('AI 设备守护', 'AI Device Guardian') }}
                       </a>
                     </li>
                     <li v-permission="'device:control'">
@@ -278,79 +348,118 @@
         </table>
       </div>
     </div>
+    </div>
     <ListPagination :page="page" :page-size="pageSize" :total="total" id-prefix="devices" @update:page="changePage" @update:page-size="changePageSize" />
 
-    <!-- Hover Tooltip -->
-    <div 
-      v-if="hoveredDevice" 
-      class="card shadow-lg position-fixed border-0 bg-body-tertiary" 
-      style="z-index: 1050; width: 380px; font-size: 0.9rem; pointer-events: none; --bs-bg-opacity: 0.9; backdrop-filter: blur(10px);"
-      :style="{ top: tooltipPos.top + 'px', left: tooltipPos.left + 'px' }"
-    >
-      <div class="card-header py-2 border-bottom bg-transparent fw-bold d-flex justify-content-between align-items-center">
-        <span class="text-body-emphasis">{{ hoveredDevice.name }}</span>
-        <span class="badge rounded-pill" :class="hoveredDevice.online ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border border-secondary-subtle'">
-           {{ hoveredDevice.online ? $t('dev_online') : $t('dev_offline') }}
+    <!-- 详情抽屉（§8.4：通用 DetailDrawer，与产品列表共用） -->
+    <DetailDrawer :visible="drawerVisible" :title="drawerDevice?.name || drawerDevice?.code || ''" @close="closeDrawer">
+      <template #header-badge>
+        <span class="spec-badge" :class="drawerDevice?.online ? 'spec-badge--success' : 'spec-badge--neutral'">
+          <span class="status-dot" :class="drawerDevice?.online ? 'status-dot--online' : 'status-dot--offline'"></span>
+          {{ drawerDevice?.online ? $t('dev_online') : $t('dev_offline') }}
         </span>
-      </div>
-      <div class="card-body p-2">
-        <div v-if="hoverDisplayList.length === 0" class="text-muted text-center py-2">{{ $t('tsl_no_data') }}</div>
+      </template>
+      <!-- 基本信息 -->
+      <section class="noyo-drawer-section">
+        <h6 class="noyo-drawer-section-title">{{ $t('drawer_basic_info') }}</h6>
+        <dl class="row mb-0 fs-6">
+          <dt class="col-4 text-secondary fw-normal">{{ $t('dev_code') }}</dt>
+          <dd class="col-8 font-mono">{{ drawerDevice?.code || '-' }}</dd>
+          <dt class="col-4 text-secondary fw-normal">{{ $t('dev_name') }}</dt>
+          <dd class="col-8">{{ drawerDevice?.name || '-' }}</dd>
+          <dt class="col-4 text-secondary fw-normal">{{ $t('dev_product') }}</dt>
+          <dd class="col-8">{{ getProductName(drawerDevice?.product_code) }}</dd>
+          <dt class="col-4 text-secondary fw-normal">{{ $t('dev_protocol') }}</dt>
+          <dd class="col-8 font-mono">{{ getDeviceProtocol(drawerDevice) || '-' }}</dd>
+          <dt class="col-4 text-secondary fw-normal">{{ $t('dev_parent') }}</dt>
+          <dd class="col-8">{{ drawerDevice?.parent_code ? getDeviceName(drawerDevice.parent_code) : '-' }}</dd>
+          <dt class="col-4 text-secondary fw-normal">{{ $t('dev_created') }}</dt>
+          <dd class="col-8 font-mono">{{ formatDateTime(drawerDevice?.CreatedAt) }}</dd>
+          <dt class="col-4 text-secondary fw-normal">{{ $t('dev_updated') }}</dt>
+          <dd class="col-8 font-mono">{{ formatDateTime(drawerDevice?.UpdatedAt) }}</dd>
+        </dl>
+      </section>
+      <!-- 实时数据（§9：Sparkline 双主题 + 数据新鲜度标记） -->
+      <section class="noyo-drawer-section">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="noyo-drawer-section-title mb-0">{{ $t('drawer_realtime') }}</h6>
+          <span v-if="drawerUpdatedAt" class="small text-muted font-mono">{{ $t('drawer_updated_at', { time: formatDateTime(drawerUpdatedAt.getTime()) }) }}</span>
+        </div>
+        <div v-if="drawerLoading" class="skeleton" style="height: 120px;"></div>
+        <div v-else-if="drawerDisplayList.length === 0" class="text-muted text-center py-4 small">{{ $t('drawer_no_data') }}</div>
         <table v-else class="table table-sm table-borderless mb-0 align-middle">
-           <tbody>
-             <tr v-for="item in hoverDisplayList" :key="item.key">
-               <td class="text-muted" :title="item.key" style="width: 30%">{{ item.name }}</td>
-               <td style="width: 30%">
-                  <Sparkline :data="item.trend" :width="80" :height="20" color="#6c757d" />
-               </td>
-               <td class="text-end fw-bold" style="width: 40%" :class="hoveredDevice.online ? '' : 'text-warning'">
-                 {{ item.value }} <span v-if="item.unit" class="text-muted fw-normal small">{{ item.unit }}</span>
-               </td>
-             </tr>
-           </tbody>
+          <tbody>
+            <tr v-for="item in drawerDisplayList" :key="item.key">
+              <td class="text-muted" :title="item.key" style="width: 32%">{{ item.name }}</td>
+              <td style="width: 30%">
+                <Sparkline :data="item.trend" :width="80" :height="20" :color="drawerSparkColor" />
+              </td>
+              <td class="text-end fw-bold font-mono" style="width: 38%">
+                {{ item.value }} <span v-if="item.unit" class="text-muted fw-normal small">{{ item.unit }}</span>
+              </td>
+            </tr>
+          </tbody>
         </table>
-      </div>
-    </div>
-
-    <!-- AI Health Tooltip -->
-    <div 
-      v-if="healthTooltipDevice" 
-      class="card shadow-lg position-fixed border-0" 
-      style="z-index: 1060; width: 240px; font-size: 0.85rem; pointer-events: none; backdrop-filter: blur(12px); background: rgba(var(--bs-body-bg-rgb), 0.92);"
-      :style="{ top: healthTooltipPos.top + 'px', left: healthTooltipPos.left + 'px' }"
-    >
-      <div class="card-body py-2 px-3">
-        <!-- Online with scores -->
-        <template v-if="healthTooltipDevice.online && healthTooltipDevice.ai_health_details">
-          <div class="fw-bold mb-2 d-flex justify-content-between align-items-center">
-            <span>AI 健康：{{ healthTooltipDevice.ai_health_score?.toFixed(1) }}</span>
-            <i class="bi bi-shield-fill-check" :class="healthTooltipDevice.ai_health_score > 80 ? 'text-success' : (healthTooltipDevice.ai_health_score > 60 ? 'text-warning' : 'text-danger')"></i>
+      </section>
+      <!-- 标签 -->
+      <section v-if="drawerDevice?.tags?.length" class="noyo-drawer-section">
+        <h6 class="noyo-drawer-section-title">{{ $t('drawer_tags') }}</h6>
+        <div class="device-tag-chip-list">
+          <span v-for="tag in drawerDevice.tags" :key="tag.ID" class="device-tag-chip" :style="tagBadgeStyle(tag)">
+            <i :class="tag.icon || 'bi-tag'" class="device-tag-chip__icon"></i>
+            <span class="device-tag-chip__name">{{ tag.name }}</span>
+          </span>
+        </div>
+      </section>
+      <!-- AI 健康（原 AI Health Tooltip 信息并入抽屉） -->
+      <section v-if="drawerDevice && (drawerDevice.ai_health_details || drawerDevice.ai_health_score != null || configuredDeviceCodes.has(drawerDevice.code))" class="noyo-drawer-section">
+        <h6 class="noyo-drawer-section-title">{{ $t('drawer_ai_health') }}</h6>
+        <template v-if="drawerDevice.online && drawerDevice.ai_health_details">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="fw-bold font-mono fs-5" :class="drawerDevice.ai_health_score > 80 ? 'text-success' : (drawerDevice.ai_health_score > 60 ? 'text-warning' : 'text-danger')">{{ drawerDevice.ai_health_score?.toFixed(1) }}</span>
+            <i class="bi bi-shield-fill-check" :class="drawerDevice.ai_health_score > 80 ? 'text-success' : (drawerDevice.ai_health_score > 60 ? 'text-warning' : 'text-danger')"></i>
           </div>
-          <hr class="my-1 opacity-25">
-          <div v-for="(score, prop) in healthTooltipDevice.ai_health_details" :key="prop" class="d-flex justify-content-between align-items-center py-1">
-            <span class="text-muted">
+          <div v-for="(score, prop) in drawerDevice.ai_health_details" :key="prop" class="d-flex justify-content-between align-items-center py-1">
+            <span class="text-muted small">
               <i class="bi bi-circle-fill me-1" style="font-size: 0.5rem;" :class="score > 80 ? 'text-success' : (score > 60 ? 'text-warning' : 'text-danger')"></i>
               {{ prop }}
             </span>
-            <span class="fw-bold" :class="score > 80 ? 'text-success' : (score > 60 ? 'text-warning' : 'text-danger')">{{ score.toFixed ? score.toFixed(1) : score }}</span>
+            <span class="fw-bold font-mono" :class="score > 80 ? 'text-success' : (score > 60 ? 'text-warning' : 'text-danger')">{{ score.toFixed ? score.toFixed(1) : score }}</span>
           </div>
-          <hr class="my-1 opacity-25">
-          <div class="text-muted text-center" style="font-size: 0.75rem;">综合取最低值</div>
+          <div class="text-muted small mt-1" style="font-size: 0.75rem;">{{ $t('drawer_health_min') }}</div>
         </template>
-        <!-- Offline -->
-        <template v-else>
-          <div class="text-secondary text-center py-1">
-            <i class="bi bi-shield-slash fs-5 d-block mb-1"></i>
-            <div class="fw-bold">设备离线</div>
-            <div v-if="healthTooltipDevice.last_active && new Date(healthTooltipDevice.last_active).getFullYear() > 1" class="small mt-1" style="font-size: 0.75rem;">
-              最后在线: {{ formatDateTime(healthTooltipDevice.last_active) }}
-            </div>
+        <div v-else-if="!drawerDevice.online && configuredDeviceCodes.has(drawerDevice.code)" class="text-secondary small">
+          <i class="bi bi-shield-slash me-1"></i>{{ $t('ai_offline') }}
+          <div v-if="drawerDevice.last_active && new Date(drawerDevice.last_active).getFullYear() > 1" class="small text-muted mt-1 font-mono">
+            {{ $t('drawer_last_active') }}: {{ formatDateTime(drawerDevice.last_active) }}
           </div>
-        </template>
-      </div>
-    </div>
+        </div>
+        <div v-else class="text-secondary small"><i class="bi bi-shield me-1"></i>{{ $t('ai_not_configured') }}</div>
+      </section>
+      <template #footer>
+        <button class="btn btn-outline-secondary btn-sm" @click="openDataModal(drawerDevice, 'realtime')">
+          <i class="bi bi-activity me-1"></i>{{ $t('drawer_view_data') }}
+        </button>
+        <button v-if="!drawerDevice?.parent_code || isChildOfCascade(drawerDevice)" class="btn btn-outline-secondary btn-sm" @click="openCreateSubDeviceModal(drawerDevice)">
+          <i class="bi bi-plus-square me-1"></i>{{ $t('dev_create_sub') }}
+        </button>
+        <button v-if="needsProtocolMapping(drawerDevice)" class="btn btn-outline-secondary btn-sm" @click="openMappingModal(drawerDevice)">
+          <i class="bi bi-diagram-3 me-1"></i>{{ $t('drawer_mapping') }}
+        </button>
+        <button class="btn btn-outline-primary btn-sm" @click="openSingleAIModal(drawerDevice)">
+          <i class="bi bi-shield-check me-1"></i>{{ $t('drawer_configure_guardian') }}
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" @click="openEditModal(drawerDevice)">
+          <i class="bi bi-pencil me-1"></i>{{ $t('dev_edit') }}
+        </button>
+        <button class="btn btn-outline-danger btn-sm" @click="deleteDevice(drawerDevice)">
+          <i class="bi bi-trash me-1"></i>{{ $t('drawer_delete') }}
+        </button>
+      </template>
+    </DetailDrawer>
 
     <!-- Create Modal -->
-    <div v-if="showCreateModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+    <div v-if="showCreateModal" class="modal fade show d-block modal-overlay-theme">
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
@@ -420,7 +529,7 @@
     </div>
 
     <!-- Device Tags Modal -->
-    <div v-if="showDeviceTagsModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+    <div v-if="showDeviceTagsModal" class="modal fade show d-block modal-overlay-theme">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -457,7 +566,7 @@
     </div>
 
     <!-- Mapping Modal -->
-    <div v-if="showMappingModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+    <div v-if="showMappingModal" class="modal fade show d-block modal-overlay-theme">
       <div class="modal-dialog modal-xl">
         <div class="modal-content">
           <div class="modal-header">
@@ -486,13 +595,13 @@
     </div>
 
     <!-- Single AI Config Modal -->
-    <div v-if="singleAIModalVisible" class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1060;">
+    <div v-if="singleAIModalVisible" class="modal fade show d-block modal-overlay-theme" style="z-index: 1060;">
       <div class="modal-dialog modal-xl">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">
               <i class="bi bi-shield-check text-warning me-2"></i>
-              AI 设备守护 - {{ currentSingleAIDevice?.code }}
+              {{ aiText('AI 设备守护', 'AI Device Guardian') }} - {{ currentSingleAIDevice?.code }}
             </h5>
             <button type="button" class="btn-close" @click="closeSingleAIModal"></button>
           </div>
@@ -553,9 +662,9 @@
               <!-- Right side: Chart -->
               <div class="col-md-8">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                  <h6 class="mb-0 fw-bold">实时运行状态</h6>
+                  <h6 class="mb-0 fw-bold">{{ $t('ai_real_time_status') }}</h6>
                   <div class="small d-flex align-items-center">
-                    健康得分:
+                    {{ $t('ai_health_score') }}:
                     <span v-if="aiLatestLatched"
                           :class="(aiLatchTriggerScore ?? 0) > 80 ? 'text-success' : ((aiLatchTriggerScore ?? 0) > 60 ? 'text-warning' : 'text-danger')"
                           class="fw-bold fs-5 mx-2">
@@ -566,20 +675,20 @@
                     </span>
                     <span v-else class="fw-bold fs-5 mx-2 text-muted">-</span>
                     <span v-if="aiLatestLatched" class="badge bg-warning text-dark me-2">
-                       <i class="bi bi-lock-fill"></i> 异常锁定
+                       <i class="bi bi-lock-fill"></i> {{ $t('ai_latched') }}
                     </span>
-                    <span v-else-if="aiLatestAnomaly" class="badge bg-danger animation-blink me-2">异常警告</span>
+                    <span v-else-if="aiLatestAnomaly" class="badge bg-danger animation-blink me-2">{{ $t('ai_anomaly_warning') }}</span>
                     
-                    <button v-if="aiConfig.property" class="btn btn-sm btn-outline-primary py-0 px-2 me-2" style="font-size: 0.75rem" :disabled="aiRecalibrating || !aiConfig.enabled" @click="restartAIBaselineCalibration" title="重新学习当前正常基线">
+                    <button v-if="aiConfig.property" class="btn btn-sm btn-outline-primary py-0 px-2 me-2" style="font-size: 0.75rem" :disabled="aiRecalibrating || !aiConfig.enabled" @click="restartAIBaselineCalibration" :title="$t('ai_calibrate')">
                       <span v-if="aiRecalibrating" class="spinner-border spinner-border-sm me-1" role="status"></span>
-                      <i v-else class="bi bi-arrow-clockwise"></i> 重新校准基线
+                      <i v-else class="bi bi-arrow-clockwise"></i> {{ $t('ai_calibrate') }}
                     </button>
-                    <button v-if="aiLatestLatched" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.75rem" @click="clearLatchedState" title="解除异常锁定状态">
-                      <i class="bi bi-unlock"></i> 解除
+                    <button v-if="aiLatestLatched" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.75rem" @click="clearLatchedState" :title="$t('ai_unlock')">
+                      <i class="bi bi-unlock"></i> {{ $t('ai_unlock') }}
                     </button>
                   </div>
                 </div>
-                <div v-if="aiConfig.enabled && aiConfig.property" class="border rounded bg-white px-3 py-2 mb-2">
+                <div v-if="aiConfig.enabled && aiConfig.property" class="border rounded bg-theme-surface px-3 py-2 mb-2">
                   <div class="d-flex justify-content-between align-items-center small mb-1">
                     <span class="fw-bold">
                       <i class="bi bi-activity me-1 text-primary"></i>
@@ -598,15 +707,15 @@
                 </div>
                 <div v-if="aiLatestLatched" class="alert alert-warning py-2 px-3 mb-2 d-flex align-items-center" style="font-size: 0.85rem">
                   <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                  设备处于异常锁定状态，健康检测已暂停。请检查设备后手动解除锁定以恢复监控。
+                  {{ aiText('设备处于异常锁定状态，健康检测已暂停。请检查设备后手动解除锁定以恢复监控。', 'The device is in anomaly lock; health monitoring is paused. Inspect the device and clear the lock manually to resume.') }}
                 </div>
-                <div class="border rounded bg-light position-relative" style="height: 350px;">
-                  <div v-if="aiChartLoading && (!aiChartOption || !aiChartOption.series)" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white bg-opacity-75" style="z-index: 10">
+                <div class="border rounded bg-theme-surface position-relative" style="height: 350px;">
+                  <div v-if="aiChartLoading && (!aiChartOption || !aiChartOption.series)" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-theme-surface bg-opacity-75" style="z-index: 10">
                      <div class="spinner-border text-primary" role="status"></div>
                   </div>
                   <VChart v-if="aiChartOption && aiChartOption.series && aiChartOption.series.length > 0" :option="aiChartOption" autoresize style="width: 100%; height: 100%;" />
                   <div v-else class="h-100 d-flex align-items-center justify-content-center text-muted">
-                    暂无 AI 数据，请配置并开启设备守护
+                    {{ aiText('暂无 AI 数据，请配置并开启设备守护', 'No AI data yet. Configure and enable the guardian.') }}
                   </div>
                 </div>
               </div>
@@ -614,11 +723,11 @@
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline-info me-auto" @click="openAIHistoryModal">
-               <i class="bi bi-clock-history me-1"></i> 故障历史
+               <i class="bi bi-clock-history me-1"></i> {{ $t('ai_fault_history') }}
             </button>
-            <button type="button" class="btn btn-secondary" @click="closeSingleAIModal">取消</button>
+            <button type="button" class="btn btn-outline-secondary" @click="closeSingleAIModal">{{ $t('tsl_cancel') }}</button>
             <button type="button" class="btn btn-primary" @click="saveSingleAIConfig">
-              <i class="bi bi-save me-1"></i> 保存并应用配置
+              <i class="bi bi-save me-1"></i> {{ $t('ai_save_apply') }}
             </button>
           </div>
         </div>
@@ -626,33 +735,33 @@
     </div>
 
     <!-- AI History Modal -->
-    <div v-if="aiHistoryModalVisible" class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1070;">
+    <div v-if="aiHistoryModalVisible" class="modal fade show d-block modal-overlay-theme" style="z-index: 1070;">
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title"><i class="bi bi-clock-history text-danger me-2"></i>AI 故障历史记录</h5>
+            <h5 class="modal-title"><i class="bi bi-clock-history text-danger me-2"></i>{{ aiText('AI 故障历史记录', 'AI Fault History') }}</h5>
             <button type="button" class="btn-close" @click="aiHistoryModalVisible = false"></button>
           </div>
           <div class="modal-body">
              <div v-if="aiHistoryLoading" class="text-center py-5">
                <div class="spinner-border text-primary" role="status"></div>
-               <div class="mt-2 text-muted">正在加载历史记录...</div>
+               <div class="mt-2 text-muted">{{ aiText('正在加载历史记录...', 'Loading history…') }}</div>
              </div>
              <div v-else-if="aiHistoryEvents.length === 0" class="text-center py-5 text-muted">
                <i class="bi bi-check-circle fs-1 text-success mb-2"></i>
-               <div>近7天内未检测到设备异常</div>
+               <div>{{ aiText('近7天内未检测到设备异常', 'No anomalies detected in the last 7 days') }}</div>
              </div>
              <div v-else>
                <div class="table-responsive">
                  <table class="table table-striped table-hover small">
                    <thead>
                      <tr>
-                       <th>发生时间</th>
-                       <th>监控属性</th>
-                       <th>健康评分</th>
-                       <th>原始值</th>
-                       <th>残差值</th>
-                       <th>阈值 ($\sigma$)</th>
+                       <th>{{ aiText('发生时间', 'Time') }}</th>
+                       <th>{{ aiText('监控属性', 'Property') }}</th>
+                       <th>{{ aiText('健康评分', 'Health Score') }}</th>
+                       <th>{{ aiText('原始值', 'Raw Value') }}</th>
+                       <th>{{ aiText('残差值', 'Residual') }}</th>
+                       <th>{{ aiText('阈值', 'Threshold') }} ($\sigma$)</th>
                      </tr>
                    </thead>
                    <tbody>
@@ -674,14 +783,14 @@
              </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="aiHistoryModalVisible = false">关闭</button>
+            <button type="button" class="btn btn-outline-secondary" @click="aiHistoryModalVisible = false">{{ $t('common_close') }}</button>
           </div>
         </div>
       </div>
     </div>
 
     <!-- AI Batch Config Modal -->
-    <div v-if="showBatchAIModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1060;">
+    <div v-if="showBatchAIModal" class="modal fade show d-block modal-overlay-theme" style="z-index: 1060;">
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
@@ -695,9 +804,9 @@
             
             <div class="row g-3">
                <div class="col-md-6">
-                  <label class="form-label fw-bold small">所属产品</label>
+                  <label class="form-label fw-bold small">{{ aiText('所属产品', 'Product') }}</label>
                   <select class="form-select" v-model="batchAiConfig.product_code" @change="onBatchProductChange">
-                     <option value="" disabled>-- 请选择产品 --</option>
+                     <option value="" disabled>{{ aiText('-- 请选择产品 --', '-- Select product --') }}</option>
                      <option v-for="p in products" :key="p.code" :value="p.code">{{ p.name }} ({{ p.code }})</option>
                   </select>
                </div>
@@ -713,9 +822,9 @@
             </div>
 
             <div class="mt-4" v-if="batchAiConfig.product_code">
-               <label class="form-label fw-bold small">选择目标应用设备 (可多选)</label>
-               <div class="border rounded p-2 bg-light" style="max-height: 200px; overflow-y: auto;">
-                  <div v-if="batchDeviceList.length === 0" class="text-muted text-center py-3 small">该产品下暂无设备</div>
+               <label class="form-label fw-bold small">{{ aiText('选择目标应用设备 (可多选)', 'Select target devices (multi-select)') }}</label>
+               <div class="border rounded p-2 bg-theme-surface" style="max-height: 200px; overflow-y: auto;">
+                  <div v-if="batchDeviceList.length === 0" class="text-muted text-center py-3 small">{{ aiText('该产品下暂无设备', 'No devices under this product') }}</div>
                   <div class="form-check" v-for="dev in batchDeviceList" :key="dev.code">
                      <input class="form-check-input" type="checkbox" :value="dev.code" v-model="batchAiConfig.devices" :id="'batch_dev_' + dev.code">
                      <label class="form-check-label" :for="'batch_dev_' + dev.code">
@@ -725,10 +834,10 @@
                </div>
                <div class="mt-2 text-primary small d-flex justify-content-between">
                   <span>
-                    <a href="#" class="text-decoration-none me-3" @click.prevent="batchAiConfig.devices = batchDeviceList.map(d=>d.code)">全选</a>
+                    <a href="#" class="text-decoration-none me-3" @click.prevent="batchAiConfig.devices = batchDeviceList.map(d=>d.code)">{{ $t('select_all') }}</a>
                     <a href="#" class="text-decoration-none" @click.prevent="batchAiConfig.devices = []">反选</a>
                   </span>
-                  <span>已选择 {{ batchAiConfig.devices.length }} 个设备</span>
+                  <span>已选择 {{ batchAiConfig.devices.length }} {{ aiText('个设备', 'devices') }}</span>
                </div>
             </div>
 
@@ -762,9 +871,9 @@
                <label class="form-check-label text-warning fw-bold" for="batchEnableSwitch">{{ aiText('立即启用监控', 'Enable Monitoring Now') }}</label>
             </div>
             <div>
-               <button type="button" class="btn btn-secondary me-2" @click="showBatchAIModal = false">取消</button>
+               <button type="button" class="btn btn-outline-secondary me-2" @click="showBatchAIModal = false">{{ $t('tsl_cancel') }}</button>
                <button type="button" class="btn btn-primary" :disabled="!batchAiConfig.product_code || !batchAiConfig.property || batchAiConfig.devices.length === 0" @click="saveBatchAITasks">
-                 <i class="bi bi-check2-all me-1"></i> 批量下发配置
+                 <i class="bi bi-check2-all me-1"></i> {{ aiText('批量下发配置', 'Deploy Batch Config') }}
                </button>
             </div>
           </div>
@@ -790,7 +899,7 @@
     />
 
     <!-- Import Device Modal -->
-    <div v-if="showImportModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+    <div v-if="showImportModal" class="modal fade show d-block modal-overlay-theme">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -822,7 +931,7 @@
     </div>
 
     <!-- Download Template Modal -->
-    <div v-if="showDownloadModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+    <div v-if="showDownloadModal" class="modal fade show d-block modal-overlay-theme">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -878,7 +987,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import axios from 'axios';
 import { useI18n } from 'vue-i18n';
 import SchemaForm from '../components/SchemaForm.vue';
@@ -887,11 +996,14 @@ import DeviceDiscoveryModal from '../components/device/DeviceDiscoveryModal.vue'
 import DeviceDataModal from '../components/device/DeviceDataModal.vue';
 import ListPagination from '../components/ListPagination.vue';
 import Sparkline from '../components/Sparkline.vue';
+import DetailDrawer from '../components/DetailDrawer.vue';
 import { usePlugins } from '../plugins/registry.js';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 import { applyDriverDefaults } from '../utils/deviceDriverDefaults.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
 import { formatDateTime } from '../utils/dateTime.js';
+import { useConfirm } from '../composables/useConfirm';
+import { useToast } from '../composables/useToast';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { LineChart, BarChart, ScatterChart } from 'echarts/charts';
@@ -917,6 +1029,8 @@ use([
 ]);
 
 const { t, locale } = useI18n();
+const { confirmDialog } = useConfirm();
+const { showToast } = useToast();
 
 const devices = ref([]);
 const configuredDeviceCodes = ref(new Set());
@@ -937,65 +1051,65 @@ const isSubDeviceForm = computed(() => !isEditing.value && !!newDevice.value.par
 const currentSchema = ref(null);
 const isEditing = ref(false);
 const selectedDevices = ref([]);
-const hoveredDevice = ref(null);
-const hoveredData = ref({});
-const hoveredTrendData = ref({}); // Store trend data for hover
-const hoveredTSLMap = ref({}); // Store TSL info for hover
-const tooltipPos = ref({ top: 0, left: 0 });
-let hoverTimer = null;
-let hoverTrendTimer = null; // Timer for trend data
-let hideDebounceTimer = null;
 
-// AI Health Tooltip state
-const healthTooltipDevice = ref(null);
-const healthTooltipPos = ref({ top: 0, left: 0 });
-let healthTooltipTimer = null;
+// 详情抽屉状态（§8.4：右侧 720px 抽屉，替代原 hover 浮层）
+const drawerVisible = ref(false);
+const drawerDevice = ref(null);
+const drawerData = ref({});
+const drawerTrendData = ref({});
+const drawerTSLMap = ref({});
+const drawerLoading = ref(false);
+const drawerUpdatedAt = ref(null);
+let drawerTimer = null;
+let drawerTrendTimer = null;
 
-const showHealthTooltip = (device, event) => {
-  if (healthTooltipTimer) {
-    clearTimeout(healthTooltipTimer);
-    healthTooltipTimer = null;
-  }
-  healthTooltipDevice.value = device;
-  const x = event.clientX + 12;
-  const y = event.clientY - 10;
-  const winWidth = window.innerWidth;
-  healthTooltipPos.value = {
-    top: y,
-    left: x + 250 > winWidth ? x - 260 : x,
-  };
-};
-
-const hideHealthTooltip = () => {
-  healthTooltipTimer = setTimeout(() => {
-    healthTooltipDevice.value = null;
-  }, 100);
-};
-
-// Computed property for rich tooltip data
-const hoverDisplayList = computed(() => {
-  if (!hoveredData.value) return [];
-  const keys = Object.keys(hoveredData.value);
+// Computed property for rich drawer data
+const drawerDisplayList = computed(() => {
+  if (!drawerData.value) return [];
+  const keys = Object.keys(drawerData.value);
   const list = keys.map(key => {
-    const tsl = hoveredTSLMap.value[key];
+    const tsl = drawerTSLMap.value[key];
     return {
       key: key,
       name: tsl ? tsl.name : key,
       unit: tsl && tsl.dataType && tsl.dataType.specs ? tsl.dataType.specs.unit : '',
-      value: hoveredData.value[key],
-      trend: hoveredTrendData.value[key] || []
+      value: drawerData.value[key],
+      trend: drawerTrendData.value[key] || []
     };
   });
   return list.sort((a, b) => a.key.localeCompare(b.key));
 });
 
-// Filter State
+// 抽屉 Sparkline 颜色（§9 双主题）
+const drawerSparkColor = computed(() => chartToken('--text-tertiary'));
+
+// Filter State（§7.2：>3 个条件折叠收纳）
+const search = ref('');
+const showFilters = ref(false);
 const filterProduct = ref('');
 const filterParent = ref('');
 const filterEnabled = ref('');
 const filterOnline = ref('');
 const filterTag = ref('');
 const deviceTags = ref([]);
+
+const hasActiveFilters = computed(() =>
+  search.value.trim() !== ''
+  || filterProduct.value !== ''
+  || filterParent.value !== ''
+  || filterEnabled.value !== ''
+  || filterOnline.value !== ''
+  || filterTag.value !== ''
+);
+
+const clearFilters = () => {
+  search.value = '';
+  filterProduct.value = '';
+  filterParent.value = '';
+  filterEnabled.value = '';
+  filterOnline.value = '';
+  filterTag.value = '';
+};
 const selectedTagIds = ref([]);
 const showDeviceTagsModal = ref(false);
 const currentTagDevice = ref(null);
@@ -1130,8 +1244,8 @@ const applyAIStatePayload = (deviceCode, properties) => {
     }
   }
 
-  if (healthTooltipDevice.value?.code === deviceCode) {
-    healthTooltipDevice.value = mergeAIStateIntoDevice(healthTooltipDevice.value, properties);
+  if (drawerDevice.value?.code === deviceCode) {
+    drawerDevice.value = mergeAIStateIntoDevice(drawerDevice.value, properties);
   }
 };
 
@@ -1145,7 +1259,7 @@ const setupSSE = () => {
     sseReconnectTimer = null;
   }
 
-  eventSource = new EventSource('/api/devices/stream?token=' + localStorage.getItem('access_token'));
+  eventSource = new EventSource('/api/devices/stream?token=' + encodeURIComponent(localStorage.getItem('access_token') || ''));
 
   // 后端发送的初始连接确认事件
   eventSource.addEventListener('connected', () => {
@@ -1239,7 +1353,7 @@ const changePageSize = (size) => {
 };
 
 // 过滤器变更时重置页码
-watch([filterProduct, filterParent, filterEnabled, filterOnline], () => {
+watch([search, filterProduct, filterParent, filterEnabled, filterOnline, filterTag], () => {
     page.value = 1;
 });
 
@@ -1255,6 +1369,7 @@ const uniqueParents = computed(() => {
 });
 
 const filteredDevices = computed(() => {
+  const q = search.value.trim().toLowerCase();
   return devices.value.filter(d => {
     if (filterProduct.value && d.product_code !== filterProduct.value) return false;
     if (filterParent.value) {
@@ -1273,8 +1388,24 @@ const filteredDevices = computed(() => {
         const wantTagId = Number(filterTag.value);
         if (!d.tags || !d.tags.some(t => t.ID === wantTagId)) return false;
     }
+    if (q) {
+      const ref = String(d.code || '').toLowerCase();
+      const name = String(d.name || '').toLowerCase();
+      if (!ref.includes(q) && !name.includes(q)) return false;
+    }
     return true;
   });
+});
+
+// KPI 统计行（§7.3 / §3.3）
+const stats = computed(() => {
+  const list = devices.value;
+  return {
+    total: list.length,
+    online: list.filter(d => d.online).length,
+    offline: list.filter(d => !d.online).length,
+    alarm: list.filter(d => d.ai_anomaly === true || d.ai_latched === true).length
+  };
 });
 
 const allSelected = computed(() => {
@@ -1299,8 +1430,8 @@ const toggleAll = () => {
 };
 
 const tagBadgeStyle = (tag) => {
-  const color = tag?.color || '#0d6efd';
-  const rgb = hexToRgb(color) || { r: 13, g: 110, b: 253 };
+  const color = tag?.color || chartToken('--color-brand');
+  const rgb = hexToRgb(color) || { r: 59, g: 130, b: 246 };
   return {
     '--tag-color': color,
     '--tag-rgb': `${rgb.r}, ${rgb.g}, ${rgb.b}`
@@ -1362,7 +1493,17 @@ const getDriverName = (code) => {
 };
 
 const batchDelete = async () => {
-  if (!confirm(t('common_delete_confirm'))) return;
+  const count = selectedDevices.value.length;
+  if (count === 0) return;
+  // 破坏性操作确认（§8.4 / §10.3）
+  const ok = await confirmDialog({
+    title: t('dev_batch_delete_title', { count }),
+    message: t('dev_batch_delete_message', { count }),
+    variant: 'danger',
+    confirmText: t('common_delete'),
+    cancelText: t('common_cancel')
+  });
+  if (!ok) return;
   loading.value = true;
   for (const code of selectedDevices.value) {
     try {
@@ -1373,6 +1514,7 @@ const batchDelete = async () => {
   }
   selectedDevices.value = [];
   fetchDevices();
+  showToast('success', t('dev_deleted_success'));
 };
 
 const batchEnable = async () => {
@@ -1384,6 +1526,7 @@ const batchEnable = async () => {
   }
   selectedDevices.value = [];
   fetchDevices();
+  showToast('success', t('dev_action_success'));
 };
 
 const batchDisable = async () => {
@@ -1395,6 +1538,7 @@ const batchDisable = async () => {
   }
   selectedDevices.value = [];
   fetchDevices();
+  showToast('success', t('dev_action_success'));
 };
 
 // Data Modal State
@@ -1493,6 +1637,24 @@ const singleAITSLMap = ref({});
 const aiText = (zh, en) => {
   const currentLocale = String(locale.value || locale || '').toLowerCase();
   return currentLocale.startsWith('en') ? en : zh;
+};
+
+// 读取 CSS 设计令牌供 ECharts 使用（§9.1/§9.2 双主题图表配色）
+const chartToken = (name) => {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || '#3b82f6';
+  } catch (e) {
+    return '#3b82f6';
+  }
+};
+
+const chartTokenAlpha = (name, alpha) => {
+  const v = chartToken(name);
+  const m = v.match(/^#([0-9a-f]{6})$/i);
+  if (!m) return v;
+  const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0');
+  return v + a;
 };
 
 const defaultAIProgress = () => ({
@@ -1613,81 +1775,66 @@ const batchAiConfig = ref({
 const batchProductProperties = ref([]);
 const batchDeviceList = ref([]);
 
-const showHoverData = async (device, event) => {
-  // Cancel pending hide if exists
-  if (hideDebounceTimer) {
-    clearTimeout(hideDebounceTimer);
-    hideDebounceTimer = null;
-  }
+const openDrawer = async (device) => {
+  if (!device) return;
+  drawerDevice.value = { ...device };
+  drawerData.value = {};
+  drawerTrendData.value = {};
+  drawerTSLMap.value = {};
+  drawerLoading.value = true;
+  drawerUpdatedAt.value = null;
+  drawerVisible.value = true;
 
-  // If already hovering same device, just update position
-  if (hoveredDevice.value && hoveredDevice.value.code === device.code) {
-      updateTooltipPosition(event);
-      return;
-  }
+  // 焦点管理（§12：打开时聚焦抽屉，Esc 关闭）
+  await nextTick();
+  document.querySelector('.noyo-drawer')?.focus?.();
 
-  if (hoverTimer) clearInterval(hoverTimer);
-  if (hoverTrendTimer) {
-    clearInterval(hoverTrendTimer);
-    hoverTrendTimer = null;
-  }
-  
-  hoveredDevice.value = { ...device }; // Copy device info
-  hoveredData.value = {};
-  hoveredTrendData.value = {};
-  hoveredTSLMap.value = {}; // Clear previous TSL map
-
-  // Load TSL for the hovered device
+  // Load TSL for the drawer device
   const product = products.value.find(p => p.code === device.product_code);
   if (product && product.config) {
       try {
           const prodConfig = JSON.parse(product.config);
           const tslProps = prodConfig.tsl?.properties || [];
           tslProps.forEach(p => {
-              hoveredTSLMap.value[p.identifier] = p;
+              drawerTSLMap.value[p.identifier] = p;
           });
       } catch (e) {
           // silent fail
       }
   }
-  
-  updateTooltipPosition(event);
-  
-  // Fetch initial
-  fetchHoverData(device.code);
-  fetchHoverTrend(device.code);
-  
-  // Poll
-  hoverTimer = setInterval(() => fetchHoverData(device.code), 2000);
-  hoverTrendTimer = setInterval(() => fetchHoverTrend(device.code), 30000); // 30s for trend
+
+  // Fetch initial data
+  await fetchDrawerData(device.code);
+  fetchDrawerTrend(device.code);
+  drawerLoading.value = false;
+
+  // Poll（§10.1：实时数据到达即更新）
+  // 竞态守卫：await 期间用户可能已切换设备，仅当仍是当前设备才接管轮询
+  if (drawerDevice.value?.code !== device.code) return;
+  if (drawerTimer) clearInterval(drawerTimer);
+  if (drawerTrendTimer) clearInterval(drawerTrendTimer);
+  drawerTimer = setInterval(() => fetchDrawerData(device.code), 2000);
+  drawerTrendTimer = setInterval(() => fetchDrawerTrend(device.code), 30000); // 30s for trend
 };
 
-const updateTooltipPosition = (event) => {
-  const x = event.clientX + 15;
-  const y = event.clientY + 15;
-  const winWidth = window.innerWidth;
-  // If too close to right edge, show on left
-  const finalX = x + 300 > winWidth ? x - 320 : x;
-  tooltipPos.value = { top: y, left: finalX };
+const closeDrawer = () => {
+  if (drawerTimer) {
+    clearInterval(drawerTimer);
+    drawerTimer = null;
+  }
+  if (drawerTrendTimer) {
+    clearInterval(drawerTrendTimer);
+    drawerTrendTimer = null;
+  }
+  drawerVisible.value = false;
+  drawerDevice.value = null;
+  drawerData.value = {};
+  drawerTrendData.value = {};
+  drawerTSLMap.value = {};
 };
 
-const hideHoverData = () => {
-  // Delay hiding to prevent flicker when moving between cells
-  hideDebounceTimer = setTimeout(() => {
-    if (hoverTimer) {
-      clearInterval(hoverTimer);
-      hoverTimer = null;
-    }
-    if (hoverTrendTimer) {
-      clearInterval(hoverTrendTimer);
-      hoverTrendTimer = null;
-    }
-    hoveredDevice.value = null;
-  }, 100);
-};
-
-const fetchHoverTrend = async (code) => {
-  if (!hoveredDevice.value || hoveredDevice.value.code !== code) return;
+const fetchDrawerTrend = async (code) => {
+  if (!drawerDevice.value || drawerDevice.value.code !== code) return;
   
   const endTs = Date.now();
   const startTs = endTs - 30 * 60 * 1000; // 30 minutes ago
@@ -1708,7 +1855,7 @@ const fetchHoverTrend = async (code) => {
       const trendMap = {};
       
       // Initialize lists
-      Object.keys(hoveredTSLMap.value).forEach(key => {
+      Object.keys(drawerTSLMap.value).forEach(key => {
         trendMap[key] = [];
       });
 
@@ -1720,9 +1867,9 @@ const fetchHoverTrend = async (code) => {
         });
       });
       
-      // Only update if still hovering same device
-      if (hoveredDevice.value && hoveredDevice.value.code === code) {
-          hoveredTrendData.value = trendMap;
+      // Only update if still showing same device
+      if (drawerDevice.value && drawerDevice.value.code === code) {
+          drawerTrendData.value = trendMap;
       }
     }
   } catch (e) {
@@ -1730,12 +1877,13 @@ const fetchHoverTrend = async (code) => {
   }
 };
 
-const fetchHoverData = async (code) => {
-  if (!hoveredDevice.value || hoveredDevice.value.code !== code) return;
+const fetchDrawerData = async (code) => {
+  if (!drawerDevice.value || drawerDevice.value.code !== code) return;
   try {
     const res = await axios.get(`/api/devices/${code}/data`);
     if (res.data.code === 0) {
-      hoveredData.value = res.data.data || {};
+      drawerData.value = res.data.data || {};
+      drawerUpdatedAt.value = new Date();
     }
   } catch (e) {
     // silent fail
@@ -1816,16 +1964,16 @@ const saveSingleAIConfig = async () => {
         };
         const res = await axios.post(`/api/plugins/ai_predict/config/tasks`, payload);
         if (res.data.code === 0) {
-            alert('AI 设备守护配置已成功保存并应用');
+            showToast('success', t('ai_config_saved'));
             fetchConfiguredTasks();
             fetchDeviceAIConfig();
             fetchAITrend(); // Refresh chart to show latest status
         } else {
-            alert('保存失败: ' + res.data.message);
+            showToast('danger', t('ai_config_save_fail') + ': ' + res.data.message);
         }
     } catch (e) {
         console.error("Failed to update AI config", e);
-        alert('保存配置时发生异常');
+        showToast('danger', t('ai_config_save_fail'));
     }
 };
 
@@ -2193,6 +2341,11 @@ const fetchAITrend = async () => {
         applyAIStatePayload(currentSingleAIDevice.value.code, chartStatePayload);
       }
 
+      const seriesRawName = aiText('原始数值', 'Raw Value');
+      const seriesHealthName = aiText('健康得分 (AI)', 'Health Score (AI)');
+      const seriesLockedName = aiText('异常锁定', 'Anomaly Locked');
+      const seriesCalculatingName = aiText('健康得分计算中', 'Calculating…');
+
       aiChartOption.value = {
          tooltip: { 
             trigger: 'axis',
@@ -2214,8 +2367,8 @@ const fetchAITrend = async () => {
                   if (val !== null && val !== undefined && val !== '-' && !Number.isNaN(val)) {
                      // Optionally format numbers to fixed decimals if they are floats
                      let displayVal = val;
-                     if (item.seriesName === '健康得分计算中') {
-                        displayVal = ''; // Or '计算中...' - empty is cleaner if name is already '健康得分计算中'
+                     if (item.seriesName === seriesCalculatingName) {
+                        displayVal = ''; // empty is cleaner if name is already the calculating label
                      } else if (typeof val === 'number' && !Number.isInteger(val)) {
                         displayVal = val.toFixed(2);
                      }
@@ -2228,7 +2381,7 @@ const fetchAITrend = async () => {
                return html;
             }
          },
-         legend: { data: ['原始数值', '健康得分 (AI)', '异常锁定', '健康得分计算中'], bottom: 0 },
+         legend: { data: [seriesRawName, seriesHealthName, seriesLockedName, seriesCalculatingName], bottom: 0 },
          grid: { left: '3%', right: '4%', bottom: '10%', containLabel: true },
          xAxis: {
             type: 'time',
@@ -2241,7 +2394,7 @@ const fetchAITrend = async () => {
          ],
          series: [
             {
-               name: '原始数值',
+               name: seriesRawName,
                type: 'line',
                data: processedRawData,
                smooth: true,
@@ -2250,37 +2403,37 @@ const fetchAITrend = async () => {
                yAxisIndex: 0
             },
             {
-               name: '健康得分 (AI)',
+               name: seriesHealthName,
                type: 'line',
                data: healthData,
                smooth: true,
                showSymbol: false,
                connectNulls: false,
                yAxisIndex: 1,
-               itemStyle: { color: '#ffc107' },
+               itemStyle: { color: chartToken('--color-warning') },
                areaStyle: {
-                  color: 'rgba(255, 193, 7, 0.2)'
+                  color: chartTokenAlpha('--color-warning', 0.2)
                }
             },
             {
-               name: '异常锁定',
+               name: seriesLockedName,
                type: 'line',
                data: lockedData,
                showSymbol: lockedData.length <= 5,
                connectNulls: false,
                yAxisIndex: 1,
-               itemStyle: { color: '#dc3545' },
-               lineStyle: { color: '#dc3545', width: 3, type: 'dashed' }
+               itemStyle: { color: chartToken('--color-danger') },
+               lineStyle: { color: chartToken('--color-danger'), width: 3, type: 'dashed' }
             },
             {
-               name: '健康得分计算中',
+               name: seriesCalculatingName,
                type: 'line',
                data: calculatingData,
                showSymbol: false,
                connectNulls: false,
                yAxisIndex: 1,
-               itemStyle: { color: '#6c757d' },
-               lineStyle: { color: '#6c757d', width: 3, type: 'dotted' }
+               itemStyle: { color: chartToken('--text-tertiary') },
+               lineStyle: { color: chartToken('--text-tertiary'), width: 3, type: 'dotted' }
             }
          ],
          dataZoom: [{ type: 'inside' }]
@@ -2319,12 +2472,13 @@ const saveDeviceTags = async () => {
         device.tags = deviceTags.value.filter(t => selectedTagIds.value.includes(t.ID));
       }
       closeDeviceTagsModal();
+      showToast('success', t('dev_action_success'));
     } else {
-      alert(res.data?.message || 'Failed to save tags');
+      showToast('danger', res.data?.message || t('common_save_fail'));
     }
   } catch (e) {
     console.error('Save device tags failed', e);
-    alert('保存标签失败');
+    showToast('danger', t('common_save_fail'));
   }
 };
 
@@ -2394,7 +2548,8 @@ const openSingleAIModal = async (device) => {
   }
 
   singleAIModalVisible.value = true;
-  
+
+  if (aiChartTimer) clearInterval(aiChartTimer);
   await fetchDeviceAIConfig();
   fetchAITrend();
   aiChartTimer = setInterval(fetchAITrend, 5000);
@@ -2411,17 +2566,25 @@ const closeSingleAIModal = () => {
 
 const clearLatchedState = async () => {
     if (!currentSingleAIDevice.value || !aiConfig.value.property) return;
-    if (!confirm(aiText(
-        "确定要解除异常锁定状态吗？\n解除后将立即恢复AI健康监测，系统将重新评估设备健康状态。",
-        "Clear the anomaly lock?\nAfter clearing, AI health monitoring will resume and the system will recalculate the device health score."
-    ))) return;
+    // 破坏性操作确认（§8.4 / §10.3）
+    const ok = await confirmDialog({
+        title: aiText('解除异常锁定', 'Clear Anomaly Lock'),
+        message: aiText(
+            '解除后将立即恢复AI健康监测，系统将重新评估设备健康状态。',
+            'After clearing, AI health monitoring will resume and the system will recalculate the device health score.'
+        ),
+        variant: 'danger',
+        confirmText: t('common_confirm'),
+        cancelText: t('common_cancel')
+    });
+    if (!ok) return;
     
     const taskId = `${currentSingleAIDevice.value.code}_${aiConfig.value.property}`;
     
     try {
         const res = await axios.post(`/api/plugins/ai_predict/latch/${taskId}/clear`);
         if (res.data.code === 0) {
-            alert(aiText("解除锁定成功", "Lock cleared"));
+            showToast('success', aiText('解除锁定成功', 'Lock cleared'));
             aiConfig.value.progress = {
                 stage: 'collecting_evaluation_window',
                 current: 0,
@@ -2432,20 +2595,28 @@ const clearLatchedState = async () => {
             };
             fetchAITrend(); // Refresh status immediately
         } else {
-            alert(aiText("解除失败: ", "Clear failed: ") + res.data.message);
+            showToast('danger', aiText('解除失败: ', 'Clear failed: ') + res.data.message);
         }
     } catch (e) {
         console.error(e);
-        alert(aiText("解除失败", "Clear failed"));
+        showToast('danger', aiText('解除失败', 'Clear failed'));
     }
 };
 
 const restartAIBaselineCalibration = async () => {
     if (!currentSingleAIDevice.value || !aiConfig.value.property) return;
-    if (!confirm(aiText(
-        "确定要重新校准基线吗？\n系统会清除当前学习到的正常基线，并把接下来一段数据重新学习为正常工况。请确认设备现在处于正常状态。",
-        "Restart baseline calibration?\nThe system will clear the learned baseline and learn the next data segment as normal operation. Make sure the device is currently operating normally."
-    ))) return;
+    // 破坏性操作确认（§8.4 / §10.3）
+    const ok = await confirmDialog({
+        title: aiText('重新校准基线', 'Restart Baseline Calibration'),
+        message: aiText(
+            '系统会清除当前学习到的正常基线，并把接下来一段数据重新学习为正常工况。请确认设备现在处于正常状态。',
+            'The system will clear the learned baseline and learn the next data segment as normal operation. Make sure the device is currently operating normally.'
+        ),
+        variant: 'danger',
+        confirmText: t('common_confirm'),
+        cancelText: t('common_cancel')
+    });
+    if (!ok) return;
 
     const taskId = `${currentSingleAIDevice.value.code}_${aiConfig.value.property}`;
     aiRecalibrating.value = true;
@@ -2468,13 +2639,13 @@ const restartAIBaselineCalibration = async () => {
             await fetchDeviceAIConfig();
             fetchConfiguredTasks();
             fetchAITrend();
-            alert(aiText("已开始重新校准，请保持设备处于正常工况。", "Recalibration started. Keep the device operating normally."));
+            showToast('success', aiText('已开始重新校准，请保持设备处于正常工况。', 'Recalibration started. Keep the device operating normally.'));
         } else {
-            alert(aiText("重新校准失败: ", "Recalibration failed: ") + res.data.message);
+            showToast('danger', aiText('重新校准失败: ', 'Recalibration failed: ') + res.data.message);
         }
     } catch (e) {
         console.error(e);
-        alert(aiText("重新校准失败", "Recalibration failed"));
+        showToast('danger', aiText('重新校准失败', 'Recalibration failed'));
     } finally {
         aiRecalibrating.value = false;
     }
@@ -2482,10 +2653,10 @@ const restartAIBaselineCalibration = async () => {
 
 
 onUnmounted(() => {
-  if (hoverTimer) clearInterval(hoverTimer);
-  if (hoverTrendTimer) clearInterval(hoverTrendTimer);
-  if (hideDebounceTimer) clearTimeout(hideDebounceTimer);
-  if (healthTooltipTimer) clearTimeout(healthTooltipTimer);
+  if (drawerTimer) clearInterval(drawerTimer);
+  if (drawerTrendTimer) clearInterval(drawerTrendTimer);
+  if (aiChartTimer) clearInterval(aiChartTimer);
+  if (aiConfigSaveTimer) clearTimeout(aiConfigSaveTimer);
   window.removeEventListener('noyo-data-updated', fetchDevices);
   window.removeEventListener('click', closeDeviceActionMenu);
   window.removeEventListener('scroll', closeDeviceActionMenu, true);
@@ -2834,14 +3005,14 @@ const confirmImport = async () => {
       }
     });
     if (res.data.code === 0) {
-      alert(t('import_success') + ': ' + res.data.message); // message contains count
+      showToast('success', t('import_success') + ': ' + res.data.message); // message contains count
       fetchDevices();
       closeImportModal();
     } else {
-      alert(t('import_fail') + ': ' + res.data.message);
+      showToast('danger', t('import_fail') + ': ' + res.data.message);
     }
   } catch (e) {
-    alert(t('import_fail'));
+    showToast('danger', t('import_fail'));
     console.error(e);
   }
 };
@@ -2894,29 +3065,40 @@ const saveDevice = async () => {
     if (res.data.code === 0) {
       showCreateModal.value = false;
       fetchDevices();
+      showToast('success', t('dev_save_success'));
       newDevice.value = { code: '', name: '', product_code: '', protocol_profile_code: '', protocol_name: '', parent_code: '', enabled: true, config: {} };
       currentSchema.value = null;
     } else {
-      alert(res.data.message);
+      showToast('danger', res.data.message);
     }
   } catch (e) {
     console.error(e);
-    alert(t('common_save_fail'));
+    showToast('danger', t('common_save_fail'));
   }
 };
 
 const deleteDevice = async (device) => {
-  if (!confirm(t('common_delete_confirm'))) return;
+  // 破坏性操作确认（§8.4 / §10.3，写明设备名与后果）
+  const ok = await confirmDialog({
+    title: t('dev_delete_title'),
+    message: t('dev_delete_message', { name: device.name || device.code }),
+    variant: 'danger',
+    confirmText: t('common_delete'),
+    cancelText: t('common_cancel')
+  });
+  if (!ok) return;
   try {
     const res = await axios.delete(`/api/devices/${device.code}`);
     if (res.data.code === 0) {
+      if (drawerDevice.value?.code === device.code) closeDrawer();
+      showToast('success', t('dev_deleted_success'));
       fetchDevices();
     } else {
-      alert(res.data.message);
+      showToast('danger', res.data.message);
     }
   } catch (e) {
     console.error(e);
-    alert(t('common_delete_fail'));
+    showToast('danger', t('common_delete_fail'));
   }
 };
 
@@ -2943,12 +3125,13 @@ const toggleDevice = async (device) => {
     const res = await axios.post(`/api/devices/${device.code}/${action}`);
     if (res.data.code === 0) {
       fetchDevices(); // Refresh list
+      showToast('success', t('dev_action_success'));
     } else {
-      alert(res.data.message);
+      showToast('danger', res.data.message);
     }
   } catch (e) {
     console.error(e);
-    alert(t('dev_action_fail'));
+    showToast('danger', t('dev_action_fail'));
   }
 };
 
@@ -3060,12 +3243,13 @@ const saveDeviceMapping = async () => {
             devices.value[index] = { ...devices.value[index], config: payload.config };
         }
         closeMappingModal();
+        showToast('success', t('dev_action_success'));
     } else {
-        alert(res.data.message);
+        showToast('danger', res.data.message);
     }
   } catch (e) {
     console.error(e);
-    alert(t('common_save_fail'));
+    showToast('danger', t('common_save_fail'));
   }
 };
 
@@ -3121,12 +3305,13 @@ const saveBatchAITasks = async () => {
         if (res.data.code === 0) {
             showBatchAIModal.value = false;
             fetchConfiguredTasks();
+            showToast('success', aiText('批量配置已下发', 'Batch config applied'));
         } else {
-            alert(res.data.message || '批量配置失败');
+            showToast('danger', res.data.message || aiText('批量配置失败', 'Batch config failed'));
         }
     } catch (e) {
         console.error("Batch config fail", e);
-        alert('提交配置异常');
+        showToast('danger', aiText('提交配置异常', 'Failed to submit batch config'));
     }
 };
 
@@ -3161,8 +3346,8 @@ const saveBatchAITasks = async () => {
   gap: 4px;
 }
 .device-tag-chip {
-  --tag-color: #0d6efd;
-  --tag-rgb: 13, 110, 253;
+  --tag-color: var(--color-brand);
+  --tag-rgb: 59, 130, 246;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -3213,19 +3398,48 @@ const saveBatchAITasks = async () => {
   color: rgb(var(--tag-rgb));
 }
 .device-tag-chip--overflow {
-  border-left-color: #adb5bd;
-  background: linear-gradient(135deg, rgba(128, 128, 128, 0.08) 0%, rgba(128, 128, 128, 0.03) 100%);
-  border-color: rgba(128, 128, 128, 0.12);
-  color: #6c757d;
+  border-left-color: var(--text-tertiary);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--text-tertiary) 8%, transparent) 0%, color-mix(in srgb, var(--text-tertiary) 3%, transparent) 100%);
+  border-color: color-mix(in srgb, var(--text-tertiary) 12%, transparent);
+  color: var(--text-secondary);
   font-weight: 500;
   cursor: pointer;
 }
 .device-tag-chip--overflow:hover {
-  background: linear-gradient(135deg, rgba(128, 128, 128, 0.14) 0%, rgba(128, 128, 128, 0.06) 100%);
-  box-shadow: 0 2px 8px rgba(128, 128, 128, 0.12);
-  border-color: rgba(128, 128, 128, 0.22);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--text-tertiary) 14%, transparent) 0%, color-mix(in srgb, var(--text-tertiary) 6%, transparent) 100%);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--text-tertiary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--text-tertiary) 22%, transparent);
 }
 @keyframes blinker {
   50% { opacity: 0; }
+}
+
+/* 批量操作条（§8.3：sticky 语义，选中后出现） */
+.noyo-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-info) 10%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--color-info) 25%, transparent);
+}
+
+/* 筛选折叠面板（§7.2） */
+.noyo-filter-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 1040;
+  width: min(560px, 90vw);
+  padding: 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-floating);
+}
+
+[data-bs-theme='dark'] .noyo-filter-panel {
+  box-shadow: var(--shadow-floating), var(--surface-highlight);
 }
 </style>

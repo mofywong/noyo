@@ -86,7 +86,7 @@ function submitJump() {
 </script>
 
 <style scoped>
-.list-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1rem; padding: .75rem 1rem; border-top: 1px solid var(--bs-border-color); background: var(--bs-body-bg); }
+.list-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1rem; padding: .5rem 1rem; border-top: 1px solid var(--bs-border-color); background: var(--bs-body-bg); }
 .list-pagination__summary, .list-pagination__controls, .list-pagination__pages, .list-pagination__jump, .list-pagination__page-size { display: flex; align-items: center; gap: .4rem; }
 .list-pagination__summary { flex-wrap: wrap; gap: .55rem 1rem; }
 .list-pagination__controls { flex-wrap: wrap; justify-content: flex-end; }
