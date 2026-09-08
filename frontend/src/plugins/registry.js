@@ -10,7 +10,9 @@ const extensions = ref({
   routes: [],
   menus: [],
   deviceActions: [],
-  globalWidgets: []
+  globalWidgets: [],
+  settingsPanels: [],
+  alarmVideoWidgets: []
 });
 
 /**
@@ -39,6 +41,12 @@ export async function loadPlugins() {
       }
       if (pluginManifest.globalWidgets) {
         extensions.value.globalWidgets.push(...pluginManifest.globalWidgets);
+      }
+      if (pluginManifest.settingsPanels) {
+        extensions.value.settingsPanels.push(...pluginManifest.settingsPanels);
+      }
+      if (pluginManifest.alarmVideoWidget) {
+        extensions.value.alarmVideoWidgets.push(pluginManifest.alarmVideoWidget);
       }
     }
   }

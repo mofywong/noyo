@@ -112,8 +112,6 @@ func (s *Server) handleCreateProtocolProfile(r *ghttp.Request) {
 		r.ExitAll()
 	}
 
-
-
 	r.Response.WriteJson(pp)
 }
 
@@ -121,7 +119,7 @@ func isSystemProtocolProfile(pp *store.ProtocolProfile) bool {
 	if pp == nil {
 		return false
 	}
-	return pp.IsSystem || pp.Code == "gb28181_camera_driver" || pp.Code == "bacnet_default_driver" || pp.Code == "modbus_tcp_default_driver" || (pp.TenantID == 0 && pp.ProjectID == 0)
+	return pp.IsSystem || pp.Code == "bacnet_default_driver" || pp.Code == "modbus_tcp_default_driver" || (pp.TenantID == 0 && pp.ProjectID == 0)
 }
 
 func (s *Server) handleUpdateProtocolProfile(r *ghttp.Request) {

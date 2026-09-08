@@ -99,6 +99,35 @@ type IWebRTCICEConfigProvider interface {
 	GetPlaybackICEServers() ([]ICEServerConfig, error)
 }
 
+// MediaNetworkSnapshot is the immutable, browser-facing ICE configuration for
+// one playback session.  Core owns the session lifetime; the media plugin owns
+// how this configuration is stored, validated and issued.
+type MediaNetworkSnapshot struct {
+	ICEServers          []ICEServerConfig
+	CredentialExpiresAt int64
+	Source              string
+	Revision            string
+}
+
+// GatewayMediaNetwork is the transport-neutral network configuration that a
+// platform can synchronize to a gateway.  It deliberately carries no plugin
+// identity so a gateway router never needs to know which media plugin consumes
+// it.
+type GatewayMediaNetwork struct {
+	StunURLs     string `json:"stun_urls"`
+	TurnURLs     string `json:"turn_urls"`
+	TurnUsername string `json:"turn_username"`
+	TurnPassword string `json:"turn_password"`
+}
+
+// IPlatformMediaNetworkProvider is an optional capability implemented by the
+// media plugin that owns platform WebRTC network configuration.
+type IPlatformMediaNetworkProvider interface {
+	CreatePlatformMediaNetwork(identity string, now time.Time) (MediaNetworkSnapshot, error)
+	GetGatewayMediaNetwork() (GatewayMediaNetwork, bool)
+	SetGatewayMediaNetwork(GatewayMediaNetwork)
+}
+
 // IWebRTCConfiguredService applies an explicit per-playback ICE snapshot without
 // changing the plugin's configuration. An empty non-nil slice means host-only.
 type IWebRTCConfiguredService interface {

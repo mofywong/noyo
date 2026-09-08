@@ -286,7 +286,6 @@ const isSystemDriver = (driver) => {
   if (!driver) return false;
   return Boolean(
     driver.is_system ||
-    driver.code === 'gb28181_camera_driver' ||
     driver.code === 'bacnet_default_driver' ||
     driver.code === 'modbus_tcp_default_driver' ||
     (Number(driver.tenant_id || 0) === 0 && Number(driver.project_id || 0) === 0)

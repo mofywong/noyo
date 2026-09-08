@@ -301,7 +301,9 @@
         <button type="button" class="btn-close btn-close-white" style="font-size: 0.6rem;" @click="floatingVideoDevice = null"></button>
       </div>
       <div style="height: calc(100% - 28px);">
-        <GB28181PlayerWidget 
+        <component
+          v-if="alarmVideoWidget"
+          :is="alarmVideoWidget.component"
           :device="floatingVideoDevice" 
           :embedded="true"
           @close="floatingVideoDevice = null" 
@@ -340,8 +342,8 @@ import { useRouter } from 'vue-router';
 import { Modal } from 'bootstrap';
 import axios from 'axios';
 import { gatewayText } from '../utils/gatewayLocale';
-import GB28181PlayerWidget from '@/plugins/pro/protocol/gb28181/GB28181PlayerWidget.vue';
 import { useAuthStore } from '../stores/auth.js';
+import { usePlugins } from '../plugins/registry.js';
 import { isSingleProjectMode, SYSTEM_MODES, systemModeLabel } from '../utils/systemMode.js';
 import {
   findAlarmVideoDevice,
@@ -368,6 +370,8 @@ defineEmits(['toggleSidebar', 'setTheme', 'setLanguage', 'setLiquidGlassDensity'
 const { t, locale } = useI18n();
 const authStore = useAuthStore();
 const router = useRouter();
+const { extensions } = usePlugins();
+const alarmVideoWidget = computed(() => (extensions.value.alarmVideoWidgets || [])[0] || null);
 
 const mqttConnected = computed(() => Boolean(props.mqttStatus && props.mqttStatus.connected));
 const mqttBroker = computed(() => (props.mqttStatus && props.mqttStatus.broker) || '');
@@ -614,20 +618,10 @@ const getEventDef = (evt) => {
   return prod.model.events.find(e => e.key === evt.event_id);
 };
 
-const isGb28181Device = (device) => {
-  return Boolean(
-    device && (
-      device.protocol_name === 'gb28181' ||
-      device.protocol === 'gb28181' ||
-      device._protocol === 'gb28181' ||
-      device.product_code === 'gb28181_camera' ||
-      device.protocol_profile_code === 'gb28181_camera_driver'
-    )
-  );
-};
+const isAlarmVideoDevice = (device) => Boolean(alarmVideoWidget.value?.condition?.(device));
 
 const openAlarmVideoIfReady = (evt) => {
-  const device = findAlarmVideoDevice([evt], devices.value, isGb28181Device);
+  const device = findAlarmVideoDevice([evt], devices.value, isAlarmVideoDevice);
   if (!device) return false;
   floatingVideoDevice.value = device;
   return true;
@@ -642,7 +636,7 @@ const queueAlarmVideoOpen = (evt) => {
 };
 
 const flushPendingVideoAlarmOpen = () => {
-  const device = findAlarmVideoDevice(pendingVideoAlarmEvents, devices.value, isGb28181Device);
+  const device = findAlarmVideoDevice(pendingVideoAlarmEvents, devices.value, isAlarmVideoDevice);
   if (!device) return;
   floatingVideoDevice.value = device;
   pendingVideoAlarmEvents.length = 0;

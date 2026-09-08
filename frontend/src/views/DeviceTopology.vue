@@ -137,7 +137,7 @@ const closeExtensionModal = (name) => {
 };
 
 const playVideo = (device) => {
-  const action = extensionDeviceActions.value.find(a => a.name === 'gb28181-player');
+  const action = extensionDeviceActions.value.find(a => a.mediaPlayer);
   if (action && action.action) {
       const fullDevice = devicesList.value.find(d => d.code === device.code);
       if (fullDevice) {
@@ -463,7 +463,7 @@ const buildGraphData = (devices, plugins) => {
             }
 
             const isOnline = d.online;
-            const isCamera = protocol === 'gb28181' || d.protocol === 'gb28181' || d._protocol === 'gb28181';
+            const isCamera = extensionDeviceActions.value.some((action) => action.mediaPlayer && action.condition?.(d));
             nodes.push({
                 id: d.code,
                 data: {

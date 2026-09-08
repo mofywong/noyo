@@ -56,22 +56,6 @@ func NewMediaSessionManager() *MediaSessionManager {
 	}
 }
 
-func (m *MediaSessionManager) Create(deviceCode, gatewayCode string, userID uint) (*MediaSession, error) {
-	cfg, _, err := loadMediaNetworkConfig()
-	if err != nil {
-		return nil, err
-	}
-	identity, err := newMediaSessionID()
-	if err != nil {
-		return nil, err
-	}
-	servers, _, err := cfg.ICEServers(m.now(), identity)
-	if err != nil {
-		return nil, err
-	}
-	return m.CreateWithICE(deviceCode, gatewayCode, userID, servers)
-}
-
 func (m *MediaSessionManager) CreateWithICE(deviceCode, gatewayCode string, userID uint, servers []platform.ICEServerConfig) (*MediaSession, error) {
 	if deviceCode == "" || userID == 0 {
 		return nil, fmt.Errorf("device and user are required for a media session")

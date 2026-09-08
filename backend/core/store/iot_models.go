@@ -251,7 +251,7 @@ func DeleteDevice(code string) error {
 // --- Protocol Profile Methods ---
 
 func isSystemProfileCode(code string) bool {
-	return code == "gb28181_camera_driver" || code == "bacnet_default_driver" || code == "modbus_tcp_default_driver"
+	return code == "bacnet_default_driver" || code == "modbus_tcp_default_driver"
 }
 
 func GetProtocolProfile(code string) (*ProtocolProfile, error) {

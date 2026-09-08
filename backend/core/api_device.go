@@ -7,7 +7,6 @@ import (
 	"noyo/core/store"
 	"noyo/core/tsdb"
 	"noyo/core/types"
-	"reflect"
 	"time"
 
 	"github.com/gogf/gf/v2/frame/g"
@@ -495,33 +494,7 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 		return
 	}
 
-	// GB28181 摄像机默认值兜底（驱动、协议与 sip_id 配置）
-	if d.ProductCode == "gb28181_camera" {
-		if d.ProtocolName == "" {
-			d.ProtocolName = "gb28181"
-		}
-		if d.ProtocolProfileCode == "" {
-			d.ProtocolProfileCode = "gb28181_camera_driver"
-		}
-		if d.Config == "" || d.Config == "{}" {
-			d.Config = fmt.Sprintf(`{"sip_id":"%s"}`, d.Code)
-		} else {
-			var cfgMap map[string]interface{}
-			if err := json.Unmarshal([]byte(d.Config), &cfgMap); err == nil {
-				if cfgMap == nil {
-					cfgMap = make(map[string]interface{})
-				}
-				if val, ok := cfgMap["sip_id"]; !ok || val == "" || val == nil {
-					cfgMap["sip_id"] = d.Code
-					if b, err := json.Marshal(cfgMap); err == nil {
-						d.Config = string(b)
-					}
-				}
-			} else {
-				d.Config = fmt.Sprintf(`{"sip_id":"%s"}`, d.Code)
-			}
-		}
-	}
+	s.Manager.ApplyDeviceDefaults(&d)
 
 	if d.ProtocolName != "" {
 		if err := validateProtocolEnabledForProject(d.ProtocolName, d.TenantID, d.ProjectID); err != nil {
@@ -627,33 +600,7 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 		return
 	}
 
-	// GB28181 摄像机默认值兜底（驱动、协议与 sip_id 配置）
-	if d.ProductCode == "gb28181_camera" {
-		if d.ProtocolName == "" {
-			d.ProtocolName = "gb28181"
-		}
-		if d.ProtocolProfileCode == "" {
-			d.ProtocolProfileCode = "gb28181_camera_driver"
-		}
-		if d.Config == "" || d.Config == "{}" {
-			d.Config = fmt.Sprintf(`{"sip_id":"%s"}`, d.Code)
-		} else {
-			var cfgMap map[string]interface{}
-			if err := json.Unmarshal([]byte(d.Config), &cfgMap); err == nil {
-				if cfgMap == nil {
-					cfgMap = make(map[string]interface{})
-				}
-				if val, ok := cfgMap["sip_id"]; !ok || val == "" || val == nil {
-					cfgMap["sip_id"] = d.Code
-					if b, err := json.Marshal(cfgMap); err == nil {
-						d.Config = string(b)
-					}
-				}
-			} else {
-				d.Config = fmt.Sprintf(`{"sip_id":"%s"}`, d.Code)
-			}
-		}
-	}
+	s.Manager.ApplyDeviceDefaults(&d)
 
 	if d.ProtocolName != "" {
 		if err := validateProtocolEnabledForProject(d.ProtocolName, d.TenantID, d.ProjectID); err != nil {
@@ -701,7 +648,7 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 	s.DeviceManager.Registry.UpdateDevice(updatedDevice)
 
 	// Restart logic
-	noRestart := r.Get("no_restart", false).Bool() || shouldSkipRestartForDeviceUpdate(oldDevice, updatedDevice)
+	noRestart := r.Get("no_restart", false).Bool() || s.Manager.SkipRestartForDeviceUpdate(oldDevice, updatedDevice)
 	if !noRestart {
 		// 1. Stop if running
 		if s.DeviceManager.IsRunning(code) {
@@ -727,67 +674,6 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 	})
 
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Device updated"})
-}
-
-func shouldSkipRestartForDeviceUpdate(oldDevice, newDevice *store.Device) bool {
-	if oldDevice == nil || newDevice == nil {
-		return false
-	}
-	if oldDevice.ProductCode != "gb28181_camera" || newDevice.ProductCode != "gb28181_camera" {
-		return false
-	}
-	if oldDevice.Code != newDevice.Code ||
-		oldDevice.Name != newDevice.Name ||
-		oldDevice.ProductCode != newDevice.ProductCode ||
-		oldDevice.ParentCode != newDevice.ParentCode ||
-		oldDevice.Enabled != newDevice.Enabled {
-		return false
-	}
-
-	var oldConfig map[string]interface{}
-	var newConfig map[string]interface{}
-	if err := json.Unmarshal([]byte(oldDevice.Config), &oldConfig); err != nil {
-		return false
-	}
-	if err := json.Unmarshal([]byte(newDevice.Config), &newConfig); err != nil {
-		return false
-	}
-
-	yoloConfigKeys := map[string]bool{
-		"enable_yolo":               true,
-		"yolo_classes":              true,
-		"enable_yolo_webrtc":        true,
-		"yolo_confidence":           true,
-		"ai_basic_detections":       true,
-		"ai_basic_detection_groups": true,
-		"ai_scene_rules":            true,
-	}
-
-	changed := false
-	seen := make(map[string]bool, len(oldConfig)+len(newConfig))
-	for key, oldValue := range oldConfig {
-		seen[key] = true
-		newValue, ok := newConfig[key]
-		if !ok || !reflect.DeepEqual(oldValue, newValue) {
-			if !yoloConfigKeys[key] {
-				return false
-			}
-			changed = true
-		}
-	}
-	for key, newValue := range newConfig {
-		if seen[key] {
-			continue
-		}
-		if !yoloConfigKeys[key] {
-			return false
-		}
-		if _, exists := oldConfig[key]; !exists || !reflect.DeepEqual(oldConfig[key], newValue) {
-			changed = true
-		}
-	}
-
-	return changed
 }
 
 func (s *Server) handleDeleteDevice(r *ghttp.Request) {

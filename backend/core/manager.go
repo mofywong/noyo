@@ -480,6 +480,21 @@ func (pm *PluginManager) GetPlatformPlugins() []platform.IPlatformPlugin {
 	return instances
 }
 
+// MediaNetworkProvider returns the enabled platform plugin that owns
+// browser-to-gateway media networking.  Callers depend on this capability,
+// never on a concrete plugin name.
+func (pm *PluginManager) MediaNetworkProvider() platform.IPlatformMediaNetworkProvider {
+	for _, plugin := range pm.GetPlatformPlugins() {
+		if !plugin.IsEnabled() {
+			continue
+		}
+		if provider, ok := plugin.(platform.IPlatformMediaNetworkProvider); ok {
+			return provider
+		}
+	}
+	return nil
+}
+
 // GetPlugin returns a specific plugin by name (thread-safe)
 func (pm *PluginManager) GetPlugin(name string) IManagedPlugin {
 	pm.mu.RLock()

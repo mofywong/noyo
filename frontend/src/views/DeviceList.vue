@@ -1113,7 +1113,6 @@ const newDevice = ref({ code: '', name: '', product_code: '', protocol_profile_c
 const isSubDeviceForm = computed(() => !isEditing.value && !!newDevice.value.parent_code);
 const currentSchema = ref(null);
 const isEditing = ref(false);
-const lastAutoSipId = ref('');
 const selectedDevices = ref([]);
 
 // 详情抽屉状态（§8.4：右侧 720px 抽屉，替代原 hover 浮层）
@@ -1589,12 +1588,11 @@ const getDeviceProtocol = (device) => {
 };
 
 const isCameraDevice = (device) => {
-  const protocol = getDeviceProtocol(device);
-  return protocol === 'gb28181' || device.protocol === 'gb28181' || device._protocol === 'gb28181';
+  return extensionDeviceActions.value.some((action) => action.mediaPlayer && action.condition?.(device));
 };
 
 const playVideo = (device) => {
-  const action = extensionDeviceActions.value.find(a => a.name === 'gb28181-player');
+  const action = extensionDeviceActions.value.find(a => a.mediaPlayer);
   if (action && action.action) {
     executeAction(action, device);
   }
@@ -2938,14 +2936,6 @@ const handleProductChange = () => {
       handleProtocolProfileChange();
       return;
     }
-    if (newDevice.value.product_code === 'gb28181_camera') {
-      const gbDriver = drivers.value.find(d => d.code === 'gb28181_camera_driver' || d.protocol_name === 'gb28181');
-      if (gbDriver) {
-        newDevice.value.protocol_profile_code = gbDriver.code;
-        handleProtocolProfileChange();
-        return;
-      }
-    }
   }
 };
 
@@ -2967,13 +2957,6 @@ const handleProtocolProfileChange = () => {
           console.error("Failed to parse driver config", e);
         }
       }
-      // 若为 GB28181 协议/产品且已输入设备编码，自动填充 sip_id 参数
-      if (selectedDriver.protocol_name === 'gb28181' || newDevice.value.product_code === 'gb28181_camera') {
-        if (newDevice.value.code && !defaultConf.sip_id) {
-          defaultConf.sip_id = newDevice.value.code;
-          lastAutoSipId.value = newDevice.value.code;
-        }
-      }
       fetchProtocolSchema(selectedDriver.protocol_name, newDevice.value.parent_code, selectedDriver.code, defaultConf);
     } else {
       newDevice.value.protocol_name = '';
@@ -2981,18 +2964,6 @@ const handleProtocolProfileChange = () => {
     }
   };
 
-// 监听新建设备编码输入，自动同步至 GB28181 的 sip_id 配置参数
-watch(() => newDevice.value.code, (newCode) => {
-  if (!isEditing.value && (newDevice.value.product_code === 'gb28181_camera' || newDevice.value.protocol_name === 'gb28181')) {
-    if (!newDevice.value.config) {
-      newDevice.value.config = {};
-    }
-    if (!newDevice.value.config.sip_id || newDevice.value.config.sip_id === lastAutoSipId.value) {
-      newDevice.value.config.sip_id = newCode;
-      lastAutoSipId.value = newCode;
-    }
-  }
-});
 
 const clearDeviceDriverSelection = () => {
   newDevice.value.protocol_profile_code = '';
@@ -3041,7 +3012,6 @@ onMounted(() => {
 
 const openCreateModal = () => {
   isEditing.value = false;
-  lastAutoSipId.value = '';
   newDevice.value = { code: '', name: '', product_code: '', protocol_profile_code: '', protocol_name: '', parent_code: '', enabled: true, config: {} };
   currentSchema.value = null;
   showCreateModal.value = true;
@@ -3187,20 +3157,6 @@ const openEditModal = async (device) => {
 
 const saveDevice = async () => {
   try {
-    if (newDevice.value.product_code === 'gb28181_camera' || newDevice.value.protocol_name === 'gb28181') {
-      if (!newDevice.value.config) {
-        newDevice.value.config = {};
-      }
-      if (!newDevice.value.config.sip_id && newDevice.value.code) {
-        newDevice.value.config.sip_id = newDevice.value.code;
-      }
-      if (!newDevice.value.protocol_name) {
-        newDevice.value.protocol_name = 'gb28181';
-      }
-      if (!newDevice.value.protocol_profile_code) {
-        newDevice.value.protocol_profile_code = 'gb28181_camera_driver';
-      }
-    }
     // Prepare payload: stringify config
     const payload = {
       ...newDevice.value,

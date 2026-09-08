@@ -54,19 +54,20 @@ func (s *Server) createPlaybackNetwork(device *store.Device, userID uint, playba
 	source, revision := "local", ""
 	var expires int64
 	if servers == nil {
-		cfg, _, err := loadMediaNetworkConfig()
-		if err != nil {
-			return nil, fmt.Errorf("platform media network configuration unavailable")
+		provider := s.Manager.MediaNetworkProvider()
+		if provider == nil {
+			return nil, fmt.Errorf("platform media network provider is unavailable")
 		}
 		identity, err := newMediaSessionID()
 		if err != nil {
 			return nil, err
 		}
-		servers, expires, err = cfg.ICEServers(time.Now(), fmt.Sprintf("%d-%s", userID, identity))
+		snapshot, err := provider.CreatePlatformMediaNetwork(fmt.Sprintf("%d-%s", userID, identity), time.Now())
 		if err != nil {
 			return nil, err
 		}
-		source, revision = "platform", cfg.Revision
+		servers, expires = snapshot.ICEServers, snapshot.CredentialExpiresAt
+		source, revision = snapshot.Source, snapshot.Revision
 	}
 	session, err := s.MediaSessions.CreateWithICE(device.Code, device.ParentCode, userID, servers)
 	if err != nil {
@@ -104,15 +105,18 @@ func (s *Server) devicePlaybackICEServers(device *store.Device) ([]platform.ICES
 		// part of the short-lived playback session.
 		return nil, nil
 	}
-	plugin := s.Manager.GetPlugin("webrtc")
-	if plugin == nil || !plugin.IsEnabled() {
-		return nil, fmt.Errorf("webrtc plugin is required but currently disabled")
+	for _, plugin := range s.Manager.GetPlatformPlugins() {
+		if !plugin.IsEnabled() {
+			continue
+		}
+		if provider, ok := plugin.(platform.IWebRTCICEConfigProvider); ok {
+			return provider.GetPlaybackICEServers()
+		}
 	}
-	provider, ok := plugin.(platform.IWebRTCICEConfigProvider)
-	if !ok {
+	if s.Manager.MediaNetworkProvider() == nil {
 		return nil, fmt.Errorf("playback ICE configuration is unavailable")
 	}
-	return provider.GetPlaybackICEServers()
+	return nil, fmt.Errorf("media plugin does not provide direct playback ICE configuration")
 }
 
 func (s *Server) handleCreateMediaSession(r *ghttp.Request) {

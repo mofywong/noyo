@@ -134,19 +134,25 @@
         </div>
       </div>
     </form>
-    <MediaNetworkSettings v-if="props.remoteApiBase === '/api/system' && auth.isSystemAdmin" />
+    <component
+      v-for="(panel, index) in settingsPanels"
+      :key="`settings-panel-${index}`"
+      :is="panel.component"
+      :remote-api-base="props.remoteApiBase"
+    />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import axios from 'axios';
 import { inject } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
-import MediaNetworkSettings from '../components/settings/MediaNetworkSettings.vue';
+import { usePlugins } from '../plugins/registry.js';
 const auth = useAuthStore();
+const { extensions } = usePlugins();
 
 const props = defineProps({
   remoteApiBase: {
@@ -157,6 +163,9 @@ const props = defineProps({
 
 const { t } = useI18n();
 const showToast = inject('showToast');
+const settingsPanels = computed(() => (extensions.value.settingsPanels || []).filter((panel) => {
+  return !panel.condition || panel.condition({ remoteApiBase: props.remoteApiBase, isSystemAdmin: auth.isSystemAdmin });
+}));
 
 const loading = ref(true);
 const saving = ref(false);
