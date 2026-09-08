@@ -1,23 +1,25 @@
 <template>
-  <Transition name="drawer-fade">
-    <div v-if="visible" class="noyo-drawer-overlay" @click.self="$emit('close')" @keydown.esc="$emit('close')">
-      <div class="noyo-drawer" role="dialog" aria-modal="true" tabindex="-1" :aria-label="title">
-        <div class="noyo-drawer-header">
-          <div class="d-flex align-items-center gap-2 min-w-0">
-            <slot name="header-badge"></slot>
-            <h5 class="mb-0 text-truncate">{{ title }}</h5>
+  <Teleport to="body">
+    <Transition name="drawer-fade">
+      <div v-if="visible" class="noyo-drawer-overlay" @click.self="$emit('close')" @keydown.esc="$emit('close')">
+        <div class="noyo-drawer" role="dialog" aria-modal="true" tabindex="-1" :aria-label="title">
+          <div class="noyo-drawer-header">
+            <div class="d-flex align-items-center gap-2 min-w-0">
+              <slot name="header-badge"></slot>
+              <h5 class="mb-0 text-truncate">{{ title }}</h5>
+            </div>
+            <button type="button" class="btn-close" @click="$emit('close')" :aria-label="$t('common_close', '关闭 Close')"></button>
           </div>
-          <button type="button" class="btn-close" @click="$emit('close')" :aria-label="$t('common_close', '关闭 Close')"></button>
-        </div>
-        <div class="noyo-drawer-body">
-          <slot></slot>
-        </div>
-        <div v-if="$slots.footer" class="noyo-drawer-footer">
-          <slot name="footer"></slot>
+          <div class="noyo-drawer-body">
+            <slot></slot>
+          </div>
+          <div v-if="$slots.footer" class="noyo-drawer-footer">
+            <slot name="footer"></slot>
+          </div>
         </div>
       </div>
-    </div>
-  </Transition>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup>

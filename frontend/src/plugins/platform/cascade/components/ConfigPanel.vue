@@ -58,6 +58,26 @@
                 <input type="password" class="form-control" v-model="config.password" autocomplete="new-password">
               </div>
             </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <div class="form-check form-switch pt-2">
+                  <input class="form-check-input" type="checkbox" id="cascadeEnableTls" v-model="config.enable_tls">
+                  <label class="form-check-label fw-bold small" for="cascadeEnableTls">
+                    启用 TLS 加密 (Enable TLS)
+                  </label>
+                  <div class="form-text">为级联 MQTT 连接开启 TLS 加密</div>
+                </div>
+              </div>
+              <div class="col-md-6 mb-3" v-if="config.enable_tls">
+                <div class="form-check form-switch pt-2">
+                  <input class="form-check-input" type="checkbox" id="cascadeSkipVerify" v-model="config.insecure_skip_verify">
+                  <label class="form-check-label fw-bold small" for="cascadeSkipVerify">
+                    跳过证书校验 (Skip TLS Verify)
+                  </label>
+                  <div class="form-text">自签名证书环境下允许跳过证书校验</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -115,6 +135,8 @@ const saving = ref(false);
 const config = ref({
   mode: 'platform',
   mqtt_url: 'tcp://127.0.0.1:1883',
+  enable_tls: false,
+  insecure_skip_verify: false,
   username: '',
   password: '',
   gateway_sn: '',
@@ -137,6 +159,8 @@ const loadConfig = async () => {
 
       config.value.mode = getVal('mode', 'platform');
       config.value.mqtt_url = getVal('mqtt_url', 'tcp://127.0.0.1:1883');
+      config.value.enable_tls = Boolean(getVal('enable_tls', false));
+      config.value.insecure_skip_verify = Boolean(getVal('insecure_skip_verify', false));
       config.value.username = getVal('username', '');
       config.value.password = getVal('password', '');
       config.value.gateway_sn = getVal('gateway_sn', '');
@@ -158,6 +182,8 @@ async function save() {
     const payload = {
       mode: config.value.mode,
       mqtt_url: config.value.mqtt_url,
+      enable_tls: config.value.enable_tls,
+      insecure_skip_verify: config.value.insecure_skip_verify,
       username: config.value.username,
       password: config.value.password,
       gateway_sn: config.value.gateway_sn,
@@ -172,6 +198,7 @@ async function save() {
     if (res.data.code === 0) {
       showToast('success', '保存成功，级联插件已应用新配置');
       emit('saved', res.data.data);
+      window.dispatchEvent(new CustomEvent('cascade-config-updated', { detail: res.data.data }));
       if (!props.apiBase) {
         router.back();
       }

@@ -97,6 +97,10 @@ call npm install
 if %errorlevel% neq 0 exit /b %errorlevel%
 call npm run build
 if %errorlevel% neq 0 exit /b %errorlevel%
+if not exist "..\backend\dist\index.html" (
+    echo Error: Frontend build did not produce backend\dist\index.html.
+    exit /b 1
+)
 cd ..
 
 echo [2/3] Skipping copy (Vite builds to backend/dist directly)...

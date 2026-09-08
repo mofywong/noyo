@@ -42,6 +42,13 @@ type remotePluginStatusSetRequest struct {
 	Enabled bool   `json:"enabled"`
 }
 
+type SyncMediaNetwork struct {
+	StunURLs     string `json:"stun_urls"`
+	TurnURLs     string `json:"turn_urls"`
+	TurnUsername string `json:"turn_username"`
+	TurnPassword string `json:"turn_password"`
+}
+
 type remotePluginSummary struct {
 	Name                    string                   `json:"name"`
 	Title                   map[string]string        `json:"title"`

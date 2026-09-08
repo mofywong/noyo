@@ -1,20 +1,38 @@
 <template>
-  <div class="container-fluid py-4 work-order-center">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+  <div class="work-order-center-page page-fixed-height">
+    <div class="page-header">
       <div>
-        <h2 class="h4 mb-1 fw-bold text-primary border-start border-primary border-4 ps-2">{{ tx('pageTitle') }}</h2>
-        <div class="text-muted small">{{ tx('pageSubtitle') }}</div>
+        <h1>{{ tx('pageTitle') }}</h1>
+        <p class="page-subtitle">{{ tx('pageSubtitle') }}</p>
       </div>
-      <div class="btn-group">
-        <button class="btn btn-outline-secondary" :disabled="loading" @click="refreshCurrentTab">
-          <i class="bi bi-arrow-clockwise me-1"></i>{{ tx('refresh') }}
-        </button>
-        <button v-if="activeTab === 'orders' && authStore.hasPermission('work_order:create')" class="btn btn-primary" @click="openCreateOrder">
-          <i class="bi bi-plus-lg me-1"></i>{{ tx('newWorkOrder') }}
-        </button>
-        <button v-else-if="authStore.hasPermission('work_order:manage')" class="btn btn-primary" @click="openCreateTemplate">
-          <i class="bi bi-file-earmark-plus me-1"></i>{{ tx('newTemplate') }}
-        </button>
+      <div class="d-flex align-items-center gap-2">
+        <LiquidGlassButton
+          variant="secondary"
+          size="sm"
+          :icon="loading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'"
+          :disabled="loading"
+          @click="refreshCurrentTab"
+        >
+          {{ tx('refresh') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton
+          v-if="activeTab === 'orders' && authStore.hasPermission('work_order:create')"
+          variant="primary"
+          size="sm"
+          icon="bi bi-plus-lg"
+          @click="openCreateOrder"
+        >
+          {{ tx('newWorkOrder') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton
+          v-else-if="authStore.hasPermission('work_order:manage')"
+          variant="primary"
+          size="sm"
+          icon="bi bi-file-earmark-plus"
+          @click="openCreateTemplate"
+        >
+          {{ tx('newTemplate') }}
+        </LiquidGlassButton>
       </div>
     </div>
 
@@ -27,481 +45,490 @@
       <button type="button" class="btn-close" @click="successMessage = ''"></button>
     </div>
 
-    <ul class="nav nav-tabs mb-3">
+    <ul class="nav nav-tabs mb-3" role="tablist">
       <li class="nav-item">
-        <button class="nav-link" :class="{ active: activeTab === 'orders' }" @click="activeTab = 'orders'">
+        <button class="nav-link" :class="{ active: activeTab === 'orders' }" @click="switchTab('orders')">
           <i class="bi bi-ticket-detailed me-1"></i>{{ tx('ordersTab') }}
         </button>
       </li>
       <li class="nav-item">
-        <button class="nav-link" :class="{ active: activeTab === 'templates' }" @click="activeTab = 'templates'">
+        <button class="nav-link" :class="{ active: activeTab === 'templates' }" @click="switchTab('templates')">
           <i class="bi bi-ui-checks-grid me-1"></i>{{ tx('templatesTab') }}
         </button>
       </li>
       <li v-if="workOrderIntegrationsVisible && authStore.hasPermission('work_order:integration')" class="nav-item">
-        <button class="nav-link" :class="{ active: activeTab === 'integrations' }" @click="activeTab = 'integrations'">
+        <button class="nav-link" :class="{ active: activeTab === 'integrations' }" @click="switchTab('integrations')">
           <i class="bi bi-plug me-1"></i>{{ tx('integrations') }}
         </button>
       </li>
     </ul>
 
-    <section v-if="activeTab === 'orders'">
-      <div class="card border-0 shadow-sm mb-3 work-order-filter-card">
-        <div class="card-body py-3">
-          <div class="d-flex flex-wrap align-items-center gap-2 mb-3 work-order-relation-filter" :aria-label="tx('relatedViews')">
-            <span class="small fw-semibold text-body-secondary me-1"><i class="bi bi-person-check me-1"></i>{{ tx('relatedToMe') }}</span>
-            <button v-for="relation in relationFilters" :key="relation.key || 'all'" type="button" class="btn btn-sm rounded-pill" :class="orderFilters.relation === relation.key ? 'btn-primary' : 'btn-outline-secondary'" @click="applyRelationFilter(relation.key)">{{ relation.label }}</button>
-          </div>
-          <div class="row g-2">
-            <div class="col-md-4">
-              <input v-model.trim="orderFilters.keyword" class="form-control" :placeholder="tx('searchPlaceholder')" @keyup.enter="applyOrderFilters">
+    <!-- Tab 1: 工单列表（一体化卡片，融合关系范围与条件检索） -->
+    <section v-if="activeTab === 'orders'" class="orders-section flex-grow-1 d-flex flex-column min-h-0">
+      <div class="card border-0 shadow-sm table-glass-card work-order-list-card flex-grow-1 overflow-hidden d-flex flex-column">
+        <!-- Integrated Filter Toolbar in Card Header -->
+        <div class="card-header bg-transparent p-2 border-bottom flex-shrink-0">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <!-- 关系范围筛选胶囊组 -->
+            <div class="d-flex flex-wrap align-items-center gap-1 work-order-relation-filter" :aria-label="tx('relatedViews')">
+              <button
+                v-for="relation in orderRelationFilters"
+                :key="relation.key"
+                type="button"
+                class="btn btn-sm rounded-pill py-0 px-2"
+                :class="orderFilters.relation === relation.key ? 'btn-primary' : 'btn-outline-secondary'"
+                @click="applyOrderRelation(relation.key)"
+              >
+                {{ relation.label }}
+              </button>
             </div>
-            <div class="col-md-3">
-              <select v-model="orderFilters.status" class="form-select" @change="applyOrderFilters">
-                <option value="">{{ tx('allStatuses') }}</option>
-                <option v-for="status in workflowStatuses" :key="status.key" :value="status.key">{{ status.name }}</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <select v-model="orderFilters.sourceType" class="form-select" @change="applyOrderFilters">
-                <option value="">{{ tx('allSources') }}</option>
-                <option value="manual">{{ tx('sourceManual') }}</option>
-                <option value="rule">{{ tx('sourceRule') }}</option>
-                <option value="alarm">{{ tx('sourceAlarm') }}</option>
-                <option value="ai">{{ tx('sourceAI') }}</option>
-                <option value="external">{{ tx('sourceExternal') }}</option>
-              </select>
-            </div>
-            <div class="col-md-2 d-grid">
-              <button class="btn btn-primary shadow-sm" :disabled="loading" @click="applyOrderFilters"><i class="bi bi-search me-1"></i>{{ tx('query') }}</button>
+            <!-- 条件与关键词组合检索 -->
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <div style="width: 120px;">
+                <select v-model="orderFilters.status" class="form-select form-select-sm" @change="applyOrderFilters">
+                  <option value="">{{ tx('allStatuses') }}</option>
+                  <option v-for="status in workflowStatuses" :key="status.key" :value="status.key">{{ status.name }}</option>
+                </select>
+              </div>
+              <div style="width: 120px;">
+                <select v-model="orderFilters.sourceType" class="form-select form-select-sm" @change="applyOrderFilters">
+                  <option value="">{{ tx('allSources') }}</option>
+                  <option value="manual">{{ tx('sourceManual') }}</option>
+                  <option value="rule">{{ tx('sourceRule') }}</option>
+                  <option value="alarm">{{ tx('sourceAlarm') }}</option>
+                  <option value="ai">{{ tx('sourceAI') }}</option>
+                  <option value="external">{{ tx('sourceExternal') }}</option>
+                </select>
+              </div>
+              <div style="min-width: 160px; max-width: 240px;">
+                <input
+                  v-model.trim="orderFilters.keyword"
+                  class="form-control form-control-sm"
+                  :placeholder="tx('searchPlaceholder')"
+                  @keyup.enter="applyOrderFilters"
+                >
+              </div>
+              <button class="btn btn-primary btn-sm" :disabled="ordersLoading" @click="applyOrderFilters">
+                <i class="bi bi-search me-1"></i>{{ tx('query') }}
+              </button>
             </div>
           </div>
         </div>
-      </div>
 
-      <div class="card border-0 shadow-sm work-order-list-card">
-            <div class="table-responsive">
-              <table class="table align-middle mb-0 work-order-table">
-                <thead class="work-order-table-head">
-                  <tr>
-                    <th>{{ tx('columnWorkOrder') }}</th>
-                    <th>{{ tx('columnSource') }}</th>
-                    <th>{{ tx('columnPriority') }}</th>
-                    <th>{{ tx('columnStatus') }}</th>
-                    <th>{{ tx('columnHandler') }}</th>
-                    <th>{{ tx('columnCreatedAt') }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-if="loading && orders.length === 0"><td colspan="6" class="text-center py-5 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>{{ tx('loading') }}</td></tr>
-                  <tr v-else-if="filteredOrders.length === 0"><td colspan="6" class="text-center py-5 text-muted"><i class="bi bi-inbox fs-3 d-block mb-2"></i>{{ tx('noOrders') }}</td></tr>
-                  <tr v-for="entry in filteredOrders" :key="workOrderId(entry.work_order)" role="button" tabindex="0" class="work-order-row" :class="{ 'work-order-row--selected': workOrderId(selectedOrder?.work_order) === workOrderId(entry.work_order) }" @click="selectOrder(workOrderId(entry.work_order))" @keydown.enter.prevent="selectOrder(workOrderId(entry.work_order))" @keydown.space.prevent="selectOrder(workOrderId(entry.work_order))">
-                    <td class="work-order-main-cell">
-                      <div class="fw-semibold">{{ entry.work_order.title }}</div>
-                    </td>
-                    <td :data-label="tx('columnSource')"><span class="badge border work-order-source-badge">{{ sourceLabel(entry.work_order.source_type) }}</span></td>
-                    <td :data-label="tx('columnPriority')"><span class="badge" :class="priorityClass(entry.work_order.priority)">{{ priorityLabel(entry.work_order.priority) }}</span></td>
-                    <td :data-label="tx('columnStatus')"><span class="badge" :class="statusClass(effectiveWorkOrderStatus(entry.work_order))">{{ statusLabel(effectiveWorkOrderStatus(entry.work_order)) }}</span></td>
-                    <td :data-label="tx('columnHandler')">{{ responsibilityLabel(entry) }}</td>
-                    <td class="small text-muted" :data-label="tx('columnCreatedAt')">{{ formatTime(entry.work_order.CreatedAt) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <ListPagination :page="orderPage" :page-size="orderPageSize" :total="orderTotal" :page-size-options="orderPageSizeOptions" :disabled="loading" id-prefix="work-orders" @update:page="goOrderPage" @update:page-size="changeOrderPageSize" />
+        <div class="card-body p-0 d-flex flex-column flex-grow-1 overflow-hidden">
+          <div class="table-responsive flex-grow-1">
+            <table class="table table-hover align-middle mb-0 table-compact work-order-table">
+              <thead class="work-order-table-head">
+                <tr>
+                  <th>{{ tx('columnWorkOrder') }}</th>
+                  <th>{{ tx('columnSource') }}</th>
+                  <th>{{ tx('columnPriority') }}</th>
+                  <th>{{ tx('columnStatus') }}</th>
+                  <th>{{ tx('columnHandler') }}</th>
+                  <th>{{ tx('columnCreatedAt') }}</th>
+                  <th class="text-end pe-4">{{ tx('columnActions') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="ordersLoading && orders.length === 0"><td colspan="7" class="text-center py-5 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>{{ tx('loading') }}</td></tr>
+                <tr v-else-if="orders.length === 0"><td colspan="7" class="text-center py-5 text-muted"><i class="bi bi-inbox fs-3 d-block mb-2"></i>{{ tx('noOrders') }}</td></tr>
+                <tr v-for="entry in orders" :key="workOrderId(entry.work_order)" role="button" tabindex="0" class="work-order-row" :class="{ 'work-order-row--selected': workOrderId(selectedOrder?.work_order) === workOrderId(entry.work_order) }" @click="selectOrder(workOrderId(entry.work_order))" @keydown.enter.prevent="selectOrder(workOrderId(entry.work_order))" @keydown.space.prevent="selectOrder(workOrderId(entry.work_order))">
+                  <td class="work-order-main-cell">
+                    <div class="fw-semibold text-truncate" style="max-width: 320px;" :title="entry.work_order.title">{{ entry.work_order.title }}</div>
+                  </td>
+                  <td :data-label="tx('columnSource')"><span class="badge border work-order-source-badge">{{ sourceLabel(entry.work_order.source_type) }}</span></td>
+                  <td :data-label="tx('columnPriority')"><span class="badge" :class="priorityClass(entry.work_order.priority)">{{ priorityLabel(entry.work_order.priority) }}</span></td>
+                  <td :data-label="tx('columnStatus')"><span class="badge" :class="statusClass(effectiveWorkOrderStatus(entry.work_order))">{{ statusLabel(effectiveWorkOrderStatus(entry.work_order)) }}</span></td>
+                  <td :data-label="tx('columnHandler')">{{ responsibilityLabel(entry) }}</td>
+                  <td class="small text-muted" :data-label="tx('columnCreatedAt')">{{ formatTime(entry.work_order.CreatedAt) }}</td>
+                  <td class="text-end pe-4 work-order-actions-cell" @click.stop>
+                    <div class="table-actions">
+                      <button class="table-action-btn table-action-btn--primary" :title="tx('viewDetail')" @click="selectOrder(workOrderId(entry.work_order))">
+                        <i class="bi bi-eye"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <ListPagination :page="orderPage" :page-size="orderPageSize" :total="orderTotal" :page-size-options="orderPageSizeOptions" :disabled="ordersLoading" id-prefix="work-orders" @update:page="goOrderPage" @update:page-size="changeOrderPageSize" />
+        </div>
       </div>
+    </section>
 
+    <!-- Tab 3: 表单与流程模板 -->
+    <section v-else-if="activeTab === 'templates'" class="flex-grow-1 d-flex flex-column min-h-0">
+      <div class="card border-0 shadow-sm table-glass-card flex-grow-1 overflow-hidden d-flex flex-column">
+        <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+          <div class="table-responsive flex-grow-1">
+            <table class="table table-hover align-middle mb-0 table-compact">
+              <thead class="work-order-table-head">
+                <tr>
+                  <th>{{ tx('templateName') }}</th>
+                  <th>{{ tx('columnCreatedAt') }}</th>
+                  <th class="text-end pe-4">{{ tx('columnActions') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="templates.length === 0"><td colspan="3" class="text-center py-5 text-muted"><i class="bi bi-inbox fs-3 d-block mb-2"></i>{{ tx('noTemplates') }}</td></tr>
+                <tr v-for="template in templates" :key="template.ID" class="work-order-template-row" role="button" tabindex="0" @click="openTemplateDetail(template.ID)" @keydown.enter.prevent="openTemplateDetail(template.ID)" @keydown.space.prevent="openTemplateDetail(template.ID)">
+                  <td class="fw-semibold">{{ template.name }}</td>
+                  <td class="small text-muted">{{ formatTime(template.CreatedAt) }}</td>
+                  <td class="text-end pe-4" @click.stop>
+                    <div class="table-actions">
+                      <button class="table-action-btn table-action-btn--success" :aria-label="`${tx('configureTemplate')} ${template.name}`" @click.stop="openTemplateEditor(template.ID)" :title="tx('configureWorkflowForm')"><i class="bi bi-diagram-3"></i></button>
+                      <button v-if="authStore.hasPermission('work_order:manage')" class="table-action-btn" :aria-label="`${tx('copyTemplate')} ${template.name}`" :disabled="actionLoading" @click.stop="copyTemplate(template)" :title="tx('copyTemplate')"><i class="bi bi-copy"></i></button>
+                      <button v-if="!template.system_managed" class="table-action-btn table-action-btn--primary" :aria-label="`${tx('editTemplate')} ${template.name}`" @click.stop="openEditTemplate(template)" :title="tx('editBasicInfo')"><i class="bi bi-pencil"></i></button>
+                      <button v-if="!template.system_managed" class="table-action-btn table-action-btn--danger" :aria-label="`${tx('deleteTemplate')} ${template.name}`" @click.stop="deleteTemplate(template)" :title="tx('deleteTemplate')"><i class="bi bi-trash"></i></button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- 工单详情抽屉与全局弹窗 (Teleport to body 避免被侧边栏与顶部栏遮挡) -->
+    <Teleport to="body">
+      <!-- 工单详情抽屉 (Top Level) -->
       <div v-if="selectedOrder" class="offcanvas-backdrop fade show" @click="closeOrderDetail"></div>
       <aside v-if="selectedOrder" ref="orderDetailDialog" class="work-order-drawer shadow-lg" aria-modal="true" role="dialog" tabindex="-1" aria-labelledby="work-order-detail-title" @keydown.esc.stop="closeOrderDetail">
         <div class="work-order-drawer__head">
-                <div>
-                  <h2 id="work-order-detail-title" class="h5 mb-2 fw-bold text-body">{{ selectedOrder.work_order.title }}</h2>
-                  <div class="d-flex gap-2">
-                    <span class="badge" :class="statusClass(effectiveWorkOrderStatus(selectedOrder.work_order))">{{ statusLabel(effectiveWorkOrderStatus(selectedOrder.work_order)) }}</span>
-                    <span class="badge" :class="priorityClass(selectedOrder.work_order.priority)">{{ priorityLabel(selectedOrder.work_order.priority) }}</span>
-                  </div>
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                <button v-if="selectedOrder.available_actions?.claim && authStore.hasPermission('work_order:process')" class="btn btn-primary shadow-sm" :disabled="actionLoading" @click="claimOrder"><i class="bi bi-person-check me-1"></i>{{ tx('claim') }}</button>
-                  <button type="button" class="btn-close" :aria-label="tx('close')" @click="closeOrderDetail"></button>
-                </div>
+          <div>
+            <h2 id="work-order-detail-title" class="h5 mb-2 fw-bold text-body">{{ selectedOrder.work_order.title }}</h2>
+            <div class="d-flex gap-2">
+              <span class="badge" :class="statusClass(effectiveWorkOrderStatus(selectedOrder.work_order))">{{ statusLabel(effectiveWorkOrderStatus(selectedOrder.work_order)) }}</span>
+              <span class="badge" :class="priorityClass(selectedOrder.work_order.priority)">{{ priorityLabel(selectedOrder.work_order.priority) }}</span>
+            </div>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <button v-if="selectedOrder.available_actions?.claim && authStore.hasPermission('work_order:process')" class="btn btn-primary shadow-sm" :disabled="actionLoading" @click="claimOrder"><i class="bi bi-person-check me-1"></i>{{ tx('claim') }}</button>
+            <button type="button" class="btn-close" :aria-label="tx('close')" @click="closeOrderDetail"></button>
+          </div>
         </div>
         <div class="work-order-drawer__body">
-              <p v-if="workOrderSummary(selectedOrder)" class="mb-4 text-body-secondary">{{ workOrderSummary(selectedOrder) }}</p>
-              <div v-if="selectedOrder.work_order.assignee_user_id" class="small text-body-secondary mb-4"><i class="bi bi-person-check me-1"></i>{{ tx('claimedBy') }}{{ assigneeLabel(selectedOrder.work_order.assignee_user_id) }}</div>
+          <p v-if="workOrderSummary(selectedOrder)" class="mb-4 text-body-secondary">{{ workOrderSummary(selectedOrder) }}</p>
+          <div v-if="selectedOrder.work_order.assignee_user_id" class="small text-body-secondary mb-4"><i class="bi bi-person-check me-1"></i>{{ tx('claimedBy') }}{{ assigneeLabel(selectedOrder.work_order.assignee_user_id) }}</div>
 
-              <div class="mb-4 bg-body-tertiary rounded p-3 work-order-form-section">
-                <div class="fw-bold small mb-3 text-secondary"><i class="bi bi-card-text me-1"></i>{{ tx('formContent') }}</div>
-                <dl class="row small mb-0 g-2">
-                  <template v-for="field in selectedOrder.form_definition.fields || []" :key="field.key">
-                    <dt class="col-sm-4 text-muted fw-normal">{{ workOrderFormFieldLabel(field) }}</dt>
-                    <dd class="col-sm-8 text-break fw-medium">
-                      <div v-if="field.type === 'images' && imageFormValues(selectedOrder.form_data[field.key]).length" class="work-order-detail-images">
-                        <a v-for="(imageUrl, imageIndex) in imageFormValues(selectedOrder.form_data[field.key])" :key="`${imageUrl}-${imageIndex}`" :href="imageUrl" target="_blank" rel="noopener noreferrer"><img :src="imageUrl" :alt="`${field.label} ${imageIndex + 1}`"></a>
-                      </div>
-                      <span v-else>{{ displayFormValue(selectedOrder.form_data[field.key], field) }}</span>
-                    </dd>
+          <!-- 告警来源工单专属证据卡片 -->
+          <div v-if="selectedOrder.work_order?.source_type === 'alarm' && (alarmSourceDetails.length || alarmSnapshotUrl)" class="mb-4 bg-body-tertiary rounded p-3 border work-order-alarm-section">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+              <div class="fw-bold small text-secondary"><i class="bi bi-shield-exclamation me-1"></i>{{ tx('alarmEvidence') }}</div>
+              <span class="badge bg-danger-subtle text-danger-emphasis">{{ tx('sourceAlarm') }}</span>
+            </div>
+            
+            <div v-if="alarmSnapshotUrl" class="mb-3 text-center">
+              <a :href="alarmSnapshotUrl" target="_blank" rel="noopener noreferrer" class="d-inline-block">
+                <img :src="alarmSnapshotUrl" :alt="tx('alarmEvidence')" class="img-fluid rounded border shadow-sm" style="max-height: 180px; object-fit: contain; background: var(--bs-body-bg);">
+              </a>
+            </div>
+
+            <dl class="row small mb-0 g-2">
+              <template v-for="detail in alarmSourceDetails" :key="detail.id">
+                <dt class="col-sm-4 text-muted fw-normal">{{ detail.label }}</dt>
+                <dd class="col-sm-8 text-break fw-medium mb-0">{{ detail.value }}</dd>
+              </template>
+            </dl>
+          </div>
+
+          <!-- 表单内容 -->
+          <div v-if="selectedOrder.form_definition?.fields?.length" class="mb-4 bg-body-tertiary rounded p-3 work-order-form-section">
+            <div class="fw-bold small mb-3 text-secondary"><i class="bi bi-card-text me-1"></i>{{ tx('formContent') }}</div>
+            <dl class="row small mb-0 g-2">
+              <template v-for="field in selectedOrder.form_definition.fields || []" :key="field.key">
+                <dt class="col-sm-4 text-muted fw-normal">{{ workOrderFormFieldLabel(field) }}</dt>
+                <dd class="col-sm-8 text-break fw-medium mb-0">
+                  <div v-if="field.type === 'images' && imageFormValues(selectedOrder.form_data[field.key]).length" class="work-order-detail-images">
+                    <a v-for="(imageUrl, imageIndex) in imageFormValues(selectedOrder.form_data[field.key])" :key="`${imageUrl}-${imageIndex}`" :href="imageUrl" target="_blank" rel="noopener noreferrer"><img :src="imageUrl" :alt="`${field.label} ${imageIndex + 1}`"></a>
+                  </div>
+                  <span v-else>{{ displayFormValue(selectedOrder.form_data[field.key], field) }}</span>
+                </dd>
+              </template>
+            </dl>
+          </div>
+
+          <section v-if="historicalGuidance" class="mb-4 work-order-history-guidance rounded p-3" aria-labelledby="work-order-history-guidance-title">
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+              <div>
+                <div id="work-order-history-guidance-title" class="fw-bold text-success-emphasis"><i class="bi bi-shield-check me-2"></i>{{ tx('historicalGuidance') }}</div>
+                <div class="small text-body-secondary mt-1">{{ tx('historicalGuidanceHint') }}</div>
+              </div>
+              <span v-if="historicalGuidance.verificationCount" class="badge rounded-pill work-order-history-guidance__verified">{{ txf('historicalVerifiedCount', { count: historicalGuidance.verificationCount }) }}</span>
+            </div>
+            <p v-if="historicalGuidance.summary" class="small mb-0 mt-3 work-order-history-guidance__summary">{{ historicalGuidance.summary }}</p>
+            <div class="work-order-history-guidance__list mt-3">
+              <article v-for="(experience, experienceIndex) in historicalGuidance.experiences" :key="experience.id" class="work-order-history-experience">
+                <header class="work-order-history-experience__head">
+                  <span class="work-order-history-experience__index">{{ experienceIndex + 1 }}</span>
+                  <strong>{{ txf('historicalExperience', { index: experienceIndex + 1 }) }}</strong>
+                  <span v-if="experience.verificationCount" class="badge rounded-pill work-order-history-experience__count">{{ txf('historicalVerifiedCount', { count: experience.verificationCount }) }}</span>
+                  <span v-if="experience.lastVerifiedAt" class="small text-body-secondary ms-auto"><i class="bi bi-clock me-1"></i>{{ formatTime(experience.lastVerifiedAt) }}</span>
+                </header>
+                <dl class="row small mb-0 g-2 work-order-history-experience__details">
+                  <template v-for="item in experience.details" :key="item.labelKey">
+                    <dt class="col-sm-4 text-body-secondary fw-normal">{{ tx(item.labelKey) }}</dt>
+                    <dd class="col-sm-8 mb-0 text-break fw-medium">{{ item.value }}</dd>
                   </template>
                 </dl>
-                <div v-if="alarmSourceDetails.length" class="mt-3 pt-3 border-top">
-                  <div class="fw-bold small mb-2 text-secondary"><i class="bi bi-broadcast-pin me-1"></i>{{ tx('alarmEvidence') }}</div>
-                  <dl class="row small mb-0 g-2"><template v-for="detail in alarmSourceDetails" :key="detail.id"><dt class="col-sm-4 text-muted fw-normal">{{ detail.label }}</dt><dd class="col-sm-8 text-break fw-medium">{{ detail.value }}</dd></template></dl>
-                </div>
-              </div>
+              </article>
+            </div>
+          </section>
 
-              <section v-if="historicalGuidance" class="mb-4 work-order-history-guidance rounded p-3" aria-labelledby="work-order-history-guidance-title">
-                <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
-                  <div>
-                    <div id="work-order-history-guidance-title" class="fw-bold text-success-emphasis"><i class="bi bi-shield-check me-2"></i>{{ tx('historicalGuidance') }}</div>
-                    <div class="small text-body-secondary mt-1">{{ tx('historicalGuidanceHint') }}</div>
-                  </div>
-                  <span v-if="historicalGuidance.verificationCount" class="badge rounded-pill work-order-history-guidance__verified">{{ txf('historicalVerifiedCount', { count: historicalGuidance.verificationCount }) }}</span>
-                </div>
-                <p v-if="historicalGuidance.summary" class="small mb-0 mt-3 work-order-history-guidance__summary">{{ historicalGuidance.summary }}</p>
-                <div class="work-order-history-guidance__list mt-3">
-                  <article v-for="(experience, experienceIndex) in historicalGuidance.experiences" :key="experience.id" class="work-order-history-experience">
-                    <header class="work-order-history-experience__head">
-                      <span class="work-order-history-experience__index">{{ experienceIndex + 1 }}</span>
-                      <strong>{{ txf('historicalExperience', { index: experienceIndex + 1 }) }}</strong>
-                      <span v-if="experience.verificationCount" class="badge rounded-pill work-order-history-experience__count">{{ txf('historicalVerifiedCount', { count: experience.verificationCount }) }}</span>
-                      <span v-if="experience.lastVerifiedAt" class="small text-body-secondary ms-auto"><i class="bi bi-clock me-1"></i>{{ formatTime(experience.lastVerifiedAt) }}</span>
-                    </header>
-                    <dl class="row small mb-0 g-2 work-order-history-experience__details">
-                      <template v-for="item in experience.details" :key="item.labelKey">
-                        <dt class="col-sm-4 text-body-secondary fw-normal">{{ tx(item.labelKey) }}</dt>
-                        <dd class="col-sm-8 mb-0 text-break fw-medium">{{ item.value }}</dd>
-                      </template>
-                    </dl>
-                  </article>
-                </div>
-              </section>
-
-              <div class="mb-4 work-order-action-panel rounded p-3 border">
-                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                  <div>
-                    <div class="fw-bold small text-secondary"><i class="bi bi-lightning-charge me-1"></i>{{ tx('workOrderActions') }}</div>
-                    <div class="small text-body-secondary mt-1">{{ tx('actionHint') }}</div>
-                  </div>
-                  <div class="d-flex flex-wrap gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" :disabled="actionLoading" @click="openCCModal"><i class="bi bi-send me-1"></i>{{ tx('cc') }}</button>
-                    <button v-if="canTransferOrder" class="btn btn-sm btn-outline-primary" :disabled="actionLoading" @click="openTransferModal"><i class="bi bi-arrow-left-right me-1"></i>{{ tx('transfer') }}</button>
-                    <button v-if="processActionOptions.length" class="btn btn-sm btn-primary" :disabled="actionLoading" @click="openProcessModal"><i class="bi bi-check2-square me-1"></i>{{ tx('processTitle') }}</button>
-                  </div>
-                </div>
-                <div v-if="myPendingGraphTasks.length" class="mt-3 pt-3 border-top">
-                  <div class="small text-body-secondary mb-2">{{ tx('myTasks') }}</div>
-                  <div class="d-flex flex-wrap gap-2">
-                    <span v-for="task in myPendingGraphTasks" :key="task.public_id" class="badge rounded-pill work-order-task-badge border">
-                      {{ task.task_kind === 'approve' ? tx('approval') : tx('task') }} · {{ workOrderNodeLabel(selectedOrder.workflow, task.node_id, currentLang) }}
-                    </span>
-                  </div>
-                </div>
+          <div class="mb-4 work-order-action-panel rounded p-3 border">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <div>
+                <div class="fw-bold small text-secondary"><i class="bi bi-lightning-charge me-1"></i>{{ tx('workOrderActions') }}</div>
+                <div class="small text-body-secondary mt-1">{{ tx('actionHint') }}</div>
               </div>
-
-              <div v-if="selectedOrder.resolution?.actual_problem" class="mb-4 border rounded p-3 bg-body-tertiary">
-                <div class="fw-bold small mb-2 text-secondary"><i class="bi bi-clipboard2-check me-1"></i>{{ tx('resolution') }}</div>
-                <dl class="row small mb-0 g-2">
-                  <dt class="col-sm-4 text-muted fw-normal">{{ tx('actualProblem') }}</dt><dd class="col-sm-8 text-break">{{ selectedOrder.resolution.actual_problem }}</dd>
-                  <dt class="col-sm-4 text-muted fw-normal">{{ tx('rootCause') }}</dt><dd class="col-sm-8 text-break">{{ selectedOrder.resolution.root_cause }}</dd>
-                  <dt class="col-sm-4 text-muted fw-normal">{{ tx('handlingProcess') }}</dt><dd class="col-sm-8 text-break">{{ selectedOrder.resolution.handling_process }}</dd>
-                  <dt class="col-sm-4 text-muted fw-normal">{{ tx('handlingResult') }}</dt><dd class="col-sm-8 text-break">{{ selectedOrder.resolution.handling_result }}</dd>
-                </dl>
+              <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-sm btn-outline-secondary" :disabled="actionLoading" @click="openCCModal"><i class="bi bi-send me-1"></i>{{ tx('cc') }}</button>
+                <button v-if="canTransferOrder" class="btn btn-sm btn-outline-primary" :disabled="actionLoading" @click="openTransferModal"><i class="bi bi-arrow-left-right me-1"></i>{{ tx('transfer') }}</button>
+                <button v-if="processActionOptions.length" class="btn btn-sm btn-primary" :disabled="actionLoading" @click="openProcessModal"><i class="bi bi-check2-square me-1"></i>{{ tx('processTitle') }}</button>
               </div>
+            </div>
+            <div v-if="myPendingGraphTasks.length" class="mt-3 pt-3 border-top">
+              <div class="small text-body-secondary mb-2">{{ tx('myTasks') }}</div>
+              <div class="d-flex flex-wrap gap-2">
+                <span v-for="task in myPendingGraphTasks" :key="task.public_id" class="badge rounded-pill work-order-task-badge border">
+                  {{ task.task_kind === 'approve' ? tx('approval') : tx('task') }} · {{ workOrderNodeLabel(selectedOrder.workflow, task.node_id, currentLang) }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="selectedOrder.resolution?.actual_problem" class="mb-4 border rounded p-3 bg-body-tertiary">
+            <div class="fw-bold small mb-2 text-secondary"><i class="bi bi-clipboard2-check me-1"></i>{{ tx('resolution') }}</div>
+            <dl class="row small mb-0 g-2">
+              <dt class="col-sm-4 text-muted fw-normal">{{ tx('actualProblem') }}</dt><dd class="col-sm-8 text-break">{{ selectedOrder.resolution.actual_problem }}</dd>
+              <dt class="col-sm-4 text-muted fw-normal">{{ tx('rootCause') }}</dt><dd class="col-sm-8 text-break">{{ selectedOrder.resolution.root_cause }}</dd>
+              <dt class="col-sm-4 text-muted fw-normal">{{ tx('handlingProcess') }}</dt><dd class="col-sm-8 text-break">{{ selectedOrder.resolution.handling_process }}</dd>
+              <dt class="col-sm-4 text-muted fw-normal">{{ tx('handlingResult') }}</dt><dd class="col-sm-8 text-break">{{ selectedOrder.resolution.handling_result }}</dd>
+            </dl>
+          </div>
 
           <WorkOrderAuditTimeline :workflow="selectedOrder.workflow" :tasks="workOrderTasks" :events="orderEvents" :locale="currentLang" />
         </div>
       </aside>
-    </section>
 
-    <section v-else-if="activeTab === 'templates'">
-      <div class="card border-0 shadow-sm">
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>{{ tx('templateName') }}</th>
-                <th>{{ tx('columnCreatedAt') }}</th>
-                    <th class="text-end">{{ tx('columnActions') }}</th>
-</tr>
-            </thead>
-            <tbody>
-              <tr v-if="templates.length === 0"><td colspan="3" class="text-center py-5 text-muted"><i class="bi bi-inbox fs-3 d-block mb-2"></i>{{ tx('noTemplates') }}</td></tr>
-              <tr v-for="template in templates" :key="template.ID" class="work-order-template-row" role="button" tabindex="0" @click="openTemplateDetail(template.ID)" @keydown.enter.prevent="openTemplateDetail(template.ID)" @keydown.space.prevent="openTemplateDetail(template.ID)">
-                <td class="fw-semibold">{{ template.name }}</td>
-                <td class="small text-muted">{{ formatTime(template.CreatedAt) }}</td>
-                <td class="text-end">
-                  <div class="btn-group">
-                    <button class="btn btn-sm btn-outline-success" :aria-label="`${tx('configureTemplate')} ${template.name}`" @click.stop="openTemplateEditor(template.ID)" :title="tx('configureWorkflowForm')"><i class="bi bi-diagram-3"></i></button>
-                    <button v-if="authStore.hasPermission('work_order:manage')" class="btn btn-sm btn-outline-secondary" :aria-label="`${tx('copyTemplate')} ${template.name}`" :disabled="actionLoading" @click.stop="copyTemplate(template)" :title="tx('copyTemplate')"><i class="bi bi-copy"></i></button>
-                    <button v-if="!template.system_managed" class="btn btn-sm btn-outline-primary" :aria-label="`${tx('editTemplate')} ${template.name}`" @click.stop="openEditTemplate(template)" :title="tx('editBasicInfo')"><i class="bi bi-pencil"></i></button>
-                    <button v-if="!template.system_managed" class="btn btn-sm btn-outline-danger" :aria-label="`${tx('deleteTemplate')} ${template.name}`" @click.stop="deleteTemplate(template)" :title="tx('deleteTemplate')"><i class="bi bi-trash"></i></button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+      <div v-if="templateDetail" class="offcanvas-backdrop fade show" @click="closeTemplateDetail"></div>
+      <aside v-if="templateDetail" ref="templateDetailDialog" class="template-detail-drawer shadow-lg" aria-modal="true" role="dialog" tabindex="-1" aria-labelledby="template-detail-title" @keydown.esc.stop="closeTemplateDetail">
+        <div class="template-detail-drawer__head"><div><h2 id="template-detail-title" class="h5 mb-1">{{ templateDetail.template.name }}</h2><p class="small text-body-secondary mb-0">{{ templateDetail.template.code }}</p></div><button type="button" class="btn-close" :aria-label="tx('close')" @click="closeTemplateDetail"></button></div>
+        <div class="template-detail-drawer__body"><p v-if="templateDetail.template.description" class="text-body-secondary">{{ templateDetail.template.description }}</p><section class="template-detail-workflow"><h3 class="section-title">{{ tx('workflowConfig') }}</h3><WorkOrderWorkflowEditor :model-value="templateDetailWorkflow" :participants="projectParticipants" :participants-loading="participantsLoading" :show-properties="false" readonly /></section></div>
+      </aside>
 
-    <div v-if="templateDetail" class="offcanvas-backdrop fade show" @click="closeTemplateDetail"></div>
-    <aside v-if="templateDetail" ref="templateDetailDialog" class="template-detail-drawer shadow-lg" aria-modal="true" role="dialog" tabindex="-1" aria-labelledby="template-detail-title" @keydown.esc.stop="closeTemplateDetail">
-      <div class="template-detail-drawer__head"><div><h2 id="template-detail-title" class="h5 mb-1">{{ templateDetail.template.name }}</h2><p class="small text-body-secondary mb-0">{{ templateDetail.template.code }}</p></div><button type="button" class="btn-close" :aria-label="tx('close')" @click="closeTemplateDetail"></button></div>
-      <div class="template-detail-drawer__body"><p v-if="templateDetail.template.description" class="text-body-secondary">{{ templateDetail.template.description }}</p><section class="template-detail-workflow"><h3 class="section-title">{{ tx('workflowConfig') }}</h3><WorkOrderWorkflowEditor :model-value="templateDetailWorkflow" :participants="projectParticipants" :participants-loading="participantsLoading" :show-properties="false" readonly /></section></div>
-    </aside>
-
-    <section v-else-if="workOrderIntegrationsVisible && activeTab === 'integrations'" class="work-order-integrations">
-      <div class="alert alert-info border-0 shadow-sm">
-        <i class="bi bi-shield-check me-2"></i>{{ tx('integrationInfo') }}
-      </div>
-      <div class="row g-3">
-        <div class="col-12 col-xl-4">
-          <div class="card border-0 shadow-sm h-100"><div class="card-body">
-            <h5 class="card-title">{{ tx('connector') }}</h5>
-            <label class="form-label small" for="connector-name">{{ tx('name') }}</label><input id="connector-name" v-model.trim="connectorDraft.name" class="form-control mb-2" :placeholder="tx('exampleCMMS')">
-            <label class="form-label small" for="connector-key-id">Key ID</label><input id="connector-key-id" v-model.trim="connectorDraft.key_id" class="form-control mb-2" :placeholder="tx('remoteIdentity')">
-            <label class="form-label small" for="connector-secret">Secret</label><input id="connector-secret" v-model.trim="connectorDraft.secret" type="password" class="form-control mb-3" autocomplete="new-password" :placeholder="tx('secretSaveOnly')">
-            <button class="btn btn-primary w-100" :disabled="actionLoading" @click="saveConnector">{{ tx('saveConnector') }}</button>
-            <div class="list-group list-group-flush mt-3"><div v-for="connector in connectors" :key="connector.id" class="list-group-item px-0"><div class="fw-semibold">{{ connector.name }}</div><small class="text-muted">{{ connector.key_id }} · {{ connector.enabled ? tx('enabled') : tx('disabled') }}</small></div><div v-if="!connectors.length" class="text-muted small py-2">{{ tx('noConnectors') }}</div></div>
-          </div></div>
-        </div>
-        <div class="col-12 col-xl-4">
-          <div class="card border-0 shadow-sm h-100"><div class="card-body">
-            <h5 class="card-title">{{ tx('binding') }}</h5>
-            <label class="form-label small" for="binding-id">{{ tx('bindingID') }}</label><input id="binding-id" v-model.trim="bindingDraft.id" class="form-control mb-2" :placeholder="tx('exampleBinding')">
-            <label class="form-label small" for="binding-connector">{{ tx('connector') }}</label><select id="binding-connector" v-model="bindingDraft.connector_id" class="form-select mb-2"><option value="">{{ tx('selectConnector') }}</option><option v-for="connector in connectors" :key="connector.id" :value="connector.id">{{ connector.name }}</option></select>
-            <label class="form-label small" for="binding-direction">{{ tx('direction') }}</label><select id="binding-direction" v-model="bindingDraft.direction" class="form-select mb-3"><option value="inbound">{{ tx('inbound') }}</option><option value="outbound">{{ tx('outbound') }}</option><option value="bidirectional">{{ tx('bidirectional') }}</option></select>
-            <button class="btn btn-primary w-100" :disabled="actionLoading" @click="saveBinding">{{ tx('saveBinding') }}</button>
-            <div class="list-group list-group-flush mt-3"><button v-for="binding in bindings" :key="binding.id" class="list-group-item list-group-item-action px-0" :class="{ active: selectedBindingID === binding.id }" @click="selectBinding(binding.id)"><div class="fw-semibold">{{ binding.id }}</div><small :class="selectedBindingID === binding.id ? 'text-white-50' : 'text-muted'">{{ binding.direction }} · v{{ binding.last_revision }}</small></button><div v-if="!bindings.length" class="text-muted small py-2">{{ tx('noBindings') }}</div></div>
-          </div></div>
-        </div>
-        <div class="col-12 col-xl-4">
-          <div class="card border-0 shadow-sm h-100"><div class="card-body">
-            <h5 class="card-title">{{ tx('mapping') }}</h5>
-            <div v-if="selectedBindingID">
-              <label class="form-label small" for="mapping-id">{{ tx('mappingID') }}</label><input id="mapping-id" v-model.trim="mappingDraft.id" class="form-control mb-2" :placeholder="tx('exampleMapping')">
-              <label class="form-label small" for="mapping-name">{{ tx('name') }}</label><input id="mapping-name" v-model.trim="mappingDraft.name" class="form-control mb-2" :placeholder="tx('externalMapping')">
-              <label class="form-label small" for="mapping-fields">{{ tx('mappingJSON') }}</label><textarea id="mapping-fields" v-model.trim="mappingDraft.fieldsJSON" rows="4" class="form-control font-monospace small mb-3" aria-describedby="mapping-help"></textarea><div id="mapping-help" class="form-text">{{ tx('mappingExample') }}</div>
-              <button class="btn btn-primary w-100" :disabled="actionLoading" @click="saveMapping">{{ tx('saveMapping') }}</button>
-              <div class="list-group list-group-flush mt-3"><div v-for="mapping in mappings" :key="mapping.id" class="list-group-item px-0"><div class="fw-semibold">{{ mapping.name }}</div><small class="text-muted">{{ mapping.id }} · v{{ mapping.revision }}</small></div></div>
+      <div v-if="showTemplateEditor && selectedTemplate" class="modal fade show d-block work-order-template-editor-modal" tabindex="-1" @click.self="closeTemplateEditor">
+        <div class="modal-dialog modal-xl work-order-template-editor-dialog">
+          <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header">
+              <div><h5 class="modal-title">{{ selectedTemplate.template.name }}</h5><div class="small text-muted">{{ selectedTemplate.template.code }}</div></div>
+              <button type="button" class="btn-close" @click="closeTemplateEditor"></button>
             </div>
-            <p v-else class="text-muted small mb-0">{{ tx('selectBinding') }}</p>
-          </div></div>
-        </div>
-      </div>
-    </section>
-
-    <div v-if="showTemplateEditor && selectedTemplate" class="modal fade show d-block work-order-template-editor-modal" tabindex="-1" @click.self="closeTemplateEditor">
-      <div class="modal-dialog modal-xl work-order-template-editor-dialog">
-        <div class="modal-content border-0 shadow-lg">
-          <div class="modal-header">
-            <div><h5 class="modal-title">{{ selectedTemplate.template.name }}</h5><div class="small text-muted">{{ selectedTemplate.template.code }}</div></div>
-            <button type="button" class="btn-close" @click="closeTemplateEditor"></button>
-          </div>
-          <div class="modal-body">
-            <div class="template-editor-tabs border-bottom px-3 py-2">
-              <div class="nav nav-pills flex-shrink-0" :aria-label="tx('templateConfigType')"><button class="nav-link" :class="{ active: templateEditorTab === 'workflow' }" @click="templateEditorTab = 'workflow'"><i class="bi bi-diagram-3 me-1"></i>{{ tx('workflowConfig') }}</button><button class="nav-link" :class="{ active: templateEditorTab === 'form' }" @click="templateEditorTab = 'form'"><i class="bi bi-ui-checks-grid me-1"></i>{{ tx('formConfig') }}</button></div>
-              <p v-if="selectedTemplate.template.description" class="template-editor-description text-muted small" :title="selectedTemplate.template.description">{{ selectedTemplate.template.description }}</p>
-              <div v-if="selectedTemplate.template.system_managed && templateEditorTab === 'form'" class="template-editor-readonly small text-info"><i class="bi bi-lock me-1"></i>{{ tx('managedFormReadonly') }}</div>
-              <div v-else-if="isAIManagedTemplate" class="template-editor-readonly small text-info"><i class="bi bi-diagram-3 me-1"></i>{{ tx('managedWorkflowEditable') }}</div>
-              <div class="template-editor-actions" role="toolbar" :aria-label="templateEditorTab === 'workflow' ? tx('workflowActions') : tx('formActions')">
-                <template v-if="templateEditorTab === 'workflow'">
-                  <button class="btn btn-sm btn-light text-secondary" :disabled="actionLoading || workflowEditorReadonly" :title="tx('saveWorkflowDraft')" @click="saveWorkflowDraft"><i class="bi bi-save me-1"></i><span>{{ tx('saveWorkflowDraft') }}</span></button>
-                  <button class="btn btn-sm btn-primary" :disabled="actionLoading || workflowEditorReadonly" :title="tx('publishWorkflow')" @click="publishWorkflow"><i class="bi bi-cloud-upload me-1"></i><span>{{ tx('publishWorkflow') }}</span></button>
-                  <button class="btn btn-sm btn-light text-secondary" :title="tx('fullscreenWorkflow')" @click="toggleWorkflowFullscreen"><i class="bi bi-arrows-fullscreen me-1"></i><span>{{ tx('fullscreenWorkflow') }}</span></button>
-                </template>
-                <template v-else>
-                  <button class="btn btn-sm btn-light text-secondary" :disabled="actionLoading || selectedTemplate.template.system_managed" :title="tx('saveFormDraft')" @click="saveFormDraft"><i class="bi bi-save me-1"></i><span>{{ tx('saveFormDraft') }}</span></button>
-                  <button class="btn btn-sm btn-primary" :disabled="actionLoading || selectedTemplate.template.system_managed" :title="tx('publishForm')" @click="publishForm"><i class="bi bi-cloud-upload me-1"></i><span>{{ tx('publishForm') }}</span></button>
-                </template>
-              </div>
-            </div>
-
-            <div v-if="isAIManagedTemplate && !selectedTemplate.template.current_workflow_version" class="alert alert-warning small mx-3 mt-3 mb-0"><i class="bi bi-exclamation-triangle me-1"></i>{{ tx('aiWorkflowNeedsPublish') }}</div>
-
-            <div v-if="templateEditorTab === 'form'" class="template-editor-tab-panel p-0">
-              <WorkOrderFormDesigner v-model="formDraft" :readonly="selectedTemplate.template.system_managed" :locale="currentLang" />
-            </div>
-
-            <div v-else class="template-editor-workflow-panel p-2">
-              <h6 class="visually-hidden">{{ tx('visualWorkflow') }}</h6>
-              <WorkOrderWorkflowEditor ref="workflowEditorRef" v-model="workflowDraft" :participants="projectParticipants" :participants-loading="participantsLoading" :readonly="workflowEditorReadonly" :saving="actionLoading" :error="errorMessage" />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="showOrderModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showOrderModal = false">
-      <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">{{ tx('newManualOrder') }}</h5><button type="button" class="btn-close" :aria-label="tx('close')" @click="showOrderModal = false"></button></div><div class="modal-body">
-        <div class="row g-3 mb-3"><div class="col-md-6"><label class="form-label">{{ tx('workOrderTemplate') }} *</label><select v-model.number="createOrder.templateId" class="form-select" @change="loadCreateTemplate"><option :value="0">{{ tx('selectTemplate') }}</option><option v-for="template in templates" :key="template.ID" :value="template.ID">{{ template.name }}</option></select></div><div class="col-md-3"><label class="form-label">{{ tx('priority') }}</label><select v-model="createOrder.priority" class="form-select"><option value="low">{{ tx('low') }}</option><option value="normal">{{ tx('normal') }}</option><option value="high">{{ tx('high') }}</option><option value="urgent">{{ tx('urgent') }}</option></select></div><div class="col-12"><label class="form-label">{{ tx('title') }} *</label><input v-model.trim="createOrder.title" class="form-control"></div><div class="col-12"><label class="form-label">{{ tx('summary') }}</label><textarea v-model.trim="createOrder.summary" class="form-control" rows="2"></textarea></div></div>
-        <WorkOrderFormFields v-if="createTemplateDetail" v-model="createOrder.formData" :definition="createTemplateDetail.form_definition" id-prefix="manual-work-order" :locale="currentLang" />
-      </div><div class="modal-footer"><button class="btn btn-outline-secondary" @click="showOrderModal = false">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading" @click="createManualOrder"><span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ tx('createWorkOrder') }}</button></div></div></div>
-    </div>
-
-    
-    <!-- Edit Order Modal -->
-    <div v-if="showEditOrderModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showEditOrderModal = false">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header"><h5 class="modal-title">{{ tx('editOrderTitle') }}</h5><button type="button" class="btn-close" :aria-label="tx('close')" @click="showEditOrderModal = false"></button></div>
-          <div class="modal-body">
-            <div class="mb-3"><label class="form-label">{{ tx('title') }} *</label><input v-model.trim="editOrderData.title" class="form-control"></div>
-            <div class="mb-3"><label class="form-label">{{ tx('priority') }} *</label><select v-model="editOrderData.priority" class="form-select"><option value="low">{{ tx('low') }}</option><option value="normal">{{ tx('normal') }}</option><option value="high">{{ tx('high') }}</option><option value="urgent">{{ tx('urgent') }}</option></select></div>
-            <div class="mb-3"><label class="form-label">{{ tx('summary') }}</label><textarea v-model.trim="editOrderData.summary" class="form-control" rows="2"></textarea></div>
-          </div>
-          <div class="modal-footer"><button class="btn btn-outline-secondary" @click="showEditOrderModal = false">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading" @click="submitEditOrder">{{ tx('save') }}</button></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Edit Template Modal -->
-    <div v-if="showEditTemplateModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showEditTemplateModal = false">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header"><h5 class="modal-title">{{ tx('editTemplateTitle') }}</h5><button type="button" class="btn-close" :aria-label="tx('close')" @click="showEditTemplateModal = false"></button></div>
-          <div class="modal-body">
-            <div class="mb-3"><label class="form-label">{{ tx('templateName') }} *</label><input v-model.trim="editTemplateData.name" class="form-control"></div>
-            <div class="form-text mt-2">{{ tx('templateNameHint') }}</div>
-          </div>
-          <div class="modal-footer"><button class="btn btn-outline-secondary" @click="showEditTemplateModal = false">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading" @click="submitEditTemplate">{{ tx('save') }}</button></div>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="showTemplateModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showTemplateModal = false">
-      <div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">{{ tx('newTemplateTitle') }}</h5><button type="button" class="btn-close" :aria-label="tx('close')" @click="showTemplateModal = false"></button></div><div class="modal-body"><div class="mb-3"><label class="form-label">{{ tx('templateName') }} *</label><input v-model.trim="createTemplate.name" class="form-control"></div><div><label class="form-label">{{ tx('description') }}</label><textarea v-model.trim="createTemplate.description" class="form-control" rows="3"></textarea></div><div class="form-text mt-2">{{ tx('createTemplateHint') }}</div></div><div class="modal-footer"><button class="btn btn-outline-secondary" @click="showTemplateModal = false">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading" @click="createNewTemplate">{{ tx('create') }}</button></div></div></div>
-    </div>
-
-    <div v-if="showProcessModal" class="modal fade show d-block work-order-process-modal" style="background: rgba(0,0,0,.52)" @click.self="closeProcessModal">
-      <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered"><div class="modal-content border-0 shadow-lg"><div class="modal-header"><div><h5 class="modal-title">{{ tx('processTitle') }}：{{ selectedOrder?.work_order?.title }}</h5><div class="small text-body-secondary">{{ tx('processSubtitle') }}</div></div><button type="button" class="btn-close" :aria-label="tx('close')" @click="closeProcessModal"></button></div><div class="modal-body">
-        <div class="mb-3">
-          <label class="form-label" for="process-action">{{ tx('processAction') }} *</label>
-          <select id="process-action" v-model="selectedProcessActionID" class="form-select">
-            <option v-for="action in processActionOptions" :key="action.id" :value="action.id">{{ action.label }}</option>
-          </select>
-        </div>
-        <div v-if="currentProcessAction?.requiresResolution" class="rounded border p-3 mb-3 bg-body-tertiary">
-          <p class="text-body-secondary small">{{ tx('resolutionHint') }}</p>
-          <div class="row g-3">
-            <div class="col-12 col-md-6"><label class="form-label" for="resolution-problem">{{ tx('actualProblem') }} *</label><textarea id="resolution-problem" v-model.trim="resolutionDraft.actual_problem" class="form-control" rows="3"></textarea></div>
-            <div class="col-12 col-md-6"><label class="form-label" for="resolution-cause">{{ tx('rootCause') }} *</label><textarea id="resolution-cause" v-model.trim="resolutionDraft.root_cause" class="form-control" rows="3"></textarea></div>
-            <div class="col-12 col-md-6"><label class="form-label" for="resolution-process">{{ tx('handlingProcess') }} *</label><textarea id="resolution-process" v-model.trim="resolutionDraft.handling_process" class="form-control" rows="3"></textarea></div>
-            <div class="col-12 col-md-6"><label class="form-label" for="resolution-result">{{ tx('handlingResult') }} *</label><textarea id="resolution-result" v-model.trim="resolutionDraft.handling_result" class="form-control" rows="3"></textarea></div>
-          </div>
-        </div>
-        <div class="mb-3">
-          <label class="form-label" for="process-opinion">{{ tx('processOpinion') }} *</label>
-          <textarea id="process-opinion" v-model="processOpinion" class="form-control" rows="4" maxlength="2000" :placeholder="tx('processOpinionPlaceholder')"></textarea>
-          <div class="form-text">{{ tx('processOpinionHint') }}</div>
-        </div>
-        <div class="mb-3">
-          <label class="form-label d-flex align-items-center justify-content-between">
-            <span><i class="bi bi-paperclip me-1"></i>{{ tx('attachments') }}</span>
-            <span class="small text-body-secondary fw-normal">{{ tx('optional') }}</span>
-          </label>
-          <div class="d-flex align-items-center gap-2 mb-2">
-            <label class="btn btn-sm btn-outline-secondary mb-0 d-inline-flex align-items-center gap-1" :class="{ disabled: processAttachmentUploading }">
-              <span v-if="processAttachmentUploading" class="spinner-border spinner-border-sm"></span>
-              <i v-else class="bi bi-upload"></i>
-              <span>{{ tx('uploadAttachment') }}</span>
-              <input type="file" multiple class="d-none" :disabled="processAttachmentUploading" @change="uploadProcessAttachments">
-            </label>
-            <span class="small text-body-secondary">{{ tx('attachmentHint') }}</span>
-          </div>
-          <div v-if="processAttachmentError" class="alert alert-danger p-2 small mb-2">{{ processAttachmentError }}</div>
-          <div v-if="processAttachments.length" class="d-flex flex-wrap gap-2 pt-2 align-items-center">
-            <template v-for="(att, attIdx) in processAttachments" :key="attIdx">
-              <div v-if="isImageAttachment(att)" class="position-relative border rounded overflow-hidden shadow-sm work-order-attachment-card" :title="`${att.name} (${formatFileSize(att.size)})`">
-                <a :href="att.url" target="_blank" rel="noopener noreferrer">
-                  <img :src="att.url" :alt="att.name" class="d-block work-order-attachment-img">
-                </a>
-                <button type="button" class="btn btn-sm btn-danger d-flex align-items-center justify-content-center work-order-attachment-del" :aria-label="tx('delete')" :title="tx('delete')" @click.stop.prevent="removeProcessAttachment(attIdx)">
-                  <i class="bi bi-x"></i>
-                </button>
-              </div>
-              <div v-else class="border rounded-pill p-2 px-3 d-inline-flex align-items-center gap-2 shadow-sm work-order-attachment-doc" :title="`${att.name} (${formatFileSize(att.size)})`">
-                <i class="bi" :class="getFileIcon(att)"></i>
-                <span class="text-truncate" style="max-width: 180px;">{{ att.name }}</span>
-                <small v-if="att.size" class="text-body-secondary">({{ formatFileSize(att.size) }})</small>
-                <button type="button" class="btn-close ms-1" style="font-size: 0.65rem;" :aria-label="tx('delete')" @click="removeProcessAttachment(attIdx)"></button>
-              </div>
-            </template>
-          </div>
-        </div>
-      </div><div class="modal-footer"><button class="btn btn-outline-secondary" @click="closeProcessModal">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading || !selectedProcessActionID || !processOpinion.trim() || (currentProcessAction?.requiresResolution && !isResolutionComplete)" @click="submitProcessAction"><span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ tx('submitProcess') }}</button></div></div></div>
-    </div>
-
-    <!-- CC Modal -->
-    <div v-if="showCCModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showCCModal = false">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ tx('ccTitle') }}</h5>
-            <button type="button" class="btn-close" :aria-label="tx('close')" @click="showCCModal = false"></button>
-          </div>
-          <div class="modal-body">
-            <div class="mb-3">
-              <label class="form-label">{{ tx('selectCC') }} *</label>
-              <div class="border rounded participant-picker" style="max-height: 250px; overflow-y: auto;">
-                <div class="p-2 border-bottom sticky-top bg-body" style="z-index: 10;">
-                  <input v-model.trim="ccSearchKeyword" type="text" class="form-control form-control-sm" :placeholder="tx('searchMembers')">
+            <div class="modal-body">
+              <div class="template-editor-tabs border-bottom px-3 py-2">
+                <div class="nav nav-pills flex-shrink-0" :aria-label="tx('templateConfigType')"><button class="nav-link" :class="{ active: templateEditorTab === 'workflow' }" @click="templateEditorTab = 'workflow'"><i class="bi bi-diagram-3 me-1"></i>{{ tx('workflowConfig') }}</button><button class="nav-link" :class="{ active: templateEditorTab === 'form' }" @click="templateEditorTab = 'form'"><i class="bi bi-ui-checks-grid me-1"></i>{{ tx('formConfig') }}</button></div>
+                <p v-if="selectedTemplate.template.description" class="template-editor-description text-muted small" :title="selectedTemplate.template.description">{{ selectedTemplate.template.description }}</p>
+                <div v-if="selectedTemplate.template.system_managed && templateEditorTab === 'form'" class="template-editor-readonly small text-info"><i class="bi bi-lock me-1"></i>{{ tx('managedFormReadonly') }}</div>
+                <div v-else-if="isAIManagedTemplate" class="template-editor-readonly small text-info"><i class="bi bi-diagram-3 me-1"></i>{{ tx('managedWorkflowEditable') }}</div>
+                <div class="template-editor-actions" role="toolbar" :aria-label="templateEditorTab === 'workflow' ? tx('workflowActions') : tx('formActions')">
+                  <template v-if="templateEditorTab === 'workflow'">
+                    <button class="btn btn-sm btn-light text-secondary" :disabled="actionLoading || workflowEditorReadonly" :title="tx('saveWorkflowDraft')" @click="saveWorkflowDraft"><i class="bi bi-save me-1"></i><span>{{ tx('saveWorkflowDraft') }}</span></button>
+                    <button class="btn btn-sm btn-primary" :disabled="actionLoading || workflowEditorReadonly" :title="tx('publishWorkflow')" @click="publishWorkflow"><i class="bi bi-cloud-upload me-1"></i><span>{{ tx('publishWorkflow') }}</span></button>
+                    <button class="btn btn-sm btn-light text-secondary" :title="tx('fullscreenWorkflow')" @click="toggleWorkflowFullscreen"><i class="bi bi-arrows-fullscreen me-1"></i><span>{{ tx('fullscreenWorkflow') }}</span></button>
+                  </template>
+                  <template v-else>
+                    <button class="btn btn-sm btn-light text-secondary" :disabled="actionLoading || selectedTemplate.template.system_managed" :title="tx('saveFormDraft')" @click="saveFormDraft"><i class="bi bi-save me-1"></i><span>{{ tx('saveFormDraft') }}</span></button>
+                    <button class="btn btn-sm btn-primary" :disabled="actionLoading || selectedTemplate.template.system_managed" :title="tx('publishForm')" @click="publishForm"><i class="bi bi-cloud-upload me-1"></i><span>{{ tx('publishForm') }}</span></button>
+                  </template>
                 </div>
-                <label v-for="participant in ccFilteredParticipants" :key="participant.id" class="participant-option px-3 py-2 d-flex align-items-center border-bottom mb-0" style="cursor:pointer">
-                  <input type="checkbox" :value="participant.id" v-model="ccForm.userIDs" class="me-2 form-check-input mt-0">
-                  <span>{{ participant.display_name || participant.username }}</span>
-                  <small class="text-muted ms-auto">{{ participant.username }}</small>
-                </label>
-                <div v-if="ccFilteredParticipants.length === 0" class="text-muted small py-3 text-center">{{ tx('noMembers') }}</div>
+              </div>
+
+              <div v-if="isAIManagedTemplate && !selectedTemplate.template.current_workflow_version" class="alert alert-warning small mx-3 mt-3 mb-0"><i class="bi bi-exclamation-triangle me-1"></i>{{ tx('aiWorkflowNeedsPublish') }}</div>
+
+              <div v-if="templateEditorTab === 'form'" class="template-editor-tab-panel p-0">
+                <WorkOrderFormDesigner v-model="formDraft" :readonly="selectedTemplate.template.system_managed" :locale="currentLang" />
+              </div>
+
+              <div v-else class="template-editor-workflow-panel p-2">
+                <h6 class="visually-hidden">{{ tx('visualWorkflow') }}</h6>
+                <WorkOrderWorkflowEditor ref="workflowEditorRef" v-model="workflowDraft" :participants="projectParticipants" :participants-loading="participantsLoading" :readonly="workflowEditorReadonly" :saving="actionLoading" :error="errorMessage" />
               </div>
             </div>
-            <div>
-              <label class="form-label">{{ tx('additionalMessage') }} <span class="text-muted small">{{ tx('optional') }}</span></label>
-              <textarea v-model.trim="ccForm.comment" class="form-control" rows="2" :placeholder="tx('ccMessagePlaceholder')"></textarea>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-outline-secondary" @click="showCCModal = false">{{ tx('cancel') }}</button>
-            <button class="btn btn-primary" :disabled="actionLoading || ccForm.userIDs.length === 0" @click="submitCC">{{ tx('send') }}</button>
           </div>
         </div>
       </div>
-    </div>
 
-    <div v-if="showTransferModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="closeTransferModal">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ tx('transferTitle') }}</h5>
-            <button type="button" class="btn-close" :aria-label="tx('close')" @click="closeTransferModal"></button>
-          </div>
-          <div class="modal-body">
-            <p class="small text-body-secondary">{{ tx('transferHint') }}</p>
-            <div v-if="transferableHandleTasks.length > 1" class="mb-3">
-              <label class="form-label" for="transfer-task">{{ tx('transferTask') }} *</label>
-              <select id="transfer-task" v-model="transferForm.taskPublicID" class="form-select">
-                <option v-for="task in transferableHandleTasks" :key="task.public_id" :value="task.public_id">{{ workOrderNodeLabel(selectedOrder.workflow, task.node_id, currentLang) }}</option>
-              </select>
+      <div v-if="showOrderModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showOrderModal = false">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">{{ tx('newManualOrder') }}</h5><button type="button" class="btn-close" :aria-label="tx('close')" @click="showOrderModal = false"></button></div><div class="modal-body">
+          <div class="row g-3 mb-3"><div class="col-md-6"><label class="form-label">{{ tx('workOrderTemplate') }} *</label><select v-model.number="createOrder.templateId" class="form-select" @change="loadCreateTemplate"><option :value="0">{{ tx('selectTemplate') }}</option><option v-for="template in templates" :key="template.ID" :value="template.ID">{{ template.name }}</option></select></div><div class="col-md-3"><label class="form-label">{{ tx('priority') }}</label><select v-model="createOrder.priority" class="form-select"><option value="low">{{ tx('low') }}</option><option value="normal">{{ tx('normal') }}</option><option value="high">{{ tx('high') }}</option><option value="urgent">{{ tx('urgent') }}</option></select></div><div class="col-12"><label class="form-label">{{ tx('title') }} *</label><input v-model.trim="createOrder.title" class="form-control"></div><div class="col-12"><label class="form-label">{{ tx('summary') }}</label><textarea v-model.trim="createOrder.summary" class="form-control" rows="2"></textarea></div></div>
+          <WorkOrderFormFields v-if="createTemplateDetail" v-model="createOrder.formData" :definition="createTemplateDetail.form_definition" id-prefix="manual-work-order" :locale="currentLang" />
+        </div><div class="modal-footer"><button class="btn btn-outline-secondary" @click="showOrderModal = false">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading" @click="createManualOrder"><span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ tx('createWorkOrder') }}</button></div></div></div>
+      </div>
+
+      <!-- Edit Order Modal -->
+      <div v-if="showEditOrderModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showEditOrderModal = false">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">{{ tx('editOrderTitle') }}</h5><button type="button" class="btn-close" :aria-label="tx('close')" @click="showEditOrderModal = false"></button></div>
+            <div class="modal-body">
+              <div class="mb-3"><label class="form-label">{{ tx('title') }} *</label><input v-model.trim="editOrderData.title" class="form-control"></div>
+              <div class="mb-3"><label class="form-label">{{ tx('priority') }} *</label><select v-model="editOrderData.priority" class="form-select"><option value="low">{{ tx('low') }}</option><option value="normal">{{ tx('normal') }}</option><option value="high">{{ tx('high') }}</option><option value="urgent">{{ tx('urgent') }}</option></select></div>
+              <div class="mb-3"><label class="form-label">{{ tx('summary') }}</label><textarea v-model.trim="editOrderData.summary" class="form-control" rows="2"></textarea></div>
             </div>
-            <div class="mb-3">
-              <label class="form-label" for="transfer-recipient">{{ tx('transferRecipient') }} *</label>
-              <select id="transfer-recipient" v-model="transferForm.targetUserID" class="form-select">
-                <option value="">{{ tx('selectMember') }}</option>
-                <option v-for="participant in transferFilteredParticipants" :key="participant.id" :value="String(participant.id)">{{ participant.display_name || participant.username }}{{ participant.display_name && participant.username ? ` (${participant.username})` : '' }}</option>
-              </select>
-            </div>
-            <div>
-              <label class="form-label" for="transfer-comment">{{ tx('transferReason') }} *</label>
-              <textarea id="transfer-comment" v-model.trim="transferForm.comment" class="form-control" rows="3" maxlength="2000" :placeholder="tx('transferReasonPlaceholder')"></textarea>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-outline-secondary" :disabled="actionLoading" @click="closeTransferModal">{{ tx('cancel') }}</button>
-            <button class="btn btn-primary" :disabled="actionLoading || !transferForm.targetUserID || !transferForm.comment.trim()" @click="submitTransfer"><span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ tx('confirmTransfer') }}</button>
+            <div class="modal-footer"><button class="btn btn-outline-secondary" @click="showEditOrderModal = false">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading" @click="submitEditOrder">{{ tx('save') }}</button></div>
           </div>
         </div>
       </div>
-    </div>
+
+      <!-- Edit Template Modal -->
+      <div v-if="showEditTemplateModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showEditTemplateModal = false">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">{{ tx('editTemplateTitle') }}</h5><button type="button" class="btn-close" :aria-label="tx('close')" @click="showEditTemplateModal = false"></button></div>
+            <div class="modal-body">
+              <div class="mb-3"><label class="form-label">{{ tx('templateName') }} *</label><input v-model.trim="editTemplateData.name" class="form-control"></div>
+              <div class="form-text mt-2">{{ tx('templateNameHint') }}</div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-outline-secondary" @click="showEditTemplateModal = false">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading" @click="submitEditTemplate">{{ tx('save') }}</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showTemplateModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showTemplateModal = false">
+        <div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">{{ tx('newTemplateTitle') }}</h5><button type="button" class="btn-close" :aria-label="tx('close')" @click="showTemplateModal = false"></button></div><div class="modal-body"><div class="mb-3"><label class="form-label">{{ tx('templateName') }} *</label><input v-model.trim="createTemplate.name" class="form-control"></div><div><label class="form-label">{{ tx('description') }}</label><textarea v-model.trim="createTemplate.description" class="form-control" rows="3"></textarea></div><div class="form-text mt-2">{{ tx('createTemplateHint') }}</div></div><div class="modal-footer"><button class="btn btn-outline-secondary" @click="showTemplateModal = false">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading" @click="createNewTemplate">{{ tx('create') }}</button></div></div></div>
+      </div>
+
+      <div v-if="showProcessModal" class="modal fade show d-block work-order-process-modal" style="background: rgba(0,0,0,.52)" @click.self="closeProcessModal">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered"><div class="modal-content border-0 shadow-lg"><div class="modal-header"><div><h5 class="modal-title">{{ tx('processTitle') }}：{{ selectedOrder?.work_order?.title }}</h5><div class="small text-body-secondary">{{ tx('processSubtitle') }}</div></div><button type="button" class="btn-close" :aria-label="tx('close')" @click="closeProcessModal"></button></div><div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label" for="process-action">{{ tx('processAction') }} *</label>
+            <select id="process-action" v-model="selectedProcessActionID" class="form-select">
+              <option v-for="action in processActionOptions" :key="action.id" :value="action.id">{{ action.label }}</option>
+            </select>
+          </div>
+          <div v-if="currentProcessAction?.requiresResolution" class="rounded border p-3 mb-3 bg-body-tertiary">
+            <p class="text-body-secondary small">{{ tx('resolutionHint') }}</p>
+            <div class="row g-3">
+              <div class="col-12 col-md-6"><label class="form-label" for="resolution-problem">{{ tx('actualProblem') }} *</label><textarea id="resolution-problem" v-model.trim="resolutionDraft.actual_problem" class="form-control" rows="3"></textarea></div>
+              <div class="col-12 col-md-6"><label class="form-label" for="resolution-cause">{{ tx('rootCause') }} *</label><textarea id="resolution-cause" v-model.trim="resolutionDraft.root_cause" class="form-control" rows="3"></textarea></div>
+              <div class="col-12 col-md-6"><label class="form-label" for="resolution-process">{{ tx('handlingProcess') }} *</label><textarea id="resolution-process" v-model.trim="resolutionDraft.handling_process" class="form-control" rows="3"></textarea></div>
+              <div class="col-12 col-md-6"><label class="form-label" for="resolution-result">{{ tx('handlingResult') }} *</label><textarea id="resolution-result" v-model.trim="resolutionDraft.handling_result" class="form-control" rows="3"></textarea></div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="process-opinion">{{ tx('processOpinion') }} *</label>
+            <textarea id="process-opinion" v-model="processOpinion" class="form-control" rows="4" maxlength="2000" :placeholder="tx('processOpinionPlaceholder')"></textarea>
+            <div class="form-text">{{ tx('processOpinionHint') }}</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label d-flex align-items-center justify-content-between">
+              <span><i class="bi bi-paperclip me-1"></i>{{ tx('attachments') }}</span>
+              <span class="small text-body-secondary fw-normal">{{ tx('optional') }}</span>
+            </label>
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <label class="btn btn-sm btn-outline-secondary mb-0 d-inline-flex align-items-center gap-1" :class="{ disabled: processAttachmentUploading }">
+                <span v-if="processAttachmentUploading" class="spinner-border spinner-border-sm"></span>
+                <i v-else class="bi bi-upload"></i>
+                <span>{{ tx('uploadAttachment') }}</span>
+                <input type="file" multiple class="d-none" :disabled="processAttachmentUploading" @change="uploadProcessAttachments">
+              </label>
+              <span class="small text-body-secondary">{{ tx('attachmentHint') }}</span>
+            </div>
+            <div v-if="processAttachmentError" class="alert alert-danger p-2 small mb-2">{{ processAttachmentError }}</div>
+            <div v-if="processAttachments.length" class="d-flex flex-wrap gap-2 pt-2 align-items-center">
+              <template v-for="(att, attIdx) in processAttachments" :key="attIdx">
+                <div v-if="isImageAttachment(att)" class="position-relative border rounded overflow-hidden shadow-sm work-order-attachment-card" :title="`${att.name} (${formatFileSize(att.size)})`">
+                  <a :href="att.url" target="_blank" rel="noopener noreferrer">
+                    <img :src="att.url" :alt="att.name" class="d-block work-order-attachment-img">
+                  </a>
+                  <button type="button" class="btn btn-sm btn-danger d-flex align-items-center justify-content-center work-order-attachment-del" :aria-label="tx('delete')" :title="tx('delete')" @click.stop.prevent="removeProcessAttachment(attIdx)">
+                    <i class="bi bi-x"></i>
+                  </button>
+                </div>
+                <div v-else class="border rounded-pill p-2 px-3 d-inline-flex align-items-center gap-2 shadow-sm work-order-attachment-doc" :title="`${att.name} (${formatFileSize(att.size)})`">
+                  <i class="bi" :class="getFileIcon(att)"></i>
+                  <span class="text-truncate" style="max-width: 180px;">{{ att.name }}</span>
+                  <small v-if="att.size" class="text-body-secondary">({{ formatFileSize(att.size) }})</small>
+                  <button type="button" class="btn-close ms-1" style="font-size: 0.65rem;" :aria-label="tx('delete')" @click="removeProcessAttachment(attIdx)"></button>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div><div class="modal-footer"><button class="btn btn-outline-secondary" @click="closeProcessModal">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading || !selectedProcessActionID || !processOpinion.trim() || (currentProcessAction?.requiresResolution && !isResolutionComplete)" @click="submitProcessAction"><span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ tx('submitProcess') }}</button></div></div></div>
+      </div>
+
+      <!-- CC Modal -->
+      <div v-if="showCCModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showCCModal = false">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ tx('ccTitle') }}</h5>
+              <button type="button" class="btn-close" :aria-label="tx('close')" @click="showCCModal = false"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">{{ tx('selectCC') }} *</label>
+                <div class="border rounded participant-picker" style="max-height: 250px; overflow-y: auto;">
+                  <div class="p-2 border-bottom sticky-top bg-body" style="z-index: 10;">
+                    <input v-model.trim="ccSearchKeyword" type="text" class="form-control form-control-sm" :placeholder="tx('searchMembers')">
+                  </div>
+                  <label v-for="participant in ccFilteredParticipants" :key="participant.id" class="participant-option px-3 py-2 d-flex align-items-center border-bottom mb-0" style="cursor:pointer">
+                    <input type="checkbox" :value="participant.id" v-model="ccForm.userIDs" class="me-2 form-check-input mt-0">
+                    <span>{{ participant.display_name || participant.username }}</span>
+                    <small class="text-muted ms-auto">{{ participant.username }}</small>
+                  </label>
+                  <div v-if="ccFilteredParticipants.length === 0" class="text-muted small py-3 text-center">{{ tx('noMembers') }}</div>
+                </div>
+              </div>
+              <div>
+                <label class="form-label">{{ tx('additionalMessage') }} <span class="text-muted small">{{ tx('optional') }}</span></label>
+                <textarea v-model.trim="ccForm.comment" class="form-control" rows="2" :placeholder="tx('ccMessagePlaceholder')"></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-outline-secondary" @click="showCCModal = false">{{ tx('cancel') }}</button>
+              <button class="btn btn-primary" :disabled="actionLoading || ccForm.userIDs.length === 0" @click="submitCC">{{ tx('send') }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showTransferModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="closeTransferModal">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ tx('transferTitle') }}</h5>
+              <button type="button" class="btn-close" :aria-label="tx('close')" @click="closeTransferModal"></button>
+            </div>
+            <div class="modal-body">
+              <p class="small text-body-secondary">{{ tx('transferHint') }}</p>
+              <div v-if="transferableHandleTasks.length > 1" class="mb-3">
+                <label class="form-label" for="transfer-task">{{ tx('transferTask') }} *</label>
+                <select id="transfer-task" v-model="transferForm.taskPublicID" class="form-select">
+                  <option v-for="task in transferableHandleTasks" :key="task.public_id" :value="task.public_id">{{ workOrderNodeLabel(selectedOrder.workflow, task.node_id, currentLang) }}</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label" for="transfer-recipient">{{ tx('transferRecipient') }} *</label>
+                <select id="transfer-recipient" v-model="transferForm.targetUserID" class="form-select">
+                  <option value="">{{ tx('selectMember') }}</option>
+                  <option v-for="participant in transferFilteredParticipants" :key="participant.id" :value="String(participant.id)">{{ participant.display_name || participant.username }}{{ participant.display_name && participant.username ? ` (${participant.username})` : '' }}</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label" for="transfer-comment">{{ tx('transferReason') }} *</label>
+                <textarea id="transfer-comment" v-model.trim="transferForm.comment" class="form-control" rows="3" maxlength="2000" :placeholder="tx('transferReasonPlaceholder')"></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-outline-secondary" :disabled="actionLoading" @click="closeTransferModal">{{ tx('cancel') }}</button>
+              <button class="btn btn-primary" :disabled="actionLoading || !transferForm.targetUserID || !transferForm.comment.trim()" @click="submitTransfer"><span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ tx('confirmTransfer') }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -528,13 +555,20 @@ const router = useRouter()
 const currentLang = computed(() => String(locale.value || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh')
 const workOrderCopy = {
   zh: {
-    pageTitle: '工单中心', pageSubtitle: '统一处理人工、规则、告警、AI 与外部业务工单', refresh: '刷新', newWorkOrder: '新建工单', newTemplate: '新建模板', ordersTab: '工单', templatesTab: '表单与流程模板', relatedViews: '与当前用户相关的工单视图', relatedToMe: '与我相关', searchPlaceholder: '搜索工单编号、标题或摘要', allStatuses: '全部状态', allSources: '全部来源', sourceManual: '人工创建', sourceRule: '规则引擎', sourceAlarm: '告警', sourceAI: 'AI 大脑', sourceExternal: '外部业务', query: '查询', columnWorkOrder: '工单', columnSource: '来源', columnPriority: '优先级', columnStatus: '状态', columnAssignee: '负责人', columnCreatedAt: '创建时间', columnActions: '操作', loading: '加载中', noOrders: '暂无匹配工单', editOrder: '编辑工单', deleteOrder: '删除工单', edit: '编辑', delete: '删除', loadMore: '加载更多', claim: '领取', formContent: '表单内容', workOrderActions: '工单操作', actionHint: '处理动作将在弹窗中完成，并写入必填处理意见。', cc: '抄送', transfer: '转交', transferTitle: '转交工单', transferHint: '转交后，当前待处理事项将交由所选成员继续处理，并保留完整的流转记录。审批任务不能转交。', transferTask: '待处理任务', transferRecipient: '转交给', selectMember: '请选择成员', transferReason: '转交说明', transferReasonPlaceholder: '请说明转交原因或已完成的工作', confirmTransfer: '确认转交', transferSuccess: '工单已转交给指定成员。', myTasks: '分配给我的流程任务', approval: '审批', task: '处理', selectOrder: '选择一张工单查看详情', templateName: '模板名称', noTemplates: '暂无模板，请先创建', configureTemplate: '配置模板', configureWorkflowForm: '配置流程与表单', editTemplate: '编辑模板', editBasicInfo: '编辑基础信息', deleteTemplate: '删除模板', integrationInfo: '连接凭据仅在保存时提交；页面不会回显密钥。绑定用于收件幂等与版本顺序，映射用于声明外部字段转换。', name: '名称', exampleCMMS: '例如 CMMS', remoteIdentity: '远端身份标识', secretSaveOnly: '仅保存时提交', saveConnector: '保存连接', enabled: '已启用', disabled: '已停用', noConnectors: '尚未配置连接。', bindingID: '绑定标识', exampleBinding: '例如 cmms-main', selectConnector: '选择连接', direction: '方向', inbound: '入站', outbound: '出站', bidirectional: '双向', saveBinding: '保存绑定', noBindings: '先创建一个连接和绑定。', mappingID: '映射标识', exampleMapping: '例如 incident-v1', externalMapping: '外部事件映射', mappingJSON: '字段映射 JSON', mappingExample: '示例：{"title":"summary","priority":"severity"}', saveMapping: '保存映射', selectBinding: '选择左侧绑定后即可配置字段映射。', visualWorkflow: '图形化工单流程', newManualOrder: '新建人工工单', workOrderTemplate: '工单模板', selectTemplate: '请选择模板', priority: '优先级', low: '低', normal: '普通', high: '高', urgent: '紧急', title: '标题', summary: '摘要', createWorkOrder: '创建工单', editOrderTitle: '编辑工单基础信息', save: '保存', editTemplateTitle: '编辑模板基础信息', templateNameHint: '提示：模板编码和结构需保持稳定，仅支持修改名称。若需修改编码，请新建模板。', newTemplateTitle: '新建工单模板', description: '说明', createTemplateHint: '创建后会自动生成可编辑的初始表单与基础处理流程。', create: '创建', ccTitle: '抄送工单', selectCC: '选择抄送人', searchMembers: '搜索成员...', noMembers: '没有找到匹配的成员。', additionalMessage: '附言', optional: '（选填）', ccMessagePlaceholder: '给抄送人的留言...', send: '发送', start: '开始', handleTask: '处理任务', end: '结束', templateConfigType: '模板配置类型', workflowConfig: '流程配置', formConfig: '表单配置', managedReadonly: 'AI 托管模板，不能修改', workflowActions: '流程配置操作', formActions: '表单配置操作', saveWorkflowDraft: '保存流程草稿', publishWorkflow: '发布流程', fullscreenWorkflow: '全屏展开流程图', saveFormDraft: '保存表单草稿', publishForm: '发布表单', resolution: '解决结论', actualProblem: '实际问题', rootCause: '根因', handlingProcess: '处理过程', handlingResult: '处理结果', processTitle: '处理工单', processSubtitle: '选择动作并填写本次处理意见', close: '关闭', processAction: '处理动作', resolutionHint: '解决前请完整记录实际问题、根因、处理过程和处理结果；这些内容将写入不可变的工单事件。', processOpinion: '处理意见', processOpinionPlaceholder: '请填写本次处理判断、过程或结论', processOpinionHint: '处理意见将进入工单操作记录，提交后不可省略。', cancel: '取消', submitProcess: '确认处理', statusAction: '状态动作', approve: '通过审批', reject: '驳回审批', pass: '通过', complete: '完成', unavailableUser: '已删除或不可用用户', unclaimed: '未领取', integrations: '集成配置', connector: '连接', binding: '绑定', mapping: '映射', statusOpen: '待处理', statusInProgress: '处理中', statusPaused: '已暂停', statusResolved: '已解决', statusClosed: '已关闭', statusCancelled: '已取消', yes: '是', no: '否', copiedSuccess: '工单已成功抄送', connectorSaved: '集成连接已保存。', bindingSaved: '集成绑定已保存。', invalidMappingJSON: '字段映射必须是有效 JSON。', mappingSaved: '字段映射已保存。', noTemplateConfigured: '请先创建并配置一个工单模板。', orderCreated: '工单已创建。', existingOrderReturned: '已返回同一来源的既有工单。', orderClaimed: '已领取工单。', orderResolved: '工单已解决，等待验收关闭。', orderStatusUpdated: '工单状态已更新。', approvalPassed: '审批已通过。', approvalRejected: '审批已驳回。', taskCompleted: '任务已完成，流程已继续。', taskRejected: '审批已驳回，流程已退回指定节点。', versionConflict: '工单已被其他用户更新，已刷新为最新状态。', orderUpdated: '工单基础信息已更新', confirmDeleteOrder: '确定要删除未处理工单“{name}”吗？删除后将无法恢复。', orderDeleted: '工单已删除', templateUpdated: '模板名称已更新', confirmDeleteTemplate: '确定要删除工单模板“{name}”？\n注意：如果已有工单使用了此模板，强制删除可能会导致相关工单数据显示异常！', templateDeleted: '模板已删除', templateCreated: '模板已创建，并已生成初始表单与流程。', formPublishedReloadFailed: '表单已发布，但重新加载模板详情失败：{message}', formPublished: '表单已发布；既有工单继续使用原始快照。', formDraftReloadFailed: '表单草稿已保存，但重新加载模板详情失败：{message}', formDraftSaved: '表单草稿已保存，尚未发布。', workflowPublishedReloadFailed: '流程已发布，但重新加载模板详情失败：{message}', workflowPublished: '流程已发布；既有工单继续使用原始快照。', workflowDraftReloadFailed: '流程草稿已保存，但重新加载模板详情失败：{message}', workflowDraftSaved: '流程草稿已保存，尚未发布。'
+    pageTitle: '工单中心', pageSubtitle: '统一处理人工、规则、告警、AI 与外部业务工单', refresh: '刷新', newWorkOrder: '新建工单', newTemplate: '新建模板', ordersTab: '工单列表', all: '全部工单', templatesTab: '表单与流程模板', relatedViews: '与当前用户相关的工单视图', relatedToMe: '与我相关', searchPlaceholder: '搜索工单编号、标题或摘要', allStatuses: '全部状态', allSources: '全部来源', sourceManual: '人工创建', sourceRule: '规则引擎', sourceAlarm: '告警', sourceAI: 'AI 大脑', sourceExternal: '外部业务', query: '查询', columnWorkOrder: '工单', columnSource: '来源', columnPriority: '优先级', columnStatus: '状态', columnAssignee: '负责人', columnCreatedAt: '创建时间', columnActions: '操作', loading: '加载中', noOrders: '暂无匹配工单', editOrder: '编辑工单', deleteOrder: '删除工单', edit: '编辑', delete: '删除', loadMore: '加载更多', claim: '领取', formContent: '表单内容', workOrderActions: '工单操作', actionHint: '处理动作将在弹窗中完成，并写入必填处理意见。', cc: '抄送', transfer: '转交', transferTitle: '转交工单', transferHint: '转交后，当前待处理事项将交由所选成员继续处理，并保留完整的流转记录。审批任务不能转交。', transferTask: '待处理任务', transferRecipient: '转交给', selectMember: '请选择成员', transferReason: '转交说明', transferReasonPlaceholder: '请说明转交原因或已完成的工作', confirmTransfer: '确认转交', transferSuccess: '工单已转交给指定成员。', myTasks: '分配给我的流程任务', approval: '审批', task: '处理', selectOrder: '选择一张工单查看详情', templateName: '模板名称', noTemplates: '暂无模板，请先创建', configureTemplate: '配置模板', configureWorkflowForm: '配置流程与表单', editTemplate: '编辑模板', editBasicInfo: '编辑基础信息', deleteTemplate: '删除模板', integrationInfo: '连接凭据仅在保存时提交；页面不会回显密钥。绑定用于收件幂等与版本顺序，映射用于声明外部字段转换。', name: '名称', exampleCMMS: '例如 CMMS', remoteIdentity: '远端身份标识', secretSaveOnly: '仅保存时提交', saveConnector: '保存连接', enabled: '已启用', disabled: '已停用', noConnectors: '尚未配置连接。', bindingID: '绑定标识', exampleBinding: '例如 cmms-main', selectConnector: '选择连接', direction: '方向', inbound: '入站', outbound: '出站', bidirectional: '双向', saveBinding: '保存绑定', noBindings: '先创建一个连接和绑定。', mappingID: '映射标识', exampleMapping: '例如 incident-v1', externalMapping: '外部事件映射', mappingJSON: '字段映射 JSON', mappingExample: '示例：{"title":"summary","priority":"severity"}', saveMapping: '保存映射', selectBinding: '选择左侧绑定后即可配置字段映射。', visualWorkflow: '图形化工单流程', newManualOrder: '新建人工工单', workOrderTemplate: '工单模板', selectTemplate: '请选择模板', priority: '优先级', low: '低', normal: '普通', high: '高', urgent: '紧急', title: '标题', summary: '摘要', createWorkOrder: '创建工单', editOrderTitle: '编辑工单基础信息', save: '保存', editTemplateTitle: '编辑模板基础信息', templateNameHint: '提示：模板编码和结构需保持稳定，仅支持修改名称。若需修改编码，请新建模板。', newTemplateTitle: '新建工单模板', description: '说明', createTemplateHint: '创建后会自动生成可编辑的初始表单与基础处理流程。', create: '创建', ccTitle: '抄送工单', selectCC: '选择抄送人', searchMembers: '搜索成员...', noMembers: '没有找到匹配的成员。', additionalMessage: '附言', optional: '（选填）', ccMessagePlaceholder: '给抄送人的留言...', send: '发送', start: '开始', handleTask: '处理任务', end: '结束', templateConfigType: '模板配置类型', workflowConfig: '流程配置', formConfig: '表单配置', managedReadonly: 'AI 托管模板，不能修改', workflowActions: '流程配置操作', formActions: '表单配置操作', saveWorkflowDraft: '保存流程草稿', publishWorkflow: '发布流程', fullscreenWorkflow: '全屏展开流程图', saveFormDraft: '保存表单草稿', publishForm: '发布表单', resolution: '解决结论', actualProblem: '实际问题', rootCause: '根因', handlingProcess: '处理过程', handlingResult: '处理结果', processTitle: '处理工单', processSubtitle: '选择动作并填写本次处理意见', close: '关闭', processAction: '处理动作', resolutionHint: '解决前请完整记录实际问题、根因、处理过程和处理结果；这些内容将写入不可变的工单事件。', processOpinion: '处理意见', processOpinionPlaceholder: '请填写本次处理判断、过程或结论', processOpinionHint: '处理意见将进入工单操作记录，提交后不可省略。', cancel: '取消', submitProcess: '确认处理', statusAction: '状态动作', approve: '通过审批', reject: '驳回审批', pass: '通过', complete: '完成', unavailableUser: '已删除或不可用用户', unclaimed: '未领取', integrations: '集成配置', connector: '连接', binding: '绑定', mapping: '映射', statusOpen: '待处理', statusInProgress: '处理中', statusPaused: '已暂停', statusResolved: '已解决', statusClosed: '已关闭', statusCancelled: '已取消', yes: '是', no: '否', copiedSuccess: '工单已成功抄送', connectorSaved: '集成连接已保存。', bindingSaved: '集成绑定已保存。', invalidMappingJSON: '字段映射必须是有效 JSON。', mappingSaved: '字段映射已保存。', noTemplateConfigured: '请先创建并配置一个工单模板。', orderCreated: '工单已创建。', existingOrderReturned: '已返回同一来源的既有工单。', orderClaimed: '已领取工单。', orderResolved: '工单已解决，等待验收关闭。', orderStatusUpdated: '工单状态已更新。', approvalPassed: '审批已通过。', approvalRejected: '审批已驳回。', taskCompleted: '任务已完成，流程已继续。', taskRejected: '审批已驳回，流程已退回指定节点。', versionConflict: '工单已被其他用户更新，已刷新为最新状态。', orderUpdated: '工单基础信息已更新', confirmDeleteOrder: '确定要删除未处理工单“{name}”吗？删除后将无法恢复。', orderDeleted: '工单已删除', templateUpdated: '模板名称已更新', confirmDeleteTemplate: '确定要删除工单模板“{name}”？\n注意：如果已有工单使用了此模板，强制删除可能会导致相关工单数据显示异常！', templateDeleted: '模板已删除', templateCreated: '模板已创建，并已生成初始表单与流程。', formPublishedReloadFailed: '表单已发布，但重新加载模板详情失败：{message}', formPublished: '表单已发布；既有工单继续使用原始快照。', formDraftReloadFailed: '表单草稿已保存，但重新加载模板详情失败：{message}', formDraftSaved: '表单草稿已保存，尚未发布。', workflowPublishedReloadFailed: '流程已发布，但重新加载模板详情失败：{message}', workflowPublished: '流程已发布；既有工单继续使用原始快照。', workflowDraftReloadFailed: '流程草稿已保存，但重新加载模板详情失败：{message}', workflowDraftSaved: '流程草稿已保存，尚未发布。'
   },
   en: {
-    pageTitle: 'Work Order Center', pageSubtitle: 'Manage manual, rule, alarm, AI, and external work orders in one place', refresh: 'Refresh', newWorkOrder: 'New work order', newTemplate: 'New template', ordersTab: 'Work orders', templatesTab: 'Form & workflow templates', relatedViews: 'Work orders related to the current user', relatedToMe: 'Related to me', searchPlaceholder: 'Search by code, title, or summary', allStatuses: 'All statuses', allSources: 'All sources', sourceManual: 'Manual', sourceRule: 'Rule engine', sourceAlarm: 'Alarm', sourceAI: 'AI Brain', sourceExternal: 'External', query: 'Search', columnWorkOrder: 'Work order', columnSource: 'Source', columnPriority: 'Priority', columnStatus: 'Status', columnAssignee: 'Assignee', columnCreatedAt: 'Created at', columnActions: 'Actions', loading: 'Loading', noOrders: 'No matching work orders', editOrder: 'Edit work order', deleteOrder: 'Delete work order', edit: 'Edit', delete: 'Delete', loadMore: 'Load more', claim: 'Claim', formContent: 'Form data', workOrderActions: 'Work order actions', actionHint: 'Processing opens in a dialog and requires an opinion.', cc: 'Copy', transfer: 'Transfer', transferTitle: 'Transfer work order', transferHint: 'The current handling item moves to the selected member and the complete routing history is preserved. Approval tasks cannot be transferred.', transferTask: 'Handling task', transferRecipient: 'Transfer to', selectMember: 'Select a member', transferReason: 'Transfer reason', transferReasonPlaceholder: 'Explain the reason or work already completed', confirmTransfer: 'Confirm transfer', transferSuccess: 'Work order transferred to the selected member.', myTasks: 'Workflow tasks assigned to me', approval: 'Approval', task: 'Task', selectOrder: 'Select a work order to view details', templateName: 'Template name', noTemplates: 'No templates yet. Create one first.', configureTemplate: 'Configure template', configureWorkflowForm: 'Configure workflow and form', editTemplate: 'Edit template', editBasicInfo: 'Edit basic information', deleteTemplate: 'Delete template', integrationInfo: 'Credentials are submitted only when saved and are never displayed again. Bindings control inbound idempotency and revision order; mappings define external field conversion.', name: 'Name', exampleCMMS: 'For example, CMMS', remoteIdentity: 'Remote identity', secretSaveOnly: 'Submitted only when saved', saveConnector: 'Save connector', enabled: 'Enabled', disabled: 'Disabled', noConnectors: 'No connectors configured.', bindingID: 'Binding ID', exampleBinding: 'For example, cmms-main', selectConnector: 'Select connector', direction: 'Direction', inbound: 'Inbound', outbound: 'Outbound', bidirectional: 'Bidirectional', saveBinding: 'Save binding', noBindings: 'Create a connector and binding first.', mappingID: 'Mapping ID', exampleMapping: 'For example, incident-v1', externalMapping: 'External event mapping', mappingJSON: 'Field mapping JSON', mappingExample: 'Example: {"title":"summary","priority":"severity"}', saveMapping: 'Save mapping', selectBinding: 'Select a binding on the left to configure field mapping.', visualWorkflow: 'Visual work-order workflow', newManualOrder: 'New manual work order', workOrderTemplate: 'Work order template', selectTemplate: 'Select a template', priority: 'Priority', low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent', title: 'Title', summary: 'Summary', createWorkOrder: 'Create work order', editOrderTitle: 'Edit work order details', save: 'Save', editTemplateTitle: 'Edit template details', templateNameHint: 'Template codes and structures must remain stable. Only the name can be changed; create a new template to use another code.', newTemplateTitle: 'New work-order template', description: 'Description', createTemplateHint: 'An editable initial form and basic workflow are generated after creation.', create: 'Create', ccTitle: 'Copy work order', selectCC: 'Select recipients', searchMembers: 'Search members...', noMembers: 'No matching members found.', additionalMessage: 'Message', optional: '(optional)', ccMessagePlaceholder: 'Add a message for the recipients...', send: 'Send', start: 'Start', handleTask: 'Handle task', end: 'End', templateConfigType: 'Template configuration', workflowConfig: 'Workflow', formConfig: 'Form design', managedReadonly: 'This AI-managed template is read-only', workflowActions: 'Workflow actions', formActions: 'Form actions', saveWorkflowDraft: 'Save workflow draft', publishWorkflow: 'Publish workflow', fullscreenWorkflow: 'Open workflow in full screen', saveFormDraft: 'Save form draft', publishForm: 'Publish form', resolution: 'Resolution', actualProblem: 'Actual issue', rootCause: 'Root cause', handlingProcess: 'Handling process', handlingResult: 'Result', processTitle: 'Process work order', processSubtitle: 'Choose an action and record your processing opinion', close: 'Close', processAction: 'Action', resolutionHint: 'Record the actual issue, root cause, handling process, and result before resolving. These details become immutable work-order events.', processOpinion: 'Processing opinion', processOpinionPlaceholder: 'Describe the decision, process, or result', processOpinionHint: 'The opinion is recorded in the activity log and cannot be omitted.', cancel: 'Cancel', submitProcess: 'Submit', statusAction: 'Status action', approve: 'Approve', reject: 'Reject', pass: 'Approve', complete: 'Complete', unavailableUser: 'Deleted or unavailable user', unclaimed: 'Unclaimed', integrations: 'Integrations', connector: 'Connector', binding: 'Binding', mapping: 'Mapping', statusOpen: 'Open', statusInProgress: 'In progress', statusPaused: 'Paused', statusResolved: 'Resolved', statusClosed: 'Closed', statusCancelled: 'Cancelled', yes: 'Yes', no: 'No', copiedSuccess: 'Work order copied successfully.', connectorSaved: 'Connector saved.', bindingSaved: 'Binding saved.', invalidMappingJSON: 'Field mapping must be valid JSON.', mappingSaved: 'Mapping saved.', noTemplateConfigured: 'Create and configure a work-order template first.', orderCreated: 'Work order created.', existingOrderReturned: 'Returned the existing work order for the same source.', orderClaimed: 'Work order claimed.', orderResolved: 'Work order resolved and awaiting acceptance and closure.', orderStatusUpdated: 'Work-order status updated.', approvalPassed: 'Approval passed.', approvalRejected: 'Approval rejected.', taskCompleted: 'Task completed and workflow continued.', taskRejected: 'Approval rejected and workflow returned to the configured step.', versionConflict: 'Another user updated this work order. The latest version has been loaded.', orderUpdated: 'Work-order details updated.', confirmDeleteOrder: 'Delete the unprocessed work order “{name}”? This cannot be undone.', orderDeleted: 'Work order deleted.', templateUpdated: 'Template name updated.', confirmDeleteTemplate: 'Delete work-order template “{name}”?\nIf existing work orders use it, forced deletion may make their data display incorrectly.', templateDeleted: 'Template deleted.', templateCreated: 'Template created with an initial form and workflow.', formPublishedReloadFailed: 'The form was published, but template details could not be reloaded: {message}', formPublished: 'Form published. Existing work orders keep their original snapshot.', formDraftReloadFailed: 'The form draft was saved, but template details could not be reloaded: {message}', formDraftSaved: 'Form draft saved but not published.', workflowPublishedReloadFailed: 'The workflow was published, but template details could not be reloaded: {message}', workflowPublished: 'Workflow published. Existing work orders keep their original snapshot.', workflowDraftReloadFailed: 'The workflow draft was saved, but template details could not be reloaded: {message}', workflowDraftSaved: 'Workflow draft saved but not published.'
+    pageTitle: 'Work Order Center', pageSubtitle: 'Manage manual, rule, alarm, AI, and external work orders in one place', refresh: 'Refresh', newWorkOrder: 'New work order', newTemplate: 'New template', ordersTab: 'Work Orders', all: 'All Orders', templatesTab: 'Form & workflow templates', relatedViews: 'Work orders related to the current user', relatedToMe: 'Related to me', searchPlaceholder: 'Search by code, title, or summary', allStatuses: 'All statuses', allSources: 'All sources', sourceManual: 'Manual', sourceRule: 'Rule engine', sourceAlarm: 'Alarm', sourceAI: 'AI Brain', sourceExternal: 'External', query: 'Search', columnWorkOrder: 'Work order', columnSource: 'Source', columnPriority: 'Priority', columnStatus: 'Status', columnAssignee: 'Assignee', columnCreatedAt: 'Created at', columnActions: 'Actions', loading: 'Loading', noOrders: 'No matching work orders', editOrder: 'Edit work order', deleteOrder: 'Delete work order', edit: 'Edit', delete: 'Delete', loadMore: 'Load more', claim: 'Claim', formContent: 'Form data', workOrderActions: 'Work order actions', actionHint: 'Processing opens in a dialog and requires an opinion.', cc: 'Copy', transfer: 'Transfer', transferTitle: 'Transfer work order', transferHint: 'The current handling item moves to the selected member and the complete routing history is preserved. Approval tasks cannot be transferred.', transferTask: 'Handling task', transferRecipient: 'Transfer to', selectMember: 'Select a member', transferReason: 'Transfer reason', transferReasonPlaceholder: 'Explain the reason or work already completed', confirmTransfer: 'Confirm transfer', transferSuccess: 'Work order transferred to the selected member.', myTasks: 'Workflow tasks assigned to me', approval: 'Approval', task: 'Task', selectOrder: 'Select a work order to view details', templateName: 'Template name', noTemplates: 'No templates yet. Create one first.', configureTemplate: 'Configure template', configureWorkflowForm: 'Configure workflow and form', editTemplate: 'Edit template', editBasicInfo: 'Edit basic information', deleteTemplate: 'Delete template', integrationInfo: 'Credentials are submitted only when saved and are never displayed again. Bindings control inbound idempotency and revision order; mappings define external field conversion.', name: 'Name', exampleCMMS: 'For example, CMMS', remoteIdentity: 'Remote identity', secretSaveOnly: 'Submitted only when saved', saveConnector: 'Save connector', enabled: 'Enabled', disabled: 'Disabled', noConnectors: 'No connectors configured.', bindingID: 'Binding ID', exampleBinding: 'For example, cmms-main', selectConnector: 'Select connector', direction: 'Direction', inbound: 'Inbound', outbound: 'Outbound', bidirectional: 'Bidirectional', saveBinding: 'Save binding', noBindings: 'Create a connector and binding first.', mappingID: 'Mapping ID', exampleMapping: 'For example, incident-v1', externalMapping: 'External event mapping', mappingJSON: 'Field mapping JSON', mappingExample: 'Example: {"title":"summary","priority":"severity"}', saveMapping: 'Save mapping', selectBinding: 'Select a binding on the left to configure field mapping.', visualWorkflow: 'Visual work-order workflow', newManualOrder: 'New manual work order', workOrderTemplate: 'Work order template', selectTemplate: 'Select a template', priority: 'Priority', low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent', title: 'Title', summary: 'Summary', createWorkOrder: 'Create work order', editOrderTitle: 'Edit work order details', save: 'Save', editTemplateTitle: 'Edit template details', templateNameHint: 'Template codes and structures must remain stable. Only the name can be changed; create a new template to use another code.', newTemplateTitle: 'New work-order template', description: 'Description', createTemplateHint: 'An editable initial form and basic workflow are generated after creation.', create: 'Create', ccTitle: 'Copy work order', selectCC: 'Select recipients', searchMembers: 'Search members...', noMembers: 'No matching members found.', additionalMessage: 'Message', optional: '(optional)', ccMessagePlaceholder: 'Add a message for the recipients...', send: 'Send', start: 'Start', handleTask: 'Handle task', end: 'End', templateConfigType: 'Template configuration', workflowConfig: 'Workflow', formConfig: 'Form design', managedReadonly: 'This AI-managed template is read-only', workflowActions: 'Workflow actions', formActions: 'Form actions', saveWorkflowDraft: 'Save workflow draft', publishWorkflow: 'Publish workflow', fullscreenWorkflow: 'Open workflow in full screen', saveFormDraft: 'Save form draft', publishForm: 'Publish form', resolution: 'Resolution', actualProblem: 'Actual issue', rootCause: 'Root cause', handlingProcess: 'Handling process', handlingResult: 'Result', processTitle: 'Process work order', processSubtitle: 'Choose an action and record your processing opinion', close: 'Close', processAction: 'Action', resolutionHint: 'Record the actual issue, root cause, handling process, and result before resolving. These details become immutable work-order events.', processOpinion: 'Processing opinion', processOpinionPlaceholder: 'Describe the decision, process, or result', processOpinionHint: 'The opinion is recorded in the activity log and cannot be omitted.', cancel: 'Cancel', submitProcess: 'Submit', statusAction: 'Status action', approve: 'Approve', reject: 'Reject', pass: 'Approve', complete: 'Complete', unavailableUser: 'Deleted or unavailable user', unclaimed: 'Unclaimed', integrations: 'Integrations', connector: 'Connector', binding: 'Binding', mapping: 'Mapping', statusOpen: 'Open', statusInProgress: 'In progress', statusPaused: 'Paused', statusResolved: 'Resolved', statusClosed: 'Closed', statusCancelled: 'Cancelled', yes: 'Yes', no: 'No', copiedSuccess: 'Work order copied successfully.', connectorSaved: 'Connector saved.', bindingSaved: 'Binding saved.', invalidMappingJSON: 'Field mapping must be valid JSON.', mappingSaved: 'Mapping saved.', noTemplateConfigured: 'Create and configure a work-order template first.', orderCreated: 'Work order created.', existingOrderReturned: 'Returned the existing work order for the same source.', orderClaimed: 'Work order claimed.', orderResolved: 'Work order resolved and awaiting acceptance and closure.', orderStatusUpdated: 'Work-order status updated.', approvalPassed: 'Approval passed.', approvalRejected: 'Approval rejected.', taskCompleted: 'Task completed and workflow continued.', taskRejected: 'Approval rejected and workflow returned to the configured step.', versionConflict: 'Another user updated this work order. The latest version has been loaded.', orderUpdated: 'Work-order details updated.', confirmDeleteOrder: 'Delete the unprocessed work order “{name}”? This cannot be undone.', orderDeleted: 'Work order deleted.', templateUpdated: 'Template name updated.', confirmDeleteTemplate: 'Delete work-order template “{name}”?\nIf existing work orders use it, forced deletion may make their data display incorrectly.', templateDeleted: 'Template deleted.', templateCreated: 'Template created with an initial form and workflow.', formPublishedReloadFailed: 'The form was published, but template details could not be reloaded: {message}', formPublished: 'Form published. Existing work orders keep their original snapshot.', formDraftReloadFailed: 'The form draft was saved, but template details could not be reloaded: {message}', formDraftSaved: 'Form draft saved but not published.', workflowPublishedReloadFailed: 'The workflow was published, but template details could not be reloaded: {message}', workflowPublished: 'Workflow published. Existing work orders keep their original snapshot.', workflowDraftReloadFailed: 'The workflow draft was saved, but template details could not be reloaded: {message}', workflowDraftSaved: 'Workflow draft saved but not published.'
   }
 }
 Object.assign(workOrderCopy.zh, {
+  myOrdersTab: '我的工单',
+  allOrdersTab: '全部工单',
+  pendingMyAction: '待我处理',
+  pendingMyApproval: '待我审批',
+  myProcessed: '我已处理',
+  myCreated: '我创建的',
+  myCC: '抄送我的',
 	copyTemplate: '复制模板',
 	templateCopied: '已复制模板“{name}”，可继续编辑。',
 	managedFormReadonly: '“AI大脑建议”的内置表单由系统维护，不能修改。',
@@ -570,6 +604,13 @@ Object.assign(workOrderCopy.zh, {
   invalidFileType: '不支持的文件格式'
 })
 Object.assign(workOrderCopy.en, {
+  myOrdersTab: 'My Tasks',
+  allOrdersTab: 'All Work Orders',
+  pendingMyAction: 'Assigned to Me',
+  pendingMyApproval: 'Pending My Approval',
+  myProcessed: 'Processed by Me',
+  myCreated: 'Created by Me',
+  myCC: 'CC to Me',
 	copyTemplate: 'Copy template',
 	templateCopied: 'Template “{name}” was copied and is ready to edit.',
 	managedFormReadonly: 'The built-in form for “AI Brain Suggestions” is maintained by the system and cannot be changed.',
@@ -611,9 +652,40 @@ const workOrderPaginationCopy = {
 const tx = key => workOrderPaginationCopy[currentLang.value]?.[key] || workOrderCopy[currentLang.value]?.[key] || workOrderCopy.zh[key] || key
 const txf = (key, values = {}) => Object.entries(values).reduce((message, [name, value]) => message.replaceAll(`{${name}}`, String(value)), tx(key))
 const relationFilters = computed(() => workOrderRelationFiltersForLocale(currentLang.value))
+const orderRelationFilters = computed(() => [
+  { key: '', label: tx('all') || '全部工单' },
+  { key: 'pending', label: tx('pendingMyAction') || '待我处理' },
+  { key: 'pending_approval', label: tx('pendingMyApproval') || '待我审批' },
+  { key: 'processed', label: tx('myProcessed') || '我已处理' },
+  { key: 'created', label: tx('myCreated') || '我创建的' },
+  { key: 'cc', label: tx('myCC') || '抄送我的' }
+])
 const workOrderIntegrationsVisible = false
 const activeTab = ref('orders')
-const loading = ref(false)
+
+function switchTab(tab) {
+  activeTab.value = tab
+  if (tab === 'orders' || tab === 'my_orders' || tab === 'all_orders') {
+    activeTab.value = 'orders'
+    loadOrders()
+  } else if (tab === 'templates') {
+    loadTemplates()
+  } else if (workOrderIntegrationsVisible && tab === 'integrations') {
+    loadIntegrations()
+  }
+}
+
+function refreshCurrentTab() {
+  if (activeTab.value === 'orders' || activeTab.value === 'my_orders' || activeTab.value === 'all_orders') {
+    loadOrders()
+  } else if (activeTab.value === 'templates') {
+    loadTemplates()
+  } else if (workOrderIntegrationsVisible && activeTab.value === 'integrations') {
+    loadIntegrations()
+  }
+}
+
+const loading = computed(() => ordersLoading.value)
 const actionLoading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
@@ -641,6 +713,9 @@ const orders = ref([])
 const orderTotal = ref(0)
 const orderPage = ref(1)
 const orderPageSize = ref(20)
+const ordersLoading = ref(false)
+const orderFilters = ref({ keyword: '', relation: '', status: '', sourceType: '' })
+
 const orderPageSizeOptions = [10, 20, 50]
 const selectedOrder = ref(null)
 const orderDetailDialog = ref(null)
@@ -751,7 +826,6 @@ const createTemplateDetail = ref(null)
 const isAIManagedTemplate = computed(() => selectedTemplate.value?.template?.system_managed === true && selectedTemplate.value.template.code === 'ai_device_maintenance')
 const workflowEditorReadonly = computed(() => selectedTemplate.value?.template?.system_managed === true && !isAIManagedTemplate.value)
 
-const orderFilters = ref({ keyword: '', status: '', sourceType: '', relation: '' })
 const createOrder = ref({ templateId: 0, title: '', summary: '', priority: 'normal', formData: {} })
 const createTemplate = ref({ code: '', name: '', description: '' })
 const showEditOrderModal = ref(false)
@@ -768,11 +842,16 @@ const workflowStatuses = computed(() => {
   })
   return [...seen.values()]
 })
-const filteredOrders = computed(() => orders.value)
 const availableTransitions = computed(() => selectedOrder.value?.available_actions?.transitions || [])
 const workOrderDeviceByCode = computed(() => new Map(workOrderCatalogDevices.value.map(device => [String(device.code || '').trim(), device])))
 const workOrderProductByCode = computed(() => new Map(workOrderCatalogProducts.value.map(product => [String(product.code || '').trim(), product])))
 const alarmSourceDetails = computed(() => selectedOrder.value ? alarmWorkOrderDetails(selectedOrder.value) : [])
+const alarmSnapshotUrl = computed(() => {
+  if (selectedOrder.value?.work_order?.source_type !== 'alarm') return ''
+  const snapshot = selectedOrder.value?.source_snapshot || {}
+  const params = snapshot.params && typeof snapshot.params === 'object' ? snapshot.params : {}
+  return snapshot.snapshot_url || snapshot.image_url || snapshot.snapshot || params.snapshot_url || params.image_url || params.snapshot_base64 || ''
+})
 const historicalGuidance = computed(() => normalizeWorkOrderHistoricalGuidance(selectedOrder.value))
 const templateDetailWorkflow = computed(() => templateDetail.value ? normalizeGraphWorkflow(templateDetail.value.has_workflow_draft ? templateDetail.value.workflow_draft_definition : templateDetail.value.workflow_definition) : defaultGraphWorkflow())
 const hasPendingApproval = computed(() => approvalTasks.value.some(task => task.status === 'pending' && String(task.approver_user_id) === String(currentUserId.value)))
@@ -1034,35 +1113,37 @@ async function loadProjectParticipants() {
 }
 
 async function loadOrders() {
-  loading.value = true
+  ordersLoading.value = true
   errorMessage.value = ''
   try {
-    const response = await workOrderApi.list({ page: orderPage.value, pageSize: orderPageSize.value, search: orderFilters.value.keyword, status: orderFilters.value.status, source_type: orderFilters.value.sourceType, relation: orderFilters.value.relation })
-    if (response.data.code !== 0) throw new Error(response.data.message)
-    const incoming = response.data.data || []
-    orders.value = incoming
-    orderTotal.value = Number(response.data.total || 0)
-    if (selectedOrder.value && !incoming.some(entry => workOrderId(entry.work_order) === workOrderId(selectedOrder.value?.work_order))) {
-      selectedOrder.value = null
-      orderEvents.value = []
-      approvalTasks.value = []
-      workOrderTasks.value = []
+    const params = {
+      page: orderPage.value,
+      pageSize: orderPageSize.value,
+      search: orderFilters.value.keyword || undefined,
+      status: orderFilters.value.status || undefined,
+      source_type: orderFilters.value.sourceType || undefined,
     }
+    if (orderFilters.value.relation) {
+      params.relation = orderFilters.value.relation
+    }
+    const response = await workOrderApi.list(params)
+    if (response.data.code !== 0) throw new Error(response.data.message)
+    orders.value = response.data.data || []
+    orderTotal.value = Number(response.data.total || 0)
   } catch (error) {
     errorMessage.value = apiError(error)
   } finally {
-    loading.value = false
+    ordersLoading.value = false
   }
+}
+
+async function refreshOrders() {
+  await loadOrders()
 }
 
 function applyOrderFilters() {
   orderPage.value = 1
   loadOrders()
-}
-
-function applyRouteOrderFilters() {
-  const sourceType = String(route.query.source || '').trim()
-  if (sourceType === 'ai') orderFilters.value.sourceType = sourceType
 }
 
 function goOrderPage(target) {
@@ -1079,10 +1160,21 @@ function changeOrderPageSize(size) {
   loadOrders()
 }
 
-function applyRelationFilter(relation) {
+function applyOrderRelation(relation) {
   if (orderFilters.value.relation === relation) return
   orderFilters.value.relation = relation
   applyOrderFilters()
+}
+
+function applyRouteOrderFilters() {
+  const sourceType = String(route.query.source || '').trim()
+  if (sourceType) orderFilters.value.sourceType = sourceType
+  const relation = String(route.query.relation || '').trim()
+  if (relation) orderFilters.value.relation = relation
+  const tab = String(route.query.tab || '').trim()
+  if (tab && ['orders', 'my_orders', 'all_orders', 'templates', 'integrations'].includes(tab)) {
+    activeTab.value = (tab === 'my_orders' || tab === 'all_orders') ? 'orders' : tab
+  }
 }
 
 async function selectOrder(id) {
@@ -1225,7 +1317,7 @@ async function createManualOrder() {
     showOrderModal.value = false
     successMessage.value = response.data.created ? tx('orderCreated') : tx('existingOrderReturned')
     orderPage.value = 1
-    await loadOrders()
+    await refreshOrders()
     await selectOrder(workOrderId(response.data.data.work_order))
   } catch (error) {
     errorMessage.value = apiError(error)
@@ -1374,7 +1466,7 @@ async function executeOrderAction(url, payload, message) {
     const response = await axios.post(url, payload)
     if (response.data.code !== 0) throw new Error(response.data.message)
     successMessage.value = message
-    await loadOrders()
+    await refreshOrders()
     await selectOrder(orderID)
     return true
   } catch (error) {
@@ -1404,7 +1496,7 @@ async function submitEditOrder() {
     if (response.data.code !== 0) throw new Error(response.data.message)
     showEditOrderModal.value = false
     successMessage.value = tx('orderUpdated')
-    await loadOrders()
+    await refreshOrders()
     if (selectedOrder.value?.work_order?.ID === editOrderData.value.id) await selectOrder(editOrderData.value.id)
   } catch (error) {
     if (String(error?.response?.data?.error_code || '').toUpperCase() === 'VERSION_CONFLICT' && selectedOrder.value) {
@@ -1427,7 +1519,7 @@ async function deleteOrder(order) {
     if (selectedOrder.value?.work_order?.ID === order.ID) {
       selectedOrder.value = null
     }
-    await loadOrders()
+    await refreshOrders()
     successMessage.value = tx('orderDeleted')
   } catch (error) {
     errorMessage.value = apiError(error)
@@ -1663,18 +1755,6 @@ function toggleWorkflowFullscreen() {
   workflowEditorRef.value?.toggleFullscreen?.()
 }
 
-function refreshCurrentTab() {
-  if (activeTab.value === 'orders') {
-    orderPage.value = 1
-    loadOrders()
-  } else if (activeTab.value === 'integrations') {
-    loadIntegrations()
-  } else {
-    loadTemplates()
-    if (selectedTemplate.value) selectTemplate(selectedTemplate.value.template.ID)
-  }
-}
-
 function sourceLabel(value) {
   return ({ manual: tx('sourceManual'), rule: tx('sourceRule'), alarm: tx('sourceAlarm'), ai: tx('sourceAI'), external: tx('sourceExternal') })[value] || value || '-'
 }
@@ -1731,14 +1811,16 @@ onMounted(async () => {
   await loadProjectParticipants()
   await loadWorkOrderEntityCatalog()
   applyRouteOrderFilters()
-  await loadOrders()
+  if (activeTab.value === 'orders') {
+    await loadOrders()
+  }
   await openHighlightedWorkOrder()
 })
 
-watch(() => [route.query.highlight, route.query.source], async () => {
+watch(() => [route.query.highlight, route.query.source, route.query.relation], async () => {
   applyRouteOrderFilters()
   orderPage.value = 1
-  await loadOrders()
+  await refreshOrders()
   highlightedWorkOrderPublicID.value = ''
   await openHighlightedWorkOrder()
 })
@@ -1767,24 +1849,22 @@ watch(() => route.query.template, async () => {
   --wo-selected-accent: #7da6ff;
   --wo-timeline-line: rgba(255, 255, 255, 0.16);
 }
-.work-order-filter-card,
-.work-order-list-card,
-.work-order-detail-card { background: var(--wo-surface); }
 .work-order-relation-filter .btn { padding-inline: 0.75rem; }
 .work-order-table { --bs-table-bg: transparent; --bs-table-color: var(--bs-body-color); }
 .work-order-table-head th {
-  background: var(--wo-table-head);
+  background: rgba(var(--bs-secondary-rgb), 0.04);
   border-bottom-color: var(--bs-border-color);
   color: var(--bs-secondary-color);
   font-size: 0.78rem;
   font-weight: 650;
   letter-spacing: 0.02em;
-  padding-block: 0.8rem;
+  padding: 0.5rem 0.75rem;
   white-space: nowrap;
 }
 .work-order-row > td {
   background: transparent;
   border-bottom-color: var(--bs-border-color-translucent);
+  padding: 0.5rem 0.75rem;
   transition: background-color 0.16s ease, box-shadow 0.16s ease;
 }
 .work-order-row:hover > td { background: var(--wo-row-hover); }
@@ -1798,7 +1878,11 @@ watch(() => route.query.template, async () => {
   font-weight: 500;
 }
 .work-order-form-section,
-.work-order-action-panel { background: var(--wo-surface-muted); }
+.work-order-action-panel {
+  background-color: var(--bg-drawer-section, var(--bs-tertiary-bg)) !important;
+  background: var(--bg-drawer-section, var(--bs-tertiary-bg)) !important;
+  border: 1px solid var(--border-color) !important;
+}
 .work-order-history-guidance {
   border: 1px solid color-mix(in srgb, var(--bs-success) 42%, var(--bs-border-color));
   background: color-mix(in srgb, var(--bs-success) 7%, var(--wo-surface-muted));
@@ -1862,12 +1946,58 @@ watch(() => route.query.template, async () => {
   box-shadow: 0 0 0 1px var(--wo-selected-accent);
 }
 .work-order-process-modal .modal-content { background: var(--bs-body-bg); color: var(--bs-body-color); }
-.work-order-drawer { position: fixed; z-index: 1051; top: 0; right: 0; width: min(560px, 100vw); height: 100dvh; display: flex; flex-direction: column; background: var(--wo-surface); color: var(--bs-body-color); }
-.work-order-drawer__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1.25rem; border-bottom: 1px solid var(--bs-border-color); }
+.work-order-drawer {
+  position: fixed;
+  z-index: 1051;
+  top: 0;
+  right: 0;
+  width: min(560px, 100vw);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-drawer, #ffffff) !important;
+  background: var(--bg-drawer, #ffffff) !important;
+  color: var(--text-main, var(--bs-body-color)) !important;
+  border-left: 1px solid var(--border-color) !important;
+  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.35) !important;
+}
+.work-order-drawer__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem;
+  background-color: var(--bg-drawer-header, #f8fafc) !important;
+  background: var(--bg-drawer-header, #f8fafc) !important;
+  border-bottom: 1px solid var(--bs-border-color) !important;
+}
 .work-order-drawer__body { min-width: 0; padding: 1.25rem; overflow-y: auto; overflow-wrap: anywhere; }
 .work-order-template-row { cursor: pointer; }
-.template-detail-drawer { position: fixed; z-index: 1051; top: 0; right: 0; width: min(840px, 100vw); height: 100dvh; display: flex; flex-direction: column; background: var(--wo-surface); color: var(--bs-body-color); }
-.template-detail-drawer__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1.25rem; border-bottom: 1px solid var(--bs-border-color); }
+.template-detail-drawer {
+  position: fixed;
+  z-index: 1051;
+  top: 0;
+  right: 0;
+  width: min(840px, 100vw);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-drawer, #ffffff) !important;
+  background: var(--bg-drawer, #ffffff) !important;
+  color: var(--text-main, var(--bs-body-color)) !important;
+  border-left: 1px solid var(--border-color) !important;
+  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.35) !important;
+}
+.template-detail-drawer__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem;
+  background-color: var(--bg-drawer-header, #f8fafc) !important;
+  background: var(--bg-drawer-header, #f8fafc) !important;
+  border-bottom: 1px solid var(--bs-border-color) !important;
+}
 .template-detail-drawer__body { min-width: 0; padding: 1.25rem; overflow: auto; }
 .template-detail-workflow { min-height: 42rem; }
 .template-detail-workflow :deep(.work-order-workflow-editor) { min-height: 42rem; }

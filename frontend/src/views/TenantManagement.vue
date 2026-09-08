@@ -1,68 +1,92 @@
 <template>
-  <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('tenant_management') }}</h2>
-      <button class="btn btn-primary" @click="openCreateModal" v-permission="'tenant:create'">
-        <i class="bi bi-building-add me-1"></i> {{ $t('tenant_add') }}
-      </button>
+  <div class="tenant-management-page page-fixed-height">
+    <div class="page-header list-page-header">
+      <div>
+        <h1>{{ $t('tenant_management') }}</h1>
+        <p class="page-subtitle">{{ $t('tenant_management_subtitle', '管理多租户组织、管理员账号及空间权限策略') }}</p>
+      </div>
+      <LiquidGlassButton
+        variant="primary"
+        icon="bi bi-building-add"
+        @click="openCreateModal"
+        v-permission="'tenant:create'"
+      >
+        {{ $t('tenant_add') }}
+      </LiquidGlassButton>
+    </div>
+
+    <div class="page-toolbar device-list-control-bar list-page-controls">
+      <CompactListMetrics v-model="metricFilters" :metrics="metricCards" class="list-toolbar-metrics" :aria-label="$t('stat_total', '租户统计')" />
     </div>
 
     <!-- Tenants Table -->
-    <div class="card shadow-sm">
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
+    <div class="card border-0 shadow-sm table-glass-card">
+      <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+        <div class="table-responsive flex-grow-1">
+          <table class="table table-hover align-middle mb-0 table-compact">
+            <thead>
               <tr>
-                <th>{{ $t('tenant_code') }}</th>
+                <th class="ps-4">{{ $t('tenant_code') }}</th>
                 <th>{{ $t('tenant_name') }}</th>
                 <th>{{ $t('admin_name', '管理员姓名') }}</th>
                 <th>{{ $t('tenant_phone') }}</th>
                 <th>{{ $t('scope_permission_policy') }}</th>
                 <th>{{ $t('user_created_at') }}</th>
-                <th class="text-end">{{ $t('tenant_actions') }}</th>
+                <th class="text-end pe-4">{{ $t('tenant_actions') }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="loading">
-                <td colspan="7" class="text-center py-4">
-                  <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+              <!-- 骨架屏 -->
+              <tr v-if="loading" v-for="n in 5" :key="'sk-' + n">
+                <td><div class="skeleton" style="height: 16px; width: 100px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 140px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 90px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 110px;"></div></td>
+                <td><div class="skeleton" style="height: 20px; width: 80px; border-radius: 999px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 130px;"></div></td>
+                <td class="text-end pe-4"><div class="skeleton ms-auto" style="height: 28px; width: 120px;"></div></td>
+              </tr>
+              <!-- 空状态 -->
+              <tr v-else-if="filteredTenants.length === 0">
+                <td colspan="7" class="p-0">
+                  <div class="empty-state">
+                    <i class="bi bi-building"></i>
+                    <p>{{ $t('tenant_no_data', '暂无租户数据') }}</p>
+                    <LiquidGlassButton variant="primary" icon="bi bi-plus-lg" @click="openCreateModal" v-permission="'tenant:create'">
+                      {{ $t('tenant_add', '添加租户') }}
+                    </LiquidGlassButton>
                   </div>
                 </td>
               </tr>
-              <tr v-else-if="tenants.length === 0">
-                <td colspan="7" class="text-center py-4 text-muted">{{ $t('tenant_no_data') }}</td>
-              </tr>
-              <tr v-for="t in tenants" :key="t.ID" v-else>
+              <tr v-for="t in filteredTenants" :key="t.ID" v-else>
                 <td><strong>{{ t.code }}</strong></td>
                 <td>{{ t.name }}</td>
                 <td>{{ t.contact }}</td>
                 <td>{{ t.phone }}</td>
                 <td>
-                  <span class="badge" :class="t.permission_mode === 'custom' ? 'text-bg-info' : 'text-bg-success'">
+                  <span class="spec-badge" :class="t.permission_mode === 'custom' ? 'spec-badge--info' : 'spec-badge--primary'">
                     {{ $t(`scope_permission_mode_${t.permission_mode || 'custom'}`) }}
                   </span>
                 </td>
                 <td>{{ formatDateTime(t.CreatedAt) }}</td>
-                <td class="text-end">
-                  <div class="d-inline-flex align-items-center justify-content-end gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(t)" :title="$t('common_view_details', '查看详情')">
+                <td class="text-end pe-4">
+                  <div class="table-actions">
+                    <button class="table-action-btn" @click="openDetailsModal(t)" :title="$t('common_view_details', '查看详情')">
                       <i class="bi bi-eye"></i>
                     </button>
-                    <button class="btn btn-sm" :class="t.permission_mode === 'custom' ? 'btn-outline-info' : 'btn-outline-success'" @click="openPermissionModal(t)" :title="$t('tenant_permission_config', '权限配置')" v-permission="'tenant:edit'">
+                    <button class="table-action-btn" :class="t.permission_mode === 'custom' ? 'table-action-btn--info' : 'table-action-btn--success'" @click="openPermissionModal(t)" :title="$t('tenant_permission_config', '权限配置')" v-permission="'tenant:edit'">
                       <i class="bi bi-shield-check"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-warning" @click="openResetPasswordModal(t)" :title="$t('reset_password', '重置密码')" v-permission="'tenant:edit'">
+                    <button class="table-action-btn table-action-btn--warning" @click="openResetPasswordModal(t)" :title="$t('reset_password', '重置密码')" v-permission="'tenant:edit'">
                       <i class="bi bi-key"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-secondary" @click="openChangeAdminModal(t)" :title="$t('tenant_change_admin', '更换管理员')" v-permission="'tenant:edit'">
+                    <button class="table-action-btn" @click="openChangeAdminModal(t)" :title="$t('tenant_change_admin', '更换管理员')" v-permission="'tenant:edit'">
                       <i class="bi bi-person-gear"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" @click="openEditModal(t)" :title="$t('tenant_edit', '编辑')" v-permission="'tenant:edit'">
+                    <button class="table-action-btn table-action-btn--primary" @click="openEditModal(t)" :title="$t('tenant_edit', '编辑')" v-permission="'tenant:edit'">
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" @click="deleteTenant(t)" :disabled="t.code === 'default'" :title="$t('tenant_delete', '删除')" v-permission="'tenant:delete'">
+                    <button class="table-action-btn table-action-btn--danger" @click="deleteTenant(t)" :disabled="t.code === 'default'" :title="$t('tenant_delete', '删除')" v-permission="'tenant:delete'">
                       <i class="bi bi-trash"></i>
                     </button>
                   </div>
@@ -74,8 +98,9 @@
       </div>
     </div>
 
-    <!-- Tenant Permission Modal -->
-    <div class="modal fade" id="tenantPermissionModal" tabindex="-1" ref="tenantPermissionModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
+    <Teleport to="body">
+      <!-- Tenant Permission Modal -->
+      <div class="modal fade" id="tenantPermissionModal" tabindex="-1" ref="tenantPermissionModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
@@ -111,8 +136,8 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body p-0">
-            <div v-if="currentTenantDetails" class="bg-light">
-              <div class="p-4 text-center border-bottom bg-white">
+            <div v-if="currentTenantDetails" class="tenant-details-card">
+              <div class="p-4 text-center border-bottom tenant-details-header">
                 <div class="display-4 text-primary mb-2">
                   <div v-if="currentTenantDetails.logo" class="svg-container mx-auto" style="height: 60px; max-width: 200px; display: flex; align-items: center; justify-content: center;">
                     <div v-if="currentTenantDetails.logo.trim().startsWith('<svg') || currentTenantDetails.logo.trim().startsWith('<?xml')" v-html="DOMPurify.sanitize(currentTenantDetails.logo, { USE_PROFILES: { svg: true } })" style="max-height: 100%; display: flex; align-items: center; justify-content: center;"></div>
@@ -154,7 +179,7 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('common_close', '关闭') }}</button>
+            <LiquidGlassButton variant="danger" data-bs-dismiss="modal">{{ $t('common_close', '关闭') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -257,14 +282,11 @@
                   <input v-model="form.contact" type="text" class="form-control" required>
                 </div>
               </template>
-
-
-
             </form>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('tenant_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveTenant">{{ $t('tenant_save') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ $t('tenant_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" @click="saveTenant">{{ $t('tenant_save') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -285,8 +307,8 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('user_cancel', '取消') }}</button>
-            <button type="button" class="btn btn-danger" @click="resetPassword">{{ $t('user_reset_password', '重置密码') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ $t('user_cancel', '取消') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="danger" @click="resetPassword">{{ $t('user_reset_password', '重置密码') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -312,12 +334,13 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('tenant_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="changeAdmin" :disabled="!selectedAdminUserId">{{ $t('tenant_save') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ $t('tenant_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" @click="changeAdmin" :disabled="!selectedAdminUserId">{{ $t('tenant_save') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -329,6 +352,7 @@ import { Modal } from 'bootstrap'
 import { useI18n } from 'vue-i18n'
 import ScopePermissionPolicyEditor from '../components/ScopePermissionPolicyEditor.vue'
 import { formatDateTime } from '../utils/dateTime.js'
+import CompactListMetrics from '../components/CompactListMetrics.vue'
 
 const { t } = useI18n()
 
@@ -341,6 +365,26 @@ let tenantModal = null
 const tenantDetailsModalRef = ref(null)
 let tenantDetailsModal = null
 const currentTenantDetails = ref(null)
+
+const customPolicyCount = computed(() => tenants.value.filter(t => t.permission_mode === 'custom').length)
+const standardPolicyCount = computed(() => tenants.value.filter(t => t.permission_mode !== 'custom').length)
+const metricCards = computed(() => [
+  { key: 'total', label: t('stat_total', '总租户数'), value: tenants.value.length, icon: 'bi-building-fill', tone: 'brand' },
+  { key: 'custom', label: t('stat_custom_policy', '自定义策略'), value: customPolicyCount.value, icon: 'bi-shield-check', tone: 'success' },
+  { key: 'standard', label: t('stat_standard_policy', '标准策略'), value: standardPolicyCount.value, icon: 'bi-shield', tone: 'neutral' }
+])
+const metricFilters = ref([])
+const filteredTenants = computed(() => tenants.value.filter((tenant) => {
+  if (!metricFilters.value.length) return true
+  const custom = tenant.permission_mode === 'custom'
+  return (metricFilters.value.includes('custom') && custom)
+    || (metricFilters.value.includes('standard') && !custom)
+}))
+const toggleMetricFilter = (key) => {
+  metricFilters.value = metricFilters.value.includes(key)
+    ? metricFilters.value.filter((item) => item !== key)
+    : [...metricFilters.value, key]
+}
 
 const tenantPermissionModalRef = ref(null)
 let tenantPermissionModal = null
@@ -619,5 +663,13 @@ const changeAdmin = async () => {
 :deep(.svg-container svg) {
   max-width: 100%;
   max-height: 100%;
+}
+.tenant-details-card {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+.tenant-details-header {
+  background: var(--bg-drawer-header);
+  border-color: var(--border-color) !important;
 }
 </style>

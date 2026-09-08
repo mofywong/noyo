@@ -62,3 +62,22 @@ func TestDeviceRegistry_IndexMaintenance(t *testing.T) {
 		t.Errorf("New parent index should be empty after removal, got %v", finalChildren)
 	}
 }
+
+func TestDeviceRegistry_UsesCascadeForGB28181CameraBehindGateway(t *testing.T) {
+	logger := zap.NewNop()
+	registry := NewDeviceRegistry(logger)
+	registry.UpdateDevice(&store.Device{Code: "gateway-001", ProtocolName: "cascade"})
+	registry.UpdateDevice(&store.Device{
+		Code:         "34020009132401000002",
+		ParentCode:   "gateway-001",
+		ProtocolName: "gb28181",
+	})
+
+	protocol, err := registry.GetEffectiveProtocol("34020009132401000002")
+	if err != nil {
+		t.Fatalf("GetEffectiveProtocol() error = %v", err)
+	}
+	if protocol != "cascade" {
+		t.Fatalf("GetEffectiveProtocol() = %q, want %q so playback is forwarded to the gateway", protocol, "cascade")
+	}
+}

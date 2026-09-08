@@ -50,3 +50,36 @@ func SaveGlobalConfig(cfg *config.GlobalConfig) error {
 
 	return DB.Model(&sysConfig).Update("value", string(data)).Error
 }
+
+// GetSystemConfigValue gets a string configuration value by key from system_configs
+func GetSystemConfigValue(key string) (string, error) {
+	if DB == nil {
+		return "", gorm.ErrInvalidDB
+	}
+	var sysConfig SystemConfig
+	err := DB.Where("key = ?", key).First(&sysConfig).Error
+	if err != nil {
+		return "", err
+	}
+	return sysConfig.Value, nil
+}
+
+// SetSystemConfigValue sets a string configuration value by key in system_configs
+func SetSystemConfigValue(key, value string) error {
+	if DB == nil {
+		return gorm.ErrInvalidDB
+	}
+	var sysConfig SystemConfig
+	err := DB.Where("key = ?", key).First(&sysConfig).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return DB.Create(&SystemConfig{
+				Key:   key,
+				Value: value,
+			}).Error
+		}
+		return err
+	}
+	return DB.Model(&sysConfig).Update("value", value).Error
+}
+

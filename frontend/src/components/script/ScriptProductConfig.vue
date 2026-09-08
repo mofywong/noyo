@@ -227,28 +227,30 @@
     </div>
 
     <!-- Device Selection Modal -->
-    <div v-if="showDeviceSelect" class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1070;">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ $t('script_select_device_debug') }}</h5>
-            <button type="button" class="btn-close" @click="showDeviceSelect = false"></button>
-          </div>
-          <div class="modal-body">
-            <div v-if="devices.length === 0" class="text-center text-muted">
-              {{ $t('script_no_devices') }}
+    <Teleport to="body">
+      <div v-if="showDeviceSelect" class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1070;">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ $t('script_select_device_debug') }}</h5>
+              <button type="button" class="btn-close" @click="showDeviceSelect = false"></button>
             </div>
-            <div v-else class="list-group">
-              <button v-for="d in devices" :key="d.code" 
-                  class="list-group-item list-group-item-action"
-                  @click="selectDevice(d)">
-                {{ d.name }} <span class="text-muted small">({{ d.code }})</span>
-              </button>
+            <div class="modal-body">
+              <div v-if="devices.length === 0" class="text-center text-muted">
+                {{ $t('script_no_devices') }}
+              </div>
+              <div v-else class="list-group">
+                <button v-for="d in devices" :key="d.code" 
+                    class="list-group-item list-group-item-action"
+                    @click="selectDevice(d)">
+                  {{ d.name }} <span class="text-muted small">({{ d.code }})</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
     <!-- Debug Modal -->
     <ScriptDebugConsole v-if="showDebug" :device-code="selectedDeviceCode" @close="showDebug = false" />

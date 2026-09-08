@@ -275,18 +275,16 @@ func (pm *PluginManager) InitPlugins() error {
 
 // LoadPlugin loads a specific plugin by name
 func (pm *PluginManager) LoadPlugin(name string) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
+	pm.mu.RLock()
 	// Check if already loaded
 	if _, ok := pm.ProtocolPlugins[name]; ok {
+		pm.mu.RUnlock()
 		return nil
 	}
 	if _, ok := pm.PlatformPlugins[name]; ok {
+		pm.mu.RUnlock()
 		return nil
 	}
-
-	pm.Server.Logger.Info("Loading plugin", zap.String("name", name))
 
 	// Find registered meta
 	var registeredMeta PluginMeta
@@ -298,18 +296,17 @@ func (pm *PluginManager) LoadPlugin(name string) error {
 			break
 		}
 	}
+	pm.mu.RUnlock()
 
 	if !found {
 		return fmt.Errorf("plugin %s is not registered", name)
 	}
 
-	pm.mu.Unlock()
-	allowed := pm.IsAllowed(registeredMeta)
-	pm.mu.Lock()
-
-	if !allowed {
+	if !pm.IsAllowed(registeredMeta) {
 		return fmt.Errorf("plugin %s is blocked by filter", name)
 	}
+
+	pm.Server.Logger.Info("Loading plugin", zap.String("name", name))
 
 	newInstance, err := pm.createInstance(registeredMeta)
 	if err != nil {
@@ -318,14 +315,28 @@ func (pm *PluginManager) LoadPlugin(name string) error {
 
 	var newManaged IManagedPlugin
 	if p, ok := newInstance.(protocol.IProtocolPlugin); ok {
-		pm.ProtocolPlugins[name] = p
 		newManaged = p
 	} else if p, ok := newInstance.(platform.IPlatformPlugin); ok {
-		pm.PlatformPlugins[name] = p
 		newManaged = p
 	} else {
 		return fmt.Errorf("loaded plugin %s is not valid type", name)
 	}
+
+	pm.mu.Lock()
+	if _, ok := pm.ProtocolPlugins[name]; ok {
+		pm.mu.Unlock()
+		return nil
+	}
+	if _, ok := pm.PlatformPlugins[name]; ok {
+		pm.mu.Unlock()
+		return nil
+	}
+	if p, ok := newInstance.(protocol.IProtocolPlugin); ok {
+		pm.ProtocolPlugins[name] = p
+	} else if p, ok := newInstance.(platform.IPlatformPlugin); ok {
+		pm.PlatformPlugins[name] = p
+	}
+	pm.mu.Unlock()
 
 	if newManaged.IsEnabled() {
 		if err := newManaged.Start(); err != nil {
@@ -340,19 +351,18 @@ func (pm *PluginManager) LoadPlugin(name string) error {
 // UnloadPlugin unloads a specific plugin by name
 func (pm *PluginManager) UnloadPlugin(name string) error {
 	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
 	var oldInstance IManagedPlugin
-	isProtocol := false
-
 	if p, ok := pm.ProtocolPlugins[name]; ok {
 		oldInstance = p
-		isProtocol = true
+		delete(pm.ProtocolPlugins, name)
 	} else if p, ok := pm.PlatformPlugins[name]; ok {
 		oldInstance = p
+		delete(pm.PlatformPlugins, name)
 	} else {
+		pm.mu.Unlock()
 		return nil // Already unloaded
 	}
+	pm.mu.Unlock()
 
 	pm.Server.Logger.Info("Unloading plugin", zap.String("name", name))
 
@@ -360,20 +370,12 @@ func (pm *PluginManager) UnloadPlugin(name string) error {
 		pm.Server.Logger.Error("Failed to stop plugin during unload", zap.String("plugin", name), zap.Error(err))
 	}
 
-	if isProtocol {
-		delete(pm.ProtocolPlugins, name)
-	} else {
-		delete(pm.PlatformPlugins, name)
-	}
-
 	return nil
 }
 
 // ReloadPlugin reloads a specific plugin by name
 func (pm *PluginManager) ReloadPlugin(name string) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
+	pm.mu.RLock()
 	var oldInstance IManagedPlugin
 
 	// Search in maps
@@ -382,10 +384,9 @@ func (pm *PluginManager) ReloadPlugin(name string) error {
 	} else if p, ok := pm.PlatformPlugins[name]; ok {
 		oldInstance = p
 	} else {
+		pm.mu.RUnlock()
 		return fmt.Errorf("plugin %s not found", name)
 	}
-
-	pm.Server.Logger.Info("Reloading plugin", zap.String("name", name))
 
 	// Find registered meta to get the correct Type
 	var registeredMeta PluginMeta
@@ -397,25 +398,24 @@ func (pm *PluginManager) ReloadPlugin(name string) error {
 			break
 		}
 	}
+	pm.mu.RUnlock()
 
 	if !found {
 		return fmt.Errorf("plugin %s is not registered", name)
 	}
 
-	pm.mu.Unlock()
-	allowed := pm.IsAllowed(registeredMeta)
-	pm.mu.Lock()
-
-	if !allowed {
+	if !pm.IsAllowed(registeredMeta) {
 		return fmt.Errorf("plugin %s is blocked by filter, cannot reload", name)
 	}
 
-	// Stop old instance
+	pm.Server.Logger.Info("Reloading plugin", zap.String("name", name))
+
+	// Stop old instance outside pm.mu lock
 	if err := oldInstance.Stop(); err != nil {
 		pm.Server.Logger.Error("Failed to stop plugin during reload", zap.String("plugin", name), zap.Error(err))
 	}
 
-	// Re-create using registered meta (which has Type)
+	// Re-create using registered meta (which calls Init) outside pm.mu lock
 	newInstance, err := pm.createInstance(registeredMeta)
 	if err != nil {
 		return fmt.Errorf("failed to create new instance for plugin %s: %w", name, err)
@@ -424,15 +424,23 @@ func (pm *PluginManager) ReloadPlugin(name string) error {
 	// Start new if enabled
 	var newManaged IManagedPlugin
 	if p, ok := newInstance.(protocol.IProtocolPlugin); ok {
-		pm.ProtocolPlugins[name] = p
 		newManaged = p
 	} else if p, ok := newInstance.(platform.IPlatformPlugin); ok {
-		pm.PlatformPlugins[name] = p
 		newManaged = p
 	} else {
 		return fmt.Errorf("reloaded plugin %s is not valid type", name)
 	}
 
+	// Update instance map under write lock
+	pm.mu.Lock()
+	if p, ok := newInstance.(protocol.IProtocolPlugin); ok {
+		pm.ProtocolPlugins[name] = p
+	} else if p, ok := newInstance.(platform.IPlatformPlugin); ok {
+		pm.PlatformPlugins[name] = p
+	}
+	pm.mu.Unlock()
+
+	// Start new instance outside pm.mu lock to prevent deadlocks when Start() accesses other plugins
 	if newManaged.IsEnabled() {
 		if err := newManaged.Start(); err != nil {
 			return fmt.Errorf("failed to start reloaded plugin %s: %w", name, err)

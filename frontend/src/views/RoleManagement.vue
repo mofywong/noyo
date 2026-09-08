@@ -1,81 +1,102 @@
 <template>
-  <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('role_management') }}</h2>
-      <div class="d-flex align-items-center gap-2">
-        <select v-if="!isGatewayMode" v-model="filterProjectId" class="form-select form-select-sm" style="width: 220px;">
-          <option :value="-1">{{ $t('role_all', '全部角色') }}</option>
-          <option :value="0">{{ $t('role_tenant_public', '租户级公共角色') }}</option>
-          <option v-for="p in projects" :key="p.ID" :value="p.ID">
-            {{ $t('role_project_exclusive', '项目专属') }}: {{ p.name }}
-          </option>
-        </select>
-        <button class="btn btn-primary btn-sm ms-2" @click="openCreateModal" v-permission="'role:create'">
-          <i class="bi bi-shield-lock me-1"></i> {{ $t('role_add') }}
-        </button>
+  <div class="role-management-page page-fixed-height">
+    <div class="page-header list-page-header">
+      <div>
+        <h1>{{ $t('role_management') }}</h1>
+        <p class="page-subtitle">{{ $t('role_management_subtitle', '定义角色权限模型与功能访问控制策略') }}</p>
       </div>
+      <LiquidGlassButton
+        variant="primary"
+        icon="bi bi-shield-lock"
+        @click="openCreateModal"
+        v-permission="'role:create'"
+      >
+        {{ $t('role_add') }}
+      </LiquidGlassButton>
+    </div>
+
+    <div class="page-toolbar device-list-control-bar list-page-controls">
+      <select v-if="!isGatewayMode" v-model="filterProjectId" class="form-select form-select-sm list-toolbar-filters" style="min-width: 200px; max-width: 280px;">
+        <option :value="-1">{{ $t('role_all', '全部角色') }}</option>
+        <option :value="0">{{ $t('role_tenant_public', '租户级公共角色') }}</option>
+        <option v-for="p in projects" :key="p.ID" :value="p.ID">
+          {{ $t('role_project_exclusive', '项目专属') }}: {{ p.name }}
+        </option>
+      </select>
+      <CompactListMetrics v-model="metricFilters" :metrics="metricCards" class="list-toolbar-metrics" :aria-label="$t('stat_total', '角色统计')" />
     </div>
 
     <!-- Roles Table -->
-    <div class="card shadow-sm">
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
+    <div class="card border-0 shadow-sm table-glass-card">
+      <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+        <div class="table-responsive flex-grow-1">
+          <table class="table table-hover align-middle mb-0 table-compact">
+            <thead>
               <tr>
-                <th>{{ $t('role_code') }}</th>
+                <th class="ps-4">{{ $t('role_code') }}</th>
                 <th>{{ $t('role_name') }}</th>
                 <th>{{ $t('role_description') }}</th>
                 <th v-if="!isGatewayMode">{{ $t('role_scope', '作用域') }}</th>
                 <th>{{ $t('user_created_at') }}</th>
-                <th class="text-end">{{ $t('role_actions') }}</th>
+                <th class="text-end pe-4">{{ $t('role_actions') }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="loading">
-                <td colspan="8" class="text-center py-4">
-                  <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+              <!-- 骨架屏 -->
+              <tr v-if="loading" v-for="n in 5" :key="'sk-' + n">
+                <td><div class="skeleton" style="height: 16px; width: 100px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 120px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 160px;"></div></td>
+                <td v-if="!isGatewayMode"><div class="skeleton" style="height: 20px; width: 80px; border-radius: 999px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 130px;"></div></td>
+                <td class="text-end pe-4"><div class="skeleton ms-auto" style="height: 28px; width: 80px;"></div></td>
+              </tr>
+              <!-- 空状态 -->
+              <tr v-else-if="filteredRoles.length === 0">
+                <td :colspan="isGatewayMode ? 5 : 6" class="p-0">
+                  <div class="empty-state">
+                    <i class="bi bi-shield-lock"></i>
+                    <p>{{ $t('role_no_data', '暂无角色数据') }}</p>
+                    <LiquidGlassButton variant="primary" icon="bi bi-plus-lg" @click="openRoleModal" v-permission="'role:create'">
+                      {{ $t('role_add', '添加角色') }}
+                    </LiquidGlassButton>
                   </div>
                 </td>
-              </tr>
-              <tr v-else-if="filteredRoles.length === 0">
-                <td colspan="8" class="text-center py-4 text-muted">{{ $t('role_no_data') }}</td>
               </tr>
               <tr v-for="r in filteredRoles" :key="r.ID" v-else>
                 <td><strong>{{ r.code }}</strong></td>
                 <td>
                   {{ r.name }}
-                  <span v-if="r.is_builtin" class="badge text-bg-secondary ms-1">{{ $t('role_system_builtin', '系统内置') }}</span>
+                  <span v-if="r.is_builtin" class="spec-badge spec-badge--neutral ms-1">{{ $t('role_system_builtin', '系统内置') }}</span>
                 </td>
                 <td>{{ r.description }}</td>
                 <td v-if="!isGatewayMode">
                   <template v-if="!isGatewayMode">
-                    <span v-if="r.project_id === 0 && !r.is_inherited" class="badge text-bg-success">
+                    <span v-if="r.project_id === 0 && !r.is_inherited" class="spec-badge spec-badge--primary">
                       {{ $t('role_tenant_level', '租户级') }}
                     </span>
-                    <span v-else-if="r.project_id === 0 && r.is_inherited" class="badge text-bg-info">
+                    <span v-else-if="r.project_id === 0 && r.is_inherited" class="spec-badge spec-badge--info">
                       {{ $t('role_project_level', '项目级') }}
                     </span>
-                    <span v-else class="badge text-bg-primary">
+                    <span v-else class="spec-badge spec-badge--warning">
                       {{ $t('role_project_exclusive', '项目专属') }} ({{ projectMap[r.project_id] || 'ID: ' + r.project_id }})
                     </span>
                   </template>
                 </td>
 
                 <td>{{ formatDateTime(r.CreatedAt) }}</td>
-                <td class="text-end">
-                  <div class="d-inline-flex align-items-center justify-content-end gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(r)" :title="$t('common_view_details', '查看详情')">
+                <td class="text-end pe-4">
+                  <div class="table-actions">
+                    <button class="table-action-btn" @click="openDetailsModal(r)" :title="$t('common_view_details', '查看详情')">
                       <i class="bi bi-eye"></i>
                     </button>
-                    <button class="btn btn-sm" :class="r.has_permissions ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openPermModal(r)" :disabled="r.is_builtin" :title="$t('role_config_perm', '配置权限')" v-permission="'role:edit'">
+                    <button class="table-action-btn" :class="r.has_permissions ? 'table-action-btn--info' : ''" @click="openPermModal(r)" :disabled="r.is_builtin" :title="$t('role_config_perm', '配置权限')" v-permission="'role:edit'">
                       <i class="bi bi-shield-check"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" @click="openEditModal(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_edit', '编辑')" v-permission="'role:edit'">
+                    <button class="table-action-btn table-action-btn--primary" @click="openEditModal(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_edit', '编辑')" v-permission="'role:edit'">
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" @click="deleteRole(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_delete', '删除')" v-permission="'role:delete'">
+                    <button class="table-action-btn table-action-btn--danger" @click="deleteRole(r)" :disabled="r.is_builtin || isRoleReadOnly(r)" :title="$t('role_delete', '删除')" v-permission="'role:delete'">
                       <i class="bi bi-trash"></i>
                     </button>
                   </div>
@@ -87,8 +108,9 @@
       </div>
     </div>
 
-    <!-- Role Modal -->
-    <div class="modal fade" id="roleModal" tabindex="-1" ref="roleModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
+    <Teleport to="body">
+      <!-- Role Modal -->
+      <div class="modal fade" id="roleModal" tabindex="-1" ref="roleModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -127,8 +149,8 @@
             </form>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('role_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveRole">{{ $t('role_save') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ $t('role_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" @click="saveRole">{{ $t('role_save') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -143,8 +165,8 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body p-0">
-            <div v-if="currentRoleDetails" class="bg-light">
-              <div class="p-4 text-center border-bottom bg-white">
+            <div v-if="currentRoleDetails" class="role-details-card">
+              <div class="p-4 text-center border-bottom role-details-header">
                 <div class="display-4 text-primary mb-2">
                   <i class="bi bi-shield-lock-fill"></i>
                 </div>
@@ -160,16 +182,16 @@
                   <div class="col-6">
                     <label class="text-muted small mb-1">{{ $t('role_scope', '作用域') }}</label>
                     <div>
-                      <span v-if="currentRoleDetails.project_id === 0 && !currentRoleDetails.is_inherited" class="badge text-bg-success">{{ $t('role_tenant_level', '租户级') }}</span>
-                      <span v-else-if="currentRoleDetails.project_id === 0 && currentRoleDetails.is_inherited" class="badge text-bg-info">{{ $t('role_project_level', '项目级') }}</span>
-                      <span v-else class="badge text-bg-primary">{{ $t('role_project_exclusive', '项目专属') }} ({{ projectMap[currentRoleDetails.project_id] || currentRoleDetails.project_id }})</span>
-                      <span v-if="currentRoleDetails.is_builtin" class="badge text-bg-secondary ms-1">{{ $t('role_system_builtin', '系统内置') }}</span>
+                      <span v-if="currentRoleDetails.project_id === 0 && !currentRoleDetails.is_inherited" class="spec-badge spec-badge--primary">{{ $t('role_tenant_level', '租户级') }}</span>
+                      <span v-else-if="currentRoleDetails.project_id === 0 && currentRoleDetails.is_inherited" class="spec-badge spec-badge--info">{{ $t('role_project_level', '项目级') }}</span>
+                      <span v-else class="spec-badge spec-badge--warning">{{ $t('role_project_exclusive', '项目专属') }} ({{ projectMap[currentRoleDetails.project_id] || currentRoleDetails.project_id }})</span>
+                      <span v-if="currentRoleDetails.is_builtin" class="spec-badge spec-badge--neutral ms-1">{{ $t('role_system_builtin', '系统内置') }}</span>
                     </div>
                   </div>
                   <div class="col-12">
                     <label class="text-muted small mb-1">{{ $t('role_data_permission', '数据权限') }}</label>
                     <div>
-                      <span class="badge text-bg-info">
+                      <span class="spec-badge spec-badge--info">
                         {{ currentRoleDetails.device_tags ? currentRoleDetails.device_tags : (currentRoleDetails.data_scope === 1 ? 'All' : (currentRoleDetails.data_scope === 2 ? 'Project' : 'Personal')) }}
                       </span>
                     </div>
@@ -183,14 +205,15 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('common_close', '关闭') }}</button>
+            <LiquidGlassButton variant="danger" data-bs-dismiss="modal">{{ $t('common_close', '关闭') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Permissions Modal -->
-    <RolePermissions ref="permModalRef" @saved="loadRoles" />
+      <!-- Permissions Modal -->
+      <RolePermissions ref="permModalRef" @saved="loadRoles" />
+    </Teleport>
   </div>
 </template>
 
@@ -204,6 +227,7 @@ import { useAuthStore } from '../stores/auth'
 import { isInheritedRoleReadOnlyForUser } from '../utils/authIdentity'
 import { isSingleProjectMode } from '../utils/systemMode'
 import { formatDateTime } from '../utils/dateTime.js'
+import CompactListMetrics from '../components/CompactListMetrics.vue'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -215,6 +239,21 @@ const isGatewayMode = computed(() => {
 
 const roles = ref([])
 const projects = ref([])
+
+const builtinRoleCount = computed(() => roles.value.filter(r => r.is_builtin).length)
+const customRoleCount = computed(() => roles.value.filter(r => !r.is_builtin).length)
+const metricCards = computed(() => [
+  { key: 'total', label: t('stat_total', '总角色数'), value: roles.value.length, icon: 'bi-shield-lock-fill', tone: 'brand' },
+  { key: 'builtin', label: t('stat_builtin_roles', '系统内置'), value: builtinRoleCount.value, icon: 'bi-award-fill', tone: 'success' },
+  { key: 'custom', label: t('stat_custom_roles', '自定义角色'), value: customRoleCount.value, icon: 'bi-sliders', tone: 'neutral' }
+])
+const metricFilters = ref([])
+const toggleMetricFilter = (key) => {
+  metricFilters.value = metricFilters.value.includes(key)
+    ? metricFilters.value.filter((item) => item !== key)
+    : [...metricFilters.value, key]
+}
+
 const filterProjectId = ref(-1)
 const loading = ref(false)
 const roleModalRef = ref(null)
@@ -270,13 +309,19 @@ const projectMap = computed(() => {
 })
 
 const filteredRoles = computed(() => {
+  let result = roles.value
   if (filterProjectId.value === -1) {
-    return roles.value
+    result = roles.value
+  } else if (filterProjectId.value === 0) {
+    result = roles.value.filter(r => r.project_id === 0 && r.is_inherited !== true)
+  } else {
+    result = roles.value.filter(r => r.project_id === filterProjectId.value || (r.project_id === 0 && r.is_inherited === true))
   }
-  if (filterProjectId.value === 0) {
-    return roles.value.filter(r => r.project_id === 0 && r.is_inherited !== true)
-  }
-  return roles.value.filter(r => r.project_id === filterProjectId.value || (r.project_id === 0 && r.is_inherited === true))
+  if (!metricFilters.value.length) return result
+  return result.filter((role) =>
+    (metricFilters.value.includes('builtin') && role.is_builtin)
+    || (metricFilters.value.includes('custom') && !role.is_builtin)
+  )
 })
 
 const isRoleReadOnly = (item) => isInheritedRoleReadOnlyForUser(authStore.user, item)
@@ -381,3 +426,14 @@ const deleteRole = async (item) => {
   }
 }
 </script>
+
+<style scoped>
+.role-details-card {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+.role-details-header {
+  background: var(--bg-drawer-header);
+  border-color: var(--border-color) !important;
+}
+</style>

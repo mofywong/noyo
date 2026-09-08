@@ -58,6 +58,8 @@ func (s *Server) registerAPIRoutes() {
 			permissionGET(systemGroup, "/stats", "dashboard:view", s.handleSystemStats)
 			permissionGET(systemGroup, "/config", "system:config", s.handleGetSystemConfig)
 			permissionPOST(systemGroup, "/config", "system:config", s.handleUpdateSystemConfig)
+			permissionGET(systemGroup, "/media-network", "system:config", s.handleGetMediaNetwork)
+			permissionPUT(systemGroup, "/media-network", "system:config", s.handleUpdateMediaNetwork)
 			permissionGET(systemGroup, "/log/config", "system:logs", s.handleGetLogConfig)
 			permissionPOST(systemGroup, "/log/config", "system:logs", s.handleUpdateLogConfig)
 			permissionGET(systemGroup, "/log/files", "system:logs", s.handleListLogFiles)

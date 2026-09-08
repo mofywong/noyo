@@ -1,45 +1,36 @@
 <template>
-  <div>
+  <div class="product-list-page page-fixed-height">
     <!-- Page Header（§7.2） -->
-    <div class="page-header">
+    <div class="page-header list-page-header">
       <div>
         <h1>{{ $t('sidebar_products') }}</h1>
         <p class="page-subtitle">{{ $t('prod_subtitle') }}</p>
       </div>
-      <button class="btn btn-primary" @click="openCreateModal" v-permission="'product:create'">
-        <i class="bi bi-plus-lg me-1"></i> {{ $t('prod_create') }}
-      </button>
-    </div>
-
-    <!-- KPI 统计行（§7.3） -->
-    <div class="row g-3 mb-3">
-      <div class="col-6 col-md-4 col-xl-2">
-        <div class="kpi-card">
-          <div class="kpi-label">{{ $t('prod_stat_total') }}</div>
-          <div class="kpi-value">{{ stats.total }}</div>
-        </div>
-      </div>
-      <div class="col-6 col-md-4 col-xl-2">
-        <div class="kpi-card">
-          <div class="kpi-label">
-            <i class="bi bi-check-circle me-1" style="color: var(--color-success);"></i>{{ $t('prod_stat_tsl_configured') }}
-          </div>
-          <div class="kpi-value">{{ stats.tslConfigured }}</div>
-        </div>
-      </div>
-      <div class="col-6 col-md-4 col-xl-2">
-        <div class="kpi-card">
-          <div class="kpi-label">
-            <i class="bi bi-dash-circle me-1" style="color: var(--text-tertiary);"></i>{{ $t('prod_stat_tsl_not') }}
-          </div>
-          <div class="kpi-value">{{ stats.tslNotConfigured }}</div>
-        </div>
+      <div class="d-flex align-items-center gap-2">
+        <LiquidGlassButton
+          variant="secondary"
+          size="sm"
+          :icon="loading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'"
+          :disabled="loading"
+          @click="fetchProducts"
+        >
+          {{ $t('refresh') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton
+          variant="primary"
+          size="sm"
+          icon="bi bi-plus-lg"
+          @click="openCreateModal"
+          v-permission="'product:create'"
+        >
+          {{ $t('prod_create') }}
+        </LiquidGlassButton>
       </div>
     </div>
 
     <!-- Toolbar（§7.2） -->
-    <div class="page-toolbar">
-      <div class="input-group" style="max-width: 320px;">
+    <div class="page-toolbar device-list-control-bar list-page-controls">
+      <div class="input-group list-toolbar-query" style="max-width: 320px;">
         <span class="input-group-text bg-transparent"><i class="bi bi-search"></i></span>
         <input
           v-model="search"
@@ -49,11 +40,12 @@
           :aria-label="$t('prod_search_placeholder')"
         >
       </div>
+      <CompactListMetrics v-model="metricFilters" :metrics="metricCards" class="list-toolbar-metrics" :aria-label="$t('prod_stat_total')" />
     </div>
 
-    <div class="card border-0 shadow-sm">
-      <div class="card-body p-0">
-        <div class="table-responsive">
+    <div class="card border-0 shadow-sm table-glass-card">
+      <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+        <div class="table-responsive flex-grow-1">
           <table class="table table-hover align-middle mb-0 table-compact">
             <thead>
               <tr>
@@ -81,8 +73,13 @@
                   <div class="empty-state">
                     <i class="bi bi-box-seam"></i>
                     <p>{{ $t('prod_empty_message') }}</p>
-                    <button v-permission="'product:create'" type="button" class="btn btn-primary" @click="openCreateModal">
-                      {{ $t('prod_create') }}
+                    <button
+                      type="button"
+                      class="btn btn-primary"
+                      @click="openCreateModal"
+                      v-permission="'product:create'"
+                    >
+                      <i class="bi bi-plus-lg me-1"></i>{{ $t('prod_create') }}
                     </button>
                   </div>
                 </td>
@@ -106,28 +103,28 @@
                   <span class="badge text-bg-light border">{{ product.project_name || '-' }}</span>
                 </td>
                 <td>
-                  <span v-if="hasTSL(product)" class="spec-badge spec-badge--success">
-                    <i class="bi bi-check-circle me-1"></i>{{ $t('prod_tsl_configured') }}
+                  <span v-if="hasTSL(product)" class="dash-pill dash-pill--success">
+                    <span class="dash-pill-dot"></span>{{ $t('prod_tsl_configured') }}
                   </span>
-                  <span v-else class="spec-badge spec-badge--neutral">
-                    <i class="bi bi-dash-circle me-1"></i>{{ $t('prod_tsl_not_configured') }}
+                  <span v-else class="dash-pill dash-pill--neutral">
+                    <span class="dash-pill-dot"></span>{{ $t('prod_tsl_not_configured') }}
                   </span>
                 </td>
                 <td class="d-none d-xl-table-cell">
                   <div class="font-mono small text-secondary">{{ formatDateTime(product.CreatedAt) }}</div>
                 </td>
                 <td class="text-end pe-4" @click.stop>
-                  <div class="btn-group btn-group-sm me-2">
-                    <button class="btn btn-outline-secondary" :title="$t('prod_edit_info')" @click="openInfoEditModal(product)" v-permission="'product:edit'">
+                  <div class="table-actions">
+                    <button class="table-action-btn" :title="$t('prod_edit_info')" @click="openInfoEditModal(product)" v-permission="'product:edit'">
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-outline-primary" :title="$t('prod_edit_tsl')" @click="openTSLEditModal(product)" v-permission="'product:edit'">
+                    <button class="table-action-btn table-action-btn--primary" :title="$t('prod_edit_tsl')" @click="openTSLEditModal(product)" v-permission="'product:edit'">
                       <i class="bi bi-diagram-3"></i>
                     </button>
+                    <button class="table-action-btn table-action-btn--danger" :title="$t('tsl_delete')" @click="deleteProduct(product.code)" v-permission="'product:delete'">
+                      <i class="bi bi-trash"></i>
+                    </button>
                   </div>
-                  <button class="btn btn-sm btn-outline-danger" :title="$t('tsl_delete')" @click="deleteProduct(product.code)" v-permission="'product:delete'">
-                    <i class="bi bi-trash"></i>
-                  </button>
                 </td>
               </tr>
             </tbody>
@@ -137,6 +134,7 @@
       <ListPagination :page="page" :page-size="pageSize" :total="total" :disabled="loading" id-prefix="products" @update:page="changePage" @update:page-size="changePageSize" />
     </div>
 
+  <Teleport to="body">
     <!-- Create/Edit Info Modal -->
     <div v-if="showCreateModal" class="modal fade show d-block modal-overlay-theme">
       <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -247,6 +245,7 @@
         </button>
       </template>
     </DetailDrawer>
+  </Teleport>
   </div>
 </template>
 
@@ -257,10 +256,12 @@ import { useI18n } from 'vue-i18n';
 import TSLEditor from '../components/tsl/TSLEditor.vue';
 import ListPagination from '../components/ListPagination.vue';
 import DetailDrawer from '../components/DetailDrawer.vue';
+import LiquidGlassButton from '../components/liquid-glass/LiquidGlassButton.vue';
 import { useConfirm } from '../composables/useConfirm';
 import { useToast } from '../composables/useToast';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 import { formatDateTime } from '../utils/dateTime.js';
+import CompactListMetrics from '../components/CompactListMetrics.vue';
 
 const { t } = useI18n();
 const { confirmDialog } = useConfirm();
@@ -298,6 +299,19 @@ const stats = computed(() => ({
   tslNotConfigured: products.value.filter((p) => !hasTSL(p)).length
 }));
 
+const metricCards = computed(() => [
+  { key: 'total', label: t('prod_stat_total'), value: stats.value.total, icon: 'bi-box-seam-fill', tone: 'brand' },
+  { key: 'configured', label: t('prod_stat_tsl_configured'), value: stats.value.tslConfigured, icon: 'bi-check-circle-fill', tone: 'success' },
+  { key: 'notConfigured', label: t('prod_stat_tsl_not'), value: stats.value.tslNotConfigured, icon: 'bi-dash-circle', tone: 'neutral' }
+]);
+
+const metricFilters = ref([]);
+const toggleMetricFilter = (key) => {
+  metricFilters.value = metricFilters.value.includes(key)
+    ? metricFilters.value.filter((item) => item !== key)
+    : [...metricFilters.value, key];
+};
+
 // 产品详情抽屉（§8.4：与设备列表共用 DetailDrawer）
 const drawerVisible = ref(false);
 const drawerProduct = ref(null);
@@ -331,11 +345,14 @@ const closeProductDrawer = () => {
 
 const filteredProducts = computed(() => {
   const q = search.value.trim().toLowerCase();
-  if (!q) return products.value;
-  return products.value.filter((p) =>
-    String(p.code || '').toLowerCase().includes(q)
-    || String(p.name || '').toLowerCase().includes(q)
-  );
+  return products.value.filter((product) => {
+    const searchable = String(product.code || '').toLowerCase().includes(q)
+      || String(product.name || '').toLowerCase().includes(q);
+    if (q && !searchable) return false;
+    if (!metricFilters.value.length) return true;
+    return (metricFilters.value.includes('configured') && hasTSL(product))
+      || (metricFilters.value.includes('notConfigured') && !hasTSL(product));
+  });
 });
 
 const clearSearch = () => {
@@ -576,3 +593,159 @@ onUnmounted(() => {
   window.removeEventListener('noyo-data-updated', fetchProducts);
 });
 </script>
+
+<style scoped>
+/* ── 液态玻璃环境光底景 / Liquid Glass ambient aurora backdrop ── */
+.product-list-page {
+  position: relative;
+}
+
+/* 内容浮于环境光之上（positioned siblings 按 DOM 顺序绘制在 aurora 之上）；
+   仅提升页面内容容器，避免误伤 fixed 定位的 modal / drawer */
+.product-list-page > .page-header,
+.product-list-page > .page-toolbar,
+.product-list-page > .row,
+.product-list-page > .card {
+  position: relative;
+}
+
+
+
+.kpi-card,
+.kpi-card--compact {
+  background: var(--noyo-dashboard-liquid-tint, var(--bg-surface));
+  backdrop-filter: blur(var(--noyo-dashboard-liquid-blur, 10px)) saturate(175%) brightness(var(--noyo-dashboard-liquid-backdrop-brightness, 1.05));
+  -webkit-backdrop-filter: blur(var(--noyo-dashboard-liquid-blur, 10px)) saturate(175%) brightness(var(--noyo-dashboard-liquid-backdrop-brightness, 1.05));
+  border: 1px solid var(--noyo-dashboard-liquid-edge, var(--border-color));
+  border-radius: var(--radius-card, 14px);
+  box-shadow:
+    var(--noyo-dashboard-liquid-shadow, var(--card-shadow)),
+    inset 0 1.5px 0.5px var(--noyo-dashboard-liquid-specular, rgba(255, 255, 255, 0.85)),
+    inset 0 -1.5px 1px rgba(0, 0, 0, 0.05);
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+.kpi-card--compact {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.85rem;
+  min-height: 48px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .kpi-card:hover,
+  .kpi-card--compact:hover {
+    transform: translateY(-4px) scale(1.012);
+    border-color: rgba(147, 197, 253, 0.75);
+    box-shadow: var(--shadow-floating);
+  }
+}
+
+.kpi-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.kpi-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.kpi-value {
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text-main);
+  letter-spacing: -0.02em;
+}
+
+.kpi-icon-box {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.icon-brand {
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.icon-chart-2 {
+  color: var(--color-success, #16a34a);
+  background: rgba(22, 163, 74, 0.15);
+}
+
+.icon-neutral {
+  color: var(--text-secondary);
+  background: rgba(100, 116, 139, 0.15);
+}
+
+/* 晶体发光胶囊 */
+.dash-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  transition: all var(--noyo-duration-fast) var(--noyo-ease-standard);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.dash-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+  box-shadow: 0 0 6px currentColor;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.dash-pill--success {
+  color: #15803d !important;
+  background: rgba(22, 163, 74, 0.12);
+  border: 1px solid rgba(22, 163, 74, 0.28);
+}
+
+[data-bs-theme="dark"] .dash-pill--success {
+  color: #4ade80 !important;
+  background: rgba(74, 222, 128, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+
+.dash-pill--neutral {
+  color: var(--text-secondary) !important;
+  background: rgba(100, 116, 139, 0.12);
+  border: 1px solid rgba(100, 116, 139, 0.24);
+}
+
+.device-row {
+  cursor: pointer;
+  transition: background-color var(--noyo-duration-fast) var(--noyo-ease-standard);
+}
+
+.table-glass-card {
+  border-radius: var(--radius-card, 16px);
+  background: var(--noyo-dashboard-liquid-tint, var(--bg-surface));
+  backdrop-filter: blur(var(--noyo-dashboard-liquid-blur, 10px)) saturate(175%) brightness(var(--noyo-dashboard-liquid-backdrop-brightness, 1.05));
+  -webkit-backdrop-filter: blur(var(--noyo-dashboard-liquid-blur, 10px)) saturate(175%) brightness(var(--noyo-dashboard-liquid-backdrop-brightness, 1.05));
+  border: 1px solid var(--noyo-dashboard-liquid-edge, var(--border-color));
+}
+</style>

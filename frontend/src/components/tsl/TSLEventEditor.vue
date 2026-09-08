@@ -33,45 +33,47 @@
     </table>
 
     <!-- Modal -->
-    <div v-if="showModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ editingIndex === -1 ? $t('tsl_add') : $t('tsl_edit') }} {{ $t('tsl_events') }}</h5>
-            <button type="button" class="btn-close" @click="closeModal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="mb-3">
-              <label class="form-label">{{ $t('tsl_name') }}</label>
-              <input v-model="currentEvt.name" type="text" class="form-control">
+    <Teleport to="body">
+      <div v-if="showModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ editingIndex === -1 ? $t('tsl_add') : $t('tsl_edit') }} {{ $t('tsl_events') }}</h5>
+              <button type="button" class="btn-close" @click="closeModal"></button>
             </div>
-            <div class="mb-3">
-              <label class="form-label">{{ $t('tsl_identifier') }}</label>
-              <input v-model="currentEvt.identifier" type="text" class="form-control" :disabled="editingIndex !== -1">
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">{{ $t('tsl_name') }}</label>
+                <input v-model="currentEvt.name" type="text" class="form-control">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('tsl_identifier') }}</label>
+                <input v-model="currentEvt.identifier" type="text" class="form-control" :disabled="editingIndex !== -1">
+              </div>
+               <div class="mb-3">
+                <label class="form-label">{{ $t('tsl_type') }}</label>
+                <select v-model="currentEvt.type" class="form-select">
+                  <option value="info">{{ $t('tsl_evt_type_info') }}</option>
+                  <option value="alert">{{ $t('tsl_evt_type_alert') }}</option>
+                  <option value="error">{{ $t('tsl_evt_type_error') }}</option>
+                </select>
+              </div>
+              
+              <div class="mb-3">
+                <TSLParamEditor 
+                  :title="$t('tsl_svc_output')" 
+                  v-model="currentEvt.outputData" 
+                />
+              </div>
             </div>
-             <div class="mb-3">
-              <label class="form-label">{{ $t('tsl_type') }}</label>
-              <select v-model="currentEvt.type" class="form-select">
-                <option value="info">{{ $t('tsl_evt_type_info') }}</option>
-                <option value="alert">{{ $t('tsl_evt_type_alert') }}</option>
-                <option value="error">{{ $t('tsl_evt_type_error') }}</option>
-              </select>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" @click="closeModal">{{ $t('tsl_cancel') }}</button>
+              <button type="button" class="btn btn-primary" @click="saveEvent">{{ $t('tsl_confirm') }}</button>
             </div>
-            
-            <div class="mb-3">
-              <TSLParamEditor 
-                :title="$t('tsl_svc_output')" 
-                v-model="currentEvt.outputData" 
-              />
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeModal">{{ $t('tsl_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveEvent">{{ $t('tsl_confirm') }}</button>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 

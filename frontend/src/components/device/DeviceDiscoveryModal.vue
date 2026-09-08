@@ -1,5 +1,6 @@
 <template>
-  <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+  <Teleport to="body">
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
     <div class="modal-dialog modal-xl">
       <div class="modal-content" style="height: 90vh; display: flex; flex-direction: column;">
         <div class="modal-header">
@@ -19,10 +20,14 @@
               </select>
             </div>
             <div class="col-auto">
-               <button class="btn btn-primary" @click="startScan" :disabled="scanning">
-                 <span v-if="scanning" class="spinner-border spinner-border-sm me-1"></span>
+               <LiquidGlassButton
+                 variant="primary"
+                 :loading="scanning"
+                 :disabled="scanning"
+                 @click="startScan"
+               >
                  {{ scanning ? $t('scanning') : $t('start_scan') }}
-               </button>
+               </LiquidGlassButton>
             </div>
           </div>
 
@@ -55,9 +60,15 @@
                      </select>
                    </td>
                    <td>
-                     <button class="btn btn-sm btn-success" @click="addDevice(dev)" :disabled="!dev.bindProductCode || dev.added">
-                        <i class="bi bi-plus-lg"></i> {{ dev.added ? $t('added') : $t('add') }}
-                     </button>
+                     <LiquidGlassButton
+                       variant="success"
+                       size="sm"
+                       icon="bi bi-plus-lg"
+                       @click="addDevice(dev)"
+                       :disabled="!dev.bindProductCode || dev.added"
+                     >
+                       {{ dev.added ? $t('added') : $t('add') }}
+                     </LiquidGlassButton>
                    </td>
                 </tr>
               </tbody>
@@ -67,6 +78,7 @@
       </div>
     </div>
   </div>
+</Teleport>
 </template>
 
 <script setup>

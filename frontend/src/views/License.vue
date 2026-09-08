@@ -1,18 +1,31 @@
 <template>
-  <div class="settings-container">
-    <h2 class="h4 mb-4 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('license_info', '授权信息') }}</h2>
+  <div class="license-page page-fixed-height">
+    <div class="page-header">
+      <div>
+        <h1>{{ $t('license_info', '授权信息') }}</h1>
+        <p class="page-subtitle">{{ $t('license_subtitle', '查看系统软件授权证书、设备配额与有效期') }}</p>
+      </div>
+      <div v-if="licenseData && licenseData.status">
+        <LiquidGlassButton
+          variant="primary"
+          size="sm"
+          icon="bi bi-upload"
+          @click="$refs.licenseInput.click()"
+        >
+          {{ $t('license_update', '更新许可证') }}
+        </LiquidGlassButton>
+        <input type="file" ref="licenseInput" class="d-none" accept=".lic" @change="handleLicenseUpload">
+      </div>
+    </div>
 
-    <div v-if="licenseData && licenseData.status" class="card border-0 shadow-sm mb-4">
+    <div v-if="licenseData && licenseData.status" class="card border-0 shadow-sm table-glass-card mb-4">
       <div class="card-header bg-transparent border-bottom-0 pt-4 pb-0 d-flex justify-content-between align-items-center">
-        <h5 class="mb-0"><i class="bi bi-shield-check me-2"></i>{{ $t('license_info', '授权信息') }}</h5>
+        <h5 class="mb-0 fw-bold"><i class="bi bi-shield-check me-2"></i>{{ $t('license_info', '授权信息') }}</h5>
         <div>
-          <span class="badge me-2" :class="licenseData.status === 'authorized' ? 'bg-success' : 'bg-danger'">
+          <span class="dash-pill me-2" :class="licenseData.status === 'authorized' ? 'dash-pill--success' : 'dash-pill--neutral'">
+            <span class="dash-pill-dot"></span>
             {{ licenseData.status === 'authorized' ? $t('license_authorized', '已授权') : $t('license_unauthorized', '未授权') }}
           </span>
-          <button class="btn btn-sm btn-outline-primary" @click="$refs.licenseInput.click()">
-            <i class="bi bi-upload"></i> {{ $t('license_update', '更新许可证') }}
-          </button>
-          <input type="file" ref="licenseInput" class="d-none" accept=".lic" @change="handleLicenseUpload">
         </div>
       </div>
       <div class="card-body">

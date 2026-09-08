@@ -1,98 +1,102 @@
-﻿<template>
-  <div class="rule-engine container-fluid py-4">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+<template>
+  <div class="rule-engine-page page-fixed-height">
+    <div class="page-header list-page-header">
       <div>
-        <h2 class="h4 mb-1 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('rule_engine') }}</h2>
-        <div class="text-muted small">{{ $t('rule_engine_subtitle') }}</div>
+        <h1>{{ $t('rule_engine') }}</h1>
+        <p class="page-subtitle">{{ $t('rule_engine_subtitle') }}</p>
       </div>
-      <div class="d-flex gap-2">
-        <button class="btn btn-outline-secondary btn-sm" @click="fetchAll" :disabled="loading">
-          <i class="bi me-1" :class="loading ? 'bi-arrow-repeat spin' : 'bi-arrow-clockwise'"></i>{{ $t('refresh') }}
-        </button>
-        <button class="btn btn-outline-info btn-sm" @click="openAiRuleCreator" v-permission="'rule:create'">
-          <i class="bi bi-stars me-1"></i>{{ $t('rule_ai_create') }}
-        </button>
-        <button class="btn btn-primary btn-sm" @click="openNewRuleGraph" v-permission="'rule:create'">
-          <i class="bi bi-plus-lg me-1"></i>{{ $t('rule_create') }}
-        </button>
+      <div class="d-flex gap-2 align-items-center">
+        <LiquidGlassButton
+          variant="secondary"
+          size="sm"
+          :icon="loading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'"
+          @click="fetchAll"
+          :disabled="loading"
+        >
+          {{ $t('refresh') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton
+          variant="outline-primary"
+          size="sm"
+          icon="bi bi-stars"
+          @click="openAiRuleCreator"
+          v-permission="'rule:create'"
+        >
+          {{ $t('rule_ai_create') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton
+          variant="primary"
+          size="sm"
+          icon="bi bi-plus-lg"
+          @click="openNewRuleGraph"
+          v-permission="'rule:create'"
+        >
+          {{ $t('rule_create') }}
+        </LiquidGlassButton>
       </div>
     </div>
 
-    <div class="row g-3 mb-4">
-      <div class="col-md-3 col-sm-6" v-for="card in summaryCards" :key="card.key">
-        <div class="card border-0 shadow-sm h-100">
-          <div class="card-body py-3">
-            <div class="d-flex align-items-center justify-content-between">
-              <div>
-                <div class="text-muted small">{{ card.label }}</div>
-                <div class="fs-4 fw-semibold">{{ card.value }}</div>
-              </div>
-              <i class="bi fs-3 text-primary opacity-75" :class="card.icon"></i>
-            </div>
-          </div>
-        </div>
+    <!-- KPI 统计行（§7.3 Compact Micro-KPI Strip） -->
+    <!-- Toolbar（§7.2） -->
+    <div class="page-toolbar device-list-control-bar list-page-controls">
+      <div class="input-group list-toolbar-query" style="max-width: 320px;">
+        <span class="input-group-text bg-transparent"><i class="bi bi-search"></i></span>
+        <input class="form-control" v-model.trim="search" :placeholder="$t('rule_search_placeholder')">
+      </div>
+      <select class="form-select form-select-sm list-toolbar-filters" v-model="statusFilter" style="max-width: 160px;">
+        <option value="">{{ $t('all') }}</option>
+        <option value="enabled">{{ $t('rule_status_enabled') }}</option>
+        <option value="disabled">{{ $t('rule_status_disabled') }}</option>
+        <option value="draft">{{ $t('rule_status_draft') }}</option>
+        <option value="error">{{ $t('rule_status_error') }}</option>
+      </select>
+      <select class="form-select form-select-sm list-toolbar-filters" v-model="groupFilter" style="max-width: 180px;">
+        <option value="">{{ $t('rule_all_groups') }}</option>
+        <option value="__none__">{{ $t('rule_no_group') }}</option>
+        <option v-for="group in groups" :key="group.id || group.ID" :value="String(group.id || group.ID)">
+          {{ group.name }}
+        </option>
+      </select>
+      <CompactListMetrics v-model="summaryMetricFilters" :metrics="summaryCards" class="list-toolbar-metrics" :aria-label="$t('rule_total')" />
+      <div class="list-toolbar-actions d-inline-flex">
+        <LiquidGlassButton
+          size="sm"
+          :variant="aiRuleFilter ? 'info' : 'outline-info'"
+          icon="bi bi-stars"
+          :title="$t('rule_ai_filter_title')"
+          :aria-pressed="aiRuleFilter ? 'true' : 'false'"
+          @click="aiRuleFilter = !aiRuleFilter"
+        >
+          {{ $t('rule_ai_only') }}
+          <span class="badge ms-1" :class="aiRuleFilter ? 'bg-light text-info' : 'bg-info-subtle text-info-emphasis'">
+            {{ aiRuleCount }}
+          </span>
+        </LiquidGlassButton>
+        <LiquidGlassButton
+          variant="outline-primary"
+          size="sm"
+          icon="bi bi-folder-plus"
+          @click="openGroupModal"
+          v-permission="'rule_group:manage'"
+        >
+          {{ $t('rule_manage_groups') }}
+        </LiquidGlassButton>
       </div>
     </div>
 
-    <div class="card border-0 shadow-sm mb-4">
-      <div class="card-header bg-transparent border-0 py-3">
-        <div class="row g-2 align-items-center">
-          <div class="col-lg-5">
-            <div class="input-group input-group-sm">
-              <span class="input-group-text"><i class="bi bi-search"></i></span>
-              <input class="form-control" v-model.trim="search" :placeholder="$t('rule_search_placeholder')">
-            </div>
-          </div>
-          <div class="col-sm-4 col-lg-2">
-            <select class="form-select form-select-sm" v-model="statusFilter">
-              <option value="">{{ $t('all') }}</option>
-              <option value="enabled">{{ $t('rule_status_enabled') }}</option>
-              <option value="disabled">{{ $t('rule_status_disabled') }}</option>
-              <option value="draft">{{ $t('rule_status_draft') }}</option>
-              <option value="error">{{ $t('rule_status_error') }}</option>
-            </select>
-          </div>
-          <div class="col-sm-4 col-lg-2">
-            <select class="form-select form-select-sm" v-model="groupFilter">
-              <option value="">{{ $t('rule_all_groups') }}</option>
-              <option value="__none__">{{ $t('rule_no_group') }}</option>
-              <option v-for="group in groups" :key="group.id || group.ID" :value="String(group.id || group.ID)">
-                {{ group.name }}
-              </option>
-            </select>
-          </div>
-          <div class="col-sm-4 col-lg-3 text-lg-end">
-            <div class="d-inline-flex flex-wrap justify-content-lg-end gap-2">
-              <button
-                class="btn btn-sm"
-                :class="aiRuleFilter ? 'btn-info text-white' : 'btn-outline-info'"
-                :title="$t('rule_ai_filter_title')"
-                :aria-pressed="aiRuleFilter ? 'true' : 'false'"
-                @click="aiRuleFilter = !aiRuleFilter"
-              >
-                <i class="bi bi-stars me-1"></i>{{ $t('rule_ai_only') }}
-                <span class="badge ms-1" :class="aiRuleFilter ? 'bg-light text-info' : 'bg-info-subtle text-info-emphasis'">
-                  {{ aiRuleCount }}
-                </span>
-              </button>
-              <button class="btn btn-outline-primary btn-sm" @click="openGroupModal" v-permission="'rule_group:manage'">
-                <i class="bi bi-folder-plus me-1"></i>{{ $t('rule_manage_groups') }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
+    <!-- Table Glass Card -->
+    <div class="card border-0 shadow-sm table-glass-card">
+      <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+        <div class="table-responsive flex-grow-1">
+          <table class="table table-hover align-middle mb-0 table-compact">
+            <thead>
               <tr>
-                <th>{{ $t('rule_name') }}</th>
+                <th class="ps-4">{{ $t('rule_name') }}</th>
                 <th>{{ $t('rule_trigger') }}</th>
                 <th>{{ $t('rule_scope') }}</th>
                 <th>{{ $t('status') }}</th>
                 <th class="text-end">{{ $t('rule_trigger_count') }}</th>
-                <th class="text-end">{{ $t('actions') }}</th>
+                <th class="text-end pe-4">{{ $t('actions') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -106,16 +110,16 @@
                   <template v-if="aiRuleFilter">
                     <i class="bi bi-stars fs-1 d-block mb-2"></i>
                     <div class="fw-semibold text-body">{{ aiRuleCount === 0 ? $t('rule_ai_empty') : $t('rule_ai_empty_filtered') }}</div>
-                    <button class="btn btn-outline-info btn-sm mt-3" @click="openAiRuleCreator">
-                      <i class="bi bi-stars me-1"></i>{{ $t('rule_ai_create') }}
-                    </button>
+                    <LiquidGlassButton variant="outline-info" size="sm" class="mt-3" icon="bi bi-stars" @click="openAiRuleCreator">
+                      {{ $t('rule_ai_create') }}
+                    </LiquidGlassButton>
                   </template>
                   <template v-else>
                     <i class="bi bi-diagram-3 fs-1 d-block mb-2"></i>{{ $t('rule_empty') }}
                   </template>
                 </td>
               </tr>
-              <tr v-for="rule in filteredRules" :key="rule.code">
+              <tr v-for="rule in paginatedRules" :key="rule.code">
                 <td>
                   <div class="fw-semibold">{{ rule.name }}</div>
                   <div class="small text-muted text-truncate rule-desc">{{ rule.description || rule.code }}</div>
@@ -147,24 +151,24 @@
                   <div>{{ rule.trigger_count || 0 }}</div>
                   <div class="small text-muted">{{ formatTime(rule.last_triggered_at) }}</div>
                 </td>
-                <td class="text-end">
-                  <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-secondary" @click="openLogs(rule)" :title="$t('rule_logs')" v-permission="'rule:log'">
+                <td class="text-end pe-4">
+                  <div class="table-actions">
+                    <button class="table-action-btn" @click="openLogs(rule)" :title="$t('rule_logs')" v-permission="'rule:log'">
                       <i class="bi bi-clock-history"></i>
                     </button>
-                    <button class="btn btn-outline-info" @click="openRuleGraph(rule)" :title="$t('rule_graph_view')">
+                    <button class="table-action-btn table-action-btn--info" @click="openRuleGraph(rule)" :title="$t('rule_graph_view')">
                       <i class="bi bi-diagram-3"></i>
                     </button>
-                    <button class="btn btn-outline-primary" @click="openAiRuleHelper(rule)" :title="$t('rule_ai_help')">
+                    <button class="table-action-btn table-action-btn--primary" @click="openAiRuleHelper(rule)" :title="$t('rule_ai_help')">
                       <i class="bi bi-stars"></i>
                     </button>
-                    <button v-if="rule.enabled" class="btn btn-outline-warning" @click="toggleRule(rule, false)" :title="$t('disable')" v-permission="'rule:enable'">
+                    <button v-if="rule.enabled" class="table-action-btn table-action-btn--warning" @click="toggleRule(rule, false)" :title="$t('disable')" v-permission="'rule:enable'">
                       <i class="bi bi-pause-fill"></i>
                     </button>
-                    <button v-else class="btn btn-outline-success" @click="toggleRule(rule, true)" :title="$t('enable')" v-permission="'rule:enable'">
+                    <button v-else class="table-action-btn table-action-btn--success" @click="toggleRule(rule, true)" :title="$t('enable')" v-permission="'rule:enable'">
                       <i class="bi bi-play-fill"></i>
                     </button>
-                    <button class="btn btn-outline-danger" :disabled="rule.enabled" @click="deleteRule(rule)" :title="$t('tsl_delete')" v-permission="'rule:delete'">
+                    <button class="table-action-btn table-action-btn--danger" :disabled="rule.enabled" @click="deleteRule(rule)" :title="$t('tsl_delete')" v-permission="'rule:delete'">
                       <i class="bi bi-trash"></i>
                     </button>
                   </div>
@@ -173,97 +177,109 @@
             </tbody>
           </table>
         </div>
+        <ListPagination
+          :page="page"
+          :page-size="pageSize"
+          :total="filteredRules.length"
+          :page-size-options="pageSizeOptions"
+          :disabled="loading"
+          id-prefix="rule-engine"
+          @update:page="handlePageChange"
+          @update:page-size="handlePageSizeChange"
+        />
       </div>
     </div>
 
-    <div v-if="showGraph" class="modal fade show d-block rule-modal" tabindex="-1">
-      <div class="modal-dialog modal-xl rule-graph-dialog">
-        <div class="modal-content border-0 shadow-lg">
-          <div class="modal-header">
-            <div>
-              <h5 class="modal-title">{{ graphRule?.code ? $t('rule_graph_view') : $t('rule_create') }} - {{ graphRule?.name || $t('rule_new_default_name') }}</h5>
-              <div class="small text-muted">{{ graphRule?.code ? $t('rule_graph_readonly') : $t('rule_graph_editing') }}</div>
+    <Teleport to="body">
+      <div v-if="showGraph" class="modal fade show d-block rule-modal" tabindex="-1">
+        <div class="modal-dialog modal-xl rule-graph-dialog">
+          <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header">
+              <div>
+                <h5 class="modal-title">{{ graphRule?.code ? $t('rule_graph_view') : $t('rule_create') }} - {{ graphRule?.name || $t('rule_new_default_name') }}</h5>
+                <div class="small text-muted">{{ graphRule?.code ? $t('rule_graph_readonly') : $t('rule_graph_editing') }}</div>
+              </div>
+              <button type="button" class="btn-close" @click="closeRuleGraph"></button>
             </div>
-            <button type="button" class="btn-close" @click="closeRuleGraph"></button>
-          </div>
-          <div class="modal-body bg-light">
-            <RuleGraphViewer :rule="graphRule" :devices="devices" :groups="groups" @update-rule="handleGraphUpdate" />
+            <div class="modal-body bg-light">
+              <RuleGraphViewer :rule="graphRule" :devices="devices" :groups="groups" @update-rule="handleGraphUpdate" />
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <div v-if="showLogs" class="modal fade show d-block rule-modal" tabindex="-1">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content border-0 shadow-lg">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ $t('rule_logs') }} - {{ logRule?.name }}</h5>
-            <button type="button" class="btn-close" @click="showLogs = false"></button>
-          </div>
-          <div class="modal-body p-0">
-            <table class="table table-hover align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th>{{ $t('time') }}</th>
-                  <th>{{ $t('rule_trigger') }}</th>
-                  <th>{{ $t('status') }}</th>
-                  <th class="text-end">{{ $t('rule_duration') }}</th>
-                  <th class="text-end">{{ $t('actions') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-if="logs.length === 0">
-                  <td colspan="5" class="text-center py-4 text-muted">{{ $t('rule_no_logs') }}</td>
-                </tr>
-                <tr v-for="log in logs" :key="log.id || log.ID">
-                  <td>{{ formatTime(log.executed_at) }}</td>
-                  <td>{{ triggerTypeLabel(log.trigger_type) }}</td>
-                  <td>
-                    <span class="badge rounded-pill" :class="log.success ? 'bg-success' : 'bg-danger'">
-                      {{ log.success ? $t('success') : $t('failed') }}
-                    </span>
-                    <div v-if="log.error_message" class="small text-danger">{{ localizedRuleError(log.error_message) }}</div>
-                  </td>
-                  <td class="text-end">{{ log.duration_ms }} ms</td>
-                  <td class="text-end">
-                    <button class="btn btn-outline-primary btn-sm" @click="analyzeRuleLog(log)" :title="$t('rule_ai_analyze_log')">
-                      <i class="bi bi-stars"></i>
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+      <div v-if="showLogs" class="modal fade show d-block rule-modal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ $t('rule_logs') }} - {{ logRule?.name }}</h5>
+              <button type="button" class="btn-close" @click="showLogs = false"></button>
+            </div>
+            <div class="modal-body p-0">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>{{ $t('time') }}</th>
+                    <th>{{ $t('rule_trigger') }}</th>
+                    <th>{{ $t('status') }}</th>
+                    <th class="text-end">{{ $t('rule_duration') }}</th>
+                    <th class="text-end">{{ $t('actions') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="logs.length === 0">
+                    <td colspan="5" class="text-center py-4 text-muted">{{ $t('rule_no_logs') }}</td>
+                  </tr>
+                  <tr v-for="log in logs" :key="log.id || log.ID">
+                    <td>{{ formatTime(log.executed_at) }}</td>
+                    <td>{{ triggerTypeLabel(log.trigger_type) }}</td>
+                    <td>
+                      <span class="badge rounded-pill" :class="log.success ? 'bg-success' : 'bg-danger'">
+                        {{ log.success ? $t('success') : $t('failed') }}
+                      </span>
+                      <div v-if="log.error_message" class="small text-danger">{{ localizedRuleError(log.error_message) }}</div>
+                    </td>
+                    <td class="text-end">{{ log.duration_ms }} ms</td>
+                    <td class="text-end">
+                      <button class="btn btn-outline-primary btn-sm" @click="analyzeRuleLog(log)" :title="$t('rule_ai_analyze_log')">
+                        <i class="bi bi-stars"></i>
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <div v-if="showGroupModal" class="modal fade show d-block rule-modal" tabindex="-1">
-      <div class="modal-dialog">
-        <div class="modal-content border-0 shadow-lg">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ $t('rule_manage_groups') }}</h5>
-            <button type="button" class="btn-close" @click="showGroupModal = false"></button>
-          </div>
-          <div class="modal-body">
-            <div class="input-group mb-3">
-              <input class="form-control" v-model.trim="groupForm.name" :placeholder="$t('rule_group_name')">
-              <button class="btn btn-primary" @click="saveGroup" :disabled="!groupForm.name">
-                <i class="bi bi-plus-lg"></i>
-              </button>
+      <div v-if="showGroupModal" class="modal fade show d-block rule-modal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ $t('rule_manage_groups') }}</h5>
+              <button type="button" class="btn-close" @click="showGroupModal = false"></button>
             </div>
-            <div class="list-group">
-              <div v-for="group in groups" :key="group.id || group.ID" class="list-group-item d-flex justify-content-between align-items-center">
-                <span>{{ group.name }}</span>
-                <button class="btn btn-sm btn-outline-danger" @click="deleteGroup(group)">
-                  <i class="bi bi-trash"></i>
+            <div class="modal-body">
+              <div class="input-group mb-3">
+                <input class="form-control" v-model.trim="groupForm.name" :placeholder="$t('rule_group_name')">
+                <button class="btn btn-primary" @click="saveGroup" :disabled="!groupForm.name">
+                  <i class="bi bi-plus-lg"></i>
                 </button>
+              </div>
+              <div class="list-group">
+                <div v-for="group in groups" :key="group.id || group.ID" class="list-group-item d-flex justify-content-between align-items-center">
+                  <span>{{ group.name }}</span>
+                  <button class="btn btn-sm btn-outline-danger" @click="deleteGroup(group)">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -274,7 +290,9 @@ import { useI18n } from 'vue-i18n'
 import { useToast } from '../composables/useToast'
 import axios from 'axios'
 import RuleGraphViewer from '@/components/rule/RuleGraphViewer.vue'
+import ListPagination from '@/components/ListPagination.vue'
 import { formatDateTime } from '../utils/dateTime.js'
+import CompactListMetrics from '../components/CompactListMetrics.vue'
 
 function uid(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`
@@ -742,7 +760,7 @@ const ActionEditor = defineComponent({
 
 export default {
   name: 'RuleEngine',
-  components: { ActionEditor, RuleConditionGroupEditor, RuleGraphViewer , VarInputWrapper },
+  components: { ActionEditor, RuleConditionGroupEditor, RuleGraphViewer, VarInputWrapper, ListPagination, CompactListMetrics },
   setup() {
     const { t } = useI18n()
     const { showToast } = useToast()
@@ -751,11 +769,15 @@ export default {
     const devices = ref([])
     const logs = ref([])
     const loading = ref(false)
+    const page = ref(1)
+    const pageSize = ref(10)
+    const pageSizeOptions = [10, 20, 50, 100]
     const saving = ref(false)
     const search = ref('')
     const statusFilter = ref('')
     const groupFilter = ref('')
     const aiRuleFilter = ref(false)
+    const summaryMetricFilters = ref([])
     const showEditor = ref(false)
     const showLogs = ref(false)
     const showGraph = ref(false)
@@ -871,7 +893,7 @@ export default {
       loading.value = true
       try {
         const [ruleRes, groupRes, deviceRes] = await Promise.all([
-          axios.get('/api/rules', { params: { page: 1, pageSize: 200 } }),
+          axios.get('/api/rules', { params: { page: 1, pageSize: 1000 } }),
           axios.get('/api/rule-groups'),
           axios.get('/api/rules/device-options')
         ])
@@ -903,15 +925,45 @@ export default {
       if (groupFilter.value === '__none__' && rule.group_id) return false
       if (groupFilter.value && groupFilter.value !== '__none__' && String(rule.group_id) !== groupFilter.value) return false
       if (aiRuleFilter.value && !ruleHasAiAction(rule)) return false
+      if (summaryMetricFilters.value.includes('enabled') && !rule.enabled) return false
+      if (summaryMetricFilters.value.includes('ai') && !ruleHasAiAction(rule)) return false
       return true
     }))
 
+    const paginatedRules = computed(() => {
+      const start = (page.value - 1) * pageSize.value
+      return filteredRules.value.slice(start, start + pageSize.value)
+    })
+
+    function handlePageChange(newPage) {
+      page.value = newPage
+    }
+
+    function handlePageSizeChange(newSize) {
+      pageSize.value = newSize
+      page.value = 1
+    }
+
+    watch([search, statusFilter, groupFilter, aiRuleFilter, summaryMetricFilters], () => {
+      page.value = 1
+    })
+
     const summaryCards = computed(() => [
-      { key: 'total', label: t('rule_total'), value: rules.value.length, icon: 'bi-diagram-3' },
-      { key: 'enabled', label: t('rule_status_enabled'), value: rules.value.filter(r => r.enabled).length, icon: 'bi-play-circle' },
-      { key: 'ai', label: t('rule_ai_rules'), value: aiRuleCount.value, icon: 'bi-stars' },
-      { key: 'error', label: t('rule_status_error'), value: rules.value.filter(r => r.status === 'error').length, icon: 'bi-exclamation-triangle' }
+      { key: 'total', label: t('rule_total'), value: rules.value.length, icon: 'bi-diagram-3', tone: 'brand' },
+      { key: 'enabled', label: t('rule_status_enabled'), value: rules.value.filter(r => r.enabled).length, icon: 'bi-play-circle', tone: 'success' },
+      { key: 'ai', label: t('rule_ai_rules'), value: aiRuleCount.value, icon: 'bi-stars', tone: 'primary' },
+      { key: 'error', label: t('rule_status_error'), value: rules.value.filter(r => r.status === 'error').length, icon: 'bi-exclamation-triangle', tone: 'danger' }
     ])
+
+    function toggleSummaryMetric(key) {
+      if (key === 'total') {
+        summaryMetricFilters.value = []
+        return
+      }
+      summaryMetricFilters.value = summaryMetricFilters.value.includes(key)
+        ? summaryMetricFilters.value.filter((item) => item !== key)
+        : [...summaryMetricFilters.value, key]
+    }
 
     const validationMessage = computed(() => {
       if (!form.name) return t('rule_name_required')
@@ -1562,8 +1614,9 @@ export default {
 
     return {
       expandedSections,
-      rules, groups, devices, logs, loading, saving, search, statusFilter, groupFilter, aiRuleFilter, showEditor, showLogs, showGraph,
-      showGroupModal, editingCode, logRule, graphRule, groupForm, form, analysis, aiRuleCount, filteredRules, summaryCards,
+      rules, groups, devices, logs, loading, saving, search, statusFilter, groupFilter, aiRuleFilter, summaryMetricFilters, showEditor, showLogs, showGraph,
+      showGroupModal, editingCode, logRule, graphRule, groupForm, form, analysis, aiRuleCount, filteredRules, paginatedRules,
+      page, pageSize, pageSizeOptions, handlePageChange, handlePageSizeChange, summaryCards, toggleSummaryMetric,
       validationMessage, executionPreview, weekdayOptions, effectiveMonthDaysText, effectiveMonthsText,
       showsEffectiveWeekdays, showsEffectiveMonthDays, showsEffectiveMonths,
       actionLabels, conditionLabels, fetchAll, groupName, statusBadge, statusLabel,
@@ -1579,6 +1632,28 @@ export default {
 </script>
 
 <style>
+.rule-engine-page .list-toolbar-actions {
+  padding-right: 8px;
+  padding-bottom: 2px;
+}
+
+.rule-engine-page .list-toolbar-actions .noyo-glass-btn {
+  box-shadow: none !important;
+}
+
+.rule-engine-page .list-toolbar-actions .noyo-glass-btn--outline-primary {
+  box-shadow: inset 0 0 0 1px var(--color-brand) !important;
+}
+
+.rule-engine-page .list-toolbar-actions .noyo-glass-btn--outline-info {
+  box-shadow: inset 0 0 0 1px var(--color-info, #0284c7) !important;
+}
+
+.rule-engine-page .list-toolbar-actions .noyo-glass-btn:hover:not(:disabled) {
+  transform: translateY(-1px) !important;
+  box-shadow: inset 0 0 0 1.5px currentColor !important;
+}
+
 .cursor-pointer { cursor: pointer; }
 .rule-desc {
   max-width: 280px;
@@ -1586,6 +1661,7 @@ export default {
 
 .rule-modal {
   background: rgba(0, 0, 0, 0.55);
+  z-index: 1060 !important;
 }
 
 .rule-editor-dialog {

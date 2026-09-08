@@ -104,7 +104,16 @@ func (c *ProtocolContextImpl) GetLogger() *zap.Logger {
 }
 
 func (c *ProtocolContextImpl) ReloadRegistry() error {
-	return c.server.DeviceManager.Registry.Reload()
+	if err := c.server.DeviceManager.Registry.Reload(); err != nil {
+		return err
+	}
+	// Plugins can create or update devices outside the HTTP handlers. Broadcast
+	// the same list invalidation event so open device pages re-fetch the record.
+	c.server.DeviceManager.EventBus.Publish(types.Event{
+		Type:      types.EventDeviceListChanged,
+		Timestamp: time.Now().UnixMilli(),
+	})
+	return nil
 }
 
 func (c *ProtocolContextImpl) RegisterHTTPHandler(path string, handler interface{}) error {

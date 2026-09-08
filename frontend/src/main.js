@@ -4,6 +4,7 @@ import 'bootstrap/dist/css/bootstrap.min.css'
 import 'bootstrap/dist/js/bootstrap.bundle.min.js'
 import 'bootstrap-icons/font/bootstrap-icons.css'
 import './style.css'
+import './styles/liquid-glass.css'
 import App from './App.vue'
 import i18n from './i18n'
 import router from './router'
@@ -11,6 +12,8 @@ import { loader } from '@guolao/vue-monaco-editor'
 import axios from 'axios'
 import { useAuthStore } from './stores/auth'
 import { translateApiResponseMessages } from './utils/apiMessages'
+import LiquidGlassButton from './components/liquid-glass/LiquidGlassButton.vue'
+import LiquidGlassCard from './components/liquid-glass/LiquidGlassCard.vue'
 
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
@@ -44,6 +47,8 @@ const pinia = createPinia()
 app.use(pinia)
 app.use(i18n)
 app.use(router)
+app.component('LiquidGlassButton', LiquidGlassButton)
+app.component('LiquidGlassCard', LiquidGlassCard)
 
 app.directive('permission', {
   mounted(el, binding) {

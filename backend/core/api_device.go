@@ -45,8 +45,13 @@ func (s *Server) RegisterDeviceRoutes(group *ghttp.RouterGroup) {
 	permissionPOST(group, "/devices/:code/stop", "device:control", s.handleStopDevice)
 	permissionPOST(group, "/devices/:code/write", "device:control", s.handleWritePoint)
 	permissionPOST(group, "/devices/:code/invoke", "device:control", s.handleInvokeService)
+	permissionGET(group, "/devices/:code/media-ice-config", "device:control", s.handleDeviceMediaICEConfig)
+	permissionPOST(group, "/devices/:code/media-sessions", "device:control", s.handleCreateMediaSession)
 	permissionGET(group, "/devices/:code/data", "device:list", s.handleGetDeviceData)
 	permissionGET(group, "/devices/:code/events", "device:list", s.handleListDeviceEvents)
+	permissionPOST(group, "/media-sessions/:id/offer", "device:control", s.handleMediaSessionOffer)
+	permissionPOST(group, "/media-sessions/:id/candidates", "device:control", s.handleMediaSessionCandidate)
+	permissionGET(group, "/media-sessions/:id/candidates", "device:list", s.handleMediaSessionCandidates)
 	permissionGET(group, "/stats", "device:list", s.handleGetStats)
 
 }
@@ -490,6 +495,34 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 		return
 	}
 
+	// GB28181 摄像机默认值兜底（驱动、协议与 sip_id 配置）
+	if d.ProductCode == "gb28181_camera" {
+		if d.ProtocolName == "" {
+			d.ProtocolName = "gb28181"
+		}
+		if d.ProtocolProfileCode == "" {
+			d.ProtocolProfileCode = "gb28181_camera_driver"
+		}
+		if d.Config == "" || d.Config == "{}" {
+			d.Config = fmt.Sprintf(`{"sip_id":"%s"}`, d.Code)
+		} else {
+			var cfgMap map[string]interface{}
+			if err := json.Unmarshal([]byte(d.Config), &cfgMap); err == nil {
+				if cfgMap == nil {
+					cfgMap = make(map[string]interface{})
+				}
+				if val, ok := cfgMap["sip_id"]; !ok || val == "" || val == nil {
+					cfgMap["sip_id"] = d.Code
+					if b, err := json.Marshal(cfgMap); err == nil {
+						d.Config = string(b)
+					}
+				}
+			} else {
+				d.Config = fmt.Sprintf(`{"sip_id":"%s"}`, d.Code)
+			}
+		}
+	}
+
 	if d.ProtocolName != "" {
 		if err := validateProtocolEnabledForProject(d.ProtocolName, d.TenantID, d.ProjectID); err != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
@@ -592,6 +625,34 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 	if (product.TenantID != 0 && product.TenantID != d.TenantID) || (product.ProjectID != 0 && product.ProjectID != d.ProjectID) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Product is outside current project"})
 		return
+	}
+
+	// GB28181 摄像机默认值兜底（驱动、协议与 sip_id 配置）
+	if d.ProductCode == "gb28181_camera" {
+		if d.ProtocolName == "" {
+			d.ProtocolName = "gb28181"
+		}
+		if d.ProtocolProfileCode == "" {
+			d.ProtocolProfileCode = "gb28181_camera_driver"
+		}
+		if d.Config == "" || d.Config == "{}" {
+			d.Config = fmt.Sprintf(`{"sip_id":"%s"}`, d.Code)
+		} else {
+			var cfgMap map[string]interface{}
+			if err := json.Unmarshal([]byte(d.Config), &cfgMap); err == nil {
+				if cfgMap == nil {
+					cfgMap = make(map[string]interface{})
+				}
+				if val, ok := cfgMap["sip_id"]; !ok || val == "" || val == nil {
+					cfgMap["sip_id"] = d.Code
+					if b, err := json.Marshal(cfgMap); err == nil {
+						d.Config = string(b)
+					}
+				}
+			} else {
+				d.Config = fmt.Sprintf(`{"sip_id":"%s"}`, d.Code)
+			}
+		}
 	}
 
 	if d.ProtocolName != "" {
@@ -1133,6 +1194,15 @@ func (s *Server) handleInvokeService(r *ghttp.Request) {
 		return
 	}
 
+	if req.ServiceID == "PlayRealTimeStream" {
+		if req.Params == nil {
+			req.Params = make(map[string]interface{})
+		}
+		if err := s.applyPlaybackNetwork(code, mediaSessionUserID(r), req.Params); err != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+			return
+		}
+	}
 	result, err := s.DeviceManager.CallDeviceService(code, req.ServiceID, req.Params)
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
@@ -1654,20 +1724,10 @@ func hasNonInheritedDevicePermissionFallback(authCtx *AuthContext, projectID uin
 
 func canAccessDeviceEvent(r *ghttp.Request, event types.Event) bool {
 	if event.Type == types.EventDeviceListChanged {
-		authCtx := requestAuthContext(r)
-		if authCtx == nil {
-			return false
-		}
-		if authCtx.IsSystemAdmin {
-			return true
-		}
-		// Check if event carries tenant info matching user's tenant
-		if payload, ok := event.Payload.(map[string]interface{}); ok && payload != nil {
-			if eventTenantID, ok := payload["tenant_id"].(uint); ok {
-				return eventTenantID == authCtx.TenantID
-			}
-		}
-		return false
+		// This event carries no device data; it only asks the client to re-fetch
+		// its already permission-filtered list. It must reach every authenticated
+		// user so plugin-created devices do not leave an old row on screen.
+		return requestAuthContext(r) != nil
 	}
 	if event.Topic == "" {
 		return false
@@ -1726,6 +1786,12 @@ func currentTenantProjectScope(r *ghttp.Request) (uint, uint, error) {
 	}
 
 	return tenantID, projectID, nil
+}
+
+// CurrentTenantProjectScope resolves the authorized tenant and project scope
+// for plugin handlers that create tenant-owned devices.
+func CurrentTenantProjectScope(r *ghttp.Request) (uint, uint, error) {
+	return currentTenantProjectScope(r)
 }
 
 func validateProtocolEnabledForProject(protocolName string, tenantID, projectID uint) error {

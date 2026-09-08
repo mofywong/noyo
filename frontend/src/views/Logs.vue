@@ -1,7 +1,10 @@
 <template>
-  <div class="logs-container h-100 d-flex flex-column">
-    <div class="d-flex justify-content-between align-items-center mb-3 gap-3 flex-wrap">
-      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_logs') }}</h2>
+  <div class="logs-page page-fixed-height d-flex flex-column h-100">
+    <div class="page-header mb-3">
+      <div>
+        <h1>{{ $t('sidebar_logs') }}</h1>
+        <p class="page-subtitle">{{ $t('logs_subtitle', '实时监控系统运行日志与历史排查日志') }}</p>
+      </div>
       
       <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
         <div v-if="!props.remoteLogBase" class="input-group input-group-sm log-level-config">
@@ -28,18 +31,18 @@
           </button>
         </div>
         <div class="btn-group">
-          <button class="btn btn-outline-primary" :class="{ active: activeTab === 'realtime' }" @click="activeTab = 'realtime'">
+          <button class="btn btn-outline-primary btn-sm" :class="{ active: activeTab === 'realtime' }" @click="activeTab = 'realtime'">
             <i class="bi bi-activity me-1"></i> {{ $t('realtime_logs') }}
           </button>
-          <button class="btn btn-outline-primary" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
+          <button class="btn btn-outline-primary btn-sm" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
             <i class="bi bi-clock-history me-1"></i> {{ $t('history_logs') }}
           </button>
         </div>
       </div>
     </div>
 
-    // Real-time Logs
-    <div v-if="activeTab === 'realtime'" class="card border-0 shadow-sm flex-grow-1 d-flex flex-column overflow-hidden">
+    <!-- Real-time Logs -->
+    <div v-if="activeTab === 'realtime'" class="card border-0 shadow-sm table-glass-card flex-grow-1 d-flex flex-column overflow-hidden">
       <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
         <div class="d-flex align-items-center gap-3">
           <button class="btn btn-sm" :class="isPaused ? 'btn-success' : 'btn-warning'" @click="togglePause">
@@ -98,7 +101,7 @@
     </div>
 
     <!-- History Logs -->
-    <div v-if="activeTab === 'history'" class="card border-0 shadow-sm flex-grow-1 d-flex flex-column overflow-hidden">
+    <div v-if="activeTab === 'history'" class="card border-0 shadow-sm table-glass-card flex-grow-1 d-flex flex-column overflow-hidden">
       <div class="card-body p-0 d-flex h-100">
         <!-- File List Sidebar -->
         <div class="border-end d-flex flex-column" style="width: 280px;">

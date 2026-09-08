@@ -42,6 +42,7 @@ type Server struct {
 	AlarmCenter       *AlarmCenterService
 	Integrations      *workorder.GormIntegrationStore
 	TSDB              *tsdb.TSDBManager
+	MediaSessions     *MediaSessionManager
 	WebServer         *ghttp.Server
 	uiFS              fs.FS
 }
@@ -112,6 +113,7 @@ func NewServer() (*Server, error) {
 	s.DeviceManager = NewDeviceManager(s)
 	s.DispatchService = NewDispatchService(s.Manager, s.DeviceManager.Registry, s.DeviceManager.EventBus, logger)
 	s.TSDB = tsdb.NewManager(cfg.TSDB, logger)
+	s.MediaSessions = NewMediaSessionManager()
 	s.DeviceManager.TSDB = s.TSDB // Inject TSDB into DeviceManager
 	s.WorkOrderService = NewWorkOrderService(store.DB)
 	s.WorkOrderCommands = NewLocalCommandAdapter(s.WorkOrderService)

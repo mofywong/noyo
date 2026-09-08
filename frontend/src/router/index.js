@@ -186,6 +186,15 @@ const routes = [
   }
 ]
 
+if (import.meta.env.DEV) {
+  routes.push({
+    path: '/design/liquid-glass',
+    name: 'LiquidGlassDemo',
+    component: () => import('../views/LiquidGlassDemo.vue'),
+    meta: { standalone: true }
+  })
+}
+
 const router = createRouter({
   history: createWebHistory(),
   routes
@@ -231,6 +240,10 @@ function getFallbackRoute(authStore) {
 
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
+
+  if (import.meta.env.DEV && to.name === 'LiquidGlassDemo') {
+    return next()
+  }
 
   let setupStatus = null
   try {

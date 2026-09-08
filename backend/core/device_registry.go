@@ -242,15 +242,8 @@ func (dr *DeviceRegistry) GetEffectiveProtocol(deviceCode string) (string, error
 		return "", fmt.Errorf("%w: device %s", types.ErrNotFound, deviceCode)
 	}
 
-	if device.ProtocolName != "" {
-		return device.ProtocolName, nil
-	}
-
-	if device.ParentCode == "" {
-		return "", fmt.Errorf("直连设备必须绑定协议")
-	}
-
-	// 检查是否属于级联网关下的子设备，如果是，则其协议强制为 cascade
+	// 检查是否属于级联网关下的子设备。如果是，必须优先使用 cascade，
+	// 即使子设备保留了本地接入时的协议名称（例如 gb28181）。
 	current := device
 	for current.ParentCode != "" {
 		parentDevice, ok := dr.devices[current.ParentCode]
@@ -261,6 +254,14 @@ func (dr *DeviceRegistry) GetEffectiveProtocol(deviceCode string) (string, error
 			return "cascade", nil
 		}
 		current = parentDevice
+	}
+
+	if device.ProtocolName != "" {
+		return device.ProtocolName, nil
+	}
+
+	if device.ParentCode == "" {
+		return "", fmt.Errorf("直连设备必须绑定协议")
 	}
 
 	// 子设备：使用父设备的协议

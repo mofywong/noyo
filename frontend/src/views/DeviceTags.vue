@@ -1,13 +1,25 @@
 <template>
-  <div class="device-tags-page h-100">
-    <div class="device-tags-layout">
-      <aside class="tag-sidebar">
-        <div class="card border-0 shadow-sm h-100">
+  <div class="device-tags-page page-fixed-height d-flex flex-column h-100">
+    <div class="page-header">
+      <div>
+        <h1>{{ $t('sidebar_device_tags') }}</h1>
+        <p class="page-subtitle">{{ $t('dev_tag_manage_subtitle', '管理设备业务分组与多维标签绑定') }}</p>
+      </div>
+      <LiquidGlassButton
+        variant="primary"
+        icon="bi bi-plus-lg"
+        @click="openTagModal()"
+        v-permission="'device_tag:create'"
+      >
+        {{ $t('dev_tag_create') }}
+      </LiquidGlassButton>
+    </div>
+
+    <div class="device-tags-layout flex-grow-1 overflow-hidden">
+      <aside class="tag-sidebar h-100">
+        <div class="card border-0 shadow-sm table-glass-card h-100 d-flex flex-column">
           <div class="card-header bg-transparent border-0 py-3 d-flex justify-content-between align-items-center">
-            <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('dev_tag_manage') }}</h2>
-            <button class="btn btn-primary btn-sm" @click="openTagModal()" v-permission="'device_tag:create'">
-              <i class="bi bi-plus-lg me-1"></i>{{ $t('dev_tag_create') }}
-            </button>
+            <h6 class="mb-0 fw-bold">{{ $t('dev_tag_manage') }}</h6>
           </div>
           <div class="card-body p-0">
             <div v-if="loadingTags" class="text-center py-4 text-muted">{{ $t('loading') }}</div>
@@ -26,7 +38,7 @@
                 @click="selectTag(tag)"
                 @keydown.enter="selectTag(tag)"
               >
-                <span class="tag-color-dot" :style="{ backgroundColor: tag.color || '#0d6efd' }"></span>
+                <span class="tag-color-dot" :style="{ backgroundColor: tag.color || 'var(--color-brand)' }"></span>
                 <span class="tag-list-item__icon">
                   <i :class="tag.icon || 'bi-tag'"></i>
                 </span>
@@ -37,11 +49,11 @@
                 <span class="badge rounded-pill" :class="selectedTag?.ID === tag.ID ? 'bg-light text-primary' : 'bg-secondary-subtle text-secondary'">
                   {{ tag.device_count || 0 }}
                 </span>
-                <span class="btn-group btn-group-sm" @click.stop>
-                  <button class="btn btn-link p-1" :class="selectedTag?.ID === tag.ID ? 'text-white' : 'text-muted'" @click="openTagModal(tag)" :title="$t('tsl_edit')" v-permission="'device_tag:edit'">
+                <span class="table-actions" @click.stop>
+                  <button class="table-action-btn table-action-btn--primary" @click="openTagModal(tag)" :title="$t('tsl_edit')" v-permission="'device_tag:edit'">
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button class="btn btn-link p-1" :class="selectedTag?.ID === tag.ID ? 'text-white' : 'text-danger'" @click="deleteTag(tag)" :title="$t('tsl_delete')" v-permission="'device_tag:delete'">
+                  <button class="table-action-btn table-action-btn--danger" @click="deleteTag(tag)" :title="$t('tsl_delete')" v-permission="'device_tag:delete'">
                     <i class="bi bi-trash"></i>
                   </button>
                 </span>
@@ -51,23 +63,25 @@
         </div>
       </aside>
 
-      <section class="tag-workspace">
-        <div class="card border-0 shadow-sm h-100">
+      <section class="tag-workspace h-100">
+        <div class="card border-0 shadow-sm table-glass-card h-100 d-flex flex-column">
           <div class="card-header bg-transparent border-0 py-3">
             <div class="d-flex justify-content-between align-items-center gap-3">
               <div class="min-w-0">
                 <h5 class="mb-1 text-truncate">{{ selectedTag ? selectedTag.name : $t('dev_tag_assign_title') }}</h5>
                 <div class="text-muted small">{{ $t('dev_tag_assign_hint') }}</div>
               </div>
-              <button class="btn btn-sm flex-shrink-0"
-                      :class="isDirty ? 'btn-warning' : 'btn-primary'"
-                      :disabled="!selectedTag || isSaving"
-                      @click="saveAssignments"
-                      v-permission="'device_tag:edit'">
-                <i class="bi me-1" :class="isSaving ? 'bi-arrow-repeat spin' : 'bi-check2'"></i>
-                <span v-if="isDirty && !isSaving" class="badge bg-warning-subtle text-warning-emphasis me-1">!</span>
+              <LiquidGlassButton
+                size="sm"
+                class="flex-shrink-0"
+                :variant="isDirty ? 'warning' : 'primary'"
+                :disabled="!selectedTag || isSaving"
+                :icon="isSaving ? 'bi-arrow-repeat spin' : 'bi-check2'"
+                @click="saveAssignments"
+                v-permission="'device_tag:edit'"
+              >
                 {{ $t('common_save') }}
-              </button>
+              </LiquidGlassButton>
             </div>
             <div class="row g-2 mt-3">
               <div class="col-md-7">
@@ -81,22 +95,22 @@
               </div>
             </div>
           </div>
-          <div class="card-body p-0">
+          <div class="card-body p-0 d-flex flex-column flex-grow-1 overflow-hidden min-h-0">
             <div v-if="!selectedTag" class="h-100 d-flex align-items-center justify-content-center text-muted py-5">
               {{ $t('dev_tag_select_hint') }}
             </div>
-            <div v-else>
+            <div v-else class="d-flex flex-column flex-grow-1 overflow-hidden min-h-0">
               <div class="assignment-summary">
-                <span>{{ $t('dev_tag_bound_devices') }} {{ assignedDeviceCodes.length }}</span>
-                <span>{{ $t('dev_tag_unbound_devices') }} {{ unassignedDevices.length }}</span>
+                <span class="d-inline-flex align-items-center gap-1"><i class="bi bi-link-45deg text-primary"></i>{{ $t('dev_tag_bound_devices') }} <strong class="text-primary">{{ assignedDeviceCodes.length }}</strong></span>
+                <span class="d-inline-flex align-items-center gap-1"><i class="bi bi-link text-secondary"></i>{{ $t('dev_tag_unbound_devices') }} <strong>{{ unassignedDevices.length }}</strong></span>
               </div>
 
-              <div class="assignment-board">
+              <div class="assignment-board flex-grow-1 min-h-0">
                 <section class="assignment-panel">
                   <div class="assignment-panel__header">
-                    <div>
-                      <h6 class="mb-0">{{ $t('dev_tag_bound_devices') }}</h6>
-                      <span class="small text-muted">{{ assignedDevices.length }}</span>
+                    <div class="d-flex align-items-center gap-2">
+                      <h6 class="mb-0 fw-semibold">{{ $t('dev_tag_bound_devices') }}</h6>
+                      <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle">{{ assignedDevices.length }}</span>
                     </div>
                     <button class="btn btn-outline-secondary btn-sm" :disabled="assignedVisibleDevices.length === 0" @click="clearVisibleDevices" v-permission="'device_tag:edit'">
                       <i class="bi bi-dash-circle me-1"></i>{{ $t('dev_tag_unbind_visible') }}
@@ -116,7 +130,7 @@
                           </span>
                         </div>
                       </div>
-                      <button class="btn btn-light btn-sm" @click="unbindDevice(device)" v-permission="'device_tag:edit'">
+                      <button class="btn btn-outline-danger btn-sm rounded-pill px-2 py-1" @click="unbindDevice(device)" v-permission="'device_tag:edit'">
                         <i class="bi bi-dash-lg me-1"></i>{{ $t('dev_tag_unbind') }}
                       </button>
                     </article>
@@ -128,9 +142,9 @@
 
                 <section class="assignment-panel">
                   <div class="assignment-panel__header">
-                    <div>
-                      <h6 class="mb-0">{{ $t('dev_tag_unbound_devices') }}</h6>
-                      <span class="small text-muted">{{ unassignedDevices.length }}</span>
+                    <div class="d-flex align-items-center gap-2">
+                      <h6 class="mb-0 fw-semibold">{{ $t('dev_tag_unbound_devices') }}</h6>
+                      <span class="badge rounded-pill bg-secondary-subtle text-secondary border border-secondary-subtle">{{ unassignedDevices.length }}</span>
                     </div>
                     <button class="btn btn-outline-primary btn-sm" :disabled="unassignedVisibleDevices.length === 0" @click="selectVisibleDevices" v-permission="'device_tag:edit'">
                       <i class="bi bi-plus-circle me-1"></i>{{ $t('dev_tag_bind_visible') }}
@@ -150,7 +164,7 @@
                           </span>
                         </div>
                       </div>
-                      <button class="btn btn-outline-primary btn-sm" @click="bindDevice(device)" v-permission="'device_tag:edit'">
+                      <button class="btn btn-outline-primary btn-sm rounded-pill px-2 py-1" @click="bindDevice(device)" v-permission="'device_tag:edit'">
                         <i class="bi bi-plus-lg me-1"></i>{{ $t('dev_tag_bind') }}
                       </button>
                     </article>
@@ -166,11 +180,12 @@
       </section>
     </div>
 
-    <div v-if="showTagModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ editingTag ? $t('dev_tag_edit') : $t('dev_tag_create') }}</h5>
+    <Teleport to="body">
+      <div v-if="showTagModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1060;">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ editingTag ? $t('dev_tag_edit') : $t('dev_tag_create') }}</h5>
             <button type="button" class="btn-close" @click="closeTagModal"></button>
           </div>
           <div class="modal-body">
@@ -215,12 +230,13 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeTagModal">{{ $t('tsl_cancel') }}</button>
-            <button type="button" class="btn btn-primary" :disabled="!tagForm.name" @click="saveTag">{{ $t('common_save') }}</button>
+            <LiquidGlassButton variant="secondary" @click="closeTagModal">{{ $t('tsl_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" :disabled="!tagForm.name" @click="saveTag">{{ $t('common_save') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -514,8 +530,13 @@ onBeforeUnmount(() => {
 }
 
 .tag-list {
-  max-height: calc(100vh - 210px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .tag-list-item {
@@ -523,19 +544,28 @@ onBeforeUnmount(() => {
   grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
-  padding: 12px 14px;
-  border-top: 1px solid rgba(108, 117, 125, 0.12);
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control, 10px);
+  background: var(--noyo-glass-island-reading, rgba(var(--bs-body-bg-rgb), 0.35));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: all var(--noyo-duration-standard, 0.2s) ease;
+  color: var(--text-primary, var(--bs-body-color));
 }
 
 .tag-list-item:hover {
-  background: rgba(13, 110, 253, 0.06);
+  background: var(--noyo-glass-island-action-hover, rgba(var(--bs-primary-rgb), 0.08));
+  border-color: rgba(var(--bs-primary-rgb), 0.35);
+  transform: translateY(-1px);
 }
 
 .tag-list-item.active {
-  background: #0d6efd;
-  color: #fff;
+  background: rgba(var(--bs-primary-rgb), 0.14);
+  border-color: var(--bs-primary);
+  color: var(--bs-primary);
+  box-shadow: 0 0 0 1px var(--bs-primary);
 }
 
 .tag-list-item__text {
@@ -543,11 +573,11 @@ onBeforeUnmount(() => {
 }
 
 .tag-color-dot {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex: 0 0 auto;
-  box-shadow: 0 0 0 3px rgba(108, 117, 125, 0.12);
+  box-shadow: 0 0 0 2px rgba(var(--bs-body-bg-rgb), 0.8);
 }
 
 .tag-list-item__icon {
@@ -565,11 +595,15 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
-  border-top: 1px solid rgba(108, 117, 125, 0.12);
-  border-bottom: 1px solid rgba(108, 117, 125, 0.12);
-  background: var(--bs-tertiary-bg);
-  color: var(--bs-secondary-color);
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--noyo-glass-island-action, rgba(var(--bs-body-bg-rgb), 0.4));
+  color: var(--text-secondary, var(--bs-secondary-color));
   font-size: 0.85rem;
+  font-weight: 500;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  flex-shrink: 0;
 }
 
 .assignment-board {
@@ -577,14 +611,21 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
   padding: 16px;
+  flex: 1;
+  min-height: 0;
 }
 
 .assignment-panel {
   min-width: 0;
-  min-height: 460px;
-  border: 1px solid rgba(108, 117, 125, 0.18);
-  border-radius: 8px;
-  background: var(--bs-body-bg);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--noyo-dashboard-liquid-edge, var(--border-color));
+  border-radius: var(--radius-card, 14px);
+  background: var(--noyo-dashboard-liquid-tint, var(--bg-surface));
+  backdrop-filter: blur(var(--noyo-dashboard-liquid-blur, 10px)) saturate(175%) brightness(var(--noyo-dashboard-liquid-backdrop-brightness, 1.05));
+  -webkit-backdrop-filter: blur(var(--noyo-dashboard-liquid-blur, 10px)) saturate(175%) brightness(var(--noyo-dashboard-liquid-backdrop-brightness, 1.05));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
   overflow: hidden;
 }
 
@@ -593,19 +634,21 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 62px;
-  padding: 12px 14px;
-  border-bottom: 1px solid rgba(108, 117, 125, 0.14);
-  background: var(--bs-tertiary-bg);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--noyo-glass-island-action, rgba(var(--bs-body-bg-rgb), 0.45));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  flex-shrink: 0;
 }
 
 .device-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 320px;
-  max-height: calc(100vh - 390px);
-  padding: 10px;
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
   overflow-y: auto;
 }
 
@@ -614,15 +657,20 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 10px;
-  border: 1px solid rgba(108, 117, 125, 0.14);
-  border-radius: 8px;
-  background: var(--bs-body-bg);
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control, 10px);
+  background: var(--noyo-glass-island-reading, rgba(var(--bs-body-bg-rgb), 0.45));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all var(--noyo-duration-standard, 0.2s) cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .device-list-item:hover {
-  border-color: rgba(13, 110, 253, 0.28);
-  background: rgba(13, 110, 253, 0.025);
+  border-color: rgba(var(--bs-primary-rgb), 0.4);
+  background: var(--noyo-glass-island-action-hover, rgba(var(--bs-primary-rgb), 0.06));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(var(--bs-primary-rgb), 0.08);
 }
 
 .device-list-item__main {
@@ -639,7 +687,7 @@ onBeforeUnmount(() => {
 
 .device-name {
   overflow: hidden;
-  color: #0d6efd;
+  color: var(--bs-primary);
   font-family: var(--bs-font-monospace);
   font-weight: 700;
   text-overflow: ellipsis;
@@ -648,7 +696,7 @@ onBeforeUnmount(() => {
 
 .device-code {
   overflow: hidden;
-  color: var(--bs-secondary-color);
+  color: var(--text-secondary, var(--bs-secondary-color));
   font-size: 0.82rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -658,11 +706,11 @@ onBeforeUnmount(() => {
   display: inline-block;
   max-width: 120px;
   overflow: hidden;
-  padding: 3px 8px;
-  border: 1px solid rgba(108, 117, 125, 0.16);
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
   border-radius: 999px;
-  background: var(--bs-tertiary-bg);
-  color: var(--bs-body-color);
+  background: var(--noyo-glass-island-action, rgba(var(--bs-body-bg-rgb), 0.5));
+  color: var(--text-primary, var(--bs-body-color));
   font-size: 0.76rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -672,15 +720,16 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 320px;
+  flex: 1;
+  min-height: 200px;
   padding: 24px;
-  color: var(--bs-secondary-color);
+  color: var(--text-secondary, var(--bs-secondary-color));
   text-align: center;
 }
 
 .assignment-limit-note {
   padding: 6px 2px 2px;
-  color: var(--bs-secondary-color);
+  color: var(--text-secondary, var(--bs-secondary-color));
   font-size: 0.78rem;
   text-align: center;
 }
@@ -721,7 +770,7 @@ onBeforeUnmount(() => {
 }
 .color-swatch.active {
   border-color: #fff;
-  box-shadow: 0 0 0 2px var(--bs-primary, #0d6efd), 0 2px 6px rgba(0,0,0,0.18);
+  box-shadow: 0 0 0 2px var(--bs-primary), 0 2px 6px rgba(0,0,0,0.18);
 }
 .color-swatch i {
   font-size: 0.8rem;
@@ -746,29 +795,29 @@ onBeforeUnmount(() => {
   height: 38px;
   border-radius: 8px;
   cursor: pointer;
-  border: 1px solid rgba(108, 117, 125, 0.16);
+  border: 1px solid var(--border-color);
   transition: all 0.15s ease;
-  background: var(--bs-body-bg);
+  background: var(--noyo-glass-island-action, rgba(var(--bs-body-bg-rgb), 0.4));
   color: var(--bs-body-color);
   font-size: 1rem;
 }
 .icon-option:hover {
-  border-color: var(--bs-primary, #0d6efd);
-  background: rgba(13, 110, 253, 0.06);
+  border-color: var(--bs-primary);
+  background: var(--noyo-glass-island-action-hover, rgba(var(--bs-primary-rgb), 0.08));
   transform: scale(1.12);
 }
 .icon-option.active {
-  border-color: var(--bs-primary, #0d6efd);
-  background: rgba(13, 110, 253, 0.10);
-  color: var(--bs-primary, #0d6efd);
-  box-shadow: 0 0 0 1px var(--bs-primary, #0d6efd);
+  border-color: var(--bs-primary);
+  background: rgba(var(--bs-primary-rgb), 0.14);
+  color: var(--bs-primary);
+  box-shadow: 0 0 0 1px var(--bs-primary);
 }
 .icon-checked {
   position: absolute;
   top: -5px;
   right: -5px;
   font-size: 0.6rem;
-  color: var(--bs-primary, #0d6efd);
+  color: var(--bs-primary);
   background: #fff;
   border-radius: 50%;
 }

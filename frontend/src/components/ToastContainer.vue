@@ -68,7 +68,7 @@ const toastActionClass = (type) => {
 <style scoped>
 /* Noyo UX Guidelines §8.9：右下角堆叠、宽 360px、语义色左条 + 10-15% 底（双主题） */
 .noyo-toast-stack {
-  z-index: 1090;
+  z-index: var(--lg-layer-toast);
 }
 
 .noyo-toast-item {

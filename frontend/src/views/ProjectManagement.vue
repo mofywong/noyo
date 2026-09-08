@@ -1,68 +1,91 @@
 <template>
-  <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('project_management') }}</h2>
-      <div class="d-flex align-items-center gap-2">
-        <div class="input-group input-group-sm" style="width: 250px;">
-          <input type="text" class="form-control" :placeholder="$t('project_search_placeholder', '搜索项目名称或编码...')" v-model="filterKeyword" @keyup.enter="loadProjects">
-          <button class="btn btn-outline-secondary" @click="loadProjects"><i class="bi bi-search"></i></button>
-        </div>
-        <button class="btn btn-primary btn-sm ms-2" @click="openCreateModal" v-permission="'project:create'">
-          <i class="bi bi-folder-plus me-1"></i> {{ $t('project_add') }}
-        </button>
+  <div class="project-management-page page-fixed-height">
+    <div class="page-header list-page-header">
+      <div>
+        <h1>{{ $t('project_management') }}</h1>
+        <p class="page-subtitle">{{ $t('project_management_subtitle', '管理系统业务项目、管理员分配与权限模式') }}</p>
       </div>
+      <LiquidGlassButton
+        variant="primary"
+        icon="bi bi-folder-plus"
+        @click="openCreateModal"
+        v-permission="'project:create'"
+      >
+        {{ $t('project_add') }}
+      </LiquidGlassButton>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="page-toolbar device-list-control-bar list-page-controls">
+      <div class="input-group list-toolbar-query" style="max-width: 320px;">
+        <span class="input-group-text bg-transparent"><i class="bi bi-search"></i></span>
+        <input type="text" class="form-control" :placeholder="$t('project_search_placeholder', '搜索项目名称或编码...')" v-model="filterKeyword" @keyup.enter="loadProjects">
+      </div>
+      <CompactListMetrics v-model="metricFilters" :metrics="metricCards" class="list-toolbar-metrics" :aria-label="$t('stat_total', '项目统计')" />
     </div>
 
     <!-- Projects Table -->
-    <div class="card shadow-sm">
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
+    <div class="card border-0 shadow-sm table-glass-card">
+      <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+        <div class="table-responsive flex-grow-1">
+          <table class="table table-hover align-middle mb-0 table-compact">
+            <thead>
               <tr>
-                <th>{{ $t('project_code') }}</th>
+                <th class="ps-4">{{ $t('project_code') }}</th>
                 <th>{{ $t('project_name') }}</th>
                 <th>{{ $t('project_admin', '管理员') }}</th>
                 <th>{{ $t('project_description') }}</th>
                 <th>{{ $t('scope_permission_policy') }}</th>
                 <th>{{ $t('user_created_at') }}</th>
-                <th class="text-end">{{ $t('project_actions') }}</th>
+                <th class="text-end pe-4">{{ $t('project_actions') }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="loading">
-                <td colspan="7" class="text-center py-4">
-                  <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+              <!-- 骨架屏 -->
+              <tr v-if="loading" v-for="n in 5" :key="'sk-' + n">
+                <td><div class="skeleton" style="height: 16px; width: 100px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 140px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 100px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 160px;"></div></td>
+                <td><div class="skeleton" style="height: 20px; width: 80px; border-radius: 999px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 130px;"></div></td>
+                <td class="text-end pe-4"><div class="skeleton ms-auto" style="height: 28px; width: 120px;"></div></td>
+              </tr>
+              <!-- 空状态 -->
+              <tr v-else-if="filteredProjects.length === 0">
+                <td colspan="7" class="p-0">
+                  <div class="empty-state">
+                    <i class="bi bi-folder"></i>
+                    <p>{{ $t('project_no_data', '暂无项目数据') }}</p>
+                    <LiquidGlassButton variant="primary" icon="bi bi-plus-lg" @click="openCreateModal" v-permission="'project:create'">
+                      {{ $t('project_add', '添加项目') }}
+                    </LiquidGlassButton>
                   </div>
                 </td>
               </tr>
-              <tr v-else-if="projects.length === 0">
-                <td colspan="7" class="text-center py-4 text-muted">{{ $t('project_no_data') }}</td>
-              </tr>
-              <tr v-for="p in projects" :key="p.ID" v-else>
+              <tr v-for="p in filteredProjects" :key="p.ID" v-else>
                 <td><strong>{{ p.code }}</strong></td>
                 <td>{{ p.name }}</td>
                 <td>{{ p.admins || $t('common_none', '暂无') }}</td>
                 <td>{{ p.description }}</td>
                 <td>
-                  <span class="badge" :class="p.permission_mode === 'custom' ? 'text-bg-info' : (p.permission_mode === 'all' ? 'text-bg-success' : 'text-bg-primary')">
+                  <span class="spec-badge" :class="p.permission_mode === 'custom' ? 'spec-badge--info' : (p.permission_mode === 'all' ? 'spec-badge--primary' : 'spec-badge--neutral')">
                     {{ $t(`scope_permission_mode_${p.permission_mode || 'custom'}`) }}
                   </span>
                 </td>
                 <td>{{ formatDateTime(p.CreatedAt) }}</td>
-                <td class="text-end">
-                  <div class="d-inline-flex align-items-center justify-content-end gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(p)" :title="$t('common_view_details', '查看详情')">
+                <td class="text-end pe-4">
+                  <div class="table-actions">
+                    <button class="table-action-btn" @click="openDetailsModal(p)" :title="$t('common_view_details', '查看详情')">
                       <i class="bi bi-eye"></i>
                     </button>
-                    <button class="btn btn-sm" :class="p.permission_mode === 'custom' ? 'btn-outline-info' : (p.permission_mode === 'all' ? 'btn-outline-success' : 'btn-outline-primary')" @click="openPermissionModal(p)" :title="$t('project_permission_config', '权限配置')" v-permission="'project:edit'">
+                    <button class="table-action-btn" :class="p.permission_mode === 'custom' ? 'table-action-btn--info' : (p.permission_mode === 'all' ? 'table-action-btn--success' : 'table-action-btn--primary')" @click="openPermissionModal(p)" :title="$t('project_permission_config', '权限配置')" v-permission="'project:edit'">
                       <i class="bi bi-shield-check"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" @click="openEditModal(p)" :title="$t('project_edit', '编辑')" v-permission="'project:edit'">
+                    <button class="table-action-btn table-action-btn--primary" @click="openEditModal(p)" :title="$t('project_edit', '编辑')" v-permission="'project:edit'">
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" @click="deleteProject(p)" :disabled="p.code === 'default'" :title="$t('project_delete', '删除')" v-permission="'project:delete'">
+                    <button class="table-action-btn table-action-btn--danger" @click="deleteProject(p)" :disabled="p.code === 'default'" :title="$t('project_delete', '删除')" v-permission="'project:delete'">
                       <i class="bi bi-trash"></i>
                     </button>
                   </div>
@@ -74,8 +97,9 @@
       </div>
     </div>
 
-    <!-- Project Permission Modal -->
-    <div class="modal fade" id="projectPermissionModal" tabindex="-1" ref="projectPermissionModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
+    <Teleport to="body">
+      <!-- Project Permission Modal -->
+      <div class="modal fade" id="projectPermissionModal" tabindex="-1" ref="projectPermissionModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
@@ -95,8 +119,8 @@
             />
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('common_cancel', '取消') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveProjectPermission">{{ $t('project_save', '保存') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ $t('common_cancel', '取消') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" @click="saveProjectPermission">{{ $t('project_save', '保存') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -111,8 +135,8 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body p-0">
-            <div v-if="currentProjectDetails" class="bg-light">
-              <div class="p-4 text-center border-bottom bg-white">
+            <div v-if="currentProjectDetails" class="project-details-card">
+              <div class="p-4 text-center border-bottom project-details-header">
                 <div class="display-4 text-info mb-2">
                   <i class="bi bi-folder-fill"></i>
                 </div>
@@ -138,7 +162,7 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('common_close', '关闭') }}</button>
+            <LiquidGlassButton variant="danger" data-bs-dismiss="modal">{{ $t('common_close', '关闭') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -180,27 +204,49 @@
             </form>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('project_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveProject">{{ $t('project_save') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ $t('project_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" @click="saveProject">{{ $t('project_save') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
     </div>
+  </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import ScopePermissionPolicyEditor from '../components/ScopePermissionPolicyEditor.vue'
 import { Modal } from 'bootstrap'
 import { useI18n } from 'vue-i18n'
 import { formatDateTime } from '../utils/dateTime.js'
+import CompactListMetrics from '../components/CompactListMetrics.vue'
 
 const { t } = useI18n()
 
 const projects = ref([])
 const loading = ref(false)
+
+const assignedAdminCount = computed(() => projects.value.filter(p => p.admins && p.admins.trim() !== '').length)
+const unassignedAdminCount = computed(() => projects.value.filter(p => !p.admins || p.admins.trim() === '').length)
+const metricCards = computed(() => [
+  { key: 'total', label: t('stat_total', '总项目数'), value: projects.value.length, icon: 'bi-folder-fill', tone: 'brand' },
+  { key: 'assigned', label: t('stat_assigned_admins', '已配管理员'), value: assignedAdminCount.value, icon: 'bi-person-check-fill', tone: 'success' },
+  { key: 'unassigned', label: t('stat_unassigned_admins', '未配管理员'), value: unassignedAdminCount.value, icon: 'bi-person-x', tone: 'neutral' }
+])
+const metricFilters = ref([])
+const filteredProjects = computed(() => projects.value.filter((project) => {
+  if (!metricFilters.value.length) return true
+  const assigned = Boolean(project.admins?.trim())
+  return (metricFilters.value.includes('assigned') && assigned)
+    || (metricFilters.value.includes('unassigned') && !assigned)
+}))
+const toggleMetricFilter = (key) => {
+  metricFilters.value = metricFilters.value.includes(key)
+    ? metricFilters.value.filter((item) => item !== key)
+    : [...metricFilters.value, key]
+}
 const projectModalRef = ref(null)
 let projectModal = null
 const projectDetailsModalRef = ref(null)
@@ -364,8 +410,20 @@ const deleteProject = async (item) => {
         alert(res.data.message)
       }
     } catch (error) {
-      alert($t('common_delete_failed', '删除失败'))
+      alert(t('common_delete_failed', '删除失败'))
     }
   }
 }
 </script>
+
+<style scoped>
+.project-details-card {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+.project-details-header {
+  background: var(--bg-drawer-header);
+  border-color: var(--border-color) !important;
+}
+</style>
+

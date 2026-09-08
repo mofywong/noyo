@@ -35,130 +35,128 @@
     </table>
 
     <!-- Modal -->
-    <div v-if="showModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ editingIndex === -1 ? $t('tsl_add') : $t('tsl_edit') }} {{ $t('tsl_properties') }}</h5>
-            <button type="button" class="btn-close" @click="closeModal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="row">
-              <!-- Basic Info -->
-              <div class="col-md-12">
-                <h6 class="mb-3 border-bottom pb-2">{{ $t('tsl_basic_info') }}</h6>
-                <div class="row">
-                  <div class="col-md-6 mb-3">
-                    <label class="form-label">{{ $t('tsl_name') }}</label>
-                    <input v-model="currentProp.name" type="text" class="form-control" :placeholder="$t('tsl_placeholder_name')">
+    <Teleport to="body">
+      <div v-if="showModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ editingIndex === -1 ? $t('tsl_add') : $t('tsl_edit') }} {{ $t('tsl_properties') }}</h5>
+              <button type="button" class="btn-close" @click="closeModal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row">
+                <!-- Basic Info -->
+                <div class="col-md-12">
+                  <h6 class="mb-3 border-bottom pb-2">{{ $t('tsl_basic_info') }}</h6>
+                  <div class="row">
+                    <div class="col-md-6 mb-3">
+                      <label class="form-label">{{ $t('tsl_name') }}</label>
+                      <input v-model="currentProp.name" type="text" class="form-control" :placeholder="$t('tsl_placeholder_name')">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                      <label class="form-label">{{ $t('tsl_identifier') }}</label>
+                      <input v-model="currentProp.identifier" type="text" class="form-control" :placeholder="$t('tsl_placeholder_id')" :disabled="editingIndex !== -1">
+                    </div>
                   </div>
-                  <div class="col-md-6 mb-3">
-                    <label class="form-label">{{ $t('tsl_identifier') }}</label>
-                    <input v-model="currentProp.identifier" type="text" class="form-control" :placeholder="$t('tsl_placeholder_id')" :disabled="editingIndex !== -1">
-                  </div>
-                </div>
 
-                <div class="row">
-                  <div class="col-md-6 mb-3">
-                    <label class="form-label">{{ $t('tsl_datatype') }}</label>
-                    <select v-model="currentProp.dataType.type" class="form-select">
-                      <option value="int">{{ $t('tsl_type_int') }}</option>
-                      <option value="float">{{ $t('tsl_type_float') }}</option>
-                      <option value="double">{{ $t('tsl_type_double') }}</option>
-                      <option value="text">{{ $t('tsl_type_text') }}</option>
-                      <option value="bool">{{ $t('tsl_type_bool') }}</option>
-                      <option value="enum">{{ $t('tsl_type_enum') }}</option>
-                      <option value="object">{{ $t('tsl_type_json') }}</option>
-                      <option value="date">{{ $t('tsl_type_date') }}</option>
-                    </select>
+                  <div class="row">
+                    <div class="col-md-6 mb-3">
+                      <label class="form-label">{{ $t('tsl_datatype') }}</label>
+                      <select v-model="currentProp.dataType.type" class="form-select">
+                        <option value="int">{{ $t('tsl_type_int') }}</option>
+                        <option value="float">{{ $t('tsl_type_float') }}</option>
+                        <option value="double">{{ $t('tsl_type_double') }}</option>
+                        <option value="text">{{ $t('tsl_type_text') }}</option>
+                        <option value="bool">{{ $t('tsl_type_bool') }}</option>
+                        <option value="enum">{{ $t('tsl_type_enum') }}</option>
+                        <option value="object">{{ $t('tsl_type_json') }}</option>
+                        <option value="date">{{ $t('tsl_type_date') }}</option>
+                      </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                      <label class="form-label">{{ $t('tsl_prop_access') }}</label>
+                      <select v-model="currentProp.accessMode" class="form-select">
+                        <option value="rw">{{ $t('tsl_prop_access_rw') }}</option>
+                        <option value="r">{{ $t('tsl_prop_access_r') }}</option>
+                      </select>
+                    </div>
                   </div>
-                  <div class="col-md-6 mb-3">
-                    <label class="form-label">{{ $t('tsl_prop_access') }}</label>
-                    <select v-model="currentProp.accessMode" class="form-select">
-                      <option value="rw">{{ $t('tsl_prop_access_rw') }}</option>
-                      <option value="r">{{ $t('tsl_prop_access_r') }}</option>
-                    </select>
-                  </div>
-                </div>
 
-                <!-- Numeric Specs -->
-                <div class="row" v-if="['int', 'float', 'double'].includes(currentProp.dataType.type)">
-                  <div class="col-md-3 mb-3">
+                  <div class="mb-3" v-if="currentProp.dataType.type !== 'bool' && currentProp.dataType.type !== 'enum' && currentProp.dataType.type !== 'object' && currentProp.dataType.type !== 'date'">
                     <label class="form-label">{{ $t('tsl_prop_unit') }}</label>
-                    <input v-model="currentProp.dataType.specs.unit" type="text" class="form-control">
+                    <input v-model="currentProp.dataType.specs.unit" type="text" class="form-control" :placeholder="$t('tsl_placeholder_unit')">
                   </div>
-                  <div class="col-md-3 mb-3">
-                    <label class="form-label">{{ $t('tsl_prop_min') }}</label>
-                    <input v-model.number="currentProp.dataType.specs.min" type="number" class="form-control">
-                  </div>
-                  <div class="col-md-3 mb-3">
-                    <label class="form-label">{{ $t('tsl_prop_max') }}</label>
-                    <input v-model.number="currentProp.dataType.specs.max" type="number" class="form-control">
-                  </div>
-                  <div class="col-md-3 mb-3">
-                    <label class="form-label">{{ $t('tsl_prop_step') }}</label>
-                    <input v-model.number="currentProp.dataType.specs.step" type="number" class="form-control">
-                  </div>
-                </div>
-                
-                <!-- Text Specs -->
-                <div class="row" v-if="['text'].includes(currentProp.dataType.type)">
-                  <div class="col-md-6 mb-3">
-                    <label class="form-label">{{ $t('tsl_prop_max_len') }}</label>
-                     <input v-model.number="currentProp.dataType.specs.length" type="number" class="form-control">
-                  </div>
-                </div>
 
-                <!-- Bool Specs -->
-                <div class="row" v-if="currentProp.dataType.type === 'bool'">
-                   <div class="col-md-6 mb-3">
-                      <label class="form-label">{{ $t('tsl_bool_false') }}</label>
-                      <input v-model="currentProp.dataType.specs['0']" type="text" class="form-control" placeholder="e.g. OFF">
-                   </div>
-                   <div class="col-md-6 mb-3">
-                      <label class="form-label">{{ $t('tsl_bool_true') }}</label>
-                      <input v-model="currentProp.dataType.specs['1']" type="text" class="form-control" placeholder="e.g. ON">
-                   </div>
-                </div>
+                  <!-- Type Specific Specs -->
+                  <div v-if="currentProp.dataType.type === 'int' || currentProp.dataType.type === 'float' || currentProp.dataType.type === 'double'" class="row">
+                    <div class="col-md-4 mb-3">
+                      <label class="form-label">{{ $t('tsl_prop_min') }}</label>
+                      <input v-model.number="currentProp.dataType.specs.min" type="number" class="form-control">
+                    </div>
+                    <div class="col-md-4 mb-3">
+                      <label class="form-label">{{ $t('tsl_prop_max') }}</label>
+                      <input v-model.number="currentProp.dataType.specs.max" type="number" class="form-control">
+                    </div>
+                    <div class="col-md-4 mb-3">
+                      <label class="form-label">{{ $t('tsl_prop_step') }}</label>
+                      <input v-model.number="currentProp.dataType.specs.step" type="number" class="form-control">
+                    </div>
+                  </div>
 
-                <!-- Enum Specs -->
-                <div v-if="currentProp.dataType.type === 'enum'">
-                  <label class="form-label small">{{ $t('tsl_prop_specs') }}</label>
-                  <table class="table table-sm table-bordered mb-2">
-                    <thead>
-                      <tr>
-                        <th style="width: 120px">{{ $t('tsl_enum_key') }}</th>
-                        <th>{{ $t('tsl_enum_value') }}</th>
-                        <th style="width: 50px"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                       <tr v-for="(item, idx) in enumList" :key="idx">
-                          <td><input v-model="item.key" type="text" class="form-control form-control-sm"></td>
+                  <div v-if="currentProp.dataType.type === 'text'" class="mb-3">
+                    <label class="form-label">{{ $t('tsl_prop_length') }}</label>
+                    <input v-model.number="currentProp.dataType.specs.length" type="number" class="form-control" value="10240">
+                  </div>
+
+                  <div v-if="currentProp.dataType.type === 'bool'" class="row">
+                    <div class="col-md-6 mb-3">
+                      <label class="form-label">0 - {{ $t('tsl_prop_bool_0') }}</label>
+                      <input v-model="currentProp.dataType.specs['0']" type="text" class="form-control" placeholder="关">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                      <label class="form-label">1 - {{ $t('tsl_prop_bool_1') }}</label>
+                      <input v-model="currentProp.dataType.specs['1']" type="text" class="form-control" placeholder="开">
+                    </div>
+                  </div>
+
+                  <div v-if="currentProp.dataType.type === 'enum'" class="mb-3">
+                    <label class="form-label">{{ $t('tsl_prop_enum_items') }}</label>
+                    <table class="table table-sm table-bordered">
+                      <thead>
+                        <tr>
+                          <th>{{ $t('tsl_prop_enum_val') }}</th>
+                          <th>{{ $t('tsl_prop_enum_desc') }}</th>
+                          <th style="width: 50px;"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(item, idx) in enumItems" :key="idx">
                           <td><input v-model="item.value" type="text" class="form-control form-control-sm"></td>
-                          <td class="text-center align-middle">
-                            <button class="btn btn-xs btn-link text-danger p-0" @click="removeEnumItem(idx)">
-                              <i class="bi bi-x-lg"></i>
+                          <td><input v-model="item.text" type="text" class="form-control form-control-sm"></td>
+                          <td>
+                            <button class="btn btn-sm btn-outline-danger" @click="removeEnumItem(idx)">
+                              <i class="bi bi-trash"></i>
                             </button>
                           </td>
-                       </tr>
-                    </tbody>
-                  </table>
-                  <button class="btn btn-sm btn-outline-secondary" @click="addEnumItem">
-                    <i class="bi bi-plus"></i> {{ $t('tsl_add_item') }}
-                  </button>
-                </div>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <button class="btn btn-sm btn-outline-secondary" @click="addEnumItem">
+                      <i class="bi bi-plus"></i> {{ $t('tsl_add_item') }}
+                    </button>
+                  </div>
 
+                </div>
               </div>
             </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeModal">{{ $t('tsl_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveProperty">{{ $t('tsl_confirm') }}</button>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" @click="closeModal">{{ $t('tsl_cancel') }}</button>
+              <button type="button" class="btn btn-primary" @click="saveProperty">{{ $t('tsl_confirm') }}</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 

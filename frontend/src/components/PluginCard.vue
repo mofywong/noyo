@@ -5,22 +5,19 @@
   >
     <div class="card-body d-flex flex-column" :class="{ 'opacity-50': plugin.isPro && plugin.isUnauthorized }">
       <div class="d-flex justify-content-between align-items-start mb-3">
-        <div class="plugin-icon rounded-3 d-flex align-items-center justify-content-center">
+        <div class="plugin-icon d-flex align-items-center justify-content-center">
           <img v-if="pluginIconUrl(plugin.icon)" :src="pluginIconUrl(plugin.icon)" class="plugin-icon-img" alt="">
           <i v-else class="bi bi-box-seam fs-3"></i>
         </div>
         <div class="d-flex flex-column align-items-end gap-1">
           <span
-            class="spec-badge"
-            :class="plugin.status === 'running' ? 'spec-badge--success' : 'spec-badge--neutral'"
+            class="dash-pill"
+            :class="plugin.status === 'running' ? 'dash-pill--success' : 'dash-pill--neutral'"
           >
-            <span
-              class="status-dot"
-              :class="plugin.status === 'running' ? 'status-dot--online' : 'status-dot--offline'"
-            ></span>
+            <span class="dash-pill-dot"></span>
             {{ plugin.status === 'running' ? $t('status_running') : $t('status_stopped') }}
           </span>
-          <span v-if="plugin.isPro && plugin.isUnauthorized" class="spec-badge spec-badge--warning">
+          <span v-if="plugin.isPro && plugin.isUnauthorized" class="dash-pill dash-pill--warning">
             <i class="bi bi-lock-fill me-1"></i> {{ $t('pro_feature_locked') }}
           </span>
         </div>
@@ -28,7 +25,7 @@
 
       <h5 class="card-title fw-bold mb-1">
         {{ plugin.title ? (plugin.title[locale] || plugin.title['en'] || plugin.name) : plugin.name }}
-        <span v-if="plugin.isPro" class="spec-badge spec-badge--danger ms-1 align-middle" style="padding: 1px 6px; font-size: 0.6rem;">PRO</span>
+        <span v-if="plugin.isPro" class="badge text-bg-danger ms-1 align-middle" style="padding: 2px 6px; font-size: 0.62rem; font-weight: 700;">PRO</span>
       </h5>
       <p class="card-text text-secondary small flex-grow-1 mb-0">
         {{ plugin.description ? (plugin.description[locale] || plugin.description['en'] || '') : $t('plugin_desc_default', { category: plugin.category ? plugin.category.toUpperCase() : 'PLUGIN', name: plugin.name }) }}
@@ -39,14 +36,16 @@
       </div>
 
       <div class="d-flex align-items-center justify-content-between mt-3 pt-3 border-top">
-        <button
-          class="btn btn-sm btn-outline-primary"
+        <LiquidGlassButton
+          variant="outline-primary"
+          size="sm"
+          icon="bi bi-gear-fill"
           @click="$emit('configure')"
           :disabled="plugin.isPro && plugin.isUnauthorized"
           v-permission="'plugin:config'"
         >
-          <i class="bi bi-gear-fill me-1"></i> {{ $t('plugin_card_configure') }}
-        </button>
+          {{ $t('plugin_card_configure') }}
+        </LiquidGlassButton>
         <div class="form-check form-switch mb-0" v-permission="'plugin:config'">
           <input
             class="form-check-input plugin-switch"
@@ -80,16 +79,26 @@ defineEmits(['configure', 'update-status']);
 <style scoped>
 /* Noyo UX Guidelines §8.1 / §8.5 / §3.3 */
 .plugin-icon {
-  width: 64px;
-  height: 64px;
-  background: var(--bg-hover);
+  width: 52px;
+  height: 52px;
+  background: var(--glass-tint);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: var(--glass-highlight), 0 4px 12px rgba(0, 0, 0, 0.06);
   color: var(--color-brand);
-  font-size: 1.5rem;
+  font-size: 1.35rem;
+  flex-shrink: 0;
+}
+
+[data-bs-theme="dark"] .plugin-icon {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15), 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .plugin-icon-img {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   object-fit: contain;
 }
 
@@ -98,9 +107,73 @@ defineEmits(['configure', 'update-status']);
   border-color: var(--color-brand);
 }
 
-/* 运行态：成功语义色呼吸光晕（§3.3，2s 周期，40% 幅度） */
+/* 晶体发光状态胶囊 */
+.dash-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  transition: all var(--noyo-duration-fast) var(--noyo-ease-standard);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.dash-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+  box-shadow: 0 0 6px currentColor;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.dash-pill--success {
+  color: #15803d !important;
+  background: rgba(22, 163, 74, 0.12);
+  border: 1px solid rgba(22, 163, 74, 0.28);
+}
+
+[data-bs-theme="dark"] .dash-pill--success {
+  color: #4ade80 !important;
+  background: rgba(74, 222, 128, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+
+.dash-pill--neutral {
+  color: var(--text-secondary) !important;
+  background: rgba(100, 116, 139, 0.12);
+  border: 1px solid rgba(100, 116, 139, 0.24);
+}
+
+.dash-pill--warning {
+  color: #b45309 !important;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+[data-bs-theme="dark"] .dash-pill--warning {
+  color: #fbbf24 !important;
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+/* 运行态：成功语义色呼吸光晕与物理弹性微跳动 */
 .plugin-card {
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .plugin-card:hover {
+    transform: translateY(-6px) scale(1.012);
+    border-color: rgba(147, 197, 253, 0.75);
+    box-shadow: 0 16px 36px -6px color-mix(in srgb, var(--color-brand) 18%, transparent), 0 4px 14px rgba(0, 0, 0, 0.1);
+  }
 }
 
 .plugin-card-running {

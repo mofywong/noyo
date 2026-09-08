@@ -1,5 +1,6 @@
 <template>
-<!-- Data Modal -->
+  <Teleport to="body">
+    <!-- Data Modal -->
     <div v-if="visible" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
       <div class="modal-dialog modal-xl">
         <div class="modal-content" style="height: 90vh; display: flex; flex-direction: column;">
@@ -133,8 +134,8 @@
               </div>
 
               <!-- Chart -->
-              <div class="border rounded mb-3 p-2 bg-light position-relative" style="height: 220px;">
-                <div v-if="historyChartLoading" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white bg-opacity-75" style="z-index: 10">
+              <div class="border rounded mb-3 p-2 position-relative device-data-chart-container" style="height: 220px;">
+                <div v-if="historyChartLoading" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center device-data-chart-mask" style="z-index: 10">
                    <div class="spinner-border text-primary" role="status"></div>
                 </div>
                 <VChart v-if="chartOption" :option="chartOption" autoresize style="width: 100%; height: 100%;" />
@@ -195,7 +196,7 @@
                     </button>
                   </h2>
                   <div :id="'collapse' + key" class="accordion-collapse collapse" :aria-labelledby="'heading' + key" data-bs-parent="#servicesAccordion">
-                    <div class="accordion-body bg-light">
+                    <div class="accordion-body device-service-accordion-body">
                       <div class="mb-3 text-muted small" v-if="srv.desc">{{ srv.desc }}</div>
                       
                       <!-- Input Form -->
@@ -234,10 +235,10 @@
                             </div>
                           </div>
                           <!-- UI Mode -->
-                          <div v-if="invokeServiceResultMode[key] === 'ui' && hasServiceOutputParams(srv)" class="row g-2 border rounded p-2 bg-white">
+                          <div v-if="invokeServiceResultMode[key] === 'ui' && hasServiceOutputParams(srv)" class="row g-2 border rounded p-2 device-service-output-panel">
                             <div class="col-md-6 col-lg-4" v-for="outParam in srv.outputData" :key="outParam.identifier">
                               <label class="form-label small mb-1 text-muted">{{ outParam.name }}<span v-if="outParam.required" class="text-danger ms-1">*</span> <span class="badge border text-secondary ms-1 p-1">{{ outParam.identifier }}</span></label>
-                              <div class="form-control form-control-sm bg-light text-break overflow-auto" style="min-height:30px;">{{ getOutputValue(invokeServiceResult[key].data, outParam, srv.outputData.length) }}</div>
+                              <div class="form-control form-control-sm text-break overflow-auto" style="min-height:30px; background: var(--bg-input);">{{ getOutputValue(invokeServiceResult[key].data, outParam, srv.outputData.length) }}</div>
                             </div>
                           </div>
                           <!-- JSON Mode -->
@@ -269,6 +270,7 @@
         </div>
       </div>
     </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -1016,4 +1018,19 @@ watch(() => historyQuery.value.type, () => {
 </script>
 
 <style scoped>
+.device-data-chart-container {
+  background: var(--bg-surface);
+  border-color: var(--border-color) !important;
+}
+.device-data-chart-mask {
+  background: var(--bg-surface);
+  opacity: 0.85;
+}
+.device-service-accordion-body {
+  background: var(--bg-surface);
+}
+.device-service-output-panel {
+  background: var(--bg-elevated);
+  border-color: var(--border-color) !important;
+}
 </style>

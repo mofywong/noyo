@@ -246,7 +246,7 @@
                           v-model.trim="pluginForms[plugin.plugin_name][field.name]"
                           class="setup-input"
                           :id="fieldId(plugin.plugin_name, field.name)"
-                          :type="field.type === 'password' ? 'password' : 'text'"
+                          :type="field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'"
                         >
                         <small v-if="cascadeFieldDescription(plugin, field)">{{ cascadeFieldDescription(plugin, field) }}</small>
                       </template>
@@ -364,12 +364,18 @@ const setupCopy = {
     validationPort: 'HTTP 端口必须在 1 到 65535 之间',
     validationTenantName: '该模式需要填写默认组织名称',
     validationLocalScope: '该模式需要填写默认组织和本地项目名称',
-    validationGatewaySN: '平台接入网关需要填写平台预登记网关 SN',
+    validationGatewaySN: '平台接入网关需要填写平台预登记的网关物理 SN',
+    validationPlatformTenantId: '平台接入网关需要填写有效的平台租户 ID',
+    validationPlatformProjectId: '平台接入网关需要填写有效的平台项目 ID',
     validationCascadeMqtt: '平台接入网关需要填写级联 MQTT 地址',
     cascadeMqttTitle: '级联 MQTT 地址',
     cascadeMqttDesc: '平台与托管网关共用的级联 Broker，例如 tcp://127.0.0.1:1883。',
-    platformGatewaySnTitle: '平台注册网关 SN',
-    platformGatewaySnDesc: '必须与平台在目标项目下预登记的网关设备编码一致，平台据此完成项目绑定。',
+    platformTenantIdTitle: '平台租户 ID',
+    platformTenantIdDesc: '请填写平台网关预登记信息中的目标租户 ID。',
+    platformProjectIdTitle: '平台项目 ID',
+    platformProjectIdDesc: '请填写平台网关预登记信息中的目标项目 ID。',
+    platformGatewaySnTitle: '网关物理 SN',
+    platformGatewaySnDesc: '必须与指定平台租户和项目下预登记的网关物理 SN 一致。',
     gatewayNameTitle: '网关显示名称',
     gatewayNameDesc: '仅作为注册上报时的显示名称。',
     loadFailed: '初始化状态读取失败',
@@ -431,12 +437,18 @@ const setupCopy = {
     validationPort: 'HTTP port must be between 1 and 65535',
     validationTenantName: 'This mode requires a default organization name',
     validationLocalScope: 'This mode requires default organization and local project names',
-    validationGatewaySN: 'Platform-connected gateway requires the platform pre-registered gateway SN',
+    validationGatewaySN: 'Platform-connected gateway requires the platform pre-registered physical gateway SN',
+    validationPlatformTenantId: 'Platform-connected gateway requires a valid platform tenant ID',
+    validationPlatformProjectId: 'Platform-connected gateway requires a valid platform project ID',
     validationCascadeMqtt: 'Platform-connected gateway requires the cascade MQTT URL',
     cascadeMqttTitle: 'Cascade MQTT URL',
     cascadeMqttDesc: 'Shared broker used by platform and managed gateways, e.g. tcp://127.0.0.1:1883.',
-    platformGatewaySnTitle: 'Platform Gateway SN',
-    platformGatewaySnDesc: 'Must match the gateway device code that the platform pre-registered under the target project.',
+    platformTenantIdTitle: 'Platform Tenant ID',
+    platformTenantIdDesc: 'Copy the target tenant ID from the platform gateway registration information.',
+    platformProjectIdTitle: 'Platform Project ID',
+    platformProjectIdDesc: 'Copy the target project ID from the platform gateway registration information.',
+    platformGatewaySnTitle: 'Gateway Physical SN',
+    platformGatewaySnDesc: 'Must match the SN pre-registered in the specified platform tenant and project.',
     gatewayNameTitle: 'Gateway Display Name',
     gatewayNameDesc: 'Used only as the reported display name during registration.',
     loadFailed: 'Failed to load setup status',
@@ -566,6 +578,8 @@ const localized = (value) => {
 const cascadeFieldTitle = (plugin, field) => {
   if (plugin?.plugin_name === 'cascade') {
     if (field.name === 'mqtt_url') return tx('cascadeMqttTitle')
+    if (field.name === 'tenant_id') return tx('platformTenantIdTitle')
+    if (field.name === 'project_id') return tx('platformProjectIdTitle')
     if (field.name === 'gateway_sn') return tx('platformGatewaySnTitle')
     if (field.name === 'gateway_name') return tx('gatewayNameTitle')
   }
@@ -575,6 +589,8 @@ const cascadeFieldTitle = (plugin, field) => {
 const cascadeFieldDescription = (plugin, field) => {
   if (plugin?.plugin_name === 'cascade') {
     if (field.name === 'mqtt_url') return tx('cascadeMqttDesc')
+    if (field.name === 'tenant_id') return tx('platformTenantIdDesc')
+    if (field.name === 'project_id') return tx('platformProjectIdDesc')
     if (field.name === 'gateway_sn') return tx('platformGatewaySnDesc')
     if (field.name === 'gateway_name') return tx('gatewayNameDesc')
   }
@@ -672,6 +688,14 @@ const validateBeforeSubmit = () => {
   }
   if (modeNeedsCascadeRegistration.value) {
     const cascade = pluginForms.cascade || {}
+    if (!Number.isInteger(Number(cascade.tenant_id)) || Number(cascade.tenant_id) <= 0) {
+      activeStep.value = 'plugins'
+      return tx('validationPlatformTenantId')
+    }
+    if (!Number.isInteger(Number(cascade.project_id)) || Number(cascade.project_id) <= 0) {
+      activeStep.value = 'plugins'
+      return tx('validationPlatformProjectId')
+    }
     if (!String(cascade.gateway_sn || '').trim()) {
       activeStep.value = 'plugins'
       return tx('validationGatewaySN')
@@ -722,6 +746,8 @@ const submitSetup = async () => {
       gateway: {
         gateway_sn: cascade.gateway_sn || '',
         gateway_name: cascade.gateway_name || '',
+        tenant_id: Number(cascade.tenant_id || 0),
+        project_id: Number(cascade.project_id || 0),
         mqtt_url: cascade.mqtt_url || '',
         enable_tls: Boolean(cascade.enable_tls),
         insecure_skip_verify: Boolean(cascade.insecure_skip_verify),

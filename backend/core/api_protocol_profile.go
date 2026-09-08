@@ -117,12 +117,24 @@ func (s *Server) handleCreateProtocolProfile(r *ghttp.Request) {
 	r.Response.WriteJson(pp)
 }
 
+func isSystemProtocolProfile(pp *store.ProtocolProfile) bool {
+	if pp == nil {
+		return false
+	}
+	return pp.IsSystem || pp.Code == "gb28181_camera_driver" || pp.Code == "bacnet_default_driver" || pp.Code == "modbus_tcp_default_driver" || (pp.TenantID == 0 && pp.ProjectID == 0)
+}
+
 func (s *Server) handleUpdateProtocolProfile(r *ghttp.Request) {
 	code := r.Get("code").String()
 
 	pp, err := store.GetProtocolProfile(code)
 	if err != nil {
 		r.Response.WriteStatus(404, g.Map{"error": "Protocol profile not found"})
+		r.ExitAll()
+	}
+
+	if isSystemProtocolProfile(pp) {
+		r.Response.WriteStatus(400, g.Map{"error": "系统内置驱动由平台维护，禁止编辑 / System-managed drivers cannot be edited"})
 		r.ExitAll()
 	}
 
@@ -137,10 +149,10 @@ func (s *Server) handleUpdateProtocolProfile(r *ghttp.Request) {
 	}
 
 	var req struct {
-		Name         string      `json:"name"`
-		ProductCode  string      `json:"product_code"`
-		Description  string      `json:"description"`
-		Config       interface{} `json:"config"`
+		Name        string      `json:"name"`
+		ProductCode string      `json:"product_code"`
+		Description string      `json:"description"`
+		Config      interface{} `json:"config"`
 	}
 
 	if err := r.Parse(&req); err != nil {
@@ -173,8 +185,6 @@ func (s *Server) handleUpdateProtocolProfile(r *ghttp.Request) {
 		r.ExitAll()
 	}
 
-
-
 	r.Response.WriteJson(pp)
 }
 
@@ -184,6 +194,11 @@ func (s *Server) handleDeleteProtocolProfile(r *ghttp.Request) {
 	pp, err := store.GetProtocolProfile(code)
 	if err != nil {
 		r.Response.WriteStatus(404, g.Map{"error": "Protocol profile not found"})
+		r.ExitAll()
+	}
+
+	if isSystemProtocolProfile(pp) {
+		r.Response.WriteStatus(400, g.Map{"error": "系统内置驱动由平台维护，禁止删除 / System-managed drivers cannot be deleted"})
 		r.ExitAll()
 	}
 
@@ -201,8 +216,6 @@ func (s *Server) handleDeleteProtocolProfile(r *ghttp.Request) {
 		r.Response.WriteStatus(500, g.Map{"error": "Failed to delete protocol profile: " + err.Error()})
 		r.ExitAll()
 	}
-
-
 
 	r.Response.WriteJson(g.Map{"message": "success"})
 }

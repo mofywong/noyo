@@ -1,5 +1,6 @@
 <template>
-  <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1060;">
+  <Teleport to="body">
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1060;">
     <div class="modal-dialog modal-xl">
       <div class="modal-content h-100 shadow-lg">
         <div class="modal-header bg-dark text-white border-bottom border-secondary">
@@ -39,6 +40,7 @@
       </div>
     </div>
   </div>
+</Teleport>
 </template>
 
 <script setup>

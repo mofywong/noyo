@@ -1,197 +1,720 @@
 <template>
-  <main class="alarm-center container-fluid py-2">
-    <header class="alarm-header mb-2">
-      <div class="d-flex align-items-baseline gap-2 min-w-0">
-        <h1 class="h5 mb-0 text-body text-nowrap">{{ t('title') }}</h1>
-        <p class="alarm-subtitle small text-body-secondary mb-0 text-truncate">{{ t('subtitle') }}</p>
+  <div class="alarm-center-page page-fixed-height">
+    <!-- Header -->
+    <div class="page-header list-page-header">
+      <div>
+        <h1>{{ t('title') }}</h1>
+        <p class="page-subtitle">{{ t('subtitle') }}</p>
       </div>
-      <div class="alarm-header__actions d-flex gap-2">
-        <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="loading" @click="openPolicies"><i class="bi bi-sliders me-1"></i>{{ t('policies') }}</button>
-        <button type="button" class="btn btn-sm btn-primary" :disabled="loading" @click="refreshAll"><span v-if="loading" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-arrow-clockwise me-1"></i>{{ t('refresh') }}</button>
+      <div class="d-flex align-items-center gap-2">
+        <LiquidGlassButton
+          variant="secondary"
+          size="sm"
+          :icon="loading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'"
+          :disabled="loading"
+          @click="refreshAll"
+        >
+          {{ t('refresh') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton
+          variant="outline-secondary"
+          size="sm"
+          icon="bi bi-sliders"
+          :disabled="loading"
+          @click="openPolicies"
+        >
+          {{ t('policies') }}
+        </LiquidGlassButton>
       </div>
-    </header>
+    </div>
 
-    <div v-if="requestError" class="alert alert-danger alert-dismissible fade show" role="alert">
-      {{ requestError }}
+    <!-- Error Alert -->
+    <div v-if="requestError" class="alert alert-danger alert-dismissible fade show flex-shrink-0" role="alert">
+      <i class="bi bi-exclamation-octagon me-1"></i>{{ requestError }}
       <button type="button" class="btn-close" :aria-label="t('close')" @click="requestError = ''"></button>
     </div>
 
-    <section class="row row-cols-3 row-cols-lg-6 g-1 mb-2" :aria-label="t('overview')">
-      <div v-for="card in statCards" :key="card.key" class="col">
-        <button type="button" class="stat-card w-100 text-start" :class="[`stat-card--${card.tone}`, { 'stat-card--active': activeQuickFilter === card.key }]" :aria-pressed="activeQuickFilter === card.key" @click="applyQuickFilter(card)">
-          <span class="stat-card__label">{{ card.label }}</span>
-          <strong class="stat-card__value">{{ card.value }}</strong>
-          <span class="stat-card__hint">{{ card.hint }}</span>
+    <!-- Nav Tabs -->
+    <ul class="nav nav-tabs mb-3 flex-shrink-0" role="tablist" :aria-label="t('viewSwitch')">
+      <li class="nav-item" role="presentation">
+        <button
+          id="alarm-queue-tab"
+          class="nav-link"
+          :class="{ active: activeView === 'queue' }"
+          type="button"
+          role="tab"
+          :aria-selected="activeView === 'queue'"
+          @click="activeView = 'queue'"
+        >
+          <i class="bi bi-list-check me-1"></i>{{ t('queue') }}
+          <span class="badge rounded-pill ms-1" :class="activeView === 'queue' ? 'text-bg-primary' : 'text-bg-secondary'">{{ total }}</span>
         </button>
-      </div>
-    </section>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button
+          id="alarm-history-tab"
+          class="nav-link"
+          :class="{ active: activeView === 'history' }"
+          type="button"
+          role="tab"
+          :aria-selected="activeView === 'history'"
+          @click="openHistory"
+        >
+          <i class="bi bi-clock-history me-1"></i>{{ t('history') }}
+          <span class="badge rounded-pill ms-1" :class="activeView === 'history' ? 'text-bg-primary' : 'text-bg-secondary'">{{ legacyTotal }}</span>
+        </button>
+      </li>
+    </ul>
 
-    <section class="alarm-view-tabs mb-2" role="tablist" :aria-label="t('viewSwitch')">
-      <button id="alarm-queue-tab" type="button" class="btn" :class="activeView === 'queue' ? 'btn-primary' : 'btn-outline-secondary'" role="tab" :aria-selected="activeView === 'queue'" @click="activeView = 'queue'">
-        <i class="bi bi-list-check me-1"></i>{{ t('queue') }} <span class="badge ms-1" :class="activeView === 'queue' ? 'text-bg-light text-primary' : 'text-bg-secondary'">{{ total }}</span>
-      </button>
-      <button id="alarm-history-tab" type="button" class="btn" :class="activeView === 'history' ? 'btn-primary' : 'btn-outline-secondary'" role="tab" :aria-selected="activeView === 'history'" @click="openHistory">
-        <i class="bi bi-clock-history me-1"></i>{{ t('history') }} <span class="badge ms-1" :class="activeView === 'history' ? 'text-bg-light text-primary' : 'text-bg-secondary'">{{ legacyTotal }}</span>
-      </button>
-    </section>
-
+    <!-- Tab Content: Active Queue -->
     <template v-if="activeView === 'queue'">
-      <section class="card alarm-surface border-0 shadow-sm mb-2" aria-labelledby="alarm-filter-title">
-        <div class="card-body alarm-filter-bar">
-          <h2 id="alarm-filter-title" class="visually-hidden">{{ t('filter') }}</h2>
-          <div class="row g-1 align-items-end">
-            <div class="col-12 col-md-4 col-xl-3"><label class="form-label small mb-1" for="alarm-search">{{ t('search') }}</label><input id="alarm-search" v-model.trim="filters.search" class="form-control" :placeholder="t('searchPlaceholder')" @keyup.enter="applyFilters"></div>
-            <div class="col-6 col-md-2"><label class="form-label small mb-1" for="alarm-severity">{{ t('severity') }}</label><select id="alarm-severity" v-model="filters.severity" class="form-select"><option value="">{{ t('all') }}</option><option value="critical">{{ t('critical') }}</option><option value="major">{{ t('major') }}</option><option value="warning">{{ t('warning') }}</option><option value="info">{{ t('info') }}</option></select></div>
-            <div class="col-6 col-md-2"><label class="form-label small mb-1" for="alarm-condition">{{ t('condition') }}</label><select id="alarm-condition" v-model="filters.condition" class="form-select"><option value="">{{ t('all') }}</option><option value="firing">{{ t('firing') }}</option><option value="recovered">{{ t('recovered') }}</option></select></div>
-            <div class="col-6 col-md-2"><label class="form-label small mb-1" for="alarm-handling">{{ t('handling') }}</label><select id="alarm-handling" v-model="filters.handling" class="form-select"><option value="">{{ t('all') }}</option><option v-for="key in handlingKeys" :key="key" :value="key">{{ handlingText(key) }}</option></select></div>
-            <div class="col-6 col-md-2 d-flex gap-2 alarm-filter-actions"><button type="button" class="btn btn-primary flex-grow-1" @click="applyFilters">{{ t('filter') }}</button><button type="button" class="btn btn-outline-secondary" :aria-label="t('reset')" :title="t('reset')" @click="resetFilters"><i class="bi bi-x-lg"></i></button></div>
+      <div class="page-toolbar device-list-control-bar list-page-controls" :aria-label="t('overview')">
+        <div class="device-list-query list-toolbar-query">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text bg-transparent"><i class="bi bi-search" aria-hidden="true"></i></span>
+            <input
+              id="alarm-search"
+              v-model.trim="filters.search"
+              class="form-control"
+              :placeholder="t('searchPlaceholder')"
+              :aria-label="t('searchPlaceholder')"
+              @keyup.enter="applyFilters"
+            >
           </div>
-          <div v-if="activeFilterLabels.length" class="alarm-filter-summary mt-1" role="status"><span class="small text-body-secondary me-2">{{ t('appliedFilters') }}</span><span v-for="label in activeFilterLabels" :key="label" class="badge rounded-pill text-bg-secondary">{{ label }}</span></div>
-        </div>
-      </section>
-
-      <section class="card alarm-surface border-0 shadow-sm" role="tabpanel" aria-labelledby="alarm-queue-tab">
-        <div class="card-header alarm-card-header d-flex flex-wrap justify-content-between align-items-center gap-2 py-3">
-          <div><strong>{{ t('queue') }}</strong><span class="text-body-secondary small ms-2">{{ total }} {{ t('records') }}</span></div>
-          <label class="form-check form-switch m-0 small" for="include-closed"><input id="include-closed" v-model="filters.includeClosed" class="form-check-input" type="checkbox" @change="toggleIncludeClosed"><span class="form-check-label">{{ t('includeClosed') }}</span></label>
-        </div>
-        <div class="table-responsive">
-          <table class="table alarm-table alarm-queue-table table-hover align-middle mb-0">
-            <thead><tr><th>{{ t('alarm') }}</th><th>{{ t('state') }}</th><th>{{ t('occurrence') }}</th><th>{{ t('owner') }}</th><th>{{ t('workOrder') }}</th><th class="text-end">{{ t('actions') }}</th></tr></thead>
-            <tbody>
-              <tr v-if="loading && !items.length"><td colspan="6" class="py-5 text-center text-body-secondary"><span class="spinner-border spinner-border-sm me-2"></span>{{ t('loading') }}</td></tr>
-              <tr v-else-if="!items.length"><td colspan="6" class="py-5 text-center text-body-secondary"><i class="bi bi-shield-check d-block fs-3 mb-2"></i>{{ t('empty') }}<button type="button" class="btn btn-link btn-sm d-block mx-auto mt-2" @click="openHistory">{{ t('viewHistory') }}</button></td></tr>
-              <tr v-for="item in items" :key="alarmOf(item).public_id" class="alarm-row" role="button" tabindex="0" :aria-label="`${t('details')}: ${titleOf(item)}`" @click="openDetail(item)" @keydown.enter.prevent="openDetail(item)" @keydown.space.prevent="openDetail(item)">
-                <td class="alarm-main-cell min-w-260"><div class="d-flex align-items-center gap-2"><span class="severity-dot" :class="`severity-dot--${severityOf(item)}`"></span><div class="alarm-main-line text-truncate"><span class="fw-semibold">{{ titleOf(item) }}</span><span class="text-body-secondary small ms-2">{{ alarmContextText(item) }}</span><span class="text-body-secondary small ms-2"><i class="bi bi-clock me-1"></i>{{ formatTime(alarmOf(item).last_occurred_at || alarmOf(item).created_at) }}</span></div></div></td>
-                <td :data-label="t('state')"><span class="badge rounded-pill me-1" :class="conditionClass(alarmOf(item).condition_status)">{{ conditionText(alarmOf(item).condition_status) }}</span><span class="badge rounded-pill badge-handling">{{ handlingText(alarmOf(item).handling_status) }}</span></td>
-                <td :data-label="t('occurrence')"><strong>{{ alarmOf(item).occurrence_count || 1 }}</strong><span v-if="alarmOf(item).notification_muted" class="text-warning ms-2" :title="t('shelved')"><i class="bi bi-bell-slash"></i></span></td>
-                <td :data-label="t('owner')" :title="currentHandlerText(item)">{{ currentHandlerText(item) }}</td>
-                <td :data-label="t('workOrder')"><button v-if="alarmOf(item).work_order_public_id" type="button" class="btn btn-link btn-sm p-0" @click.stop="goWorkOrder(alarmOf(item).work_order_public_id)">{{ t('viewWorkOrder') }}</button><span v-else class="text-body-secondary">{{ t('notLinked') }}</span></td>
-                <td class="text-end alarm-actions-cell" :data-label="t('actions')"><div class="btn-group btn-group-sm" @click.stop><button v-if="canAcknowledge(item)" type="button" class="btn btn-outline-primary" @click="acknowledge(item)">{{ t('acknowledge') }}</button><button type="button" class="btn btn-outline-secondary" @click="openDetail(item)">{{ t('details') }}</button></div></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <ListPagination :page="page" :page-size="pageSize" :total="total" :page-size-options="pageSizeOptions" :disabled="loading" id-prefix="alarm-queue" @update:page="goQueuePage" @update:page-size="changeQueuePageSize" />
-      </section>
-    </template>
-
-    <section v-else class="card alarm-surface border-0 shadow-sm" role="tabpanel" aria-labelledby="alarm-history-tab">
-      <div class="card-header alarm-card-header alarm-history-header d-flex align-items-center gap-2"><div><strong>{{ t('history') }}</strong></div><span class="alarm-history-help"><button type="button" class="alarm-history-help__trigger" :aria-label="t('historyNotice')"><i class="bi bi-exclamation-circle"></i></button><span class="alarm-history-help__popover" role="tooltip">{{ t('historyNotice') }}</span></span><label class="visually-hidden" for="legacy-search">{{ t('search') }}</label><input id="legacy-search" v-model.trim="legacySearch" class="form-control form-control-sm alarm-history-search ms-auto" :placeholder="t('historySearchPlaceholder')"></div>
-      <div class="table-responsive">
-        <table class="table alarm-table table-hover align-middle mb-0">
-          <thead><tr><th>{{ t('event') }}</th><th>{{ t('device') }}</th><th>{{ t('time') }}</th><th class="text-end">{{ t('actions') }}</th></tr></thead>
-          <tbody>
-            <tr v-if="historyLoading"><td colspan="4" class="py-5 text-center text-body-secondary"><span class="spinner-border spinner-border-sm me-2"></span>{{ t('loading') }}</td></tr>
-            <tr v-else-if="!filteredLegacyEvents.length"><td colspan="4" class="py-5 text-center text-body-secondary"><i class="bi bi-inbox d-block fs-3 mb-2"></i>{{ t('historyEmpty') }}</td></tr>
-            <tr v-for="(event, index) in filteredLegacyEvents" :key="legacyEventKey(event, index)" class="alarm-row" role="button" tabindex="0" :aria-label="`${t('details')}: ${legacyEventTitle(event)}`" @click="openLegacyDetail(event)" @keydown.enter.prevent="openLegacyDetail(event)" @keydown.space.prevent="openLegacyDetail(event)">
-              <td class="alarm-main-cell"><div class="alarm-main-line text-truncate"><span class="fw-semibold">{{ legacyEventTitle(event) }}</span></div></td>
-              <td :data-label="t('device')">{{ legacyDeviceName(event) }}</td>
-              <td :data-label="t('time')">{{ formatTime(event.ts || event.timestamp || event.created_at) }}</td>
-              <td class="text-end alarm-actions-cell" :data-label="t('actions')"><button type="button" class="btn btn-sm btn-outline-secondary" @click.stop="openLegacyDetail(event)">{{ t('details') }}</button></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <ListPagination :page="legacyPage" :page-size="legacyPageSize" :total="legacyTotal" :page-size-options="pageSizeOptions" :disabled="historyLoading" id-prefix="alarm-history" @update:page="goLegacyPage" @update:page-size="changeLegacyPageSize" />
-    </section>
-
-    <div v-if="selected" class="offcanvas-backdrop fade show" @click="closeDetail"></div>
-    <aside v-if="selected" ref="detailDialog" class="alarm-drawer shadow-lg" aria-modal="true" role="dialog" tabindex="-1" aria-labelledby="alarm-detail-title">
-      <div class="alarm-drawer__head"><div><span class="badge rounded-pill" :class="conditionClass(selectedAlarm.condition_status)">{{ conditionText(selectedAlarm.condition_status) }}</span><h2 id="alarm-detail-title" class="h5 mt-2 mb-1">{{ titleOf(selected) }}</h2><p class="text-body-secondary small mb-0">{{ alarmContextText(selected) }}</p></div><button type="button" class="btn-close" :aria-label="t('close')" @click="closeDetail"></button></div>
-      <div class="alarm-drawer__body">
-        <div v-if="detailLoading" class="text-center py-4"><span class="spinner-border spinner-border-sm me-2"></span>{{ t('loading') }}</div>
-        <template v-else>
-          <div class="alarm-detail-summary border small"><div class="d-flex justify-content-between"><span>{{ t('severity') }}</span><strong :class="`text-${severityTone(severityOf(selected))}`">{{ severityText(severityOf(selected)) }}</strong></div><div class="d-flex justify-content-between mt-2"><span>{{ t('condition') }}</span><strong>{{ conditionText(selectedAlarm.condition_status) }}</strong></div><div class="d-flex justify-content-between mt-2"><span>{{ t('handling') }}</span><strong>{{ handlingText(selectedAlarm.handling_status) }}</strong></div><div class="d-flex justify-content-between gap-3 mt-2"><span>{{ t('owner') }}</span><strong class="text-end">{{ currentHandlerText(selected) }}</strong></div><div class="d-flex justify-content-between mt-2"><span>{{ t('occurrence') }}</span><strong>{{ selectedAlarm.occurrence_count || 1 }}</strong></div></div>
-          <div class="d-grid gap-2 mb-4">
-            <button v-if="canAcknowledge(selected)" type="button" class="btn btn-primary" @click="acknowledge(selected)"><i class="bi bi-check2-circle me-1"></i>{{ t('acknowledge') }}</button>
-            <button v-if="canCreateWorkOrder(selected)" type="button" class="btn btn-outline-primary" @click="openWorkOrder(selected)"><i class="bi bi-ticket-detailed me-1"></i>{{ t('createWorkOrder') }}</button>
-            <button v-else-if="selectedAlarm.work_order_public_id" type="button" class="btn btn-outline-primary" @click="goWorkOrder(selectedAlarm.work_order_public_id)"><i class="bi bi-box-arrow-up-right me-1"></i>{{ t('viewWorkOrder') }}</button>
-            <button v-if="canAssignAlarm(selected)" type="button" class="btn btn-outline-secondary" @click="openOperation('assign')"><i class="bi bi-person-plus me-1"></i>{{ t('assign') }}</button>
-            <details v-if="canOperate(selected)" class="alarm-more-actions">
-              <summary class="btn btn-outline-secondary w-100"><i class="bi bi-three-dots me-1"></i>{{ t('moreActions') }}</summary>
-              <div class="alarm-more-actions__menu border rounded p-2 mt-2 d-grid gap-2">
-                <p class="small text-body-secondary mb-0">{{ t('pauseNotificationsHelp') }}</p>
-                <button v-if="selectedAlarm.handling_status !== 'shelved'" type="button" class="btn btn-outline-secondary" @click="openOperation('shelve')"><i class="bi bi-bell-slash me-1"></i>{{ t('shelve') }}</button>
-                <button v-else type="button" class="btn btn-outline-secondary" @click="unshelve"><i class="bi bi-bell me-1"></i>{{ t('unshelve') }}</button>
-                <button v-if="canClose(selected)" type="button" class="btn btn-outline-danger" @click="openOperation('close')"><i class="bi bi-check2-all me-1"></i>{{ t('closeAlarm') }}</button>
-              </div>
-            </details>
-          </div>
-          <section class="mb-4"><h3 class="section-title">{{ t('evidence') }}</h3><img v-if="snapshotUrl(selected)" :src="snapshotUrl(selected)" class="img-fluid rounded border mb-2" :alt="t('snapshot')"><dl class="small mb-0"><div><dt>{{ t('device') }}</dt><dd>{{ alarmDeviceName(selected) }}</dd></div><div><dt>{{ t('product') }}</dt><dd>{{ alarmProductName(selected) }}</dd></div><div><dt>{{ t('event') }}</dt><dd>{{ alarmEventName(selected) }}</dd></div><div><dt>{{ t('source') }}</dt><dd>{{ sourceTypeText(selectedAlarm.source_type) }}</dd></div><div><dt>{{ t('firstSeen') }}</dt><dd>{{ formatTime(selectedAlarm.first_occurred_at) }}</dd></div><div><dt>{{ t('recoveredAt') }}</dt><dd>{{ formatTime(selectedAlarm.recovered_at) }}</dd></div></dl></section>
-          <section><h3 class="section-title">{{ t('timeline') }}</h3><ol class="timeline"><li v-for="event in selectedEvents" :key="event.event.id || event.event.ID"><strong>{{ eventText(event.event.type) }}</strong><time :datetime="event.created_at || event.event.created_at || event.event.CreatedAt || undefined">{{ formatTime(event.created_at || event.event.created_at || event.event.CreatedAt) }}</time><p v-if="timelineDetail(event)" class="mb-0">{{ timelineDetail(event) }}</p></li><li v-if="!selectedEvents.length" class="text-body-secondary">{{ t('noTimeline') }}</li></ol></section>
-        </template>
-      </div>
-    </aside>
-
-    <div v-if="operation" class="modal fade show d-block modal-backdrop-layer" @click.self="closeOperation"><div ref="operationDialog" class="modal-dialog modal-dialog-centered" role="dialog" aria-modal="true" :aria-labelledby="'operation-title'"><div class="modal-content"><div class="modal-header"><h2 id="operation-title" class="modal-title h5">{{ operationTitle }}</h2><button type="button" class="btn-close" :aria-label="t('close')" @click="closeOperation"></button></div><div class="modal-body"><div v-if="operationError" class="alert alert-danger py-2">{{ operationError }}</div><template v-if="operation === 'assign'"><label class="form-label" for="alarm-assignee">{{ t('assignee') }}</label><select id="alarm-assignee" v-model.number="operationForm.ownerUserID" class="form-select"><option :value="0">{{ t('selectAssignee') }}</option><option v-for="person in participants" :key="person.id" :value="person.id">{{ participantName(person) }}</option></select></template><template v-else-if="operation === 'shelve'"><label class="form-label" for="alarm-shelve-reason">{{ t('reason') }}</label><textarea id="alarm-shelve-reason" v-model.trim="operationForm.reason" class="form-control" rows="3" :placeholder="t('shelveReasonHint')"></textarea><label class="form-label mt-3" for="alarm-shelve-until">{{ t('until') }}</label><input id="alarm-shelve-until" v-model="operationForm.until" type="datetime-local" class="form-control"><div class="form-text">{{ t('untilHint') }}</div></template><template v-else><label class="form-label" for="alarm-disposition">{{ t('disposition') }}</label><select id="alarm-disposition" v-model="operationForm.disposition" class="form-select"><option v-if="selectedAlarm.condition_status === 'recovered'" value="resolved">{{ t('resolved') }}</option><option v-if="canExceptionClose(selected)" value="false_positive">{{ t('falsePositive') }}</option><option v-if="canExceptionClose(selected)" value="duplicate">{{ t('duplicate') }}</option><option v-if="canExceptionClose(selected)" value="maintenance">{{ t('maintenance') }}</option><option v-if="canExceptionClose(selected)" value="no_action_required">{{ t('noAction') }}</option></select><label class="form-label mt-3" for="alarm-close-comment">{{ t('comment') }}</label><textarea id="alarm-close-comment" v-model.trim="operationForm.comment" class="form-control" rows="3"></textarea><div class="form-text">{{ t('closeGuardHint') }}</div></template></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" @click="closeOperation">{{ t('cancel') }}</button><button type="button" class="btn btn-primary" :disabled="operationSubmitting" @click="submitOperation"><span v-if="operationSubmitting" class="spinner-border spinner-border-sm me-1"></span>{{ t('confirm') }}</button></div></div></div></div>
-
-    <div v-if="showWorkOrder" class="modal fade show d-block modal-backdrop-layer" @click.self="closeWorkOrder"><div ref="workOrderDialog" class="modal-dialog modal-lg modal-dialog-scrollable" role="dialog" aria-modal="true" :aria-labelledby="'work-order-title'"><div class="modal-content"><div class="modal-header"><div><h2 id="work-order-title" class="modal-title h5 mb-1">{{ t('createWorkOrder') }}</h2><p class="small text-body-secondary mb-0">{{ t('evidenceAttached') }}</p></div><button type="button" class="btn-close" :aria-label="t('close')" @click="closeWorkOrder"></button></div><div class="modal-body"><div v-if="workOrderError" class="alert alert-danger py-2">{{ workOrderError }}</div><div v-if="workOrderSuccess" class="alert alert-success py-2">{{ workOrderSuccess }}</div><div class="row g-3 mb-3"><div class="col-md-6"><label class="form-label" for="alarm-work-order-template">{{ t('template') }} *</label><select id="alarm-work-order-template" v-model.number="workOrder.templateId" class="form-select" @change="loadWorkOrderTemplate"><option :value="0">{{ t('selectTemplate') }}</option><option v-for="template in workOrderTemplates" :key="template.ID" :value="template.ID">{{ template.name }}</option></select></div><div class="col-md-3"><label class="form-label" for="alarm-work-order-priority">{{ t('priority') }}</label><select id="alarm-work-order-priority" v-model="workOrder.priority" class="form-select"><option value="low">{{ t('low') }}</option><option value="normal">{{ t('normal') }}</option><option value="high">{{ t('high') }}</option><option value="urgent">{{ t('urgent') }}</option></select></div><div class="col-12"><label class="form-label" for="alarm-work-order-summary">{{ t('workOrderTitle') }} *</label><input id="alarm-work-order-summary" v-model.trim="workOrder.title" class="form-control"></div><div class="col-12"><label class="form-label" for="alarm-work-order-description">{{ t('summary') }}</label><textarea id="alarm-work-order-description" v-model.trim="workOrder.summary" class="form-control" rows="2" :placeholder="t('summaryHint')"></textarea></div></div><div v-if="workOrderTemplate" class="border-top pt-3"><h3 class="h6">{{ t('form') }}</h3><p class="small text-body-secondary">{{ t('formHint') }}</p><WorkOrderFormFields v-model="workOrder.formData" :definition="workOrderTemplate.form_definition" id-prefix="alarm-work-order" :locale="locale" /></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" @click="closeWorkOrder">{{ t('cancel') }}</button><button type="button" class="btn btn-primary" :disabled="workOrderSubmitting" @click="createWorkOrder"><span v-if="workOrderSubmitting" class="spinner-border spinner-border-sm me-1"></span>{{ t('create') }}</button></div></div></div></div>
-
-    <div v-if="showPolicies" class="modal fade show d-block modal-backdrop-layer">
-      <div ref="policyDialog" class="modal-dialog modal-lg modal-dialog-scrollable" role="dialog" aria-modal="true" :aria-labelledby="'policy-title'">
-        <div class="modal-content">
-          <div class="modal-header"><h2 id="policy-title" class="modal-title h5">{{ t('policies') }}</h2><button type="button" class="btn-close" :aria-label="t('close')" @click="closePolicies"></button></div>
-          <div class="modal-body" @mouseover="handlePolicyHelpEnter" @mouseout="handlePolicyHelpLeave" @focusin="handlePolicyHelpEnter" @focusout="handlePolicyHelpLeave" @scroll.passive="hidePolicyHelp">
-            <div v-if="policyError" class="alert alert-danger py-2">{{ policyError }}</div>
-            <div class="d-flex flex-wrap justify-content-between gap-2 mb-3"><p class="small text-body-secondary mb-0">{{ t('policyHint') }}</p><button type="button" class="btn btn-sm btn-outline-primary" @click="editPolicy({ enabled: true, auto_close: true, severity: 'warning' })"><i class="bi bi-plus-lg me-1"></i>{{ t('newPolicy') }}</button></div>
-            <div v-if="editingPolicy" class="card alarm-muted-surface card-body mb-3">
-              <h3 class="h6 mb-3">{{ t('policyBasicSettings') }}</h3>
+          <LiquidGlassPopover placement="bottom-start" panel-class="noyo-device-filter-popover" :label="t('filter')" :trigger-label="t('filter')">
+            <template #trigger>
+              <span class="btn btn-outline-secondary btn-sm device-filter-trigger">
+                <i class="bi bi-funnel" aria-hidden="true"></i>
+                <span>{{ t('filter') }}</span>
+                <span v-if="activeFilterLabels.length" class="device-filter-count">{{ activeFilterLabels.length }}</span>
+              </span>
+            </template>
+            <div class="noyo-filter-panel">
               <div class="row g-2">
-                <div class="col-md-6"><label class="form-label small" for="policy-name">{{ t('policyName') }} <span class="text-danger">*</span><button type="button" class="policy-help" :aria-label="t('policyNameHelp')" :data-help="t('policyNameHelp')">?</button></label><input id="policy-name" v-model.trim="editingPolicy.name" class="form-control" maxlength="255" required></div>
-                <div class="col-md-6"><label class="form-label small" for="policy-severity">{{ t('handlingSeverity') }} <span class="text-danger">*</span><button type="button" class="policy-help" :aria-label="t('severityHelp')" :data-help="t('severityHelp')">?</button></label><select id="policy-severity" v-model="editingPolicy.severity" class="form-select"><option value="critical">{{ t('critical') }}</option><option value="major">{{ t('major') }}</option><option value="warning">{{ t('warning') }}</option><option value="info">{{ t('info') }}</option></select></div>
-                <div class="col-md-6"><label class="form-label small" for="policy-enabled">{{ t('policyStatus') }} <button type="button" class="policy-help" :aria-label="t('policyStatusHelp')" :data-help="t('policyStatusHelp')">?</button></label><select id="policy-enabled" v-model="editingPolicy.enabled" class="form-select"><option :value="true">{{ t('enabled') }}</option><option :value="false">{{ t('disabled') }}</option></select></div>
-                <div class="col-md-6"><label class="form-label small" for="policy-match-mode">{{ t('matchBasis') }} <span class="text-danger">*</span><button type="button" class="policy-help" :aria-label="t('matchBasisHelp')" :data-help="t('matchBasisHelp')">?</button></label><select id="policy-match-mode" v-model="editingPolicy.match_mode" class="form-select" @change="syncPolicyMatchMode"><option value="events">{{ t('matchSpecificEvents') }}</option><option value="levels">{{ t('matchEventLevels') }}</option><option value="all">{{ t('allDeviceEvents') }}</option></select></div>
-                <div class="col-12">
-                  <div id="policy-event-label" class="form-label small mb-1">{{ t('applicableEvent') }} <span class="badge rounded-pill text-bg-secondary ms-2">{{ policyEventSelectionText(editingPolicy) }}</span></div>
-                  <div v-if="editingPolicy.match_mode === 'events'" class="policy-event-picker" role="group" aria-labelledby="policy-event-label">
-                    <div v-if="selectedPolicyEventOptions.length" class="policy-selected-events"><button v-for="option in selectedPolicyEventOptions" :key="option.value" type="button" class="badge rounded-pill text-bg-primary border-0" :aria-label="`${t('remove')}: ${option.label}`" @click="removePolicyEvent(option.value)">{{ option.label }} <i class="bi bi-x"></i></button></div>
-                    <div class="policy-event-browser">
-                      <label class="form-label small mb-1" for="policy-product-filter">{{ t('selectProduct') }}</label>
-                      <select id="policy-product-filter" v-model="policyProductGroup" class="form-select form-select-sm"><option v-for="group in policyEventGroups" :key="group.key" :value="group.key">{{ group.label }} · {{ group.options.length }}</option></select>
-                      <label class="visually-hidden" for="policy-event-search">{{ t('searchEvents') }}</label><input id="policy-event-search" v-model.trim="policyEventSearch" class="form-control form-control-sm mt-2" :placeholder="t('searchEvents')">
-                    </div>
-                    <div class="policy-event-options">
-                      <label v-for="option in filteredPolicyEventOptions" :key="option.value" class="policy-event-option"><input v-model="editingPolicy.source_refs" class="form-check-input" type="checkbox" :value="option.value" @change="selectSpecificPolicyEvent"><span><strong>{{ option.label }}</strong><small v-if="option.meta" class="d-block text-body-secondary">{{ option.meta }}</small></span></label>
-                      <div v-if="!filteredPolicyEventOptions.length" class="small text-body-secondary p-2">{{ t('noMatchingEvents') }}</div>
-                    </div>
+                <div class="col-12 col-md-6">
+                  <select id="alarm-severity" v-model="filters.severity" class="form-select form-select-sm" @change="applyFilters">
+                    <option value="">{{ t('severity') }}: {{ t('all') }}</option>
+                    <option value="critical">{{ t('critical') }}</option>
+                    <option value="major">{{ t('major') }}</option>
+                    <option value="warning">{{ t('warning') }}</option>
+                    <option value="info">{{ t('info') }}</option>
+                  </select>
+                </div>
+                <div class="col-12 col-md-6">
+                  <select id="alarm-condition" v-model="filters.condition" class="form-select form-select-sm" @change="applyFilters">
+                    <option value="">{{ t('condition') }}: {{ t('all') }}</option>
+                    <option value="firing">{{ t('firing') }}</option>
+                    <option value="recovered">{{ t('recovered') }}</option>
+                  </select>
+                </div>
+                <div class="col-12 col-md-6">
+                  <select id="alarm-handling" v-model="filters.handling" class="form-select form-select-sm" @change="applyFilters">
+                    <option value="">{{ t('handling') }}: {{ t('all') }}</option>
+                    <option v-for="key in handlingKeys" :key="key" :value="key">{{ handlingText(key) }}</option>
+                  </select>
+                </div>
+                <div class="col-12 col-md-6 d-flex align-items-center">
+                  <div class="form-check form-switch m-0 small">
+                    <input id="include-closed" v-model="filters.includeClosed" class="form-check-input" type="checkbox" @change="toggleIncludeClosed">
+                    <label class="form-check-label ms-1" for="include-closed">{{ t('includeClosed') }}</label>
                   </div>
-                  <div v-else-if="editingPolicy.match_mode === 'levels'" class="policy-level-picker border rounded p-3" role="group" aria-labelledby="policy-event-label">
-                    <p class="small text-body-secondary mb-2">{{ t('eventLevelHint') }}</p>
-                    <label v-for="level in policyEventLevels" :key="level.value" class="form-check form-check-inline mb-0"><input v-model="editingPolicy.event_levels" class="form-check-input" type="checkbox" :value="level.value"><span class="form-check-label">{{ level.label }}</span></label>
-                  </div>
-                  <div v-else class="alert alert-secondary py-2 mb-0">{{ t('allEventsPolicyHint') }}</div>
+                </div>
+                <div class="col-12 d-flex gap-2 justify-content-end">
+                  <button type="button" class="btn btn-primary btn-sm px-3" :disabled="loading" @click="applyFilters">
+                    <i class="bi bi-search me-1"></i>{{ t('filter') }}
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm" :title="t('reset')" @click="resetFilters">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>{{ t('reset') }}
+                  </button>
                 </div>
               </div>
-              <h3 class="h6 mt-4 mb-3">{{ t('policyHandlingSettings') }}</h3>
-              <div class="row g-2">
-                <div class="col-md-6"><label class="form-label small" for="policy-recovery-mode">{{ t('recoveryMode') }} <button type="button" class="policy-help" :aria-label="t('recoveryModeHelp')" :data-help="t('recoveryModeHelp')">?</button></label><select id="policy-recovery-mode" v-model="editingPolicy.auto_close" class="form-select"><option :value="true">{{ t('recoveryAutoClose') }}</option><option :value="false">{{ t('recoveryManualClose') }}</option></select></div>
-                <div class="col-md-6"><label class="form-label small" for="policy-recovery-hold">{{ t('recoveryHold') }} <button type="button" class="policy-help" :aria-label="t('recoveryHoldHelp')" :data-help="t('recoveryHoldHelp')">?</button></label><select id="policy-recovery-hold" v-model.number="editingPolicy.recovery_hold_seconds" class="form-select"><option v-for="option in recoveryHoldOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
-                <div class="col-md-6"><label class="form-label small" for="policy-work-order-mode">{{ t('workOrderHandling') }} <button type="button" class="policy-help" :aria-label="t('workOrderHandlingHelp')" :data-help="t('workOrderHandlingHelp')">?</button></label><select id="policy-work-order-mode" v-model="editingPolicy.work_order_mode" class="form-select" @change="syncPolicyWorkOrderOptions"><option value="none">{{ t('workOrderNone') }}</option><option value="required">{{ t('workOrderRequired') }}</option><option value="auto">{{ t('workOrderAuto') }}</option></select></div>
-                <div v-if="editingPolicy.work_order_mode === 'auto'" class="col-md-6"><label class="form-label small" for="policy-work-order-template">{{ t('template') }} <span class="text-danger">*</span><button type="button" class="policy-help" :aria-label="t('workOrderTemplateHelp')" :data-help="t('workOrderTemplateHelp')">?</button></label><select id="policy-work-order-template" v-model.number="editingPolicy.work_order_template_id" class="form-select"><option :value="0">{{ t('selectTemplate') }}</option><option v-for="template in policyTemplates" :key="template.ID" :value="template.ID">{{ template.name }}</option></select></div>
-                <div class="col-md-6"><label class="form-label small" for="policy-exception-close">{{ t('exceptionClose') }} <button type="button" class="policy-help" :aria-label="t('exceptionCloseHelp')" :data-help="t('exceptionCloseHelp')">?</button></label><select id="policy-exception-close" v-model="editingPolicy.allow_exception_close" class="form-select"><option :value="false">{{ t('notAllowed') }}</option><option :value="true">{{ t('allowed') }}</option></select></div>
-                <div class="col-lg-6"><label class="form-label small" for="policy-ack-days">{{ t('ackSla') }} <button type="button" class="policy-help" :aria-label="t('ackSlaHelp')" :data-help="t('ackSlaHelp')">?</button></label><div class="policy-duration" role="group" :aria-label="t('ackSla')"><div class="input-group input-group-sm"><input id="policy-ack-days" v-model.number="editingPolicy.acknowledge_sla_parts.days" type="number" min="0" step="1" class="form-control" @input="markPolicyDurationChanged('acknowledge')"><span class="input-group-text">{{ t('days') }}</span></div><div class="input-group input-group-sm"><input v-model.number="editingPolicy.acknowledge_sla_parts.hours" type="number" min="0" max="23" step="1" class="form-control" :aria-label="t('hours')" @input="markPolicyDurationChanged('acknowledge')"><span class="input-group-text">{{ t('hours') }}</span></div><div class="input-group input-group-sm"><input v-model.number="editingPolicy.acknowledge_sla_parts.minutes" type="number" min="0" max="59" step="1" class="form-control" :aria-label="t('minutes')" @input="markPolicyDurationChanged('acknowledge')"><span class="input-group-text">{{ t('minutes') }}</span></div></div><div class="form-text">{{ t('zeroDurationNoLimit') }}</div><div v-if="editingPolicy.acknowledge_sla_remainder" class="form-text text-warning">{{ t('legacySecondRemainder') }}</div></div>
-                <div class="col-lg-6"><label class="form-label small" for="policy-resolution-days">{{ t('resolutionSla') }} <button type="button" class="policy-help" :aria-label="t('resolutionSlaHelp')" :data-help="t('resolutionSlaHelp')">?</button></label><div class="policy-duration" role="group" :aria-label="t('resolutionSla')"><div class="input-group input-group-sm"><input id="policy-resolution-days" v-model.number="editingPolicy.resolution_sla_parts.days" type="number" min="0" step="1" class="form-control" @input="markPolicyDurationChanged('resolution')"><span class="input-group-text">{{ t('days') }}</span></div><div class="input-group input-group-sm"><input v-model.number="editingPolicy.resolution_sla_parts.hours" type="number" min="0" max="23" step="1" class="form-control" :aria-label="t('hours')" @input="markPolicyDurationChanged('resolution')"><span class="input-group-text">{{ t('hours') }}</span></div><div class="input-group input-group-sm"><input v-model.number="editingPolicy.resolution_sla_parts.minutes" type="number" min="0" max="59" step="1" class="form-control" :aria-label="t('minutes')" @input="markPolicyDurationChanged('resolution')"><span class="input-group-text">{{ t('minutes') }}</span></div></div><div class="form-text">{{ t('zeroDurationNoLimit') }}</div><div v-if="editingPolicy.resolution_sla_remainder" class="form-text text-warning">{{ t('legacySecondRemainder') }}</div></div>
-              </div>
-              <div class="text-end mt-3"><button type="button" class="btn btn-sm btn-outline-secondary me-2" @click="editingPolicy = null">{{ t('cancel') }}</button><button type="button" class="btn btn-sm btn-primary" @click="savePolicy">{{ t('save') }}</button></div>
             </div>
-            <div v-if="!policies.length && !editingPolicy" class="alarm-empty-state text-center border rounded p-4"><i class="bi bi-sliders fs-3 d-block mb-2"></i><h3 class="h6">{{ t('noPoliciesTitle') }}</h3><p class="small text-body-secondary mb-3">{{ t('noPoliciesHint') }}</p><button type="button" class="btn btn-outline-primary btn-sm" @click="editPolicy({ enabled: true, auto_close: true, severity: 'warning' })">{{ t('newPolicy') }}</button></div>
-            <div v-if="policies.length && (!editingPolicy || editingPolicy.ID)" class="table-responsive border rounded">
-              <table class="table table-hover align-middle mb-0 policy-table"><thead><tr><th>{{ t('policyName') }}</th><th>{{ t('applicableEvent') }}</th><th>{{ t('handlingSeverity') }}</th><th>{{ t('policyStatus') }}</th><th class="text-end">{{ t('actions') }}</th></tr></thead><tbody><tr v-for="policy in policies" :key="policy.ID"><td><strong>{{ policy.name }}</strong><div class="small text-body-secondary">{{ policyWorkOrderModeLabel(policy) }}</div></td><td>{{ policyEventLabel(policy) }}</td><td><span class="badge rounded-pill" :class="`text-bg-${severityTone(policy.severity)}`">{{ severityText(policy.severity) }}</span></td><td><span class="badge rounded-pill" :class="policy.enabled ? 'text-bg-success' : 'text-bg-secondary'">{{ policy.enabled ? t('enabled') : t('disabled') }}</span></td><td class="text-end"><div class="btn-group btn-group-sm"><button type="button" class="btn btn-outline-secondary" @click="editPolicy(policy)">{{ t('edit') }}</button><button type="button" class="btn btn-outline-danger" @click="deletePolicy(policy)">{{ t('delete') }}</button></div></td></tr></tbody></table>
+          </LiquidGlassPopover>
+        </div>
+        <CompactListMetrics v-model="activeQuickFilters" :metrics="statCards" class="list-toolbar-metrics" :aria-label="t('overview')" @toggle="applyQuickFilter" />
+      </div>
+
+      <div class="card border-0 shadow-sm table-glass-card flex-grow-1 min-h-0 overflow-hidden" role="tabpanel" aria-labelledby="alarm-queue-tab">
+        <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+          <div class="table-responsive flex-grow-1 overflow-auto">
+            <table class="table table-hover align-middle mb-0 alarm-table">
+              <thead class="table-light sticky-top">
+                <tr>
+                  <th class="ps-4" style="min-width: 280px;">{{ t('alarm') }}</th>
+                  <th style="min-width: 140px;">{{ t('state') }}</th>
+                  <th style="min-width: 110px;">{{ t('handling') }}</th>
+                  <th class="text-center" style="min-width: 80px;">{{ t('occurrence') }}</th>
+                  <th style="min-width: 110px;">{{ t('owner') }}</th>
+                  <th style="min-width: 150px;">{{ t('time') }}</th>
+                  <th style="min-width: 120px;">{{ t('workOrder') }}</th>
+                  <th class="text-end pe-4" style="min-width: 160px;">{{ t('actions') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="loading && !items.length">
+                  <td colspan="8" class="py-5 text-center text-body-secondary">
+                    <span class="spinner-border spinner-border-sm me-2"></span>{{ t('loading') }}
+                  </td>
+                </tr>
+                <tr v-else-if="!items.length">
+                  <td colspan="8" class="py-5 text-center text-body-secondary">
+                    <i class="bi bi-shield-check d-block fs-2 mb-2 text-success"></i>
+                    <div>{{ t('empty') }}</div>
+                    <button type="button" class="btn btn-link btn-sm mt-2" @click="openHistory">{{ t('viewHistory') }}</button>
+                  </td>
+                </tr>
+                <tr
+                  v-for="item in items"
+                  :key="alarmOf(item).public_id"
+                  class="alarm-row cursor-pointer"
+                  tabindex="0"
+                  @click="openDetail(item)"
+                  @keydown.enter.prevent="openDetail(item)"
+                  @keydown.space.prevent="openDetail(item)"
+                >
+                  <!-- 告警与来源（两行排版） -->
+                  <td class="ps-4">
+                    <div class="d-flex align-items-start gap-2">
+                      <span class="severity-dot mt-1 flex-shrink-0" :class="`severity-dot--${severityOf(item)}`"></span>
+                      <div class="d-flex flex-column min-w-0">
+                        <span class="fw-semibold text-body text-truncate mb-1" :title="titleOf(item)">
+                          {{ titleOf(item) }}
+                        </span>
+                        <div class="d-flex flex-wrap align-items-center gap-1 small text-body-secondary">
+                          <span class="badge text-bg-light border text-body-secondary fw-normal">
+                            <i class="bi bi-hdd-network me-1"></i>{{ alarmDeviceName(item) }}
+                          </span>
+                          <span v-if="alarmEventName(item)" class="badge text-bg-light border text-body-secondary fw-normal">
+                            <i class="bi bi-lightning-charge me-1"></i>{{ alarmEventName(item) }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <!-- 状态与级别 -->
+                  <td>
+                    <div class="d-flex flex-column gap-1 align-items-start">
+                      <span class="badge rounded-pill" :class="conditionClass(alarmOf(item).condition_status)">
+                        {{ conditionText(alarmOf(item).condition_status) }}
+                      </span>
+                      <span class="badge rounded-pill" :class="`text-bg-${severityTone(severityOf(item))}`">
+                        {{ severityText(severityOf(item)) }}
+                      </span>
+                    </div>
+                  </td>
+                  <!-- 处置状态 -->
+                  <td>
+                    <span class="badge rounded-pill badge-handling">
+                      {{ handlingText(alarmOf(item).handling_status) }}
+                    </span>
+                  </td>
+                  <!-- 触发频次 -->
+                  <td class="text-center">
+                    <span class="badge rounded-pill" :class="alarmOf(item).occurrence_count > 1 ? 'text-bg-warning' : 'text-bg-light border text-body'">
+                      {{ alarmOf(item).occurrence_count || 1 }}
+                    </span>
+                    <span v-if="alarmOf(item).notification_muted" class="text-warning ms-1" :title="t('shelved')">
+                      <i class="bi bi-bell-slash"></i>
+                    </span>
+                  </td>
+                  <!-- 责任人 -->
+                  <td>
+                    <span v-if="alarmOf(item).owner_user_id" class="badge text-bg-info-subtle text-info-emphasis border border-info-subtle">
+                      <i class="bi bi-person me-1"></i>{{ currentHandlerText(item) }}
+                    </span>
+                    <span v-else class="text-body-secondary small">
+                      <i class="bi bi-person-x me-1"></i>{{ t('unclaimed') }}
+                    </span>
+                  </td>
+                  <!-- 发生时间 -->
+                  <td>
+                    <div class="small text-body">
+                      {{ formatTime(alarmOf(item).last_occurred_at || alarmOf(item).created_at) }}
+                    </div>
+                  </td>
+                  <!-- 关联工单 -->
+                  <td>
+                    <button
+                      v-if="alarmOf(item).work_order_public_id"
+                      type="button"
+                      class="btn btn-sm btn-outline-primary py-0 px-2 rounded-pill"
+                      @click.stop="goWorkOrder(alarmOf(item).work_order_public_id)"
+                    >
+                      <i class="bi bi-ticket-detailed me-1"></i>{{ t('viewWorkOrder') }}
+                    </button>
+                    <span v-else class="text-body-secondary small">-</span>
+                  </td>
+                  <!-- 操作 -->
+                  <td class="text-end pe-4" @click.stop>
+                    <div class="table-actions">
+                      <button
+                        v-if="canAcknowledge(item)"
+                        type="button"
+                        class="table-action-btn table-action-btn--text table-action-btn--primary"
+                        @click="acknowledge(item)"
+                      >
+                        <i class="bi bi-check2"></i> {{ t('acknowledge') }}
+                      </button>
+                      <button
+                        v-if="canCreateWorkOrder(item)"
+                        type="button"
+                        class="table-action-btn table-action-btn--text table-action-btn--info"
+                        @click="openWorkOrder(item)"
+                      >
+                        <i class="bi bi-ticket-detailed"></i> {{ t('createWorkOrder') }}
+                      </button>
+                      <button
+                        type="button"
+                        class="table-action-btn table-action-btn--text"
+                        @click="openDetail(item)"
+                      >
+                        <i class="bi bi-eye"></i> {{ t('details') }}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <ListPagination
+            :page="page"
+            :page-size="pageSize"
+            :total="total"
+            :page-size-options="pageSizeOptions"
+            :disabled="loading"
+            id-prefix="alarm-queue"
+            @update:page="goQueuePage"
+            @update:page-size="changeQueuePageSize"
+          />
+        </div>
+      </div>
+    </template>
+
+    <!-- Tab Content: History Events -->
+    <template v-else>
+      <div class="card border-0 shadow-sm table-glass-card flex-grow-1 min-h-0 overflow-hidden" role="tabpanel" aria-labelledby="alarm-history-tab">
+        <div class="card-header bg-transparent d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 px-3 border-bottom">
+          <div class="d-flex align-items-center gap-2">
+            <strong class="h6 mb-0">{{ t('history') }}</strong>
+            <span class="alarm-history-help">
+              <button type="button" class="alarm-history-help__trigger" :aria-label="t('historyNotice')">
+                <i class="bi bi-info-circle"></i>
+              </button>
+              <span class="alarm-history-help__popover" role="tooltip">{{ t('historyNotice') }}</span>
+            </span>
+          </div>
+          <div style="max-width: 280px;">
+            <div class="input-group input-group-sm">
+              <span class="input-group-text bg-transparent"><i class="bi bi-search"></i></span>
+              <input
+                id="legacy-search"
+                v-model.trim="legacySearch"
+                class="form-control"
+                :placeholder="t('historySearchPlaceholder')"
+              >
+            </div>
+          </div>
+        </div>
+        <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+          <div class="table-responsive flex-grow-1 overflow-auto">
+            <table class="table table-hover align-middle mb-0 alarm-table">
+              <thead class="table-light sticky-top">
+                <tr>
+                  <th class="ps-4" style="min-width: 240px;">{{ t('event') }}</th>
+                  <th style="min-width: 180px;">{{ t('device') }}</th>
+                  <th style="min-width: 160px;">{{ t('time') }}</th>
+                  <th class="text-end pe-4" style="min-width: 100px;">{{ t('actions') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="historyLoading">
+                  <td colspan="4" class="py-5 text-center text-body-secondary">
+                    <span class="spinner-border spinner-border-sm me-2"></span>{{ t('loading') }}
+                  </td>
+                </tr>
+                <tr v-else-if="!filteredLegacyEvents.length">
+                  <td colspan="4" class="py-5 text-center text-body-secondary">
+                    <i class="bi bi-inbox d-block fs-2 mb-2 text-secondary"></i>
+                    <div>{{ t('historyEmpty') }}</div>
+                  </td>
+                </tr>
+                <tr
+                  v-for="(event, index) in filteredLegacyEvents"
+                  :key="legacyEventKey(event, index)"
+                  class="alarm-row cursor-pointer"
+                  tabindex="0"
+                  @click="openLegacyDetail(event)"
+                  @keydown.enter.prevent="openLegacyDetail(event)"
+                  @keydown.space.prevent="openLegacyDetail(event)"
+                >
+                  <td class="ps-4">
+                    <div class="fw-semibold text-body">{{ legacyEventTitle(event) }}</div>
+                  </td>
+                  <td>{{ legacyDeviceName(event) }}</td>
+                  <td>{{ formatTime(event.ts || event.timestamp || event.created_at) }}</td>
+                  <td class="text-end pe-4" @click.stop>
+                    <div class="table-actions">
+                      <button type="button" class="table-action-btn table-action-btn--text" @click.stop="openLegacyDetail(event)">
+                        <i class="bi bi-eye"></i> {{ t('details') }}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <ListPagination
+            :page="legacyPage"
+            :page-size="legacyPageSize"
+            :total="legacyTotal"
+            :page-size-options="pageSizeOptions"
+            :disabled="historyLoading"
+            id-prefix="alarm-history"
+            @update:page="goLegacyPage"
+            @update:page-size="changeLegacyPageSize"
+          />
+        </div>
+      </div>
+    </template>
+
+    <!-- 抽屉与全局弹窗 (Teleport to body 避免被侧边栏与顶部栏遮挡) -->
+    <Teleport to="body">
+      <!-- 告警详情抽屉 -->
+      <div v-if="selected" class="offcanvas-backdrop fade show" @click="closeDetail"></div>
+      <aside
+        v-if="selected"
+        ref="detailDialog"
+        class="alarm-drawer shadow-lg"
+        aria-modal="true"
+        role="dialog"
+        tabindex="-1"
+        aria-labelledby="alarm-detail-title"
+      >
+        <div class="alarm-drawer__head">
+          <div class="d-flex flex-column gap-1 min-w-0 pe-2">
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge rounded-pill" :class="conditionClass(selectedAlarm.condition_status)">
+                {{ conditionText(selectedAlarm.condition_status) }}
+              </span>
+              <span class="badge rounded-pill" :class="`text-bg-${severityTone(severityOf(selected))}`">
+                {{ severityText(severityOf(selected)) }}
+              </span>
+            </div>
+            <h2 id="alarm-detail-title" class="h5 mb-0 text-truncate" :title="titleOf(selected)">
+              {{ titleOf(selected) }}
+            </h2>
+            <p class="text-body-secondary small mb-0 text-truncate">
+              {{ alarmContextText(selected) }}
+            </p>
+          </div>
+          <button type="button" class="btn-close flex-shrink-0" :aria-label="t('close')" @click="closeDetail"></button>
+        </div>
+
+        <div class="alarm-drawer__body">
+          <div v-if="detailLoading" class="text-center py-5">
+            <span class="spinner-border spinner-border-sm me-2"></span>{{ t('loading') }}
+          </div>
+          <template v-else>
+            <!-- 核心指标摘要卡片 -->
+            <div class="card border mb-3 alarm-detail-summary">
+              <div class="card-body p-3">
+                <div class="row g-2 small">
+                  <div class="col-6 d-flex justify-content-between">
+                    <span class="text-secondary">{{ t('severity') }}:</span>
+                    <strong :class="`text-${severityTone(severityOf(selected))}`">{{ severityText(severityOf(selected)) }}</strong>
+                  </div>
+                  <div class="col-6 d-flex justify-content-between">
+                    <span class="text-secondary">{{ t('condition') }}:</span>
+                    <strong>{{ conditionText(selectedAlarm.condition_status) }}</strong>
+                  </div>
+                  <div class="col-6 d-flex justify-content-between">
+                    <span class="text-secondary">{{ t('handling') }}:</span>
+                    <span class="badge rounded-pill badge-handling">{{ handlingText(selectedAlarm.handling_status) }}</span>
+                  </div>
+                  <div class="col-6 d-flex justify-content-between">
+                    <span class="text-secondary">{{ t('occurrence') }}:</span>
+                    <strong>{{ selectedAlarm.occurrence_count || 1 }}</strong>
+                  </div>
+                  <div class="col-12 d-flex justify-content-between border-top pt-2 mt-1">
+                    <span class="text-secondary">{{ t('owner') }}:</span>
+                    <strong>{{ currentHandlerText(selected) }}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 处置动作操作栏 -->
+            <div class="d-grid gap-2 mb-4">
+              <button v-if="canAcknowledge(selected)" type="button" class="btn btn-primary" @click="acknowledge(selected)">
+                <i class="bi bi-check2-circle me-1"></i>{{ t('acknowledge') }}
+              </button>
+              <button v-if="canCreateWorkOrder(selected)" type="button" class="btn btn-outline-primary" @click="openWorkOrder(selected)">
+                <i class="bi bi-ticket-detailed me-1"></i>{{ t('createWorkOrder') }}
+              </button>
+              <button v-else-if="selectedAlarm.work_order_public_id" type="button" class="btn btn-outline-primary" @click="goWorkOrder(selectedAlarm.work_order_public_id)">
+                <i class="bi bi-box-arrow-up-right me-1"></i>{{ t('viewWorkOrder') }}
+              </button>
+              <div class="d-flex gap-2">
+                <button v-if="canAssignAlarm(selected)" type="button" class="btn btn-outline-secondary flex-grow-1" @click="openOperation('assign')">
+                  <i class="bi bi-person-plus me-1"></i>{{ t('assign') }}
+                </button>
+                <details v-if="canOperate(selected)" class="alarm-more-actions flex-grow-1">
+                  <summary class="btn btn-outline-secondary w-100">
+                    <i class="bi bi-three-dots me-1"></i>{{ t('moreActions') }}
+                  </summary>
+                  <div class="alarm-more-actions__menu border rounded p-2 mt-2 d-grid gap-2 shadow-sm">
+                    <p class="small text-body-secondary mb-0">{{ t('pauseNotificationsHelp') }}</p>
+                    <button v-if="selectedAlarm.handling_status !== 'shelved'" type="button" class="btn btn-sm btn-outline-secondary" @click="openOperation('shelve')">
+                      <i class="bi bi-bell-slash me-1"></i>{{ t('shelve') }}
+                    </button>
+                    <button v-else type="button" class="btn btn-sm btn-outline-secondary" @click="unshelve">
+                      <i class="bi bi-bell me-1"></i>{{ t('unshelve') }}
+                    </button>
+                    <button v-if="canClose(selected)" type="button" class="btn btn-sm btn-outline-danger" @click="openOperation('close')">
+                      <i class="bi bi-check2-all me-1"></i>{{ t('closeAlarm') }}
+                    </button>
+                  </div>
+                </details>
+              </div>
+            </div>
+
+            <!-- 告警现场证据卡片 -->
+            <section class="card border mb-4">
+              <div class="card-header bg-transparent py-2">
+                <h3 class="section-title mb-0"><i class="bi bi-shield-check me-1"></i>{{ t('evidence') }}</h3>
+              </div>
+              <div class="card-body p-3">
+                <div v-if="snapshotUrl(selected)" class="mb-3 text-center">
+                  <a :href="snapshotUrl(selected)" target="_blank" rel="noopener" class="d-inline-block">
+                    <img :src="snapshotUrl(selected)" class="img-fluid rounded border shadow-sm" style="max-height: 180px; object-fit: contain;" :alt="t('snapshot')">
+                  </a>
+                </div>
+                <div class="row g-2 small">
+                  <div class="col-12 col-sm-6">
+                    <div class="text-secondary fw-normal">{{ t('device') }}</div>
+                    <div class="fw-semibold text-body">{{ alarmDeviceName(selected) }}</div>
+                  </div>
+                  <div class="col-12 col-sm-6">
+                    <div class="text-secondary fw-normal">{{ t('product') }}</div>
+                    <div class="fw-semibold text-body">{{ alarmProductName(selected) }}</div>
+                  </div>
+                  <div class="col-12 col-sm-6">
+                    <div class="text-secondary fw-normal">{{ t('event') }}</div>
+                    <div class="fw-semibold text-body">{{ alarmEventName(selected) }}</div>
+                  </div>
+                  <div class="col-12 col-sm-6">
+                    <div class="text-secondary fw-normal">{{ t('source') }}</div>
+                    <div class="fw-semibold text-body">{{ sourceTypeText(selectedAlarm.source_type) }}</div>
+                  </div>
+                  <div class="col-12 col-sm-6">
+                    <div class="text-secondary fw-normal">{{ t('firstSeen') }}</div>
+                    <div class="text-body">{{ formatTime(selectedAlarm.first_occurred_at) }}</div>
+                  </div>
+                  <div class="col-12 col-sm-6">
+                    <div class="text-secondary fw-normal">{{ t('recoveredAt') }}</div>
+                    <div class="text-body">{{ formatTime(selectedAlarm.recovered_at) }}</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- 处置流转时间线 -->
+            <section class="card border">
+              <div class="card-header bg-transparent py-2">
+                <h3 class="section-title mb-0"><i class="bi bi-clock-history me-1"></i>{{ t('timeline') }}</h3>
+              </div>
+              <div class="card-body p-3">
+                <ol class="timeline mb-0">
+                  <li v-for="event in selectedEvents" :key="event.event.id || event.event.ID">
+                    <strong class="text-body">{{ eventText(event.event.type) }}</strong>
+                    <time :datetime="event.created_at || event.event.created_at || event.event.CreatedAt || undefined">
+                      {{ formatTime(event.created_at || event.event.created_at || event.event.CreatedAt) }}
+                    </time>
+                    <p v-if="timelineDetail(event)" class="mb-0 text-body-secondary small mt-1">
+                      {{ timelineDetail(event) }}
+                    </p>
+                  </li>
+                  <li v-if="!selectedEvents.length" class="text-body-secondary small">
+                    {{ t('noTimeline') }}
+                  </li>
+                </ol>
+              </div>
+            </section>
+          </template>
+        </div>
+      </aside>
+
+      <!-- 处置操作弹窗 -->
+      <div v-if="operation" class="modal fade show d-block modal-backdrop-layer" @click.self="closeOperation"><div ref="operationDialog" class="modal-dialog modal-dialog-centered" role="dialog" aria-modal="true" :aria-labelledby="'operation-title'"><div class="modal-content"><div class="modal-header"><h2 id="operation-title" class="modal-title h5">{{ operationTitle }}</h2><button type="button" class="btn-close" :aria-label="t('close')" @click="closeOperation"></button></div><div class="modal-body"><div v-if="operationError" class="alert alert-danger py-2">{{ operationError }}</div><template v-if="operation === 'assign'"><label class="form-label" for="alarm-assignee">{{ t('assignee') }}</label><select id="alarm-assignee" v-model.number="operationForm.ownerUserID" class="form-select"><option :value="0">{{ t('selectAssignee') }}</option><option v-for="person in participants" :key="person.id" :value="person.id">{{ participantName(person) }}</option></select></template><template v-else-if="operation === 'shelve'"><label class="form-label" for="alarm-shelve-reason">{{ t('reason') }}</label><textarea id="alarm-shelve-reason" v-model.trim="operationForm.reason" class="form-control" rows="3" :placeholder="t('shelveReasonHint')"></textarea><label class="form-label mt-3" for="alarm-shelve-until">{{ t('until') }}</label><input id="alarm-shelve-until" v-model="operationForm.until" type="datetime-local" class="form-control"><div class="form-text">{{ t('untilHint') }}</div></template><template v-else><label class="form-label" for="alarm-disposition">{{ t('disposition') }}</label><select id="alarm-disposition" v-model="operationForm.disposition" class="form-select"><option v-if="selectedAlarm.condition_status === 'recovered'" value="resolved">{{ t('resolved') }}</option><option v-if="canExceptionClose(selected)" value="false_positive">{{ t('falsePositive') }}</option><option v-if="canExceptionClose(selected)" value="duplicate">{{ t('duplicate') }}</option><option v-if="canExceptionClose(selected)" value="maintenance">{{ t('maintenance') }}</option><option v-if="canExceptionClose(selected)" value="no_action_required">{{ t('noAction') }}</option></select><label class="form-label mt-3" for="alarm-close-comment">{{ t('comment') }}</label><textarea id="alarm-close-comment" v-model.trim="operationForm.comment" class="form-control" rows="3"></textarea><div class="form-text">{{ t('closeGuardHint') }}</div></template></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" @click="closeOperation">{{ t('cancel') }}</button><button type="button" class="btn btn-primary" :disabled="operationSubmitting" @click="submitOperation"><span v-if="operationSubmitting" class="spinner-border spinner-border-sm me-1"></span>{{ t('confirm') }}</button></div></div></div></div>
+
+      <!-- 创建联动工单弹窗 -->
+      <div v-if="showWorkOrder" class="modal fade show d-block modal-backdrop-layer" @click.self="closeWorkOrder">
+        <div ref="workOrderDialog" class="modal-dialog modal-lg modal-dialog-scrollable" role="dialog" aria-modal="true" :aria-labelledby="'work-order-title'">
+          <div class="modal-content">
+            <div class="modal-header">
+              <div>
+                <h2 id="work-order-title" class="modal-title h5 mb-1">{{ t('createWorkOrder') }}</h2>
+                <p class="small text-body-secondary mb-0">{{ t('evidenceAttached') }}</p>
+              </div>
+              <button type="button" class="btn-close" :aria-label="t('close')" @click="closeWorkOrder"></button>
+            </div>
+            <div class="modal-body">
+              <div v-if="workOrderError" class="alert alert-danger py-2 mb-3">{{ workOrderError }}</div>
+              <div v-if="workOrderSuccess" class="alert alert-success py-2 mb-3">{{ workOrderSuccess }}</div>
+
+              <!-- 告警关联证据摘要卡片 -->
+              <div v-if="workOrder.alarm" class="card alarm-muted-surface border mb-3">
+                <div class="card-body p-3">
+                  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                      <span class="severity-dot" :class="`severity-dot--${severityOf(workOrder.alarm)}`"></span>
+                      <strong class="h6 mb-0">{{ titleOf(workOrder.alarm) }}</strong>
+                    </div>
+                    <div class="d-flex gap-1">
+                      <span class="badge rounded-pill" :class="`text-bg-${severityTone(severityOf(workOrder.alarm))}`">{{ severityText(severityOf(workOrder.alarm)) }}</span>
+                      <span class="badge rounded-pill" :class="conditionClass(alarmOf(workOrder.alarm).condition_status)">{{ conditionText(alarmOf(workOrder.alarm).condition_status) }}</span>
+                    </div>
+                  </div>
+                  <div class="row g-2 small text-body-secondary">
+                    <div class="col-12 col-md-6 d-flex gap-2">
+                      <span class="text-secondary fw-normal">{{ t('device') }}:</span>
+                      <strong class="text-body">{{ alarmDeviceName(workOrder.alarm) }}</strong>
+                    </div>
+                    <div class="col-12 col-md-6 d-flex gap-2">
+                      <span class="text-secondary fw-normal">{{ t('event') }}:</span>
+                      <strong class="text-body">{{ alarmEventName(workOrder.alarm) }}</strong>
+                    </div>
+                    <div class="col-12 col-md-6 d-flex gap-2">
+                      <span class="text-secondary fw-normal">{{ t('firstSeen') }}:</span>
+                      <span>{{ formatTime(alarmOf(workOrder.alarm).first_occurred_at) }}</span>
+                    </div>
+                    <div class="col-12 col-md-6 d-flex gap-2">
+                      <span class="text-secondary fw-normal">{{ t('occurrence') }}:</span>
+                      <span>{{ alarmOf(workOrder.alarm).occurrence_count || 1 }}</span>
+                    </div>
+                  </div>
+                  <div v-if="snapshotUrl(workOrder.alarm)" class="mt-2 pt-2 border-top">
+                    <a :href="snapshotUrl(workOrder.alarm)" target="_blank" rel="noopener" class="d-inline-block">
+                      <img :src="snapshotUrl(workOrder.alarm)" class="rounded border" style="max-height: 100px; object-fit: contain;" :alt="t('snapshot')">
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 工单基础信息表单 -->
+              <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                  <label class="form-label small" for="alarm-work-order-template">{{ t('template') }} <span class="text-danger">*</span></label>
+                  <select id="alarm-work-order-template" v-model.number="workOrder.templateId" class="form-select" @change="loadWorkOrderTemplate">
+                    <option :value="0">{{ t('selectTemplate') }}</option>
+                    <option v-for="template in workOrderTemplates" :key="template.ID" :value="template.ID">{{ template.name }}</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small" for="alarm-work-order-priority">{{ t('priority') }} <span class="text-danger">*</span></label>
+                  <select id="alarm-work-order-priority" v-model="workOrder.priority" class="form-select">
+                    <option value="low">{{ t('low') }}</option>
+                    <option value="normal">{{ t('normal') }}</option>
+                    <option value="high">{{ t('high') }}</option>
+                    <option value="urgent">{{ t('urgent') }}</option>
+                  </select>
+                </div>
+                <div class="col-12">
+                  <label class="form-label small" for="alarm-work-order-summary">{{ t('workOrderTitle') }} <span class="text-danger">*</span></label>
+                  <input id="alarm-work-order-summary" v-model.trim="workOrder.title" class="form-control" :placeholder="t('workOrderTitle')">
+                </div>
+                <div class="col-12">
+                  <label class="form-label small" for="alarm-work-order-description">{{ t('summary') }}</label>
+                  <textarea id="alarm-work-order-description" v-model.trim="workOrder.summary" class="form-control" rows="2" :placeholder="t('summaryHint')"></textarea>
+                </div>
+              </div>
+
+              <!-- 动态工单表单 -->
+              <div v-if="workOrderTemplate" class="card alarm-muted-surface border pt-2 px-3 pb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h3 class="h6 mb-0 text-secondary"><i class="bi bi-ui-checks-grid me-1"></i>{{ t('form') }}</h3>
+                  <span class="small text-body-secondary">{{ t('formHint') }}</span>
+                </div>
+                <WorkOrderFormFields v-model="workOrder.formData" :definition="workOrderTemplate.form_definition" id-prefix="alarm-work-order" :locale="locale" />
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" @click="closeWorkOrder">{{ t('cancel') }}</button>
+              <button type="button" class="btn btn-primary" :disabled="workOrderSubmitting" @click="createWorkOrder">
+                <span v-if="workOrderSubmitting" class="spinner-border spinner-border-sm me-1"></span>{{ t('create') }}
+              </button>
             </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <Teleport to="body"><div v-if="policyHelp.visible" ref="policyHelpPopover" class="policy-help-popover" role="tooltip" :style="{ top: `${policyHelp.top}px`, left: `${policyHelp.left}px` }">{{ policyHelp.text }}</div></Teleport>
+      <!-- 告警策略配置弹窗 -->
+      <div v-if="showPolicies" class="modal fade show d-block modal-backdrop-layer">
+        <div ref="policyDialog" class="modal-dialog modal-lg modal-dialog-scrollable" role="dialog" aria-modal="true" :aria-labelledby="'policy-title'">
+          <div class="modal-content">
+            <div class="modal-header"><h2 id="policy-title" class="modal-title h5">{{ t('policies') }}</h2><button type="button" class="btn-close" :aria-label="t('close')" @click="closePolicies"></button></div>
+            <div class="modal-body" @mouseover="handlePolicyHelpEnter" @mouseout="handlePolicyHelpLeave" @focusin="handlePolicyHelpEnter" @focusout="handlePolicyHelpLeave" @scroll.passive="hidePolicyHelp">
+              <div v-if="policyError" class="alert alert-danger py-2">{{ policyError }}</div>
+              <div class="d-flex flex-wrap justify-content-between gap-2 mb-3"><p class="small text-body-secondary mb-0">{{ t('policyHint') }}</p><button type="button" class="btn btn-sm btn-outline-primary" @click="editPolicy({ enabled: true, auto_close: true, severity: 'warning' })"><i class="bi bi-plus-lg me-1"></i>{{ t('newPolicy') }}</button></div>
+              <div v-if="editingPolicy" class="card alarm-muted-surface card-body mb-3">
+                <h3 class="h6 mb-3">{{ t('policyBasicSettings') }}</h3>
+                <div class="row g-2">
+                  <div class="col-md-6"><label class="form-label small" for="policy-name">{{ t('policyName') }} <span class="text-danger">*</span><button type="button" class="policy-help" :aria-label="t('policyNameHelp')" :data-help="t('policyNameHelp')">?</button></label><input id="policy-name" v-model.trim="editingPolicy.name" class="form-control" maxlength="255" required></div>
+                  <div class="col-md-6"><label class="form-label small" for="policy-severity">{{ t('handlingSeverity') }} <span class="text-danger">*</span><button type="button" class="policy-help" :aria-label="t('severityHelp')" :data-help="t('severityHelp')">?</button></label><select id="policy-severity" v-model="editingPolicy.severity" class="form-select"><option value="critical">{{ t('critical') }}</option><option value="major">{{ t('major') }}</option><option value="warning">{{ t('warning') }}</option><option value="info">{{ t('info') }}</option></select></div>
+                  <div class="col-md-6"><label class="form-label small" for="policy-enabled">{{ t('policyStatus') }} <button type="button" class="policy-help" :aria-label="t('policyStatusHelp')" :data-help="t('policyStatusHelp')">?</button></label><select id="policy-enabled" v-model="editingPolicy.enabled" class="form-select"><option :value="true">{{ t('enabled') }}</option><option :value="false">{{ t('disabled') }}</option></select></div>
+                  <div class="col-md-6"><label class="form-label small" for="policy-match-mode">{{ t('matchBasis') }} <span class="text-danger">*</span><button type="button" class="policy-help" :aria-label="t('matchBasisHelp')" :data-help="t('matchBasisHelp')">?</button></label><select id="policy-match-mode" v-model="editingPolicy.match_mode" class="form-select" @change="syncPolicyMatchMode"><option value="events">{{ t('matchSpecificEvents') }}</option><option value="levels">{{ t('matchEventLevels') }}</option><option value="all">{{ t('allDeviceEvents') }}</option></select></div>
+                  <div class="col-12">
+                    <div id="policy-event-label" class="form-label small mb-1">{{ t('applicableEvent') }} <span class="badge rounded-pill text-bg-secondary ms-2">{{ policyEventSelectionText(editingPolicy) }}</span></div>
+                    <div v-if="editingPolicy.match_mode === 'events'" class="policy-event-picker" role="group" aria-labelledby="policy-event-label">
+                      <div v-if="selectedPolicyEventOptions.length" class="policy-selected-events"><button v-for="option in selectedPolicyEventOptions" :key="option.value" type="button" class="badge rounded-pill text-bg-primary border-0" :aria-label="`${t('remove')}: ${option.label}`" @click="removePolicyEvent(option.value)">{{ option.label }} <i class="bi bi-x"></i></button></div>
+                      <div class="policy-event-browser">
+                        <label class="form-label small mb-1" for="policy-product-filter">{{ t('selectProduct') }}</label>
+                        <select id="policy-product-filter" v-model="policyProductGroup" class="form-select form-select-sm"><option v-for="group in policyEventGroups" :key="group.key" :value="group.key">{{ group.label }} · {{ group.options.length }}</option></select>
+                        <label class="visually-hidden" for="policy-event-search">{{ t('searchEvents') }}</label><input id="policy-event-search" v-model.trim="policyEventSearch" class="form-control form-control-sm mt-2" :placeholder="t('searchEvents')">
+                      </div>
+                      <div class="policy-event-options">
+                        <label v-for="option in filteredPolicyEventOptions" :key="option.value" class="policy-event-option"><input v-model="editingPolicy.source_refs" class="form-check-input" type="checkbox" :value="option.value" @change="selectSpecificPolicyEvent"><span><strong>{{ option.label }}</strong><small v-if="option.meta" class="d-block text-body-secondary">{{ option.meta }}</small></span></label>
+                        <div v-if="!filteredPolicyEventOptions.length" class="small text-body-secondary p-2">{{ t('noMatchingEvents') }}</div>
+                      </div>
+                    </div>
+                    <div v-else-if="editingPolicy.match_mode === 'levels'" class="policy-level-picker border rounded p-3" role="group" aria-labelledby="policy-event-label">
+                      <p class="small text-body-secondary mb-2">{{ t('eventLevelHint') }}</p>
+                      <label v-for="level in policyEventLevels" :key="level.value" class="form-check form-check-inline mb-0"><input v-model="editingPolicy.event_levels" class="form-check-input" type="checkbox" :value="level.value"><span class="form-check-label">{{ level.label }}</span></label>
+                    </div>
+                    <div v-else class="alert alert-secondary py-2 mb-0">{{ t('allEventsPolicyHint') }}</div>
+                  </div>
+                </div>
+                <h3 class="h6 mt-4 mb-3">{{ t('policyHandlingSettings') }}</h3>
+                <div class="row g-2">
+                  <div class="col-md-6"><label class="form-label small" for="policy-recovery-mode">{{ t('recoveryMode') }} <button type="button" class="policy-help" :aria-label="t('recoveryModeHelp')" :data-help="t('recoveryModeHelp')">?</button></label><select id="policy-recovery-mode" v-model="editingPolicy.auto_close" class="form-select"><option :value="true">{{ t('recoveryAutoClose') }}</option><option :value="false">{{ t('recoveryManualClose') }}</option></select></div>
+                  <div class="col-md-6"><label class="form-label small" for="policy-recovery-hold">{{ t('recoveryHold') }} <button type="button" class="policy-help" :aria-label="t('recoveryHoldHelp')" :data-help="t('recoveryHoldHelp')">?</button></label><select id="policy-recovery-hold" v-model.number="editingPolicy.recovery_hold_seconds" class="form-select"><option v-for="option in recoveryHoldOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
+                  <div class="col-md-6"><label class="form-label small" for="policy-work-order-mode">{{ t('workOrderHandling') }} <button type="button" class="policy-help" :aria-label="t('workOrderHandlingHelp')" :data-help="t('workOrderHandlingHelp')">?</button></label><select id="policy-work-order-mode" v-model="editingPolicy.work_order_mode" class="form-select" @change="syncPolicyWorkOrderOptions"><option value="none">{{ t('workOrderNone') }}</option><option value="required">{{ t('workOrderRequired') }}</option><option value="auto">{{ t('workOrderAuto') }}</option></select></div>
+                  <div v-if="editingPolicy.work_order_mode === 'auto'" class="col-md-6"><label class="form-label small" for="policy-work-order-template">{{ t('template') }} <span class="text-danger">*</span><button type="button" class="policy-help" :aria-label="t('workOrderTemplateHelp')" :data-help="t('workOrderTemplateHelp')">?</button></label><select id="policy-work-order-template" v-model.number="editingPolicy.work_order_template_id" class="form-select"><option :value="0">{{ t('selectTemplate') }}</option><option v-for="template in policyTemplates" :key="template.ID" :value="template.ID">{{ template.name }}</option></select></div>
+                  <div class="col-md-6"><label class="form-label small" for="policy-exception-close">{{ t('exceptionClose') }} <button type="button" class="policy-help" :aria-label="t('exceptionCloseHelp')" :data-help="t('exceptionCloseHelp')">?</button></label><select id="policy-exception-close" v-model="editingPolicy.allow_exception_close" class="form-select"><option :value="false">{{ t('notAllowed') }}</option><option :value="true">{{ t('allowed') }}</option></select></div>
+                  <div class="col-lg-6"><label class="form-label small" for="policy-ack-days">{{ t('ackSla') }} <button type="button" class="policy-help" :aria-label="t('ackSlaHelp')" :data-help="t('ackSlaHelp')">?</button></label><div class="policy-duration" role="group" :aria-label="t('ackSla')"><div class="input-group input-group-sm"><input id="policy-ack-days" v-model.number="editingPolicy.acknowledge_sla_parts.days" type="number" min="0" step="1" class="form-control" @input="markPolicyDurationChanged('acknowledge')"><span class="input-group-text">{{ t('days') }}</span></div><div class="input-group input-group-sm"><input v-model.number="editingPolicy.acknowledge_sla_parts.hours" type="number" min="0" max="23" step="1" class="form-control" :aria-label="t('hours')" @input="markPolicyDurationChanged('acknowledge')"><span class="input-group-text">{{ t('hours') }}</span></div><div class="input-group input-group-sm"><input v-model.number="editingPolicy.acknowledge_sla_parts.minutes" type="number" min="0" max="59" step="1" class="form-control" :aria-label="t('minutes')" @input="markPolicyDurationChanged('acknowledge')"><span class="input-group-text">{{ t('minutes') }}</span></div></div><div class="form-text">{{ t('zeroDurationNoLimit') }}</div><div v-if="editingPolicy.acknowledge_sla_remainder" class="form-text text-warning">{{ t('legacySecondRemainder') }}</div></div>
+                  <div class="col-lg-6"><label class="form-label small" for="policy-resolution-days">{{ t('resolutionSla') }} <button type="button" class="policy-help" :aria-label="t('resolutionSlaHelp')" :data-help="t('resolutionSlaHelp')">?</button></label><div class="policy-duration" role="group" :aria-label="t('resolutionSla')"><div class="input-group input-group-sm"><input id="policy-resolution-days" v-model.number="editingPolicy.resolution_sla_parts.days" type="number" min="0" step="1" class="form-control" @input="markPolicyDurationChanged('resolution')"><span class="input-group-text">{{ t('days') }}</span></div><div class="input-group input-group-sm"><input v-model.number="editingPolicy.resolution_sla_parts.hours" type="number" min="0" max="23" step="1" class="form-control" :aria-label="t('hours')" @input="markPolicyDurationChanged('resolution')"><span class="input-group-text">{{ t('hours') }}</span></div><div class="input-group input-group-sm"><input v-model.number="editingPolicy.resolution_sla_parts.minutes" type="number" min="0" max="59" step="1" class="form-control" :aria-label="t('minutes')" @input="markPolicyDurationChanged('resolution')"><span class="input-group-text">{{ t('minutes') }}</span></div></div><div class="form-text">{{ t('zeroDurationNoLimit') }}</div><div v-if="editingPolicy.resolution_sla_remainder" class="form-text text-warning">{{ t('legacySecondRemainder') }}</div></div>
+                </div>
+                <div class="text-end mt-3"><button type="button" class="btn btn-sm btn-outline-secondary me-2" @click="editingPolicy = null">{{ t('cancel') }}</button><button type="button" class="btn btn-sm btn-primary" @click="savePolicy">{{ t('save') }}</button></div>
+              </div>
+              <div v-if="!policies.length && !editingPolicy" class="alarm-empty-state text-center border rounded p-4"><i class="bi bi-sliders fs-3 d-block mb-2"></i><h3 class="h6">{{ t('noPoliciesTitle') }}</h3><p class="small text-body-secondary mb-3">{{ t('noPoliciesHint') }}</p><button type="button" class="btn btn-outline-primary btn-sm" @click="editPolicy({ enabled: true, auto_close: true, severity: 'warning' })">{{ t('newPolicy') }}</button></div>
+              <div v-if="policies.length && (!editingPolicy || editingPolicy.ID)" class="table-responsive border rounded">
+                <table class="table table-hover align-middle mb-0 policy-table"><thead><tr><th>{{ t('policyName') }}</th><th>{{ t('applicableEvent') }}</th><th>{{ t('handlingSeverity') }}</th><th>{{ t('policyStatus') }}</th><th class="text-end">{{ t('actions') }}</th></tr></thead><tbody><tr v-for="policy in policies" :key="policy.ID"><td><strong>{{ policy.name }}</strong><div class="small text-body-secondary">{{ policyWorkOrderModeLabel(policy) }}</div></td><td>{{ policyEventLabel(policy) }}</td><td><span class="badge rounded-pill" :class="`text-bg-${severityTone(policy.severity)}`">{{ severityText(policy.severity) }}</span></td><td><span class="badge rounded-pill" :class="policy.enabled ? 'text-bg-success' : 'text-bg-secondary'">{{ policy.enabled ? t('enabled') : t('disabled') }}</span></td><td class="text-end"><div class="btn-group btn-group-sm"><button type="button" class="btn btn-outline-secondary" @click="editPolicy(policy)">{{ t('edit') }}</button><button type="button" class="btn btn-outline-danger" @click="deletePolicy(policy)">{{ t('delete') }}</button></div></td></tr></tbody></table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-    <div v-if="legacyDetail" class="offcanvas-backdrop fade show" @click="closeLegacyDetail"></div>
-    <aside v-if="legacyDetail" ref="legacyDialog" class="alarm-drawer shadow-lg" aria-modal="true" role="dialog" tabindex="-1" aria-labelledby="history-detail-title">
-      <div class="alarm-drawer__head"><div><h2 id="history-detail-title" class="h5 mb-1">{{ legacyEventTitle(legacyDetail) }}</h2><p class="small text-body-secondary mb-0">{{ t('historyReadOnly') }}</p></div><button type="button" class="btn-close" :aria-label="t('close')" @click="closeLegacyDetail"></button></div>
-      <div class="alarm-drawer__body"><section v-if="legacySnapshotUrls(legacyDetail).length" class="legacy-snapshot-grid mb-3"><a v-for="(url, index) in legacySnapshotUrls(legacyDetail)" :key="url" :href="url" target="_blank" rel="noopener"><img :src="url" class="img-fluid rounded border" :alt="`${t('snapshot')} ${index + 1}`"></a></section><dl class="small"><div><dt>{{ t('device') }}</dt><dd>{{ legacyDeviceName(legacyDetail) }}</dd></div><div><dt>{{ t('product') }}</dt><dd>{{ legacyProductName(legacyDetail) }}</dd></div><div><dt>{{ t('time') }}</dt><dd>{{ formatTime(legacyDetail.ts || legacyDetail.timestamp || legacyDetail.created_at) }}</dd></div><div><dt>{{ t('event') }}</dt><dd>{{ legacyEventTitle(legacyDetail) }}</dd></div></dl><section v-if="legacyEventParameters(legacyDetail).length" class="mt-4"><h3 class="section-title">{{ t('eventParameters') }}</h3><dl class="small mb-0"><div v-for="parameter in legacyEventParameters(legacyDetail)" :key="parameter.id"><dt>{{ legacyParameterLabel(parameter) }}</dt><dd>{{ formatLegacyParameterValue(parameter.value) }}</dd></div></dl></section><h3 class="section-title mt-4">{{ t('originalData') }}</h3><pre class="alarm-json mb-0">{{ JSON.stringify(legacyDetail.params || legacyDetail, null, 2) }}</pre></div>
-    </aside>
-  </main>
+      <div v-if="policyHelp.visible" ref="policyHelpPopover" class="policy-help-popover" role="tooltip" :style="{ top: `${policyHelp.top}px`, left: `${policyHelp.left}px` }">{{ policyHelp.text }}</div>
+
+      <!-- 历史事件详情抽屉 -->
+      <div v-if="legacyDetail" class="offcanvas-backdrop fade show" @click="closeLegacyDetail"></div>
+      <aside v-if="legacyDetail" ref="legacyDialog" class="alarm-drawer shadow-lg" aria-modal="true" role="dialog" tabindex="-1" aria-labelledby="history-detail-title">
+        <div class="alarm-drawer__head"><div><h2 id="history-detail-title" class="h5 mb-1">{{ legacyEventTitle(legacyDetail) }}</h2><p class="small text-body-secondary mb-0">{{ t('historyReadOnly') }}</p></div><button type="button" class="btn-close" :aria-label="t('close')" @click="closeLegacyDetail"></button></div>
+        <div class="alarm-drawer__body"><section v-if="legacySnapshotUrls(legacyDetail).length" class="legacy-snapshot-grid mb-3"><a v-for="(url, index) in legacySnapshotUrls(legacyDetail)" :key="url" :href="url" target="_blank" rel="noopener"><img :src="url" class="img-fluid rounded border" :alt="`${t('snapshot')} ${index + 1}`"></a></section><dl class="small"><div><dt>{{ t('device') }}</dt><dd>{{ legacyDeviceName(legacyDetail) }}</dd></div><div><dt>{{ t('product') }}</dt><dd>{{ legacyProductName(legacyDetail) }}</dd></div><div><dt>{{ t('time') }}</dt><dd>{{ formatTime(legacyDetail.ts || legacyDetail.timestamp || legacyDetail.created_at) }}</dd></div><div><dt>{{ t('event') }}</dt><dd>{{ legacyEventTitle(legacyDetail) }}</dd></div></dl><section v-if="legacyEventParameters(legacyDetail).length" class="mt-4"><h3 class="section-title">{{ t('eventParameters') }}</h3><dl class="small mb-0"><div v-for="parameter in legacyEventParameters(legacyDetail)" :key="parameter.id"><dt>{{ legacyParameterLabel(parameter) }}</dt><dd>{{ formatLegacyParameterValue(parameter.value) }}</dd></div></dl></section><h3 class="section-title mt-4">{{ t('originalData') }}</h3><pre class="alarm-json mb-0">{{ JSON.stringify(legacyDetail.params || legacyDetail, null, 2) }}</pre></div>
+      </aside>
+    </Teleport>
+  </div>
 </template>
 
 <script setup>
@@ -204,6 +727,8 @@ import ListPagination from '../components/ListPagination.vue'
 import { ALARM_EVENT_IDS } from '../utils/alarmEvents.js'
 import { loadAllWorkOrderParticipants } from '../utils/workOrderApi.js'
 import { formatDateTime } from '../utils/dateTime.js'
+import CompactListMetrics from '../components/CompactListMetrics.vue'
+import LiquidGlassPopover from '../components/liquid-glass/LiquidGlassPopover.vue'
 
 const { locale } = useI18n()
 const router = useRouter()
@@ -462,7 +987,7 @@ const stats = ref({})
 const loading = ref(false)
 const requestError = ref('')
 const filters = ref({ search: '', severity: '', condition: '', handling: '', includeClosed: false, closedToday: false })
-const activeQuickFilter = ref('')
+const activeQuickFilters = ref([])
 const activeView = ref('queue')
 const legacyPage = ref(1)
 const legacyPageSize = ref(10)
@@ -518,6 +1043,40 @@ const statCards = computed(() => [
   { key: 'verify', tone: 'info', label: t('verification'), value: stats.value.pending_verification || 0, hint: t('handling'), filter: { handling: 'pending_verification' } },
   { key: 'closed', tone: 'success', label: t('closedToday'), value: stats.value.closed_today || 0, hint: t('closed'), filter: { includeClosed: true, handling: 'closed', closedToday: true } }
 ])
+
+function statCardIcon(key) {
+  switch (key) {
+    case 'total': return 'bi-bell-fill'
+    case 'firing': return 'bi-exclamation-octagon-fill'
+    case 'unack': return 'bi-exclamation-triangle-fill'
+    case 'progress': return 'bi-gear-wide-connected'
+    case 'verify': return 'bi-shield-check'
+    case 'closed': return 'bi-check-circle-fill'
+    default: return 'bi-bell'
+  }
+}
+
+function statCardBoxClass(tone) {
+  switch (tone) {
+    case 'danger': return 'icon-danger'
+    case 'warning': return 'icon-warning'
+    case 'primary': return 'icon-brand'
+    case 'info': return 'icon-chart-2'
+    case 'success': return 'icon-chart-2'
+    default: return 'icon-neutral'
+  }
+}
+
+function statCardValueColor(tone) {
+  switch (tone) {
+    case 'danger': return 'var(--color-danger, #ef4444)'
+    case 'warning': return 'var(--color-warning, #f59e0b)'
+    case 'primary': return 'var(--color-primary, #3b82f6)'
+    case 'info': return 'var(--color-info, #06b6d4)'
+    case 'success': return 'var(--color-success, #10b981)'
+    default: return 'inherit'
+  }
+}
 const selectedAlarm = computed(() => alarmOf(selected.value))
 const operationTitle = computed(() => operation.value === 'assign' ? t('assign') : operation.value === 'shelve' ? t('shelve') : t('closeAlarm'))
 const activeFilterLabels = computed(() => {
@@ -981,10 +1540,30 @@ async function loadEntityCatalog() {
   if (devicesResult.status === 'fulfilled' && devicesResult.value.data?.code === 0) catalogDevices.value = devicesResult.value.data?.data || []
   policySourceEvents.value = extractPolicySourceEvents(catalogProducts.value)
 }
-function applyFilters() { page.value = 1; activeQuickFilter.value = ''; loadQueue() }
+function applyFilters() { page.value = 1; activeQuickFilters.value = []; loadQueue() }
 function toggleIncludeClosed() { if (!filters.value.includeClosed && filters.value.closedToday) { filters.value.closedToday = false; if (filters.value.handling === 'closed') filters.value.handling = '' } applyFilters() }
-function resetFilters() { filters.value = { search: '', severity: '', condition: '', handling: '', includeClosed: false, closedToday: false }; activeQuickFilter.value = ''; applyFilters() }
-function applyQuickFilter(card) { filters.value = { search: filters.value.search, severity: filters.value.severity, condition: '', handling: '', includeClosed: false, closedToday: false, ...card.filter }; activeQuickFilter.value = card.key; page.value = 1; activeView.value = 'queue'; loadQueue() }
+function resetFilters() { filters.value = { search: '', severity: '', condition: '', handling: '', includeClosed: false, closedToday: false }; activeQuickFilters.value = []; applyFilters() }
+function applyQuickFilter() {
+  const selectedCards = statCards.value.filter((item) => activeQuickFilters.value.includes(item.key))
+  const selectedValues = (field) => [...new Set(selectedCards.map((item) => item.filter[field]).filter(Boolean))]
+  const conditions = selectedValues('condition')
+  const handlings = selectedValues('handling')
+  const hasConflict = conditions.length > 1 || handlings.length > 1
+  const includesClosed = selectedCards.some((item) => item.filter.includeClosed)
+  const closedToday = selectedCards.some((item) => item.filter.closedToday)
+
+  filters.value = {
+    search: filters.value.search,
+    severity: filters.value.severity,
+    condition: hasConflict ? '__no_matching_alarm__' : (conditions[0] || ''),
+    handling: hasConflict ? '' : (handlings[0] || ''),
+    includeClosed: includesClosed,
+    closedToday
+  }
+  page.value = 1
+  activeView.value = 'queue'
+  loadQueue()
+}
 function openHistory() { activeView.value = 'history'; if (!legacyEvents.value.length && !historyLoading.value) loadLegacyHistory() }
 function goQueuePage(target) { const next = Math.min(Math.max(1, Math.ceil(total.value / pageSize.value)), Math.max(1, Number(target) || 1)); if (next === page.value) return; page.value = next; loadQueue() }
 function changeQueuePageSize(size) { pageSize.value = Number(size) || 10; page.value = 1; loadQueue() }
@@ -1203,34 +1782,342 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleModalKeyboard)
 </script>
 
 <style scoped>
-.alarm-center { --alarm-surface: var(--bs-body-bg); --alarm-surface-muted: var(--bs-tertiary-bg); --alarm-header: rgba(var(--bs-secondary-rgb), .055); --alarm-muted: var(--bs-secondary-color); --alarm-timeline: rgba(var(--bs-secondary-rgb), .28); --alarm-row-hover: rgba(var(--bs-primary-rgb), .045); min-width: 0; overflow-x: hidden; }
-:global([data-bs-theme='dark']) .alarm-center { --alarm-surface: #171a20; --alarm-surface-muted: rgba(255, 255, 255, .045); --alarm-header: rgba(255, 255, 255, .05); --alarm-muted: var(--bs-secondary-color); --alarm-timeline: rgba(255, 255, 255, .18); --alarm-row-hover: rgba(118, 160, 255, .08); }
-.alarm-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }.alarm-surface { background: var(--alarm-surface); }.alarm-muted-surface, .alarm-detail-summary { background: var(--alarm-surface-muted); }.alarm-view-tabs { display: flex; flex-wrap: wrap; gap: .5rem; }.stat-card { border: 1px solid var(--bs-border-color); border-radius: .75rem; background: var(--alarm-surface); color: var(--bs-body-color); padding: 1rem; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }.stat-card:hover, .stat-card:focus-visible { transform: translateY(-2px); box-shadow: 0 .4rem 1rem rgba(var(--bs-dark-rgb), .12); }.stat-card--active { border-color: var(--bs-primary); box-shadow: inset 0 0 0 1px var(--bs-primary); }.stat-card__label, .stat-card__hint { display: block; font-size: .78rem; color: var(--alarm-muted); }.stat-card__value { display: block; font-size: 1.65rem; line-height: 1.35; }.stat-card--danger { border-top: 3px solid var(--bs-danger); }.stat-card--warning { border-top: 3px solid var(--bs-warning); }.stat-card--primary { border-top: 3px solid var(--bs-primary); }.stat-card--info { border-top: 3px solid var(--bs-info); }.stat-card--success { border-top: 3px solid var(--bs-success); }.alarm-card-header, .alarm-card-footer { background: var(--alarm-header); border-color: var(--bs-border-color); }.alarm-filter-summary { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; }.alarm-table { --bs-table-bg: transparent; --bs-table-color: var(--bs-body-color); }.alarm-table thead th { background: var(--alarm-header); border-bottom-color: var(--bs-border-color); color: var(--alarm-muted); font-size: .78rem; font-weight: 650; letter-spacing: .02em; white-space: nowrap; }.alarm-row { cursor: pointer; }.alarm-row > td { background: transparent; border-bottom-color: var(--bs-border-color-translucent); }.alarm-row:hover > td { background: var(--alarm-row-hover); }.min-w-260 { min-width: 260px; }.severity-dot { width: .65rem; height: .65rem; border-radius: 50%; margin-top: .35rem; flex: 0 0 auto; background: var(--bs-secondary); }.severity-dot--critical, .severity-dot--major { background: var(--bs-danger); }.severity-dot--warning { background: var(--bs-warning); }.severity-dot--info { background: var(--bs-primary); }.badge-handling { color: var(--bs-body-color); background: var(--alarm-surface-muted); }.alarm-page-size { display: inline-flex; align-items: center; gap: .45rem; white-space: nowrap; }.alarm-page-size .form-select { width: 4.75rem; }.alarm-pagination { display: flex; align-items: center; gap: .3rem; }.alarm-pagination .btn { min-width: 2rem; }.alarm-pagination__ellipsis { min-width: 1.25rem; text-align: center; color: var(--alarm-muted); }.alarm-drawer { position: fixed; z-index: 1051; top: 0; right: 0; width: min(520px, 100vw); height: 100dvh; background: var(--alarm-surface); color: var(--bs-body-color); display: flex; flex-direction: column; }.alarm-drawer__head { padding: 1.25rem; border-bottom: 1px solid var(--bs-border-color); display: flex; justify-content: space-between; gap: 1rem; }.alarm-drawer__body { padding: 1.25rem; overflow-y: auto; }.alarm-detail-summary { padding: 1rem; border-radius: .5rem; }.section-title { font-size: .85rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--alarm-muted); margin-bottom: .75rem; }dl div { display: flex; gap: 1rem; margin-bottom: .45rem; }dt { flex: 0 0 38%; color: var(--alarm-muted); font-weight: 400; }dd { margin: 0; word-break: break-word; }.timeline { border-left: 2px solid var(--alarm-timeline); list-style: none; margin: 0 0 0 .4rem; padding: 0 0 0 1rem; }.timeline li { position: relative; padding-bottom: .85rem; font-size: .86rem; }.timeline li::before { background: var(--bs-primary); border-radius: 50%; content: ''; height: .5rem; left: -1.32rem; position: absolute; top: .28rem; width: .5rem; }.timeline time { display: block; color: var(--alarm-muted); font-size: .78rem; }.modal-backdrop-layer { background: rgba(var(--bs-dark-rgb), .55); z-index: 1060; }.modal-backdrop-layer .modal { z-index: 1061; }.modal-content { background: var(--alarm-surface); color: var(--bs-body-color); }.alarm-json { max-height: 22rem; overflow: auto; padding: 1rem; border: 1px solid var(--bs-border-color); border-radius: .5rem; background: var(--alarm-surface-muted); color: var(--bs-body-color); font-size: .78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
-.alarm-more-actions summary { list-style: none; }
-.alarm-more-actions summary::-webkit-details-marker { display: none; }
-.alarm-more-actions__menu { background: var(--alarm-surface-muted); }
-.alarm-history-header { min-height: 2.75rem; padding: .35rem .75rem; }.alarm-history-help { position: relative; display: inline-flex; flex: 0 0 auto; }.alarm-history-help__trigger { display: inline-flex; align-items: center; justify-content: center; width: 1.35rem; height: 1.35rem; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--alarm-muted); }.alarm-history-help__trigger:hover, .alarm-history-help:focus-within .alarm-history-help__trigger { color: var(--bs-primary); background: var(--alarm-surface-muted); }.alarm-history-help__trigger:focus-visible { outline: 2px solid rgba(var(--bs-primary-rgb), .4); outline-offset: 2px; }.alarm-history-help__popover { position: absolute; z-index: 10; top: calc(100% + .4rem); left: 0; width: min(22rem, calc(100vw - 2rem)); padding: .55rem .65rem; border: 1px solid var(--bs-border-color); border-radius: .4rem; background: var(--alarm-surface); box-shadow: 0 .45rem 1rem rgba(0, 0, 0, .18); color: var(--bs-body-color); font-size: .78rem; line-height: 1.45; opacity: 0; pointer-events: none; transform: translateY(-.2rem); visibility: hidden; transition: opacity .15s ease, transform .15s ease, visibility .15s ease; }.alarm-history-help:hover .alarm-history-help__popover, .alarm-history-help:focus-within .alarm-history-help__popover { opacity: 1; transform: translateY(0); visibility: visible; }.alarm-history-search { width: min(15rem, 28vw); }.alarm-main-line { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.policy-help { display: inline-flex; align-items: center; justify-content: center; width: 1.1rem; height: 1.1rem; margin-left: .35rem; padding: 0; border: 1px solid var(--bs-secondary-color); border-radius: 50%; background: transparent; color: var(--bs-secondary-color); font-size: .72rem; font-weight: 700; line-height: 1; vertical-align: .08rem; }
-.policy-help:hover, .policy-help:focus-visible { border-color: var(--bs-primary); color: var(--bs-primary); }
-.policy-help:focus-visible { outline: 2px solid rgba(var(--bs-primary-rgb), .35); outline-offset: 2px; }
-.policy-help-popover { position: fixed; z-index: 20000; width: min(21rem, calc(100vw - 1.5rem)); padding: .65rem .75rem; border: 1px solid var(--bs-border-color); border-radius: .45rem; background: var(--bs-body-bg); box-shadow: 0 .65rem 1.5rem rgba(0, 0, 0, .3); color: var(--bs-body-color); font-size: .8rem; line-height: 1.5; pointer-events: none; }
-.policy-event-picker { overflow: hidden; border: 1px solid var(--bs-border-color); border-radius: .5rem; background: var(--bs-body-bg); }
-.policy-event-search { padding: .5rem; border-block: 1px solid var(--bs-border-color-translucent); }
-.policy-event-browser { padding: .65rem; border-bottom: 1px solid var(--bs-border-color-translucent); background: var(--alarm-surface-muted); }
-.policy-selected-events { display: flex; flex-wrap: wrap; gap: .35rem; padding: .55rem .65rem; border-bottom: 1px solid var(--bs-border-color-translucent); }
-.policy-selected-events .badge { cursor: pointer; font-weight: 500; }
-.policy-event-options { max-height: 13rem; overflow-y: auto; }
-.policy-event-option { display: flex; align-items: flex-start; gap: .55rem; margin: 0; padding: .48rem .65rem; cursor: pointer; font-size: .82rem; line-height: 1.35; }
-.policy-event-option:hover { background: rgba(var(--bs-primary-rgb), .07); }
-.policy-event-option--all { background: var(--alarm-surface-muted); font-weight: 650; }
-.policy-event-option .form-check-input { flex: 0 0 auto; margin-top: .14rem; }
-.policy-duration { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; }
-.policy-duration .form-control { min-width: 0; }
-.policy-table thead th { background: var(--alarm-surface-muted); color: var(--alarm-muted); font-size: .78rem; white-space: nowrap; }
-.policy-table td { max-width: 18rem; }
-.legacy-snapshot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; }
-.legacy-snapshot-grid a { display: block; min-width: 0; }
-.legacy-snapshot-grid img { display: block; width: 100%; max-height: 22rem; object-fit: contain; background: var(--alarm-surface-muted); }
-@media (min-width: 768px) { .alarm-center { height: calc(100dvh - 6rem); display: flex; flex-direction: column; overflow: hidden; }.alarm-center > .row, .alarm-center > .alarm-view-tabs, .alarm-center > .alarm-surface:has(.alarm-filter-bar) { flex: 0 0 auto; }.alarm-center > .alarm-surface:has(.alarm-table) { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow: hidden; }.alarm-center > .alarm-surface:has(.alarm-table) .table-responsive { flex: 1 1 auto; overflow: auto; }.alarm-header { min-height: 2.1rem; }.stat-card { min-height: 2.8rem; padding: .32rem .5rem; border-radius: .5rem; }.stat-card__label, .stat-card__value, .stat-card__hint { display: inline; }.stat-card__label { font-size: .72rem; }.stat-card__value { margin-inline: .25rem; font-size: 1rem; line-height: 1; }.stat-card__hint { font-size: .68rem; }.alarm-view-tabs .btn { padding: .22rem .55rem; font-size: .82rem; }.alarm-filter-bar { padding: .35rem .6rem; }.alarm-filter-bar .form-label { margin-bottom: .1rem !important; font-size: .7rem; }.alarm-filter-bar .form-control, .alarm-filter-bar .form-select, .alarm-filter-bar .btn { min-height: 2rem; padding-block: .2rem; font-size: .82rem; }.alarm-card-header { min-height: 2.35rem; padding: .3rem .75rem !important; }.alarm-card-footer { min-height: 2.8rem; padding: .35rem .75rem; }.alarm-table thead { position: sticky; top: 0; z-index: 1; }.alarm-table thead th { padding: .5rem .65rem; }.alarm-queue-table tbody tr { height: 3.4rem; }.alarm-table tbody td { padding: .45rem .65rem; font-size: .82rem; white-space: nowrap; }.alarm-table .severity-dot { width: .55rem; height: .55rem; margin-top: 0; }.alarm-table .badge { font-size: .7rem; }.alarm-table .btn { padding-block: .2rem; font-size: .74rem; }.alarm-subtitle { max-width: min(38rem, 48vw); }.alarm-history-header .alarm-history-hint { max-width: 22rem; }.alarm-history-search { min-height: 1.8rem; } }
-@media (max-width: 767.98px) { .alarm-header { align-items: flex-start; flex-direction: column; }.alarm-header > div { min-width: 0; }.alarm-header__actions { width: 100%; }.alarm-header__actions .btn { flex: 1; }.alarm-view-tabs { width: 100%; }.alarm-view-tabs .btn { flex: 1 1 100%; text-align: left; white-space: normal; }.alarm-filter-actions { grid-column: 1 / -1; }.alarm-filter-actions .btn:first-child { flex: 1; }.alarm-history-header { align-items: stretch !important; flex-wrap: wrap; }.alarm-history-hint, .alarm-history-search { flex: 1 1 100%; max-width: none; width: 100%; }.alarm-table thead { display: none; }.alarm-table, .alarm-table tbody, .alarm-table tr, .alarm-table td { display: block; width: 100%; }.alarm-table tr { margin: .65rem; width: calc(100% - 1.3rem); border: 1px solid var(--bs-border-color); border-radius: .65rem; overflow: hidden; }.alarm-table tr > td { padding: .65rem .8rem; border: 0; }.alarm-table tr.alarm-row:hover > td { background: transparent; }.alarm-table tr.alarm-row > td[data-label] { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }.alarm-table tr.alarm-row > td[data-label]::before { content: attr(data-label); color: var(--alarm-muted); font-size: .78rem; }.alarm-table .alarm-main-cell { padding-bottom: .45rem; }.alarm-table .alarm-main-line { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }.alarm-table .alarm-actions-cell .btn-group { width: 100%; }.alarm-table .alarm-actions-cell .btn { flex: 1; }.alarm-drawer { width: 100vw; }.alarm-drawer-actions { flex-wrap: wrap; }.alarm-drawer-actions .btn { flex: 1 1 45%; }.modal-dialog { margin: .5rem; max-width: calc(100vw - 1rem); }.modal-dialog-scrollable { max-height: calc(100dvh - 1rem); }.modal-content { max-height: calc(100dvh - 1rem); }.alarm-json { max-height: 14rem; } }
+.alarm-center-page {
+  --alarm-surface: var(--bg-surface, var(--bs-body-bg));
+  --alarm-surface-muted: var(--bs-tertiary-bg);
+  --alarm-muted: var(--bs-secondary-color);
+  --alarm-timeline: rgba(var(--bs-secondary-rgb), 0.28);
+  --alarm-row-hover: rgba(var(--bs-primary-rgb), 0.045);
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.min-w-0 {
+  min-width: 0;
+}
+
+.kpi-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  user-select: none;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+}
+
+.kpi-card--active {
+  border-color: var(--color-primary, #3b82f6) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+}
+
+.severity-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--bs-secondary);
+}
+
+.severity-dot--critical,
+.severity-dot--major {
+  background: var(--bs-danger, #ef4444);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+}
+
+.severity-dot--warning {
+  background: var(--bs-warning, #f59e0b);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+}
+
+.severity-dot--info {
+  background: var(--bs-primary, #3b82f6);
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
+}
+
+.badge-handling {
+  color: var(--bs-body-color);
+  background: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color-translucent);
+}
+
+.alarm-table thead th {
+  background: var(--bs-tertiary-bg);
+  color: var(--bs-secondary-color);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--bs-border-color);
+}
+
+.alarm-row {
+  transition: background-color 0.15s ease;
+}
+
+.alarm-row:hover > td {
+  background: var(--alarm-row-hover);
+}
+
+.alarm-drawer {
+  position: fixed;
+  z-index: 1051;
+  top: 0;
+  right: 0;
+  width: min(540px, 100vw);
+  height: 100dvh;
+  background: var(--bg-drawer, #ffffff) !important;
+  color: var(--bs-body-color);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-color, var(--bs-border-color)) !important;
+  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.3) !important;
+}
+
+:global([data-bs-theme='dark']) .alarm-drawer {
+  background: var(--bg-drawer, #171a20) !important;
+}
+
+.alarm-drawer__head {
+  padding: 1.25rem;
+  background: var(--bg-drawer-header, var(--bs-tertiary-bg)) !important;
+  border-bottom: 1px solid var(--bs-border-color) !important;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.alarm-drawer__body {
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+
+.alarm-detail-summary {
+  background: var(--bg-drawer-section, var(--bs-tertiary-bg)) !important;
+}
+
+.section-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--bs-secondary-color);
+}
+
+.timeline {
+  border-left: 2px solid var(--alarm-timeline);
+  list-style: none;
+  margin: 0 0 0 0.4rem;
+  padding: 0 0 0 1rem;
+}
+
+.timeline li {
+  position: relative;
+  padding-bottom: 0.85rem;
+  font-size: 0.85rem;
+}
+
+.timeline li::before {
+  background: var(--bs-primary);
+  border-radius: 50%;
+  content: '';
+  height: 0.5rem;
+  left: -1.32rem;
+  position: absolute;
+  top: 0.28rem;
+  width: 0.5rem;
+}
+
+.timeline time {
+  display: block;
+  color: var(--bs-secondary-color);
+  font-size: 0.76rem;
+}
+
+.modal-backdrop-layer {
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 1060;
+}
+
+.modal-backdrop-layer .modal {
+  z-index: 1061;
+}
+
+.alarm-more-actions summary {
+  list-style: none;
+}
+
+.alarm-more-actions summary::-webkit-details-marker {
+  display: none;
+}
+
+.alarm-more-actions__menu {
+  background: var(--bs-body-bg);
+}
+
+.alarm-history-help {
+  position: relative;
+  display: inline-flex;
+}
+
+.alarm-history-help__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--bs-secondary-color);
+}
+
+.alarm-history-help__trigger:hover {
+  color: var(--bs-primary);
+  background: var(--bs-tertiary-bg);
+}
+
+.alarm-history-help__popover {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  width: min(22rem, calc(100vw - 2rem));
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  background: var(--bs-body-bg);
+  box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.2);
+  color: var(--bs-body-color);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-0.2rem);
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.alarm-history-help:hover .alarm-history-help__popover,
+.alarm-history-help:focus-within .alarm-history-help__popover {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.policy-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-left: 0.35rem;
+  padding: 0;
+  border: 1px solid var(--bs-secondary-color);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--bs-secondary-color);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.policy-help-popover {
+  position: fixed;
+  z-index: 20000;
+  width: min(21rem, calc(100vw - 1.5rem));
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.45rem;
+  background: var(--bs-body-bg);
+  box-shadow: 0 0.65rem 1.5rem rgba(0, 0, 0, 0.3);
+  color: var(--bs-body-color);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.policy-event-picker {
+  overflow: hidden;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  background: var(--bs-body-bg);
+}
+
+.policy-event-search {
+  padding: 0.5rem;
+  border-block: 1px solid var(--bs-border-color-translucent);
+}
+
+.policy-event-browser {
+  padding: 0.65rem;
+  border-bottom: 1px solid var(--bs-border-color-translucent);
+  background: var(--bs-tertiary-bg);
+}
+
+.policy-selected-events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--bs-border-color-translucent);
+}
+
+.policy-event-options {
+  max-height: 13rem;
+  overflow-y: auto;
+}
+
+.policy-event-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.48rem 0.65rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.policy-event-option:hover {
+  background: rgba(var(--bs-primary-rgb), 0.07);
+}
+
+.policy-event-option--all {
+  background: var(--bs-tertiary-bg);
+  font-weight: 650;
+}
+
+.policy-duration {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.policy-table thead th {
+  background: var(--bs-tertiary-bg);
+  color: var(--bs-secondary-color);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.legacy-snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+
+.legacy-snapshot-grid img {
+  display: block;
+  width: 100%;
+  max-height: 22rem;
+  object-fit: contain;
+  background: var(--bs-tertiary-bg);
+}
+
+@media (max-width: 767.98px) {
+  .alarm-drawer {
+    width: 100vw;
+  }
+}
 </style>

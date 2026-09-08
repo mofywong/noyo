@@ -1,5 +1,9 @@
 <template>
-  <div :data-bs-theme="currentTheme === 'system' ? systemTheme : currentTheme">
+  <div
+    data-liquid-glass-density-root
+    :data-bs-theme="currentTheme === 'system' ? systemTheme : currentTheme"
+    :style="liquidGlassRootStyle"
+  >
     <template v-if="!isStandalonePage">
       <Sidebar 
         :is-open="sidebarOpen" 
@@ -9,17 +13,24 @@
         @navigate="handleNavigate"
       />
       
-      <div class="main-content">
+      <div 
+        class="main-content" 
+        :style="customBgImage ? { backgroundImage: `url(${customBgImage})` } : {}"
+      >
         <TopHeader 
           :title="pageTitle" 
           :current-theme="currentTheme"
-        :mqtt-status="mqttStatus"
-        @toggle-sidebar="sidebarOpen = !sidebarOpen"
-        @set-theme="setTheme"
-        @set-language="setLanguage"
-      />
+          :mqtt-status="mqttStatus"
+          :liquid-glass-density="liquidGlassDensity"
+          @toggle-sidebar="sidebarOpen = !sidebarOpen"
+          @set-theme="setTheme"
+          @set-language="setLanguage"
+          @set-liquid-glass-density="setLiquidGlassDensity"
+        />
       
-      <div class="content-scroll">
+      <div
+        class="content-scroll"
+      >
         <div class="container-fluid">
           <router-view 
             :plugins="plugins"
@@ -42,82 +53,84 @@
       <router-view />
     </template>
     
-    <div v-if="activeHabitRuleSuggestion" class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true" style="background: rgba(0,0,0,0.45);">
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content shadow">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ habitRuleText('title') }}</h5>
-          </div>
-          <div class="modal-body">
-            <template v-if="!createdHabitRule">
-              <p class="mb-3">{{ activeHabitRuleSuggestion.summary }}</p>
-              <div class="border rounded p-3 bg-body-tertiary">
-                <div><strong>{{ habitRuleText('ruleName') }}：</strong>{{ activeHabitRuleDescription.name }}</div>
-                <div class="mt-2"><strong>{{ habitRuleText('trigger') }}：</strong>{{ activeHabitRuleDescription.trigger }}</div>
-                <div class="mt-2"><strong>{{ habitRuleText('action') }}：</strong>{{ activeHabitRuleDescription.action }}</div>
-              </div>
-              <p class="text-muted small mt-3 mb-0">{{ habitRuleText('confirmationHint') }}</p>
-            </template>
-            <template v-else>
-              <div class="alert alert-success py-2">{{ habitRuleText('created') }}</div>
-              <div class="border rounded p-3 bg-body-tertiary">
-                <div><strong>{{ habitRuleText('ruleName') }}：</strong>{{ activeHabitRuleDescription.name }}</div>
-                <div class="mt-2"><strong>{{ habitRuleText('trigger') }}：</strong>{{ activeHabitRuleDescription.trigger }}</div>
-                <div class="mt-2"><strong>{{ habitRuleText('action') }}：</strong>{{ activeHabitRuleDescription.action }}</div>
-                <div class="mt-2"><strong>{{ habitRuleText('status') }}：</strong>{{ createdHabitRule.enabled ? habitRuleText('enabled') : habitRuleText('disabled') }}</div>
-              </div>
-            </template>
-          </div>
-          <div class="modal-footer">
-            <template v-if="!createdHabitRule">
-              <button type="button" class="btn btn-outline-secondary" :disabled="habitRuleActionLoading" @click="dismissHabitRuleSuggestion">{{ habitRuleText('no') }}</button>
-              <button type="button" class="btn btn-primary" :disabled="habitRuleActionLoading" @click="confirmHabitRuleSuggestion">
-                <span v-if="habitRuleActionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ habitRuleText('yes') }}
-              </button>
-            </template>
-            <button v-else type="button" class="btn btn-primary" @click="acknowledgeCreatedHabitRule">{{ habitRuleText('acknowledge') }}</button>
+    <Teleport to="body">
+      <div v-if="!isStandalonePage && activeHabitRuleSuggestion" class="modal fade show d-block habit-rule-suggestion-modal" tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content shadow">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ habitRuleText('title') }}</h5>
+            </div>
+            <div class="modal-body">
+              <template v-if="!createdHabitRule">
+                <p class="mb-3">{{ activeHabitRuleSuggestion.summary }}</p>
+                <div class="border rounded p-3 bg-body-tertiary">
+                  <div><strong>{{ habitRuleText('ruleName') }}：</strong>{{ activeHabitRuleDescription.name }}</div>
+                  <div class="mt-2"><strong>{{ habitRuleText('trigger') }}：</strong>{{ activeHabitRuleDescription.trigger }}</div>
+                  <div class="mt-2"><strong>{{ habitRuleText('action') }}：</strong>{{ activeHabitRuleDescription.action }}</div>
+                </div>
+                <p class="text-muted small mt-3 mb-0">{{ habitRuleText('confirmationHint') }}</p>
+              </template>
+              <template v-else>
+                <div class="alert alert-success py-2">{{ habitRuleText('created') }}</div>
+                <div class="border rounded p-3 bg-body-tertiary">
+                  <div><strong>{{ habitRuleText('ruleName') }}：</strong>{{ activeHabitRuleDescription.name }}</div>
+                  <div class="mt-2"><strong>{{ habitRuleText('trigger') }}：</strong>{{ activeHabitRuleDescription.trigger }}</div>
+                  <div class="mt-2"><strong>{{ habitRuleText('action') }}：</strong>{{ activeHabitRuleDescription.action }}</div>
+                  <div class="mt-2"><strong>{{ habitRuleText('status') }}：</strong>{{ createdHabitRule.enabled ? habitRuleText('enabled') : habitRuleText('disabled') }}</div>
+                </div>
+              </template>
+            </div>
+            <div class="modal-footer">
+              <template v-if="!createdHabitRule">
+                <button type="button" class="btn btn-outline-secondary" :disabled="habitRuleActionLoading" @click="dismissHabitRuleSuggestion">{{ habitRuleText('no') }}</button>
+                <button type="button" class="btn btn-primary" :disabled="habitRuleActionLoading" @click="confirmHabitRuleSuggestion">
+                  <span v-if="habitRuleActionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ habitRuleText('yes') }}
+                </button>
+              </template>
+              <button v-else type="button" class="btn btn-primary" @click="acknowledgeCreatedHabitRule">{{ habitRuleText('acknowledge') }}</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <ToastContainer />
-    <ConfirmDialog />
-    
-    <div class="modal fade" id="forceChangePasswordModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ $t('auth_force_change_password', '安全要求：请修改初始密码') }}</h5>
-          </div>
-          <div class="modal-body">
-            <p class="text-danger small">{{ $t('auth_force_change_password_desc', '出于安全考虑，您必须修改初始密码后才能继续使用系统。') }}</p>
-            <form @submit.prevent="submitForceChangePassword">
-              <div class="mb-3">
-                <label class="form-label">{{ $t('auth_old_password', '旧密码') }}</label>
-                <input v-model="forcePasswordForm.oldPassword" type="password" class="form-control" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">{{ $t('auth_new_password', '新密码') }}</label>
-                <input v-model="forcePasswordForm.newPassword" type="password" class="form-control" required>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">{{ $t('auth_confirm_new_password', '确认新密码') }}</label>
-                <input v-model="forcePasswordForm.confirmPassword" type="password" class="form-control" required>
-              </div>
-              <button type="submit" class="btn btn-primary w-100" :disabled="forcePasswordForm.loading">
-                {{ $t('auth_submit_password', '提交修改') }}
-              </button>
-            </form>
+      <div v-if="!isStandalonePage" class="modal fade" id="forceChangePasswordModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ $t('auth_force_change_password', '安全要求：请修改初始密码') }}</h5>
+            </div>
+            <div class="modal-body">
+              <p class="text-danger small">{{ $t('auth_force_change_password_desc', '出于安全考虑，您必须修改初始密码后才能继续使用系统。') }}</p>
+              <form @submit.prevent="submitForceChangePassword">
+                <div class="mb-3">
+                  <label class="form-label">{{ $t('auth_old_password', '旧密码') }}</label>
+                  <input v-model="forcePasswordForm.oldPassword" type="password" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">{{ $t('auth_new_password', '新密码') }}</label>
+                  <input v-model="forcePasswordForm.newPassword" type="password" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">{{ $t('auth_confirm_new_password', '确认新密码') }}</label>
+                  <input v-model="forcePasswordForm.confirmPassword" type="password" class="form-control" required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100" :disabled="forcePasswordForm.loading">
+                  {{ $t('auth_submit_password', '提交修改') }}
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
+
+    <ToastContainer v-if="!isStandalonePage" />
+    <ConfirmDialog v-if="!isStandalonePage" />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onBeforeUnmount, onMounted, watch } from 'vue';
+import { ref, computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter, useRoute } from 'vue-router';
 import axios from 'axios';
@@ -132,6 +145,10 @@ import { buildHabitRuleCreatePayload, describeHabitRule, isHabitRuleSuggestion }
 import { usePlugins } from './plugins/registry';
 import { Modal } from 'bootstrap';
 import { useAuthStore } from './stores/auth';
+import {
+  readLiquidGlassDensity,
+  writeLiquidGlassDensity
+} from './utils/liquidGlassPreference';
 
 const { t, locale } = useI18n();
 const { showToast } = useToast();
@@ -139,18 +156,48 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const { extensions: pluginExtensions } = usePlugins();
+const isDevelopmentDemoPath = computed(() => (
+  import.meta.env.DEV && (
+    route.name === 'LiquidGlassDemo' ||
+    (!route.name && window.location.pathname === '/design/liquid-glass')
+  )
+));
 const gt = (key, params) => gatewayText(locale.value, key, params);
 
 // State
 const sidebarOpen = ref(false); // Mobile sidebar
 const plugins = ref([]);
 const loadingPlugins = ref(false);
-const mqttStatus = ref(null);
+const defaultMqttStatus = () => ({ connected: false, status: 'disconnected', mode: '', broker: '', gatewayCode: '' });
+const mqttStatus = ref(defaultMqttStatus());
 let mqttStatusTimer = null;
 
 // Theme
 const currentTheme = ref(localStorage.getItem('theme') || 'dark');
 const systemTheme = ref(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+const liquidGlassDensity = ref(readLiquidGlassDensity(window.localStorage));
+const liquidGlassRootStyle = computed(() => ({
+  '--noyo-liquid-glass-density': String(liquidGlassDensity.value / 100),
+  '--noyo-liquid-glass-density-percent': `${liquidGlassDensity.value}%`,
+}));
+
+const resolvedTheme = computed(() => (currentTheme.value === 'system' ? systemTheme.value : currentTheme.value));
+
+watch(resolvedTheme, (theme) => {
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.setAttribute('data-bs-theme', theme);
+    if (document.body) {
+      document.body.setAttribute('data-bs-theme', theme);
+    }
+  }
+}, { immediate: true });
+
+watch(liquidGlassDensity, (val) => {
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.style.setProperty('--noyo-liquid-glass-density', String(val / 100));
+    document.documentElement.style.setProperty('--noyo-liquid-glass-density-percent', `${val}%`);
+  }
+}, { immediate: true });
 
 const licenseData = ref(null);
 const forcePasswordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '', loading: false });
@@ -167,13 +214,27 @@ const copyToClipboard = async (text) => {
 
 // Computed
 const currentPluginName = computed(() => route.params.name);
-const isStandalonePage = computed(() => route.name === 'Login' || route.name === 'Setup');
+const isStandalonePage = computed(() => (
+  isDevelopmentDemoPath.value ||
+  route.name === 'Login' ||
+  route.name === 'Setup' ||
+  route.meta?.standalone === true
+));
 const shouldLoadShellData = computed(() => authStore.isLoggedIn && !isStandalonePage.value);
-const cascadePluginEnabled = computed(() => plugins.value.some((plugin) => {
-  const name = String(plugin?.name || plugin?.Name || '').trim().toLowerCase();
-  const status = String(plugin?.status || plugin?.Status || '').trim().toLowerCase();
-  return name === 'cascade' && (plugin?.enabled === true || plugin?.Enabled === true || status === 'running' || status === 'enabled');
-}));
+const activeMqttPlugin = computed(() => {
+  const mqttPluginNames = ['cascade', 'platform-cascade', 'mqtt_api', 'aiot', 'sagoo'];
+  return plugins.value.find((plugin) => {
+    const name = String(plugin?.name || plugin?.Name || '').trim().toLowerCase();
+    const status = String(plugin?.status || plugin?.Status || '').trim().toLowerCase();
+    const isRunning = plugin?.enabled === true || plugin?.Enabled === true || status === 'running' || status === 'enabled' || status === '1';
+    return isRunning && mqttPluginNames.some((target) => name === target || name.includes(target));
+  }) || null;
+});
+const isMqttPluginEnabled = computed(() => Boolean(activeMqttPlugin.value));
+const cascadePluginEnabled = computed(() => {
+  const name = String(activeMqttPlugin.value?.name || activeMqttPlugin.value?.Name || '').trim().toLowerCase();
+  return name.includes('cascade');
+});
 
 const pageTitle = computed(() => {
   const name = route.name;
@@ -261,6 +322,30 @@ const activeHabitRuleDescription = computed(() => {
   }
 });
 
+const fetchMqttStatus = async () => {
+  if (!activeMqttPlugin.value) return;
+  const rawName = String(activeMqttPlugin.value?.name || activeMqttPlugin.value?.Name || '').trim().toLowerCase();
+  const pluginEndpoint = rawName.includes('cascade') ? 'cascade' : (rawName.includes('mqtt') ? 'mqtt_api' : rawName);
+
+  try {
+    const res = await axios.get(`/api/extension/${pluginEndpoint}/status`);
+    if (res.data) {
+      const data = res.data;
+      const isConnected = data.connected === true || String(data.status || '').toLowerCase() === 'connected';
+      mqttStatus.value = {
+        connected: isConnected,
+        status: isConnected ? 'connected' : (data.status || 'disconnected'),
+        mode: data.mode || '',
+        broker: data.broker || '',
+        gatewayCode: data.gateway_code || data.gatewayCode || '',
+        ts: data.ts || null
+      };
+    }
+  } catch (err) {
+    // Keep previous state or fallback
+  }
+};
+
 const initMqttStatusSSE = () => {
   if (mqttStatusSSE || !cascadePluginEnabled.value) return;
   const token = encodeURIComponent(authStore.token || localStorage.getItem('access_token') || '');
@@ -269,9 +354,10 @@ const initMqttStatusSSE = () => {
   mqttStatusSSE.addEventListener('status', (e) => {
     try {
       const data = JSON.parse(e.data);
+      const isConnected = data.connected === true || String(data.status || '').toLowerCase() === 'connected';
       mqttStatus.value = {
-        connected: data.connected === true,
-        status: data.status || 'disconnected',
+        connected: isConnected,
+        status: isConnected ? 'connected' : (data.status || 'disconnected'),
         mode: data.mode || '',
         broker: data.broker || '',
         gatewayCode: data.gateway_code || '',
@@ -282,9 +368,8 @@ const initMqttStatusSSE = () => {
     }
   });
   mqttStatusSSE.onerror = () => {
-    if (mqttStatus.value) {
-      mqttStatus.value = { ...mqttStatus.value, connected: false, status: 'disconnected' };
-    }
+    // Temporary reconnect blip: fallback to REST check instead of immediately showing disconnected
+    fetchMqttStatus();
   };
 };
 
@@ -293,15 +378,37 @@ const closeMqttStatusSSE = () => {
     mqttStatusSSE.close();
     mqttStatusSSE = null;
   }
+  if (mqttStatusTimer) {
+    clearInterval(mqttStatusTimer);
+    mqttStatusTimer = null;
+  }
 };
 
 const syncMqttStatusSSE = () => {
-  if (cascadePluginEnabled.value) {
-    initMqttStatusSSE();
+  if (isMqttPluginEnabled.value) {
+    fetchMqttStatus();
+    if (!mqttStatusTimer) {
+      mqttStatusTimer = setInterval(fetchMqttStatus, 10000);
+    }
+    if (cascadePluginEnabled.value) {
+      initMqttStatusSSE();
+    }
     return;
   }
   closeMqttStatusSSE();
-  mqttStatus.value = null;
+  mqttStatus.value = defaultMqttStatus();
+};
+
+const handlePluginConfigUpdated = async () => {
+  if (mqttStatusSSE) {
+    mqttStatusSSE.close();
+    mqttStatusSSE = null;
+  }
+  await fetchPlugins();
+  await fetchMqttStatus();
+  if (cascadePluginEnabled.value) {
+    initMqttStatusSSE();
+  }
 };
 
 const initWorkOrderNotificationSSE = () => {
@@ -431,9 +538,18 @@ const stopAIBrainSuggestionReminder = () => {
   createdHabitRule.value = null;
 };
 
+const showForcePasswordModal = async () => {
+  await nextTick();
+  const modalElement = document.getElementById('forceChangePasswordModal');
+  if (!modalElement) return;
+  forcePasswordModal = Modal.getOrCreateInstance(modalElement);
+  forcePasswordModal.show();
+};
+
 const loadShellData = () => {
   checkLicense();
   fetchPlugins();
+  fetchMqttStatus();
   authStore.refreshProfile().catch(() => {});
   initWorkOrderNotificationSSE();
   startAIBrainSuggestionReminder();
@@ -445,8 +561,7 @@ const loadShellData = () => {
   }).catch(e => {});
 
   if (authStore.user && authStore.user.must_change_password) {
-    forcePasswordModal = new Modal(document.getElementById('forceChangePasswordModal'));
-    forcePasswordModal.show();
+    void showForcePasswordModal();
   }
 };
 
@@ -490,12 +605,25 @@ const setLanguage = (lang) => {
   localStorage.setItem('lang', lang);
 };
 
-// Listen for system theme changes
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-  systemTheme.value = e.matches ? 'dark' : 'light';
-});
+const setLiquidGlassDensity = (value) => {
+  liquidGlassDensity.value = writeLiquidGlassDensity(window.localStorage, value);
+};
+
+const customBgImage = ref(localStorage.getItem('noyo_custom_bg') || '');
+
+const handleBgChange = (e) => {
+  if (e && e.detail !== undefined) {
+    customBgImage.value = e.detail;
+  } else {
+    customBgImage.value = localStorage.getItem('noyo_custom_bg') || '';
+  }
+};
 
 onMounted(() => {
+  window.addEventListener('noyo-bg-changed', handleBgChange);
+  window.addEventListener('cascade-config-updated', handlePluginConfigUpdated);
+  window.addEventListener('plugin-config-updated', handlePluginConfigUpdated);
+
   // Restore language
   const savedLang = localStorage.getItem('lang');
   if (savedLang) {
@@ -508,6 +636,9 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener('noyo-bg-changed', handleBgChange);
+  window.removeEventListener('cascade-config-updated', handlePluginConfigUpdated);
+  window.removeEventListener('plugin-config-updated', handlePluginConfigUpdated);
   closeMqttStatusSSE();
   closeWorkOrderNotificationSSE();
   stopAIBrainSuggestionReminder();
@@ -521,9 +652,9 @@ watch(shouldLoadShellData, (enabled) => {
     closeWorkOrderNotificationSSE();
     stopAIBrainSuggestionReminder();
     plugins.value = [];
-    mqttStatus.value = null;
+    mqttStatus.value = defaultMqttStatus();
   }
-});
+}, { flush: 'post' });
 
 const checkLicense = async () => {
   try {

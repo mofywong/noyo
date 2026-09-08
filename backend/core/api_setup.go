@@ -54,6 +54,8 @@ type setupLocalProjectRequest struct {
 type setupGatewayRequest struct {
 	SN                 string `json:"gateway_sn"`
 	Name               string `json:"gateway_name"`
+	TenantID           uint   `json:"tenant_id"`
+	ProjectID          uint   `json:"project_id"`
 	MQTTURL            string `json:"mqtt_url"`
 	EnableTLS          bool   `json:"enable_tls"`
 	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
@@ -351,6 +353,8 @@ func mergeSetupPluginPayloads(req *setupApplyRequest) {
 	if cfg := setupPluginConfig(req.Plugins, "cascade"); cfg != nil {
 		req.Gateway.SN = stringFromSetupConfig(cfg, "gateway_sn", req.Gateway.SN)
 		req.Gateway.Name = stringFromSetupConfig(cfg, "gateway_name", req.Gateway.Name)
+		req.Gateway.TenantID = uintFromSetupConfig(cfg, "tenant_id", req.Gateway.TenantID)
+		req.Gateway.ProjectID = uintFromSetupConfig(cfg, "project_id", req.Gateway.ProjectID)
 		req.Gateway.MQTTURL = stringFromSetupConfig(cfg, "mqtt_url", req.Gateway.MQTTURL)
 		req.Gateway.EnableTLS = boolFromSetupConfig(cfg, "enable_tls", req.Gateway.EnableTLS)
 		req.Gateway.InsecureSkipVerify = boolFromSetupConfig(cfg, "insecure_skip_verify", req.Gateway.InsecureSkipVerify)
@@ -425,6 +429,9 @@ func validateSetupRequest(req setupApplyRequest, mode string) error {
 	if mode == SetupModePlatformGateway {
 		if strings.TrimSpace(req.Gateway.SN) == "" {
 			return fmt.Errorf("gateway SN is required for platform gateway mode")
+		}
+		if _, err := BuildCascadeGatewayCode(req.Gateway.TenantID, req.Gateway.ProjectID, req.Gateway.SN); err != nil {
+			return err
 		}
 		if strings.TrimSpace(req.Gateway.MQTTURL) == "" {
 			return fmt.Errorf("MQTT URL is required for platform gateway mode")
@@ -654,6 +661,7 @@ func allPermissionIDs(tx *gorm.DB) ([]uint, error) {
 }
 
 func cascadeGatewayConfig(req setupGatewayRequest, localProject setupLocalProjectRequest) map[string]interface{} {
+	gatewayCode, _ := BuildCascadeGatewayCode(req.TenantID, req.ProjectID, req.SN)
 	return map[string]interface{}{
 		"enabled":              true,
 		"mode":                 "gateway",
@@ -663,7 +671,10 @@ func cascadeGatewayConfig(req setupGatewayRequest, localProject setupLocalProjec
 		"username":             strings.TrimSpace(req.Username),
 		"password":             req.Password,
 		"gateway_sn":           strings.TrimSpace(req.SN),
+		"gateway_code":         gatewayCode,
 		"gateway_name":         valueOrDefaultString(req.Name, strings.TrimSpace(req.SN)),
+		"tenant_id":            req.TenantID,
+		"project_id":           req.ProjectID,
 		"tenant_name":          defaultSingleProjectTenantName,
 		"project_name":         localProject.ProjectName,
 	}
@@ -789,6 +800,37 @@ func boolFromSetupConfig(cfg g.Map, key string, fallback bool) bool {
 	}
 }
 
+func uintFromSetupConfig(cfg g.Map, key string, fallback uint) uint {
+	value, ok := cfg[key]
+	if !ok || value == nil {
+		return fallback
+	}
+	switch v := value.(type) {
+	case uint:
+		return v
+	case uint64:
+		return uint(v)
+	case int:
+		if v >= 0 {
+			return uint(v)
+		}
+	case int64:
+		if v >= 0 {
+			return uint(v)
+		}
+	case float64:
+		if v >= 0 && v == float64(uint(v)) {
+			return uint(v)
+		}
+	case string:
+		var parsed uint
+		if _, err := fmt.Sscan(strings.TrimSpace(v), &parsed); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
 func saveGlobalConfigInTx(tx *gorm.DB, cfg *config.GlobalConfig) error {
 	return saveSystemConfigValueInTx(tx, "global_config", cfg)
 }
@@ -861,6 +903,10 @@ func valueOrDefaultString(value, fallback string) string {
 }
 
 func verifyGatewayRegistration(gateway setupGatewayRequest, localProject setupLocalProjectRequest) error {
+	gatewayCode, err := BuildCascadeGatewayCode(gateway.TenantID, gateway.ProjectID, gateway.SN)
+	if err != nil {
+		return err
+	}
 	opts := mqtt.NewClientOptions().AddBroker(gateway.MQTTURL)
 	clientID := fmt.Sprintf("noyo-setup-verify-%s", uuid.New().String()[:8])
 	opts.SetClientID(clientID)
@@ -882,7 +928,7 @@ func verifyGatewayRegistration(gateway setupGatewayRequest, localProject setupLo
 
 	respChan := make(chan string, 1)
 
-	respTopic := fmt.Sprintf("noyo/cascade/gw/%s/register/response", gateway.SN)
+	respTopic := fmt.Sprintf("noyo/cascade/gw/%s/register/response", gatewayCode)
 	if token := client.Subscribe(respTopic, 1, func(c mqtt.Client, msg mqtt.Message) {
 		var resp struct {
 			Status  string `json:"status"`
@@ -899,13 +945,14 @@ func verifyGatewayRegistration(gateway setupGatewayRequest, localProject setupLo
 		return fmt.Errorf("failed to subscribe to register response: %v", token.Error())
 	}
 
-	reqPayload := map[string]string{
+	reqPayload := map[string]interface{}{
 		"gateway_name": gateway.Name,
-		"tenant_name":  defaultSingleProjectTenantName,
-		"project_name": localProject.ProjectName,
+		"gateway_sn":   gateway.SN,
+		"tenant_id":    gateway.TenantID,
+		"project_id":   gateway.ProjectID,
 	}
 	payloadBytes, _ := json.Marshal(reqPayload)
-	reqTopic := fmt.Sprintf("noyo/cascade/gw/%s/register/request", gateway.SN)
+	reqTopic := fmt.Sprintf("noyo/cascade/gw/%s/register/request", gatewayCode)
 
 	if token := client.Publish(reqTopic, 1, false, payloadBytes); token.Wait() && token.Error() != nil {
 		return fmt.Errorf("failed to publish register request: %v", token.Error())

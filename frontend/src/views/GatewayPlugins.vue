@@ -13,9 +13,15 @@
         </div>
       </div>
       <div class="d-flex gap-2">
-        <button class="btn btn-outline-primary btn-sm" @click="fetchPlugins" :disabled="loading">
-          <i class="bi bi-arrow-clockwise me-1"></i>{{ gt('sync') }}
-        </button>
+        <LiquidGlassButton
+          variant="secondary"
+          size="sm"
+          :icon="loading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'"
+          :disabled="loading"
+          @click="fetchPlugins"
+        >
+          {{ gt('sync') }}
+        </LiquidGlassButton>
       </div>
     </div>
 

@@ -1,14 +1,30 @@
-﻿<template>
+<template>
   <div class="gateway-management-page">
-    <div class="gateway-page-header">
+    <div class="page-header list-page-header">
       <div>
-        <div class="gateway-page-kicker">{{ gt('remote_gateway_config') }}</div>
-        <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ gt('gateway_management') }}</h2>
-        <div class="gateway-page-subtitle mt-2">{{ gt('gateway_management_hint') }}</div>
+        <h1>{{ gt('gateway_management') }}</h1>
+        <p class="page-subtitle">{{ gt('gateway_management_hint') }}</p>
       </div>
-      <button class="btn btn-outline-primary btn-sm gateway-refresh-btn" @click="fetchGateways" :disabled="loading">
-        <i class="bi bi-arrow-clockwise me-1"></i>{{ $t('refresh') }}
-      </button>
+      <div class="d-flex align-items-center gap-2">
+        <LiquidGlassButton
+          variant="secondary"
+          size="sm"
+          :icon="loading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'"
+          :disabled="loading"
+          @click="fetchGateways"
+        >
+          {{ $t('refresh') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton
+          v-permission="'device:create'"
+          variant="primary"
+          size="sm"
+          icon="bi bi-plus-lg"
+          @click="openCreateGatewayModal"
+        >
+          {{ gt('add_gateway') }}
+        </LiquidGlassButton>
+      </div>
     </div>
 
     <div v-if="loading" class="d-flex justify-content-center py-5">
@@ -18,82 +34,140 @@
     <div v-else-if="gateways.length === 0" class="empty-state text-center py-5 text-muted">
       <i class="bi bi-hdd-network-fill d-block mb-3" style="font-size: 4rem; opacity: 0.3;"></i>
       <h4 class="mb-2 fw-bold">{{ gt('no_gateways') || '暂无网关' }}</h4>
-      <p class="mb-0">您还没有添加任何网关设备，或级联服务未开启</p>
+      <p class="mb-0">{{ gt('no_gateways_hint', '您还没有添加任何网关设备，或级联服务未开启') }}</p>
     </div>
 
     <div v-else>
-      <div class="gateway-summary-grid">
-        <div class="gateway-summary-card">
-          <div class="summary-icon summary-icon-total">
-            <i class="bi bi-hdd-network"></i>
-          </div>
-          <div>
-            <div class="summary-value">{{ gateways.length }}</div>
-            <div class="summary-label">{{ gt('gateway') }}</div>
-          </div>
-        </div>
-        <div class="gateway-summary-card">
-          <div class="summary-icon summary-icon-online">
-            <i class="bi bi-activity"></i>
-          </div>
-          <div>
-            <div class="summary-value">{{ onlineCount }}</div>
-            <div class="summary-label">{{ $t('status_online') }}</div>
-          </div>
-        </div>
-        <div class="gateway-summary-card">
-          <div class="summary-icon summary-icon-enabled">
-            <i class="bi bi-check2-circle"></i>
-          </div>
-          <div>
-            <div class="summary-value">{{ enabledCount }}</div>
-            <div class="summary-label">{{ gt('enabled') }}</div>
-          </div>
-        </div>
+      <!-- KPI 统计行（§7.3 Compact Micro-KPI Strip） -->
+      <div class="page-toolbar device-list-control-bar list-page-controls">
+        <CompactListMetrics v-model="metricFilters" :metrics="metricCards" class="list-toolbar-metrics" :aria-label="gt('gateway')" />
       </div>
 
       <div class="gateway-card-grid">
-        <article v-for="gw in sortedGateways" :key="gw.sn" class="gateway-card" :class="{ 'is-online': gw.online, 'is-unavailable': !gw.online }">
-          <div class="gateway-card-topline">
-            <span class="gateway-status-pill" :class="gw.online ? 'is-online' : 'is-offline'">
-              <span class="gateway-status-dot"></span>
-              {{ gw.online ? $t('status_online') : $t('dev_offline') }}
-            </span>
-            <span class="gateway-enabled-pill" :class="gw.enabled ? 'is-enabled' : 'is-disabled'">
-              {{ gw.enabled ? gt('enabled') : gt('disabled') }}
-            </span>
-          </div>
+        <div
+          v-for="gw in sortedGateways"
+          :key="gw.sn"
+          class="card h-100 gateway-card plugin-card"
+          :class="{
+            'plugin-card-running gateway-card--online': gw.online,
+            'is-unavailable': !gw.online
+          }"
+        >
+          <div class="card-body d-flex flex-column">
+            <!-- 头部：左侧液态玻璃图标，右侧状态胶囊 -->
+            <div class="d-flex justify-content-between align-items-start mb-3">
+              <div class="plugin-icon d-flex align-items-center justify-content-center">
+                <i class="bi bi-router fs-3"></i>
+              </div>
+              <div class="d-flex flex-column align-items-end gap-1">
+                <span
+                  class="dash-pill"
+                  :class="gw.online ? 'dash-pill--success' : 'dash-pill--neutral'"
+                >
+                  <span class="dash-pill-dot"></span>
+                  {{ gw.online ? $t('status_online') : $t('dev_offline') }}
+                </span>
+                <span
+                  class="dash-pill"
+                  :class="gw.enabled ? 'dash-pill--neutral' : 'dash-pill--warning'"
+                  style="font-size: 0.68rem; padding: 0.15rem 0.5rem;"
+                >
+                  {{ gw.enabled ? gt('enabled') : gt('disabled') }}
+                </span>
+              </div>
+            </div>
 
-          <div class="gateway-card-main">
-            <div class="gateway-avatar">
-              <i class="bi bi-router"></i>
+            <!-- 网关标题与型号 -->
+            <h5 class="card-title fw-bold mb-1 text-truncate" :title="gw.name || gw.sn">
+              {{ gw.name || gw.sn }}
+            </h5>
+            <div class="text-secondary small mb-3">
+              <span class="badge bg-body-tertiary text-body border me-1 font-mono" style="font-size: 0.7rem;">
+                {{ gw.productCode || '-' }}
+              </span>
             </div>
-            <div class="gateway-title-group">
-              <h6 class="gateway-name">{{ gw.name || gw.sn }}</h6>
-              <div class="gateway-product">{{ gw.productCode || '-' }}</div>
+
+            <!-- 元数据面板（SN、项目、更新时间） -->
+            <div class="gateway-meta-panel flex-grow-1 small">
+              <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-body-secondary">
+                <span class="text-secondary">SN</span>
+                <code class="font-mono text-body">{{ gatewaySerialNumber(gw) }}</code>
+              </div>
+              <div v-if="showProjectLabel" class="d-flex justify-content-between align-items-center py-1 border-bottom border-body-secondary">
+                <span class="text-secondary">{{ $t('project_name') }}</span>
+                <span class="text-body text-truncate ms-2" style="max-width: 140px;">{{ gw.projectName || '-' }}</span>
+              </div>
+              <div class="d-flex justify-content-between align-items-center py-1">
+                <span class="text-secondary">{{ gt('updated_at') }}</span>
+                <span class="text-body font-mono" style="font-size: 0.75rem;">{{ formatTime(gw.updatedAt) }}</span>
+              </div>
+            </div>
+
+            <!-- 底部操作栏 -->
+            <div class="d-flex align-items-center justify-content-between mt-3 pt-3 border-top">
+              <LiquidGlassButton
+                variant="outline-primary"
+                size="sm"
+                icon="bi bi-box-arrow-in-right"
+                @click="openGateway(gw)"
+                :disabled="!gw.online"
+                v-permission="'gateway:config'"
+              >
+                {{ gt('enter') }}
+              </LiquidGlassButton>
+              <span v-if="!gw.online" class="text-muted small">
+                {{ $t('dev_offline') }}
+              </span>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
 
-          <div class="gateway-meta-panel">
-            <div class="gateway-meta-row">
-              <span class="gateway-meta-label">SN</span>
-              <code class="gateway-sn">{{ gw.sn }}</code>
-            </div>
-            <div v-if="showProjectLabel" class="gateway-meta-row">
-              <span class="gateway-meta-label">{{ $t('project_name') }}</span>
-              <span class="gateway-meta-value">{{ gw.projectName || '-' }}</span>
-            </div>
-            <div class="gateway-meta-row">
-              <span class="gateway-meta-label">{{ gt('updated_at') }}</span>
-              <span class="gateway-meta-value">{{ formatTime(gw.updatedAt) }}</span>
-            </div>
+    <div v-if="showCreateGatewayModal" class="modal fade show d-block modal-overlay-theme" role="presentation">
+      <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" role="dialog" aria-modal="true" aria-labelledby="gateway-create-title" @submit.prevent="createGateway">
+          <div class="modal-header">
+            <h2 id="gateway-create-title" class="modal-title fs-5">{{ gt('add_gateway') }}</h2>
+            <button type="button" class="btn-close" :aria-label="gt('close')" @click="closeCreateGatewayModal"></button>
           </div>
-
-          <button class="btn btn-primary gateway-enter-btn" @click="openGateway(gw)" :disabled="!gw.online" v-permission="'gateway:config'">
-            <span>{{ gt('enter') }}</span>
-            <i class="bi bi-arrow-right-short"></i>
-          </button>
-        </article>
+          <div class="modal-body">
+            <div v-if="createGatewayError" class="alert alert-danger" role="alert">
+              {{ createGatewayError }}
+            </div>
+            <template v-if="createdGateway">
+              <p class="mb-3">{{ gt('gateway_registration_created') }}</p>
+              <dl class="row mb-0">
+                <dt class="col-sm-5">{{ gt('platform_tenant_id') }}</dt>
+                <dd class="col-sm-7"><code>{{ createdGateway.tenantId }}</code></dd>
+                <dt class="col-sm-5">{{ gt('platform_project_id') }}</dt>
+                <dd class="col-sm-7"><code>{{ createdGateway.projectId }}</code></dd>
+                <dt class="col-sm-5">{{ gt('gateway_physical_sn') }}</dt>
+                <dd class="col-sm-7"><code>{{ createdGateway.serialNumber }}</code></dd>
+              </dl>
+              <p class="form-text mb-0">{{ gt('gateway_registration_hint') }}</p>
+            </template>
+            <template v-else>
+              <div class="mb-3">
+                <label for="gateway-create-sn" class="form-label">{{ gt('gateway_physical_sn') }} <span class="text-danger">*</span></label>
+                <input id="gateway-create-sn" v-model.trim="newGateway.sn" class="form-control" maxlength="48" required autocomplete="off">
+                <div class="form-text">{{ gt('gateway_physical_sn_hint') }}</div>
+              </div>
+              <div class="mb-0">
+                <label for="gateway-create-name" class="form-label">{{ gt('gateway_display_name') }}</label>
+                <input id="gateway-create-name" v-model.trim="newGateway.name" class="form-control" maxlength="128" autocomplete="off">
+              </div>
+            </template>
+          </div>
+          <div class="modal-footer">
+            <LiquidGlassButton type="button" variant="secondary" @click="closeCreateGatewayModal">
+              {{ createdGateway ? gt('close') : $t('tsl_cancel') }}
+            </LiquidGlassButton>
+            <LiquidGlassButton v-if="!createdGateway" type="submit" variant="primary" icon="bi bi-check2" :loading="creatingGateway">
+              {{ gt('register_gateway') }}
+            </LiquidGlassButton>
+          </div>
+        </form>
       </div>
     </div>
 
@@ -111,7 +185,7 @@
               <div class="min-w-0">
                 <div class="gateway-workspace-kicker">{{ gt('gateway_management') }}</div>
                 <h5>{{ selectedGateway.name || selectedGateway.sn }}</h5>
-                <div class="gateway-workspace-sn">SN {{ selectedGateway.sn }}</div>
+                <div class="gateway-workspace-sn">SN {{ gatewaySerialNumber(selectedGateway) }}</div>
               </div>
             </div>
             <div class="gateway-workspace-meta">
@@ -241,6 +315,7 @@ import Logs from './Logs.vue';
 import Settings from './Settings.vue';
 import { useToast } from '../composables/useToast';
 import { gatewayDateTime, gatewayText } from '../utils/gatewayLocale';
+import CompactListMetrics from '../components/CompactListMetrics.vue';
 
 const { t, locale } = useI18n();
 const { showToast } = useToast();
@@ -250,10 +325,26 @@ const selectedGateway = ref(null);
 const selectedPluginName = ref('');
 const selectedWorkspaceView = ref('marketplace');
 const gatewayPlugins = ref([]);
+const showCreateGatewayModal = ref(false);
+const creatingGateway = ref(false);
+const createGatewayError = ref('');
+const createdGateway = ref(null);
+const newGateway = ref({ sn: '', name: '' });
 const gt = (key, params) => gatewayText(locale.value, key, params);
 const showProjectLabel = computed(() => Number(localStorage.getItem('current_project_id') || 0) === 0);
 const onlineCount = computed(() => gateways.value.filter((gw) => gw.online).length);
 const enabledCount = computed(() => gateways.value.filter((gw) => gw.enabled).length);
+const metricCards = computed(() => [
+  { key: 'total', label: gt('gateway'), value: gateways.value.length, icon: 'bi-hdd-network-fill', tone: 'brand' },
+  { key: 'online', label: t('status_online'), value: onlineCount.value, icon: 'bi-broadcast', tone: 'success' },
+  { key: 'enabled', label: gt('enabled'), value: enabledCount.value, icon: 'bi-check2-circle', tone: 'neutral' }
+]);
+const metricFilters = ref([]);
+const toggleMetricFilter = (key) => {
+  metricFilters.value = metricFilters.value.includes(key)
+    ? metricFilters.value.filter((item) => item !== key)
+    : [...metricFilters.value, key];
+};
 const marketplaceGatewayPlugins = computed(() => gatewayPlugins.value.filter((plugin) => plugin.name !== 'license_auth'));
 const enabledGatewayPlugins = computed(() => marketplaceGatewayPlugins.value.filter((plugin) => plugin.status === 'running'));
 const gatewayRemoteBase = computed(() => selectedGateway.value ? `/api/extension/cascade/gateways/${selectedGateway.value.sn}` : '');
@@ -266,6 +357,7 @@ let gatewaySSEHeartbeatTimer = null;
 let gatewaySSEReconnectTimer = null;
 
 const gatewayOnlineTime = (gateway) => Number(gateway.onlineAt || gateway.lastOnlineAt || gateway.updatedAt || 0);
+const gatewaySerialNumber = (gateway) => gateway?.serialNumber || gateway?.sn || '';
 
 const gatewaySortRank = (gateway) => {
   if (gateway.enabled === false) return 2;
@@ -273,7 +365,10 @@ const gatewaySortRank = (gateway) => {
   return 0;
 };
 
-const sortedGateways = computed(() => [...gateways.value].sort((a, b) => {
+const sortedGateways = computed(() => gateways.value
+  .filter((gateway) => (!metricFilters.value.includes('online') || gateway.online)
+    && (!metricFilters.value.includes('enabled') || gateway.enabled))
+  .sort((a, b) => {
   const rankDelta = gatewaySortRank(a) - gatewaySortRank(b);
   if (rankDelta !== 0) return rankDelta;
 
@@ -317,6 +412,44 @@ const fetchGateways = async (options = {}) => {
     gateways.value = [];
   } finally {
     if (!silent) loading.value = false;
+  }
+};
+
+const openCreateGatewayModal = () => {
+  createGatewayError.value = '';
+  createdGateway.value = null;
+  newGateway.value = { sn: '', name: '' };
+  showCreateGatewayModal.value = true;
+};
+
+const closeCreateGatewayModal = () => {
+  if (creatingGateway.value) return;
+  showCreateGatewayModal.value = false;
+};
+
+const createGateway = async () => {
+  createGatewayError.value = '';
+  const sn = newGateway.value.sn.trim();
+  if (!sn) {
+    createGatewayError.value = gt('gateway_physical_sn_required');
+    return;
+  }
+  creatingGateway.value = true;
+  try {
+    const res = await axios.post('/api/extension/cascade/gateways', {
+      sn,
+      name: newGateway.value.name.trim(),
+    });
+    if (res.data.code !== 0) {
+      throw new Error(res.data.message || gt('gateway_create_failed'));
+    }
+    createdGateway.value = res.data.data;
+    showToast('success', gt('gateway_created'));
+    await fetchGateways({ silent: true });
+  } catch (error) {
+    createGatewayError.value = error.response?.data?.message || error.message || gt('gateway_create_failed');
+  } finally {
+    creatingGateway.value = false;
   }
 };
 
@@ -546,225 +679,82 @@ onBeforeUnmount(teardownGatewayStatusStream);
 
 .gateway-card-grid {
   display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 
-.gateway-card {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 94%, var(--accent-color)), var(--bg-surface));
-  border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
-  border-radius: 0.5rem;
-  box-shadow: var(--card-shadow);
-  display: flex;
-  flex-direction: column;
+.plugin-icon {
+  width: 52px;
+  height: 52px;
+  background: var(--glass-tint);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: var(--glass-highlight), 0 4px 12px rgba(0, 0, 0, 0.06);
+  color: var(--color-brand);
+  font-size: 1.35rem;
+  flex-shrink: 0;
+}
+
+[data-bs-theme="dark"] .plugin-icon {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15), 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.gateway-card.plugin-card {
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease, border-color 0.35s ease;
   min-height: 18rem;
-  padding: 1.1rem;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
-.gateway-card:hover {
-  border-color: color-mix(in srgb, var(--accent-color) 34%, var(--border-color));
-  box-shadow: 0 16px 38px rgb(15 23 42 / 0.12);
-  transform: translateY(-2px);
+@media (hover: hover) and (pointer: fine) {
+  .gateway-card.plugin-card:hover:not(.is-unavailable) {
+    transform: translateY(-6px) scale(1.012);
+    border-color: rgba(147, 197, 253, 0.75);
+    box-shadow: 0 16px 36px -6px color-mix(in srgb, var(--color-brand) 18%, transparent), 0 4px 14px rgba(0, 0, 0, 0.1);
+  }
 }
 
-.gateway-card.is-online {
-  animation: gatewayOnlineBreath 2.8s ease-in-out infinite;
-  border-color: rgba(34, 197, 94, 0.28);
-  box-shadow:
-    0 0 0 1px rgba(34, 197, 94, 0.16),
-    0 0 18px rgba(34, 197, 94, 0.18),
-    var(--card-shadow);
+.gateway-card.is-unavailable {
+  opacity: 0.68;
+}
+
+.gateway-card.is-unavailable:hover {
+  transform: none;
+  box-shadow: var(--shadow-card, var(--card-shadow));
+}
+
+.gateway-card--online.plugin-card-running {
+  border-color: color-mix(in srgb, var(--color-success) 34%, var(--border-color));
+  animation: gatewayOnlineBreath 2s ease-in-out infinite;
 }
 
 @keyframes gatewayOnlineBreath {
   0%,
   100% {
     box-shadow:
-      0 0 0 1px rgba(34, 197, 94, 0.12),
-      0 0 14px rgba(34, 197, 94, 0.14),
-      var(--card-shadow);
+      0 0 0 1px color-mix(in srgb, var(--color-success) 14%, transparent),
+      0 0 14px color-mix(in srgb, var(--color-success) 14%, transparent),
+      var(--shadow-card, var(--card-shadow));
   }
 
   50% {
     box-shadow:
-      0 0 0 1px rgba(34, 197, 94, 0.26),
-      0 0 28px rgba(34, 197, 94, 0.28),
-      0 0 46px rgba(34, 197, 94, 0.14),
-      var(--card-shadow);
+      0 0 0 1px color-mix(in srgb, var(--color-success) 28%, transparent),
+      0 0 26px color-mix(in srgb, var(--color-success) 24%, transparent),
+      var(--shadow-card, var(--card-shadow));
   }
-}
-
-.gateway-card.is-unavailable {
-  opacity: 0.72;
-}
-
-.gateway-card.is-unavailable:hover {
-  border-color: color-mix(in srgb, var(--border-color) 84%, transparent);
-  box-shadow: var(--card-shadow);
-  transform: none;
-}
-
-.gateway-card-topline {
-  align-items: center;
-  display: flex;
-  gap: 0.5rem;
-  justify-content: space-between;
-  margin-bottom: 1.1rem;
-}
-
-.gateway-status-pill,
-.gateway-enabled-pill {
-  align-items: center;
-  border-radius: 999px;
-  display: inline-flex;
-  font-size: 0.74rem;
-  font-weight: 700;
-  gap: 0.4rem;
-  line-height: 1;
-  min-height: 1.65rem;
-  padding: 0 0.65rem;
-  white-space: nowrap;
-}
-
-.gateway-status-pill.is-online {
-  background: rgba(16, 185, 129, 0.12);
-  color: #047857;
-}
-
-.gateway-status-pill.is-offline {
-  background: rgba(100, 116, 139, 0.12);
-  color: var(--text-secondary);
-}
-
-.gateway-enabled-pill.is-enabled {
-  background: rgba(59, 130, 246, 0.12);
-  color: #2563eb;
-}
-
-.gateway-enabled-pill.is-disabled {
-  background: color-mix(in srgb, var(--bg-body) 82%, var(--bg-surface));
-  color: var(--text-secondary);
-}
-
-.gateway-status-dot {
-  border-radius: 50%;
-  display: inline-block;
-  height: 0.45rem;
-  width: 0.45rem;
-}
-
-.is-online .gateway-status-dot {
-  background: #10b981;
-  box-shadow: 0 0 0 0.22rem rgba(16, 185, 129, 0.16);
-}
-
-.is-offline .gateway-status-dot {
-  background: #94a3b8;
-  box-shadow: 0 0 0 0.22rem rgba(148, 163, 184, 0.14);
-}
-
-.gateway-card-main {
-  align-items: center;
-  display: flex;
-  gap: 0.85rem;
-  margin-bottom: 1rem;
-}
-
-.gateway-avatar {
-  align-items: center;
-  background: color-mix(in srgb, var(--accent-color) 12%, var(--bg-body));
-  border: 1px solid color-mix(in srgb, var(--accent-color) 20%, var(--border-color));
-  border-radius: 0.5rem;
-  color: var(--accent-color);
-  display: inline-flex;
-  flex: 0 0 auto;
-  font-size: 1.25rem;
-  height: 3rem;
-  justify-content: center;
-  width: 3rem;
-}
-
-.gateway-title-group {
-  min-width: 0;
-}
-
-.gateway-name {
-  color: var(--text-main);
-  font-size: 1rem;
-  font-weight: 750;
-  line-height: 1.25;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.gateway-product {
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  margin-top: 0.3rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .gateway-meta-panel {
   background: color-mix(in srgb, var(--bg-body) 74%, var(--bg-surface));
   border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
-  border-radius: 0.5rem;
-  display: grid;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-  padding: 0.85rem;
-}
-
-.gateway-meta-row {
-  align-items: center;
-  display: flex;
-  gap: 0.75rem;
-  justify-content: space-between;
-  min-width: 0;
-}
-
-.gateway-meta-label {
-  color: var(--text-secondary);
-  flex: 0 0 auto;
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
-.gateway-meta-value,
-.gateway-sn {
-  color: var(--text-main);
-  font-size: 0.78rem;
-  min-width: 0;
-  overflow: hidden;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  border-radius: var(--radius-card, 12px);
+  padding: 0.65rem 0.85rem;
 }
 
 .gateway-sn {
   background: transparent;
   color: var(--accent-color);
-}
-
-.gateway-enter-btn {
-  align-items: center;
-  border-radius: 0.45rem;
-  display: inline-flex;
-  font-weight: 700;
-  gap: 0.35rem;
-  justify-content: center;
-  margin-top: auto;
-  min-height: 2.4rem;
-  width: 100%;
-}
-
-.gateway-enter-btn i {
-  font-size: 1.15rem;
 }
 
 .gateway-workspace-overlay {
@@ -1017,17 +1007,15 @@ onBeforeUnmount(teardownGatewayStatusStream);
   transform: translateY(18px) scale(0.985);
 }
 
-[data-bs-theme="dark"] .gateway-card:hover {
-  box-shadow: 0 18px 42px rgb(0 0 0 / 0.34);
+[data-bs-theme="dark"] .gateway-card.plugin-card:hover:not(.is-unavailable) {
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
 }
 
-[data-bs-theme="dark"] .summary-icon-total,
-[data-bs-theme="dark"] .gateway-enabled-pill.is-enabled {
+[data-bs-theme="dark"] .summary-icon-total {
   color: #60a5fa;
 }
 
-[data-bs-theme="dark"] .summary-icon-online,
-[data-bs-theme="dark"] .gateway-status-pill.is-online {
+[data-bs-theme="dark"] .summary-icon-online {
   color: #34d399;
 }
 

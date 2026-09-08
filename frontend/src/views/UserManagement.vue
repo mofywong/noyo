@@ -1,82 +1,135 @@
 <template>
-  <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('user_management') }}</h2>
-      <div class="d-flex align-items-center gap-2">
-        <select v-model="filterProjectId" class="form-select form-select-sm" @change="changePage(1)" style="width: 150px;">
-          <option value="">{{ $t('project_all', '全部项目') }}</option>
-          <option v-for="p in allProjects" :key="p.ID" :value="p.ID">{{ p.name }}</option>
-        </select>
-        <select v-model="filterRoleId" class="form-select form-select-sm" @change="changePage(1)" style="width: 150px;">
-          <option value="">{{ $t('role_all', '全部角色') }}</option>
-          <option v-for="r in allRoles" :key="r.ID" :value="r.ID">{{ r.name }}</option>
-        </select>
-        <button class="btn btn-sm btn-outline-secondary" @click="resetFilters">{{ $t('common_reset', '重置') }}</button>
-        <button class="btn btn-primary btn-sm ms-2" @click="openCreateModal" v-permission="'user:create'">
-          <i class="bi bi-person-plus me-1"></i> {{ $t('user_add') }}
-        </button>
+  <div class="user-management-page page-fixed-height">
+    <div class="page-header list-page-header">
+      <div>
+        <h1>{{ $t('user_management', '用户管理') }}</h1>
+        <p class="page-subtitle">{{ $t('user_management_subtitle', '管理系统用户、项目归属与权限角色分配') }}</p>
+      </div>
+      <LiquidGlassButton
+        variant="primary"
+        icon="bi bi-person-plus"
+        @click="openCreateModal"
+        v-permission="'user:create'"
+      >
+        {{ $t('user_add') }}
+      </LiquidGlassButton>
+    </div>
+
+    <div class="page-toolbar device-list-control-bar list-page-controls">
+      <select v-model="filterProjectId" class="form-select form-select-sm list-toolbar-filters" @change="changePage(1)" style="min-width: 160px; max-width: 220px;">
+        <option value="">{{ $t('project_all', '全部项目') }}</option>
+        <option v-for="p in allProjects" :key="p.ID" :value="p.ID">{{ p.name }}</option>
+      </select>
+      <select v-model="filterRoleId" class="form-select form-select-sm list-toolbar-filters" @change="changePage(1)" style="min-width: 160px; max-width: 220px;">
+        <option value="">{{ $t('role_all', '全部角色') }}</option>
+        <option v-for="r in allRoles" :key="r.ID" :value="r.ID">{{ r.name }}</option>
+      </select>
+      <CompactListMetrics v-model="metricFilters" :metrics="metricCards" class="list-toolbar-metrics" :aria-label="$t('stat_total', '用户统计')" />
+      <div class="list-toolbar-actions">
+        <LiquidGlassButton
+          variant="outline-secondary"
+          size="sm"
+          @click="resetFilters"
+        >
+          {{ $t('common_reset', '重置') }}
+        </LiquidGlassButton>
       </div>
     </div>
 
     <!-- Users Table -->
-    <div class="card shadow-sm">
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
+    <div class="card border-0 shadow-sm table-glass-card">
+      <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+        <div class="table-responsive flex-grow-1">
+          <table class="table table-hover align-middle mb-0 table-compact">
+            <thead>
               <tr>
-                <th>{{ $t('auth_username') }}</th>
+                <th class="ps-4">{{ $t('auth_username') }}</th>
                 <th>{{ $t('user_name', '姓名') }}</th>
                 <th>{{ $t('user_permissions_assign', '权限分配 (项目与角色)') }}</th>
                 <th>{{ $t('user_last_login') }}</th>
-                <th>{{ $t('user_created_at') }}</th>
-                <th class="text-end">{{ $t('user_actions') }}</th>
+                <th class="text-end pe-4">{{ $t('user_actions') }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="loading">
-                <td colspan="6" class="text-center py-4">
-                  <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+              <!-- 骨架屏 -->
+              <tr v-if="loading" v-for="n in 5" :key="'sk-' + n">
+                <td class="ps-4">
+                  <div class="d-flex align-items-center gap-2">
+                    <div class="skeleton rounded-circle" style="width: 32px; height: 32px;"></div>
+                    <div>
+                      <div class="skeleton" style="height: 16px; width: 100px;"></div>
+                      <div class="skeleton mt-1" style="height: 12px; width: 140px;"></div>
+                    </div>
+                  </div>
+                </td>
+                <td><div class="skeleton" style="height: 16px; width: 80px;"></div></td>
+                <td><div class="skeleton" style="height: 22px; width: 160px; border-radius: 999px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 130px;"></div></td>
+                <td class="text-end pe-4"><div class="skeleton ms-auto" style="height: 28px; width: 80px;"></div></td>
+              </tr>
+              <!-- 空状态 -->
+              <tr v-else-if="filteredUsers.length === 0">
+                <td colspan="5" class="p-0">
+                  <div class="empty-state">
+                    <i class="bi bi-people"></i>
+                    <p>{{ $t('user_no_users_found', '未找到匹配的用户数据') }}</p>
+                    <LiquidGlassButton variant="primary" icon="bi bi-person-plus" @click="openCreateModal" v-permission="'user:create'">
+                      {{ $t('user_add', '添加用户') }}
+                    </LiquidGlassButton>
                   </div>
                 </td>
               </tr>
-              <tr v-else-if="users.length === 0">
-                <td colspan="6" class="text-center py-4 text-muted">{{ $t('user_no_users') }}</td>
-              </tr>
-              <tr v-for="user in users" :key="user.id" v-else>
-                <td><strong>{{ user.username }}</strong></td>
-                <td>{{ user.display_name }}</td>
-                <td>
-                  <span class="d-flex gap-1 flex-wrap">
-                    <span v-for="(item, idx) in getPermissionsSummary(user).slice(0, 2)" :key="idx" 
-                          class="badge" :class="item.type === 'primary' ? 'text-bg-primary' : 'text-bg-info'">
-                      {{ item.text }}
-                    </span>
-                    <span v-if="getPermissionsSummary(user).length > 2" 
-                          class="badge text-bg-secondary" style="cursor: pointer;" @click="openDetailsModal(user)">
-                      +{{ getPermissionsSummary(user).length - 2 }} {{ $t('common_more', '更多') }}
-                    </span>
-                    <span v-if="getPermissionsSummary(user).length === 0" class="text-muted small">{{ $t('user_no_permission', '无权限') }}</span>
-                  </span>
+              <tr v-for="user in filteredUsers" :key="user.id">
+                <td class="ps-4">
+                  <div class="d-flex align-items-center">
+                    <div class="avatar-sm rounded-circle text-primary me-2 d-flex align-items-center justify-content-center fw-bold" style="width: 32px; height: 32px; background: var(--bg-surface); border: 1px solid var(--border-color);">
+                      {{ (user.username || 'U').substring(0, 2).toUpperCase() }}
+                    </div>
+                    <div>
+                      <div class="fw-medium">{{ user.username }}</div>
+                      <small class="text-muted" v-if="user.email">{{ user.email }}</small>
+                    </div>
+                  </div>
                 </td>
-                <td>{{ user.last_login_at ? formatDateTime(user.last_login_at) : $t('user_never') }}</td>
-                <td>{{ formatDateTime(user.created_at) }}</td>
-                <td class="text-end">
-                  <div class="d-inline-flex align-items-center justify-content-end gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" @click="openDetailsModal(user)" :title="$t('common_view_details', '查看详情')">
+                <td>{{ user.display_name || '-' }}</td>
+                <td>
+                  <div class="d-flex flex-wrap gap-1 align-items-center">
+                    <template v-if="user.tenant_roles && user.tenant_roles.length > 0">
+                      <span v-for="role in user.tenant_roles" :key="'tr-'+role.role_id" class="spec-badge spec-badge--primary">
+                        <i class="bi bi-globe me-1"></i>{{ isGatewayMode && (role.role_code === 'tenant_admin' || role.role_code === 'super_admin' || role.role_code === 'gateway_admin') ? $t('role_super_admin', '超级管理员') : role.role_name }}
+                      </span>
+                    </template>
+                    <template v-if="!(isGatewayMode && user.tenant_roles?.some(r => ['tenant_admin', 'super_admin', 'gateway_admin'].includes(r.role_code)))">
+                      <template v-if="user.projects && user.projects.length > 0">
+                        <span v-for="proj in getGroupedProjects(user.projects)" :key="'p-'+proj.name" class="spec-badge spec-badge--info">
+                          <i class="bi bi-folder me-1"></i>{{ proj.name }}: {{ proj.roles.join(', ') }}
+                        </span>
+                      </template>
+                    </template>
+                    <span v-if="!hasAssignedRoles(user)" class="text-muted small">
+                      {{ $t('user_no_permissions', '未分配权限') }}
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <span v-if="user.last_login_at" class="text-muted small">{{ formatDateTime(user.last_login_at) }}</span>
+                  <span v-else class="spec-badge spec-badge--neutral">{{ $t('user_never') }}</span>
+                </td>
+                <td class="text-end pe-4">
+                  <div class="table-actions">
+                    <button class="table-action-btn" @click="openDetailsModal(user)" :title="$t('common_view_details', '查看详情')">
                       <i class="bi bi-eye"></i>
                     </button>
-                    <button class="btn btn-sm" :class="hasAssignedRoles(user) ? 'btn-outline-info' : 'btn-outline-secondary'" @click="openRolesModal(user)" :title="$t('user_assign_roles', '分配角色')" :disabled="isRoleModificationDisabled(user)" v-permission="'user:edit'">
-                      <i class="bi bi-shield-check"></i>
+                    <button class="table-action-btn" :class="hasAssignedRoles(user) ? 'table-action-btn--info' : ''" @click="openRolesModal(user)" :title="$t('user_assign_roles', '分配角色')" :disabled="isRoleModificationDisabled(user)" v-permission="'user:edit'">
+                      <i class="bi bi-shield-lock"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-warning" @click="openResetPasswordModal(user)" :title="$t('reset_password', '重置密码')" v-permission="'user:edit'">
+                    <button class="table-action-btn table-action-btn--warning" @click="openResetPasswordModal(user)" :title="$t('reset_password', '重置密码')" v-permission="'user:edit'">
                       <i class="bi bi-key"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" @click="openEditModal(user)" :title="$t('user_edit', '编辑')" v-permission="'user:edit'">
+                    <button class="table-action-btn table-action-btn--primary" @click="openEditModal(user)" :title="$t('user_edit', '编辑')" v-permission="'user:edit'">
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" @click="deleteUser(user)" :disabled="isUserDeletionDisabled(user)" :title="$t('user_delete', '删除')" v-permission="'user:delete'">
+                    <button class="table-action-btn table-action-btn--danger" @click="deleteUser(user)" :disabled="isUserDeletionDisabled(user)" :title="$t('user_delete', '删除')" v-permission="'user:delete'">
                       <i class="bi bi-trash"></i>
                     </button>
                   </div>
@@ -85,21 +138,24 @@
             </tbody>
           </table>
         </div>
+        <div class="p-3 border-top d-flex justify-content-between align-items-center" v-if="total > pageSize">
+          <span class="text-muted small">{{ $t('user_total_records', { total }) }}</span>
+          <ListPagination
+            :page="page"
+            :page-size="pageSize"
+            :total="total"
+            :disabled="loading"
+            id-prefix="user-management"
+            @update:page="changePage"
+            @update:page-size="changePageSize"
+          />
+        </div>
       </div>
-      <ListPagination
-        class="card-footer"
-        :page="page"
-        :page-size="pageSize"
-        :total="total"
-        :disabled="loading"
-        id-prefix="users"
-        @update:page="changePage"
-        @update:page-size="changePageSize"
-      />
     </div>
 
-    <!-- User Modal -->
-    <div class="modal fade" id="userModal" tabindex="-1" ref="userModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
+    <Teleport to="body">
+      <!-- User Modal -->
+      <div class="modal fade" id="userModal" tabindex="-1" ref="userModalRef" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -108,36 +164,34 @@
           </div>
           <div class="modal-body">
             <form @submit.prevent="saveUser">
-              <div class="row">
-                <div class="col-md-6 mb-3">
-                  <label class="form-label">{{ getFormNameLabel() }} <span class="text-danger">*</span></label>
-                  <input v-model="form.display_name" type="text" class="form-control" required>
-                </div>
-                <div class="col-md-6 mb-3">
-                  <label class="form-label">{{ $t('auth_username', '账号') }} <span class="text-danger">*</span></label>
-                  <input v-model="form.username" type="text" class="form-control" :disabled="isEditing" required>
-                </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('auth_username') }} <span class="text-danger">*</span></label>
+                <input v-model="form.username" type="text" class="form-control" :disabled="isEditing" required>
               </div>
               <div class="mb-3">
-                <label class="form-label">{{ $t('user_phone', '电话') }}</label>
+                <label class="form-label">{{ $t('user_name', '姓名') }} <span class="text-danger">*</span></label>
+                <input v-model="form.display_name" type="text" class="form-control" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('user_phone', '电话/联系方式') }}</label>
                 <input v-model="form.email" type="text" class="form-control">
               </div>
               <div class="row" v-if="!isEditing">
                 <div class="col-md-6 mb-3">
-                  <label class="form-label">{{ $t('auth_password', '密码') }} <span class="text-danger">*</span></label>
-                  <input v-model="form.password" type="password" class="form-control">
+                  <label class="form-label">{{ $t('auth_password') }} <span class="text-danger">*</span></label>
+                  <input v-model="form.password" type="password" class="form-control" required>
                 </div>
                 <div class="col-md-6 mb-3">
                   <label class="form-label">{{ $t('auth_password_confirm', '确认密码') }} <span class="text-danger">*</span></label>
-                  <input v-model="form.confirm_password" type="password" class="form-control">
+                  <input v-model="form.confirm_password" type="password" class="form-control" required>
                 </div>
               </div>
 
             </form>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('user_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveUser">{{ $t('user_save') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ $t('user_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" @click="saveUser">{{ $t('user_save') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -158,8 +212,8 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('user_cancel') }}</button>
-            <button type="button" class="btn btn-danger" @click="resetPassword">{{ $t('user_reset_password') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ $t('user_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="danger" @click="resetPassword">{{ $t('user_reset_password') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -211,8 +265,8 @@
              </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('user_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveRoles">{{ $t('user_save_assign', '保存分配') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ $t('user_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" @click="saveRoles">{{ $t('user_save_assign', '保存分配') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -227,8 +281,8 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body p-0">
-            <div v-if="currentUserDetails" class="bg-light">
-              <div class="p-4 text-center border-bottom bg-white">
+            <div v-if="currentUserDetails" class="user-details-card">
+              <div class="p-4 text-center border-bottom user-details-header">
                 <div class="display-4 text-primary mb-2">
                   <i class="bi bi-person-circle"></i>
                 </div>
@@ -257,7 +311,7 @@
                   <div class="card-body p-3">
                     <div class="text-muted small mb-2 fw-bold">{{ $t('user_global_roles', '全局角色') }}</div>
                     <div v-if="currentUserDetails.tenant_roles && currentUserDetails.tenant_roles.length > 0" class="d-flex flex-wrap gap-2">
-                      <span v-for="roleName in Array.from(new Set(currentUserDetails.tenant_roles.map(r => isGatewayMode && (r.role_code === 'tenant_admin' || r.role_code === 'super_admin' || r.role_code === 'gateway_admin') ? $t('role_super_admin', '超级管理员') : r.role_name)))" :key="roleName" class="badge text-bg-primary px-3 py-2">
+                      <span v-for="roleName in Array.from(new Set(currentUserDetails.tenant_roles.map(r => isGatewayMode && (r.role_code === 'tenant_admin' || r.role_code === 'super_admin' || r.role_code === 'gateway_admin') ? $t('role_super_admin', '超级管理员') : r.role_name)))" :key="roleName" class="spec-badge spec-badge--primary px-3 py-2">
                         <i class="bi bi-globe me-1"></i> {{ roleName }}
                       </span>
                     </div>
@@ -274,7 +328,7 @@
                           <li v-for="p in getGroupedProjects(currentUserDetails.projects)" :key="p.name" class="list-group-item px-0 d-flex justify-content-between align-items-center bg-transparent">
                             <span><i class="bi bi-folder text-info me-2"></i>{{ p.name }}</span>
                             <span class="text-end">
-                              <span v-for="role in p.roles" :key="role" class="badge text-bg-light text-dark border ms-1">{{ role }}</span>
+                              <span v-for="role in p.roles" :key="role" class="spec-badge spec-badge--info ms-1">{{ role }}</span>
                             </span>
                           </li>
                         </ul>
@@ -287,12 +341,12 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ $t('common_close', '关闭') }}</button>
+            <LiquidGlassButton variant="danger" data-bs-dismiss="modal">{{ $t('common_close', '关闭') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
     </div>
-
+  </Teleport>
   </div>
 </template>
 
@@ -305,6 +359,7 @@ import { useI18n } from 'vue-i18n'
 import { isSingleProjectMode } from '../utils/systemMode'
 import ListPagination from '../components/ListPagination.vue'
 import { formatDateTime } from '../utils/dateTime.js'
+import CompactListMetrics from '../components/CompactListMetrics.vue'
 
 const authStore = useAuthStore()
 const currentUser = authStore.user
@@ -335,6 +390,31 @@ const allRoles = ref([])
 const unifiedRoleAssignments = ref([])
 const allProjects = ref([])
 const currentUserToAssign = ref(null)
+
+const adminCount = computed(() => {
+  return users.value.filter(u => u.tenant_roles?.some(r => ['tenant_admin', 'super_admin', 'gateway_admin', 'admin'].includes(r.role_code))).length
+})
+const projectMembersCount = computed(() => {
+  return users.value.filter(u => u.projects && u.projects.length > 0).length
+})
+const metricCards = computed(() => [
+  { key: 'total', label: t('stat_total', '总用户数'), value: total.value || users.value.length, icon: 'bi-people-fill', tone: 'brand' },
+  { key: 'admin', label: t('stat_admin_users', '管理权限'), value: adminCount.value, icon: 'bi-shield-check', tone: 'success' },
+  { key: 'projectMember', label: t('stat_project_members', '项目成员'), value: projectMembersCount.value, icon: 'bi-person-badge', tone: 'neutral' }
+])
+const metricFilters = ref([])
+const filteredUsers = computed(() => users.value.filter((user) => {
+  if (!metricFilters.value.length) return true
+  const isAdmin = user.tenant_roles?.some((role) => ['tenant_admin', 'super_admin', 'gateway_admin', 'admin'].includes(role.role_code))
+  const isProjectMember = Boolean(user.projects?.length)
+  return (metricFilters.value.includes('admin') && isAdmin)
+    || (metricFilters.value.includes('projectMember') && isProjectMember)
+}))
+const toggleMetricFilter = (key) => {
+  metricFilters.value = metricFilters.value.includes(key)
+    ? metricFilters.value.filter((item) => item !== key)
+    : [...metricFilters.value, key]
+}
 
 const addUnifiedRoleRow = () => {
   unifiedRoleAssignments.value.push({ project_id: null, role_id: 0 })
@@ -700,3 +780,15 @@ const saveRoles = async () => {
 
 
 </script>
+
+<style scoped>
+.user-details-card {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+.user-details-header {
+  background: var(--bg-drawer-header);
+  border-color: var(--border-color) !important;
+}
+</style>
+

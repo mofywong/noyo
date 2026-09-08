@@ -6,10 +6,12 @@ import (
 
 	"fmt"
 	"noyo/core"
+	"noyo/core/deviceidentity"
 	"noyo/core/platform"
 	"noyo/core/protocol"
 	"noyo/core/store"
 	"noyo/core/types"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,8 +33,26 @@ type CascadePlugin struct {
 	PlatformEngine PlatformEngine
 	GatewayEngine  GatewayEngine
 
-	ctx platform.Context
-	wg  sync.WaitGroup
+	ctx      platform.Context
+	wg       sync.WaitGroup
+	stopCh   chan struct{}
+	stopOnce sync.Once
+}
+
+// getActivePlugin dynamically returns the latest active CascadePlugin instance
+// registered in PluginManager, preventing stale pointer references in GoFrame HTTP route closures after hot-reload.
+func (p *CascadePlugin) getActivePlugin() *CascadePlugin {
+	if p == nil || p.ctx == nil {
+		return p
+	}
+	server, ok := p.ctx.GetCoreServer().(*core.Server)
+	if !ok || server == nil || server.Manager == nil {
+		return p
+	}
+	if active, ok := server.Manager.GetPlugin("cascade").(*CascadePlugin); ok && active != nil {
+		return active
+	}
+	return p
 }
 
 func init() {
@@ -111,6 +131,18 @@ func (p *CascadePlugin) WritePoint(device types.DeviceMeta, pointCode string, va
 	return fmt.Errorf("write point not supported directly")
 }
 
+// gatewayCommandDeviceCode translates a platform-scoped GB28181 identity to
+// the direct identity used by the camera registry on the gateway. Other
+// cascaded devices are already synchronized with the same code on both sides.
+func gatewayCommandDeviceCode(device types.DeviceMeta) string {
+	if device.ProductCode == "gb28181_camera" {
+		if sipID, ok := device.Extras["sip_id"].(string); ok && strings.TrimSpace(sipID) != "" {
+			return deviceidentity.GB28181DeviceCode(sipID, "")
+		}
+	}
+	return device.DeviceCode
+}
+
 // CallService implements IProtocolPlugin. It intercepts commands on the Platform and forwards them to the Gateway.
 func (p *CascadePlugin) CallService(device types.DeviceMeta, serviceCode string, params map[string]interface{}) (interface{}, error) {
 	if p.Config.Mode != "platform" {
@@ -135,7 +167,7 @@ func (p *CascadePlugin) CallService(device types.DeviceMeta, serviceCode string,
 	payload := map[string]interface{}{
 		"id":          cmdId,
 		"version":     "1.0",
-		"deviceCode":  device.DeviceCode,
+		"deviceCode":  gatewayCommandDeviceCode(device),
 		"productCode": device.ProductCode,
 		"method":      "service_invoke",
 		"params": map[string]interface{}{
@@ -184,6 +216,40 @@ func (p *CascadePlugin) SendCommandToGateway(gwSn string, cmdID string, payload 
 		return nil, fmt.Errorf("platform engine is not of correct type")
 	}
 	return engine.SendCommand(gwSn, cmdID, payload)
+}
+
+// PublishMediaSignal implements platform.IMediaSignalRouter.  It transfers
+// only ICE signalling; video continues to flow directly between browser and
+// gateway (or through TURN when direct connectivity is impossible).
+func (p *CascadePlugin) PublishMediaSignal(gatewayCode string, signal platform.MediaSignal) error {
+	if p.Config.Mode == "platform" {
+		if p.PlatformEngine == nil {
+			return fmt.Errorf("platform engine not available")
+		}
+		return p.PlatformEngine.PublishMediaSignal(gatewayCode, signal)
+	}
+	if p.Config.Mode == "gateway" {
+		if p.GatewayEngine == nil {
+			return fmt.Errorf("gateway engine not available")
+		}
+		return p.GatewayEngine.PublishMediaSignal(signal)
+	}
+	return fmt.Errorf("cascade mode is not configured")
+}
+
+func (p *CascadePlugin) SetMediaSignalHandler(handler func(platform.MediaSignal)) {
+	if p.Config.Mode == "platform" && p.PlatformEngine != nil {
+		p.PlatformEngine.SetMediaSignalHandler(handler)
+	}
+	if p.Config.Mode == "gateway" && p.GatewayEngine != nil {
+		p.GatewayEngine.SetMediaSignalHandler(handler)
+	}
+}
+
+// IsGatewayMediaNode lets protocol plugins register a downlink handler only
+// in gateway mode. Platform mode reserves its handler for browser sessions.
+func (p *CascadePlugin) IsGatewayMediaNode() bool {
+	return p.Config.Mode == "gateway"
 }
 
 func (p *CascadePlugin) GetConfigSchema() *core.PluginConfigSchema {
@@ -304,12 +370,26 @@ func (p *CascadePlugin) GetSetupSchema(mode string) *core.PluginSetupSchema {
 	if mode == core.SetupModePlatformGateway {
 		fields = append(fields,
 			core.PluginSetupField{
+				Name:        "tenant_id",
+				Type:        "number",
+				Title:       map[string]string{"en": "Platform Tenant ID", "zh": "平台租户 ID"},
+				Description: map[string]string{"en": "Copy the target tenant ID from the platform gateway registration information.", "zh": "请填写平台网关预登记信息中的目标租户 ID。"},
+				Required:    true,
+			},
+			core.PluginSetupField{
+				Name:        "project_id",
+				Type:        "number",
+				Title:       map[string]string{"en": "Platform Project ID", "zh": "平台项目 ID"},
+				Description: map[string]string{"en": "Copy the target project ID from the platform gateway registration information.", "zh": "请填写平台网关预登记信息中的目标项目 ID。"},
+				Required:    true,
+			},
+			core.PluginSetupField{
 				Name:  "gateway_sn",
 				Type:  "string",
-				Title: map[string]string{"en": "Platform Gateway SN", "zh": "平台注册网关 SN"},
+				Title: map[string]string{"en": "Gateway Physical SN", "zh": "网关物理 SN"},
 				Description: map[string]string{
-					"en": "Must match the gateway device code that the platform pre-registered under the target project.",
-					"zh": "必须与平台在目标项目下预登记的网关设备编码一致，平台据此完成项目绑定。",
+					"en": "Must match the SN that was pre-registered in the specified platform tenant and project.",
+					"zh": "必须与指定平台租户和项目下预登记的网关物理 SN 一致。",
 				},
 				Required: true,
 			},
@@ -338,6 +418,7 @@ func (p *CascadePlugin) Init(ctx platform.Context) error {
 	}
 	p.Logger = ctx.GetLogger()
 	p.ctx = ctx
+	p.stopCh = make(chan struct{})
 
 	// Ensure gateway product exists unconditionally
 	EnsureGatewayProduct(p.Logger)
@@ -375,14 +456,15 @@ func (p *CascadePlugin) Init(ctx platform.Context) error {
 }
 
 func (p *CascadePlugin) handleGetStatus(r *ghttp.Request) {
+	active := p.getActivePlugin()
 	connected := false
-	if p.Config.Mode == "platform" && p.PlatformEngine != nil {
-		engine, ok := p.PlatformEngine.(*platformEngineImpl)
+	if active.Config.Mode == "platform" && active.PlatformEngine != nil {
+		engine, ok := active.PlatformEngine.(*platformEngineImpl)
 		if ok && engine.client != nil {
 			connected = engine.client.IsConnected()
 		}
-	} else if p.Config.Mode == "gateway" && p.GatewayEngine != nil {
-		engine, ok := p.GatewayEngine.(*gatewayEngineImpl)
+	} else if active.Config.Mode == "gateway" && active.GatewayEngine != nil {
+		engine, ok := active.GatewayEngine.(*gatewayEngineImpl)
 		if ok && engine.client != nil {
 			connected = engine.client.IsConnected()
 		}
@@ -392,9 +474,9 @@ func (p *CascadePlugin) handleGetStatus(r *ghttp.Request) {
 		"plugin":       "cascade",
 		"status":       map[bool]string{true: "connected", false: "disconnected"}[connected],
 		"connected":    connected,
-		"mode":         p.Config.Mode,
-		"broker":       p.Config.MqttUrl,
-		"gateway_code": p.Config.GatewaySn,
+		"mode":         active.Config.Mode,
+		"broker":       active.Config.MqttUrl,
+		"gateway_code": active.Config.GatewaySn,
 		"ts":           time.Now(),
 	})
 }
@@ -409,47 +491,65 @@ func (p *CascadePlugin) handleStream(r *ghttp.Request) {
 	r.Response.Write("event: connected\ndata: {}\n\n")
 	r.Response.Flush()
 
+	checkStatus := func() (connected bool, mode, broker, gwCode string) {
+		active := p.getActivePlugin()
+		if active.Config.Mode == "platform" && active.PlatformEngine != nil {
+			if engine, ok := active.PlatformEngine.(*platformEngineImpl); ok && engine.client != nil {
+				connected = engine.client.IsConnected()
+			}
+		} else if active.Config.Mode == "gateway" && active.GatewayEngine != nil {
+			if engine, ok := active.GatewayEngine.(*gatewayEngineImpl); ok && engine.client != nil {
+				connected = engine.client.IsConnected()
+			}
+		}
+		return connected, active.Config.Mode, active.Config.MqttUrl, active.Config.GatewaySn
+	}
+
+	sendEventStatus := func(connected bool, mode, broker, gwCode string) error {
+		data := map[string]interface{}{
+			"plugin":       "cascade",
+			"status":       map[bool]string{true: "connected", false: "disconnected"}[connected],
+			"connected":    connected,
+			"mode":         mode,
+			"broker":       broker,
+			"gateway_code": gwCode,
+			"ts":           time.Now(),
+		}
+		b, _ := json.Marshal(data)
+		msg := fmt.Sprintf("event: status\ndata: %s\n\n", string(b))
+		if _, err := r.Response.Writer.Write([]byte(msg)); err != nil {
+			return err
+		}
+		r.Response.Flush()
+		return nil
+	}
+
+	// Send initial status immediately upon connection
+	lastConnected, lastMode, lastBroker, lastGwCode := checkStatus()
+	_ = sendEventStatus(lastConnected, lastMode, lastBroker, lastGwCode)
+
 	ctx := r.Context()
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
-
-	lastConnected := false
-	first := true
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-p.stopCh:
+			// Old instance stopped during reload; end this SSE stream so the client reconnects to the new active instance
+			return
 		case <-ticker.C:
-			connected := false
-			if p.Config.Mode == "platform" && p.PlatformEngine != nil {
-				if engine, ok := p.PlatformEngine.(*platformEngineImpl); ok && engine.client != nil {
-					connected = engine.client.IsConnected()
-				}
-			} else if p.Config.Mode == "gateway" && p.GatewayEngine != nil {
-				if engine, ok := p.GatewayEngine.(*gatewayEngineImpl); ok && engine.client != nil {
-					connected = engine.client.IsConnected()
-				}
-			}
+			connected, mode, broker, gwCode := checkStatus()
 
-			if first || connected != lastConnected {
-				data := map[string]interface{}{
-					"plugin":       "cascade",
-					"status":       map[bool]string{true: "connected", false: "disconnected"}[connected],
-					"connected":    connected,
-					"mode":         p.Config.Mode,
-					"broker":       p.Config.MqttUrl,
-					"gateway_code": p.Config.GatewaySn,
-					"ts":           time.Now(),
-				}
-				b, _ := json.Marshal(data)
-				msg := fmt.Sprintf("event: status\ndata: %s\n\n", string(b))
-				if _, err := r.Response.Writer.Write([]byte(msg)); err != nil {
+			if connected != lastConnected || mode != lastMode || broker != lastBroker || gwCode != lastGwCode {
+				if err := sendEventStatus(connected, mode, broker, gwCode); err != nil {
 					return
 				}
-				r.Response.Flush()
 				lastConnected = connected
-				first = false
+				lastMode = mode
+				lastBroker = broker
+				lastGwCode = gwCode
 			} else {
 				if _, err := r.Response.Writer.Write([]byte("event: heartbeat\ndata: {}\n\n")); err != nil {
 					return
@@ -461,12 +561,21 @@ func (p *CascadePlugin) handleStream(r *ghttp.Request) {
 }
 
 func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
-	if p.Config.Mode != "platform" {
+	active := p.getActivePlugin()
+	if r.Method == "POST" {
+		active.handleGatewayCreate(r)
+		return
+	}
+	if r.Method != "GET" {
+		r.Response.WriteStatus(405)
+		return
+	}
+	if active.Config.Mode != "platform" {
 		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway management is only available in platform mode"})
 		return
 	}
 
-	coreServer, _ := p.ctx.GetCoreServer().(*core.Server)
+	coreServer, _ := active.ctx.GetCoreServer().(*core.Server)
 	tenantID := r.GetCtxVar("tenant_id").Uint()
 	projectID := r.GetCtxVar("project_id").Uint()
 	devices, _, err := store.ListDevices(0, 0, tenantID, projectID)
@@ -489,22 +598,22 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 	}
 
 	type gatewayItem struct {
-		SN          string `json:"sn"`
-		Name        string `json:"name"`
-		ProjectID   uint   `json:"projectId"`
-		ProjectName string `json:"projectName"`
-		ProductCode string `json:"productCode"`
-		Enabled     bool   `json:"enabled"`
-		Status      string `json:"status"`
-		Online      bool   `json:"online"`
-		OnlineAt    int64  `json:"onlineAt"`
-		UpdatedAt   int64  `json:"updatedAt"`
+		SN           string `json:"sn"`
+		SerialNumber string `json:"serialNumber"`
+		Name         string `json:"name"`
+		ProjectID    uint   `json:"projectId"`
+		ProjectName  string `json:"projectName"`
+		ProductCode  string `json:"productCode"`
+		Enabled      bool   `json:"enabled"`
+		Status       string `json:"status"`
+		Online       bool   `json:"online"`
+		OnlineAt     int64  `json:"onlineAt"`
+		UpdatedAt    int64  `json:"updatedAt"`
 	}
 
 	items := make([]gatewayItem, 0)
 	for _, dev := range devices {
-		product, err := store.GetProduct(dev.ProductCode)
-		if err != nil || product == nil || product.Name != "cascade" {
+		if dev.ProductCode != defaultGatewayProductCode {
 			continue
 		}
 
@@ -522,20 +631,93 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 		}
 
 		items = append(items, gatewayItem{
-			SN:          dev.Code,
-			Name:        dev.Name,
-			ProjectID:   dev.ProjectID,
-			ProjectName: projectNames[dev.ProjectID],
-			ProductCode: dev.ProductCode,
-			Enabled:     dev.Enabled,
-			Status:      statusStr,
-			Online:      online,
-			OnlineAt:    onlineAt,
-			UpdatedAt:   dev.UpdatedAt.UnixMilli(),
+			SN:           dev.Code,
+			SerialNumber: gatewaySerialNumber(&dev),
+			Name:         dev.Name,
+			ProjectID:    dev.ProjectID,
+			ProjectName:  projectNames[dev.ProjectID],
+			ProductCode:  dev.ProductCode,
+			Enabled:      dev.Enabled,
+			Status:       statusStr,
+			Online:       online,
+			OnlineAt:     onlineAt,
+			UpdatedAt:    dev.UpdatedAt.UnixMilli(),
 		})
 	}
 
 	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": items})
+}
+
+func (p *CascadePlugin) handleGatewayCreate(r *ghttp.Request) {
+	if p.Config.Mode != "platform" {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway management is only available in platform mode"})
+		return
+	}
+	authCtx := core.RequestAuthContext(r)
+	if authCtx == nil || !authCtx.HasPermission("device:create") {
+		r.Response.WriteJson(map[string]interface{}{"code": 403, "message": "Permission denied: device:create"})
+		return
+	}
+	tenantID, projectID, err := core.CurrentTenantProjectScope(r)
+	if err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": err.Error()})
+		return
+	}
+	var body struct {
+		SN   string `json:"sn"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(r.GetBody(), &body); err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "Invalid JSON"})
+		return
+	}
+	serialNumber := strings.TrimSpace(body.SN)
+	gatewayCode, err := core.BuildCascadeGatewayCode(tenantID, projectID, serialNumber)
+	if err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": err.Error()})
+		return
+	}
+	if existing, err := store.GetDevice(gatewayCode); err == nil && existing != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 409, "message": "Gateway SN is already registered for this tenant and project"})
+		return
+	}
+	device := newPendingGatewayDevice(gatewayCode, valueOrDefaultGatewayName(body.Name, serialNumber), tenantID, projectID)
+	device.Enabled = true
+	config, _ := json.Marshal(map[string]string{"gateway_sn": serialNumber})
+	device.Config = string(config)
+	if err := store.SaveDevice(device); err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
+		return
+	}
+	if coreServer, ok := p.ctx.GetCoreServer().(*core.Server); ok && coreServer.DeviceManager != nil {
+		coreServer.DeviceManager.Registry.UpdateDevice(device)
+	}
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": map[string]interface{}{
+		"gatewayCode":  gatewayCode,
+		"serialNumber": serialNumber,
+		"tenantId":     tenantID,
+		"projectId":    projectID,
+	}})
+}
+
+func gatewaySerialNumber(device *store.Device) string {
+	if device == nil {
+		return ""
+	}
+	var config struct {
+		GatewaySN string `json:"gateway_sn"`
+	}
+	if err := json.Unmarshal([]byte(device.Config), &config); err == nil && strings.TrimSpace(config.GatewaySN) != "" {
+		return strings.TrimSpace(config.GatewaySN)
+	}
+	return device.Code
+}
+
+func valueOrDefaultGatewayName(value, fallback string) string {
+	if value = strings.TrimSpace(value); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func (p *CascadePlugin) handleGatewayPlugins(r *ghttp.Request) {
@@ -579,7 +761,11 @@ func (p *CascadePlugin) handleGatewayPluginConfig(r *ghttp.Request) {
 	data, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodConfigGet, pluginName, nil)
 	if err != nil {
 		if item, found := gatewayPluginStateCache.Get(gwSn, pluginName); found {
-			r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item), "message": err.Error()})
+			cached := summaryFromCacheItem(item)
+			if pluginName == "webrtc" {
+				enrichRemoteWebRTCPluginSummary(&cached)
+			}
+			r.Response.WriteJson(map[string]interface{}{"code": 0, "data": cached, "message": err.Error()})
 			return
 		}
 		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
@@ -593,7 +779,11 @@ func (p *CascadePlugin) handleGatewayPluginConfig(r *ghttp.Request) {
 	if item, found := gatewayPluginStateCache.Get(gwSn, pluginName); found && item.SyncState == remotePluginSyncPending {
 		if _, conflict := gatewayPluginStateCache.MarkConflictIfGatewayChanged(gwSn, pluginName, summary.ConfigVersion); conflict {
 			if conflictItem, ok := gatewayPluginStateCache.Get(gwSn, pluginName); ok {
-				r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(conflictItem)})
+				cachedConflict := summaryFromCacheItem(conflictItem)
+				if pluginName == "webrtc" {
+					enrichRemoteWebRTCPluginSummary(&cachedConflict)
+				}
+				r.Response.WriteJson(map[string]interface{}{"code": 0, "data": cachedConflict})
 				return
 			}
 		}
@@ -605,14 +795,23 @@ func (p *CascadePlugin) handleGatewayPluginConfig(r *ghttp.Request) {
 			if err == nil {
 				if appliedSummary, decodeErr := decodeRemotePluginSummary(applied); decodeErr == nil {
 					synced := gatewayPluginStateCache.MarkSynced(gwSn, *appliedSummary, time.Now())
+					if pluginName == "webrtc" {
+						enrichRemoteWebRTCPluginSummary(&synced)
+					}
 					r.Response.WriteJson(map[string]interface{}{"code": 0, "data": synced})
 					return
 				}
 			}
 		}
 	}
+	if pluginName == "webrtc" {
+		enrichRemoteWebRTCPluginSummary(summary)
+	}
 	gatewayPluginStateCache.SaveSnapshot(gwSn, *summary, time.Now())
 	merged := gatewayPluginStateCache.MergeSummary(gwSn, *summary)
+	if pluginName == "webrtc" {
+		enrichRemoteWebRTCPluginSummary(&merged)
+	}
 	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": merged})
 }
 
@@ -718,7 +917,8 @@ func (p *CascadePlugin) handleGatewayPluginStatusSave(r *ghttp.Request) {
 }
 
 func (p *CascadePlugin) writeRemotePluginCommandResponse(r *ghttp.Request, method, pluginName string, params map[string]interface{}) {
-	if p.Config.Mode != "platform" {
+	active := p.getActivePlugin()
+	if active.Config.Mode != "platform" {
 		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway plugin management is only available in platform mode"})
 		return
 	}
@@ -727,7 +927,7 @@ func (p *CascadePlugin) writeRemotePluginCommandResponse(r *ghttp.Request, metho
 		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway sn is required"})
 		return
 	}
-	engine, ok := p.PlatformEngine.(*platformEngineImpl)
+	engine, ok := active.PlatformEngine.(*platformEngineImpl)
 	if !ok || engine == nil {
 		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": "platform engine not available"})
 		return
@@ -741,7 +941,8 @@ func (p *CascadePlugin) writeRemotePluginCommandResponse(r *ghttp.Request, metho
 }
 
 func (p *CascadePlugin) remotePluginEngine(r *ghttp.Request, gwSn string) (*platformEngineImpl, bool) {
-	if p.Config.Mode != "platform" {
+	active := p.getActivePlugin()
+	if active.Config.Mode != "platform" {
 		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway plugin management is only available in platform mode"})
 		return nil, false
 	}
@@ -749,10 +950,10 @@ func (p *CascadePlugin) remotePluginEngine(r *ghttp.Request, gwSn string) (*plat
 		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "gateway sn is required"})
 		return nil, false
 	}
-	if !p.ensureGatewayInRequestScope(r, gwSn) {
+	if !active.ensureGatewayInRequestScope(r, gwSn) {
 		return nil, false
 	}
-	engine, ok := p.PlatformEngine.(*platformEngineImpl)
+	engine, ok := active.PlatformEngine.(*platformEngineImpl)
 	if !ok || engine == nil {
 		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": "platform engine not available"})
 		return nil, false
@@ -911,6 +1112,12 @@ func (p *CascadePlugin) Start() error {
 func (p *CascadePlugin) Stop() error {
 	p.Logger.Info("Cascade plugin stopping")
 
+	p.stopOnce.Do(func() {
+		if p.stopCh != nil {
+			close(p.stopCh)
+		}
+	})
+
 	if p.PlatformEngine != nil {
 		p.PlatformEngine.Stop()
 	}
@@ -935,4 +1142,56 @@ func (p *CascadePlugin) Status() string {
 		return "Gateway Mode Running"
 	}
 	return "Unconfigured"
+}
+
+func enrichRemoteWebRTCPluginSummary(summary *remotePluginSummary) {
+	if summary == nil || summary.Schema == nil {
+		return
+	}
+	cfg, _, err := core.LoadMediaNetworkConfig()
+	if err != nil {
+		return
+	}
+
+	iceConfigSource := "platform"
+	for _, f := range summary.Schema.Fields {
+		if f.Name == "ice_config_source" {
+			if s, ok := f.Value.(string); ok && s != "" {
+				iceConfigSource = strings.ToLower(s)
+			}
+		}
+	}
+
+	isPlatformSource := iceConfigSource == "platform"
+
+	for i, f := range summary.Schema.Fields {
+		switch f.Name {
+		case "stun_server_url":
+			summary.Schema.Fields[i].Source = "platform"
+			if isPlatformSource && (f.Value == nil || f.Value == "") {
+				summary.Schema.Fields[i].Value = cfg.StunURLs
+			}
+		case "turn_server_url":
+			summary.Schema.Fields[i].Source = "platform"
+			if isPlatformSource && (f.Value == nil || f.Value == "") {
+				summary.Schema.Fields[i].Value = cfg.TurnURLs
+			}
+		case "turn_username":
+			summary.Schema.Fields[i].Source = "platform"
+			if isPlatformSource && (f.Value == nil || f.Value == "") {
+				summary.Schema.Fields[i].Value = cfg.TurnUsername
+			}
+		case "turn_password":
+			summary.Schema.Fields[i].Source = "platform"
+			if isPlatformSource && (f.Value == nil || f.Value == "") {
+				summary.Schema.Fields[i].Value = cfg.TurnPassword
+			}
+		case "public_ip", "media_port_min", "media_port_max":
+			summary.Schema.Fields[i].Source = "local"
+		case "platform_ice_fallback":
+			if isPlatformSource {
+				summary.Schema.Fields[i].Value = true
+			}
+		}
+	}
 }

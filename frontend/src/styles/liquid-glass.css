@@ -1,0 +1,970 @@
+/*
+ * Noyo Liquid Glass v4.4
+ * Functional controls and overview islands share one bounded backdrop sample per group.
+ */
+
+:root,
+[data-bs-theme="light"] {
+  --noyo-layer-content: 0;
+  --noyo-layer-raised: 8;
+  --noyo-layer-dropdown: 1000;
+  --noyo-layer-modal-backdrop: 1050;
+  --noyo-layer-modal: 1055;
+  --noyo-layer-popover: 1070;
+  --noyo-layer-tooltip: 1080;
+  --noyo-layer-toast: 1090;
+  --lg-layer-content: var(--noyo-layer-content);
+  --lg-layer-raised: var(--noyo-layer-raised);
+  --lg-layer-dropdown: var(--noyo-layer-dropdown);
+  --lg-layer-modal-backdrop: var(--noyo-layer-modal-backdrop);
+  --lg-layer-modal: var(--noyo-layer-modal);
+  --lg-layer-popover: var(--noyo-layer-popover);
+  --lg-layer-tooltip: var(--noyo-layer-tooltip);
+  --lg-layer-toast: var(--noyo-layer-toast);
+
+  --noyo-color-transparent: transparent;
+  --noyo-mask-opaque: #000000;
+  --noyo-radius-control: 12px;
+  --noyo-radius-glass: 20px;
+  --noyo-radius-panel: 24px;
+  --noyo-radius-pill: 999px;
+  --noyo-duration-fast: 160ms;
+  --noyo-duration-standard: 220ms;
+  --noyo-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --noyo-liquid-glass-density: 0.5;
+  --noyo-liquid-glass-density-percent: 50%;
+
+  --noyo-solid-surface: #ffffff;
+  --noyo-solid-surface-muted: #f7f9fc;
+  --noyo-solid-control: #ffffff;
+  --noyo-solid-border: rgba(69, 91, 122, 0.16);
+  --noyo-solid-border-strong: rgba(69, 91, 122, 0.24);
+  --noyo-solid-shadow-flat: 0 1px 2px rgba(31, 54, 92, 0.05);
+  --noyo-solid-shadow-raised: 0 14px 34px -26px rgba(31, 54, 92, 0.44), 0 1px 3px rgba(31, 54, 92, 0.07);
+  --noyo-solid-shadow-hover: 0 18px 38px -26px rgba(31, 54, 92, 0.50), 0 2px 7px rgba(31, 54, 92, 0.09);
+  --noyo-focus-ring: rgba(59, 130, 246, 0.34);
+  --noyo-control-fill: rgba(255, 255, 255, 0.42);
+  --noyo-control-fill-hover: rgba(255, 255, 255, 0.62);
+  --noyo-scrim: rgba(12, 20, 32, 0.36);
+
+  --noyo-glass-regular-tint: var(--noyo-dashboard-liquid-tint, rgba(248, 251, 255, 0.38));
+  --noyo-glass-regular-border: rgba(255, 255, 255, 0.74);
+  --noyo-glass-regular-highlight: rgba(255, 255, 255, 0.78);
+  --noyo-glass-regular-edge: rgba(55, 79, 112, 0.14);
+  --noyo-glass-regular-specular: rgba(255, 255, 255, 0.54);
+  --noyo-glass-regular-shadow: 0 18px 46px -26px rgba(31, 54, 92, 0.42), 0 4px 12px rgba(31, 54, 92, 0.08);
+  --noyo-glass-regular-fallback: #f4f7fb;
+  --noyo-glass-regular-blur: var(--noyo-dashboard-liquid-blur, 18px);
+  --noyo-glass-regular-saturate: 1.18;
+
+  --noyo-glass-floating-tint: var(--noyo-dashboard-liquid-tint, rgba(250, 252, 255, 0.50));
+  --noyo-glass-floating-border: rgba(255, 255, 255, 0.84);
+  --noyo-glass-floating-highlight: rgba(255, 255, 255, 0.88);
+  --noyo-glass-floating-edge: rgba(44, 67, 99, 0.18);
+  --noyo-glass-floating-specular: rgba(255, 255, 255, 0.66);
+  --noyo-glass-floating-shadow: 0 28px 70px -28px rgba(24, 46, 78, 0.52), 0 8px 22px rgba(24, 46, 78, 0.13);
+  --noyo-glass-floating-fallback: #f7f9fc;
+  --noyo-glass-floating-blur: calc(var(--noyo-dashboard-liquid-blur, 18px) + 6px);
+  --noyo-glass-floating-saturate: 1.16;
+
+  --noyo-glass-clear-tint: var(--noyo-dashboard-liquid-tint, rgba(247, 251, 255, 0.18));
+  --noyo-glass-clear-border: rgba(255, 255, 255, 0.62);
+  --noyo-glass-clear-highlight: rgba(255, 255, 255, 0.68);
+  --noyo-glass-clear-edge: rgba(35, 58, 90, 0.16);
+  --noyo-glass-clear-specular: rgba(255, 255, 255, 0.44);
+  --noyo-glass-clear-shadow: 0 16px 42px -24px rgba(19, 38, 67, 0.46), 0 4px 12px rgba(19, 38, 67, 0.10);
+  --noyo-glass-clear-fallback: #edf3fa;
+  --noyo-glass-clear-blur: 12px;
+  --noyo-glass-clear-saturate: 1.12;
+
+  --noyo-glass-island-tint: var(--noyo-dashboard-liquid-tint, rgba(255, 255, 255, 0.42));
+  --noyo-glass-island-border: rgba(255, 255, 255, 0.76);
+  --noyo-glass-island-highlight: rgba(255, 255, 255, 0.76);
+  --noyo-glass-island-edge: rgba(35, 58, 88, 0.16);
+  --noyo-glass-island-caustic: rgba(111, 211, 255, 0.18);
+  --noyo-glass-island-caustic-warm: rgba(255, 194, 122, 0.10);
+  --noyo-glass-island-reading: rgba(249, 252, 255, 0.30);
+  --noyo-glass-island-reading-strong: rgba(249, 252, 255, 0.44);
+  --noyo-glass-island-divider: rgba(65, 88, 119, 0.16);
+  --noyo-glass-island-action: rgba(255, 255, 255, 0.22);
+  --noyo-glass-island-action-hover: rgba(255, 255, 255, 0.38);
+  --noyo-glass-title-shadow: rgba(255, 255, 255, 0.86);
+  --noyo-glass-on-media-primary: #f8fafc;
+  --noyo-glass-on-media-secondary: rgba(248, 250, 252, 0.78);
+  --noyo-glass-on-media-shadow: rgba(0, 0, 0, 0.62);
+  --noyo-glass-island-shadow: 0 24px 56px -32px rgba(25, 47, 78, 0.52), 0 5px 16px rgba(25, 47, 78, 0.10);
+  --noyo-glass-island-fallback: #edf4fb;
+  --noyo-glass-island-blur: calc(var(--noyo-dashboard-liquid-blur, 18px) + 12px);
+  --noyo-glass-island-saturate: 1.08;
+  --noyo-glass-island-edge-width: 1px;
+
+  --noyo-dashboard-liquid-tint-min: rgba(255, 255, 255, 0.08);
+  --noyo-dashboard-liquid-tint-max: rgba(245, 248, 255, 0.82);
+  --noyo-dashboard-liquid-tint: color-mix(
+    in srgb,
+    var(--noyo-dashboard-liquid-tint-min) calc(100% - var(--noyo-liquid-glass-density-percent, 50%)),
+    var(--noyo-dashboard-liquid-tint-max)
+  );
+  --noyo-dashboard-liquid-blur: calc(6px + (var(--noyo-liquid-glass-density, 0.5) * 16px));
+  --noyo-dashboard-liquid-specular: rgba(255, 255, 255, 0.92);
+  --noyo-dashboard-liquid-edge: rgba(255, 255, 255, 0.65);
+  --noyo-dashboard-liquid-caustic: rgba(255, 255, 255, 0.65);
+  --noyo-dashboard-liquid-edge-band: 5px;
+  --noyo-dashboard-liquid-content-text: #000000;
+  --noyo-dashboard-liquid-backdrop-brightness: 1.05;
+  --noyo-dashboard-liquid-shadow: 0 10px 32px -4px rgba(31, 38, 135, 0.06), 0 2px 8px -2px rgba(0, 0, 0, 0.04);
+
+  /* Pointer caustic spotlight layers — 卡片指针焦散光斑分层（Light）/ card cursor caustic spotlight tokens (Light) */
+  --noyo-caustic-core: rgba(255, 255, 255, 0.9);
+  --noyo-caustic-main: rgba(255, 255, 255, 0.65);
+  --noyo-caustic-halo: rgba(255, 255, 255, 0.16);
+  --noyo-caustic-prism-cool: rgba(147, 197, 253, 0.32);
+  --noyo-caustic-prism-warm: rgba(255, 177, 152, 0.26);
+
+  /* Liquid Glass Button — Apple 液态玻璃按钮材质（Light）/ Apple-style glass button material (Light) */
+  --lg-btn-glass-tint: rgba(255, 255, 255, 0.30);
+  --lg-btn-glass-tint-hover: rgba(255, 255, 255, 0.44);
+  --lg-btn-glass-tint-active: rgba(255, 255, 255, 0.56);
+  --lg-btn-text-primary: var(--color-brand-active);
+  --lg-btn-text-secondary: var(--text-main);
+  --lg-btn-text-success: var(--color-success);
+  --lg-btn-text-danger: var(--color-danger);
+  --lg-btn-specular-top: rgba(255, 255, 255, 0.95);
+  --lg-btn-specular-sheen: rgba(255, 255, 255, 0.5);
+  --lg-btn-edge-dark: rgba(15, 23, 42, 0.14);
+  --lg-btn-rim: rgba(255, 255, 255, 0.72);
+  --lg-btn-rim-soft: rgba(255, 255, 255, 0.38);
+  --lg-btn-caustic: rgba(255, 255, 255, 0.85);
+  --lg-btn-caustic-halo: rgba(96, 165, 250, 0.25);
+  --lg-btn-prism-warm: rgba(255, 156, 156, 0.35);
+  --lg-btn-prism-cool: rgba(147, 197, 253, 0.4);
+  --lg-btn-shadow: 0 10px 26px -6px rgba(15, 23, 42, 0.18), 0 2px 8px -2px rgba(15, 23, 42, 0.08);
+  --lg-btn-shadow-hover: 0 16px 34px -8px rgba(15, 23, 42, 0.26), 0 4px 12px -2px rgba(15, 23, 42, 0.1);
+  --lg-btn-blur: 6px;
+  --lg-btn-blur-fallback: 16px;
+  --lg-btn-saturate: 1.45;
+  --lg-btn-brightness: 1.04;
+
+  /* Page aurora — 页面环境光（Light）/ ambient aurora glow for refraction content (Light) */
+  --lg-aurora-a: rgba(96, 165, 250, 0.2);
+  --lg-aurora-b: rgba(167, 139, 250, 0.14);
+  --lg-aurora-c: rgba(52, 211, 153, 0.12);
+
+  /* Compatibility aliases retained for existing page-local styles. */
+  --lg-solid-surface: var(--noyo-solid-surface);
+  --lg-solid-surface-muted: var(--noyo-solid-surface-muted);
+  --lg-solid-border: var(--noyo-solid-border);
+  --lg-solid-shadow: var(--noyo-solid-shadow-raised);
+  --lg-solid-shadow-hover: var(--noyo-solid-shadow-hover);
+  --lg-chrome-inner-light: var(--noyo-glass-regular-highlight);
+  --lg-focus-ring: var(--noyo-focus-ring);
+  --lg-opaque-fallback: var(--noyo-glass-regular-fallback);
+}
+
+[data-bs-theme="dark"] {
+  --noyo-solid-surface: #1c1e24;
+  --noyo-solid-surface-muted: #14161b;
+  --noyo-solid-control: #26282f;
+  --noyo-solid-border: rgba(255, 255, 255, 0.10);
+  --noyo-solid-border-strong: rgba(255, 255, 255, 0.17);
+  --noyo-solid-shadow-flat: 0 1px 2px rgba(0, 0, 0, 0.34);
+  --noyo-solid-shadow-raised: 0 18px 44px -28px rgba(0, 0, 0, 0.94), 0 1px 3px rgba(0, 0, 0, 0.40);
+  --noyo-solid-shadow-hover: 0 22px 50px -28px rgba(0, 0, 0, 0.98), 0 3px 9px rgba(0, 0, 0, 0.44);
+  --noyo-focus-ring: rgba(96, 165, 250, 0.40);
+  --noyo-control-fill: rgba(255, 255, 255, 0.08);
+  --noyo-control-fill-hover: rgba(255, 255, 255, 0.13);
+  --noyo-scrim: rgba(0, 0, 0, 0.58);
+  --noyo-mask-opaque: #000000;
+
+  --noyo-glass-regular-tint: var(--noyo-dashboard-liquid-tint, rgba(28, 30, 38, 0.55));
+  --noyo-glass-regular-border: rgba(255, 255, 255, 0.18);
+  --noyo-glass-regular-highlight: rgba(255, 255, 255, 0.26);
+  --noyo-glass-regular-edge: rgba(0, 0, 0, 0.58);
+  --noyo-glass-regular-specular: rgba(255, 255, 255, 0.16);
+  --noyo-glass-regular-shadow: 0 22px 54px -26px rgba(0, 0, 0, 0.88), 0 5px 17px rgba(0, 0, 0, 0.34);
+  --noyo-glass-regular-fallback: #19202c;
+  --noyo-glass-regular-blur: var(--noyo-dashboard-liquid-blur, 20px);
+  --noyo-glass-regular-saturate: 1.10;
+
+  --noyo-glass-floating-tint: var(--noyo-dashboard-liquid-tint, rgba(34, 36, 44, 0.65));
+  --noyo-glass-floating-border: rgba(255, 255, 255, 0.23);
+  --noyo-glass-floating-highlight: rgba(255, 255, 255, 0.30);
+  --noyo-glass-floating-edge: rgba(0, 0, 0, 0.66);
+  --noyo-glass-floating-specular: rgba(255, 255, 255, 0.19);
+  --noyo-glass-floating-shadow: 0 34px 78px -30px rgba(0, 0, 0, 0.96), 0 10px 26px rgba(0, 0, 0, 0.46);
+  --noyo-glass-floating-fallback: #1a2230;
+  --noyo-glass-floating-blur: calc(var(--noyo-dashboard-liquid-blur, 20px) + 6px);
+  --noyo-glass-floating-saturate: 1.08;
+
+  --noyo-glass-clear-tint: var(--noyo-dashboard-liquid-tint, rgba(24, 26, 32, 0.35));
+  --noyo-glass-clear-border: rgba(255, 255, 255, 0.16);
+  --noyo-glass-clear-highlight: rgba(255, 255, 255, 0.22);
+  --noyo-glass-clear-edge: rgba(0, 0, 0, 0.54);
+  --noyo-glass-clear-specular: rgba(255, 255, 255, 0.14);
+  --noyo-glass-clear-shadow: 0 20px 48px -24px rgba(0, 0, 0, 0.86), 0 5px 15px rgba(0, 0, 0, 0.34);
+  --noyo-glass-clear-fallback: #151d29;
+  --noyo-glass-clear-blur: 13px;
+  --noyo-glass-clear-saturate: 1.06;
+
+  --noyo-glass-island-tint: var(--noyo-dashboard-liquid-tint, rgba(22, 24, 30, 0.30));
+  --noyo-glass-island-border: rgba(255, 255, 255, 0.24);
+  --noyo-glass-island-highlight: rgba(255, 255, 255, 0.38);
+  --noyo-glass-island-edge: rgba(0, 0, 0, 0.72);
+  --noyo-glass-island-caustic: rgba(91, 190, 255, 0.22);
+  --noyo-glass-island-caustic-warm: rgba(255, 168, 92, 0.12);
+  --noyo-glass-island-reading: rgba(13, 21, 33, 0.30);
+  --noyo-glass-island-reading-strong: rgba(13, 21, 33, 0.48);
+  --noyo-glass-island-divider: rgba(255, 255, 255, 0.14);
+  --noyo-glass-island-action: rgba(255, 255, 255, 0.08);
+  --noyo-glass-island-action-hover: rgba(255, 255, 255, 0.14);
+  --noyo-glass-title-shadow: rgba(0, 0, 0, 0.82);
+  --noyo-glass-on-media-primary: #f8fafc;
+  --noyo-glass-on-media-secondary: rgba(248, 250, 252, 0.78);
+  --noyo-glass-on-media-shadow: rgba(0, 0, 0, 0.72);
+  --noyo-glass-island-shadow: 0 30px 68px -32px rgba(0, 0, 0, 0.92), 0 7px 20px rgba(0, 0, 0, 0.38);
+  --noyo-glass-island-fallback: #151e2a;
+  --noyo-glass-island-blur: calc(var(--noyo-dashboard-liquid-blur, 20px) + 12px);
+  --noyo-glass-island-saturate: 1.04;
+  --noyo-glass-island-edge-width: 1px;
+
+  --noyo-dashboard-liquid-tint-min: rgba(20, 22, 28, 0.28);
+  --noyo-dashboard-liquid-tint-max: rgba(30, 32, 40, 0.82);
+  --noyo-dashboard-liquid-tint: color-mix(
+    in srgb,
+    var(--noyo-dashboard-liquid-tint-min) calc(100% - var(--noyo-liquid-glass-density-percent, 50%)),
+    var(--noyo-dashboard-liquid-tint-max)
+  );
+  --noyo-dashboard-liquid-blur: calc(8px + (var(--noyo-liquid-glass-density, 0.5) * 16px));
+  --noyo-dashboard-liquid-specular: rgba(255, 255, 255, 0.38);
+  --noyo-dashboard-liquid-edge: rgba(255, 255, 255, 0.18);
+  --noyo-dashboard-liquid-caustic: rgba(255, 255, 255, 0.5);
+  --noyo-dashboard-liquid-content-text: #ffffff;
+  --noyo-dashboard-liquid-backdrop-brightness: 1.0;
+  --noyo-dashboard-liquid-shadow: 0 14px 40px -4px rgba(0, 0, 0, 0.55), 0 4px 12px -2px rgba(0, 0, 0, 0.3);
+
+  /* Pointer caustic spotlight layers — 卡片指针焦散光斑分层（Dark：降亮度+微冷调散射，消除纯白突兀感）/ card cursor caustic spotlight tokens (Dark: dimmer + faint cool scatter to avoid harsh pure-white) */
+  --noyo-caustic-core: rgba(228, 238, 252, 0.58);
+  --noyo-caustic-main: rgba(196, 220, 250, 0.3);
+  --noyo-caustic-halo: rgba(170, 202, 246, 0.15);
+  --noyo-caustic-prism-cool: rgba(147, 197, 253, 0.34);
+  --noyo-caustic-prism-warm: rgba(255, 168, 168, 0.24);
+
+  /* Liquid Glass Button — Apple 液态玻璃按钮材质（Dark）/ Apple-style glass button material (Dark) */
+  --lg-btn-glass-tint: rgba(28, 30, 36, 0.38);
+  --lg-btn-glass-tint-hover: rgba(36, 38, 46, 0.52);
+  --lg-btn-glass-tint-active: rgba(44, 46, 54, 0.64);
+  --lg-btn-text-primary: var(--color-brand-hover);
+  --lg-btn-text-secondary: var(--text-main);
+  --lg-btn-text-success: var(--color-success);
+  --lg-btn-text-danger: var(--color-danger);
+  --lg-btn-specular-top: rgba(255, 255, 255, 0.5);
+  --lg-btn-specular-sheen: rgba(255, 255, 255, 0.2);
+  --lg-btn-edge-dark: rgba(0, 0, 0, 0.55);
+  --lg-btn-rim: rgba(255, 255, 255, 0.28);
+  --lg-btn-rim-soft: rgba(255, 255, 255, 0.14);
+  --lg-btn-caustic: rgba(255, 255, 255, 0.75);
+  --lg-btn-caustic-halo: rgba(96, 165, 250, 0.35);
+  --lg-btn-prism-warm: rgba(255, 168, 168, 0.4);
+  --lg-btn-prism-cool: rgba(147, 197, 253, 0.5);
+  --lg-btn-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.7), 0 3px 10px -2px rgba(0, 0, 0, 0.45);
+  --lg-btn-shadow-hover: 0 18px 40px -10px rgba(0, 0, 0, 0.8), 0 5px 14px -2px rgba(0, 0, 0, 0.5);
+  --lg-btn-blur: 7px;
+  --lg-btn-blur-fallback: 18px;
+  --lg-btn-saturate: 1.35;
+  --lg-btn-brightness: 0.92;
+
+  /* Page aurora — 页面环境光（Dark）/ ambient aurora glow for refraction content (Dark) */
+  --lg-aurora-a: rgba(59, 130, 246, 0.22);
+  --lg-aurora-b: rgba(139, 92, 246, 0.16);
+  --lg-aurora-c: rgba(16, 185, 129, 0.14);
+}
+
+.noyo-liquid-page {
+  position: relative;
+  min-height: 100%;
+  isolation: isolate;
+}
+
+.noyo-liquid-page::before,
+.noyo-liquid-page::after {
+  display: none !important;
+  content: none !important;
+}
+
+.noyo-liquid-v4-page {
+  background: none !important;
+}
+
+.noyo-page-heading-surface {
+  width: fit-content;
+  max-width: 100%;
+  padding: 16px;
+  border: 1px solid var(--noyo-solid-border);
+  border-radius: var(--noyo-radius-glass);
+  background: var(--noyo-solid-surface);
+  box-shadow: var(--noyo-solid-shadow-flat);
+}
+
+.noyo-glass-group {
+  --noyo-glass-tint: var(--noyo-glass-regular-tint);
+  --noyo-glass-border: var(--noyo-glass-regular-border);
+  --noyo-glass-highlight: var(--noyo-glass-regular-highlight);
+  --noyo-glass-edge: var(--noyo-glass-regular-edge);
+  --noyo-glass-specular: var(--noyo-glass-regular-specular);
+  --noyo-glass-shadow: var(--noyo-glass-regular-shadow);
+  --noyo-glass-fallback: var(--noyo-glass-regular-fallback);
+  --noyo-glass-blur: var(--noyo-glass-regular-blur);
+  --noyo-glass-saturate: var(--noyo-glass-regular-saturate);
+  --noyo-pointer-x: 50%;
+  --noyo-pointer-y: 50%;
+  --noyo-glass-energy: 0;
+  --noyo-edge-energy: 0;
+  --noyo-scroll-edge: 0;
+  position: relative;
+  z-index: var(--noyo-layer-content);
+  isolation: isolate;
+  overflow: hidden;
+  color: var(--text-main);
+  background: var(--noyo-color-transparent) !important;
+  border: 0;
+  box-shadow: var(--noyo-glass-shadow);
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  transition: transform var(--noyo-duration-fast) var(--noyo-ease-standard), box-shadow var(--noyo-duration-standard) var(--noyo-ease-standard);
+}
+
+.noyo-glass-group__backdrop,
+.noyo-glass-group__tint,
+.noyo-glass-group__rim {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.noyo-glass-group__backdrop {
+  z-index: 0;
+  background: var(--noyo-color-transparent);
+  -webkit-backdrop-filter: blur(var(--noyo-glass-blur)) saturate(var(--noyo-glass-saturate));
+  backdrop-filter: blur(var(--noyo-glass-blur)) saturate(var(--noyo-glass-saturate));
+}
+
+.noyo-glass-group__tint {
+  z-index: 1;
+  background:
+    linear-gradient(
+      132deg,
+      color-mix(in srgb, var(--noyo-glass-highlight) 30%, var(--noyo-color-transparent)),
+      var(--noyo-color-transparent) 42%
+    ),
+    var(--noyo-glass-tint);
+}
+
+.noyo-glass-group__rim {
+  z-index: 2;
+  border: 1px solid var(--noyo-glass-border);
+  background: radial-gradient(
+    circle at var(--noyo-pointer-x) var(--noyo-pointer-y),
+    color-mix(in srgb, var(--noyo-glass-specular) 34%, var(--noyo-color-transparent)),
+    var(--noyo-color-transparent) 42%
+  );
+  box-shadow: inset 0 1px 0 var(--noyo-glass-highlight), inset 0 -1px 0 var(--noyo-glass-edge);
+  transition: border-color var(--noyo-duration-fast) ease, background var(--noyo-duration-fast) var(--noyo-ease-standard);
+}
+
+.noyo-glass-group--island {
+  --noyo-glass-tint: var(--noyo-glass-island-tint);
+  --noyo-glass-border: var(--noyo-glass-island-border);
+  --noyo-glass-highlight: var(--noyo-glass-island-highlight);
+  --noyo-glass-edge: var(--noyo-glass-island-edge);
+  --noyo-glass-specular: var(--noyo-glass-island-caustic);
+  --noyo-glass-shadow: var(--noyo-glass-island-shadow);
+  --noyo-glass-fallback: var(--noyo-glass-island-fallback);
+  --noyo-glass-blur: var(--noyo-glass-island-blur);
+  --noyo-glass-saturate: var(--noyo-glass-island-saturate);
+}
+
+.noyo-glass-group--island > .noyo-glass-group__tint {
+  background: var(--noyo-glass-island-tint);
+}
+
+.noyo-glass-group--island > .noyo-glass-group__rim {
+  border-color: var(--noyo-glass-island-border);
+  background:
+    radial-gradient(
+      circle at var(--noyo-pointer-x) var(--noyo-pointer-y),
+      color-mix(in srgb, var(--noyo-glass-island-highlight) 26%, var(--noyo-color-transparent)),
+      var(--noyo-color-transparent) 32%
+    );
+  box-shadow: none;
+}
+
+.noyo-glass-group--island > .noyo-glass-group__rim::before,
+.noyo-glass-group--island > .noyo-glass-group__rim::after {
+  position: absolute;
+  border-radius: inherit;
+  content: "";
+}
+
+.noyo-glass-group--island > .noyo-glass-group__rim::before {
+  display: none;
+}
+
+.noyo-glass-group--island > .noyo-glass-group__rim::after {
+  inset: 0;
+  background: radial-gradient(
+    ellipse 26% 9% at var(--noyo-pointer-x) var(--noyo-pointer-y),
+    color-mix(in srgb, var(--noyo-glass-island-caustic) 48%, var(--noyo-color-transparent)),
+    var(--noyo-color-transparent) 76%
+  );
+  mix-blend-mode: screen;
+  opacity: max(0.06, calc(var(--noyo-glass-energy) * 0.34));
+}
+
+.noyo-glass-group__content {
+  position: relative;
+  z-index: 3;
+  height: 100%;
+}
+
+.noyo-glass-group--floating {
+  --noyo-glass-tint: var(--noyo-glass-floating-tint);
+  --noyo-glass-border: var(--noyo-glass-floating-border);
+  --noyo-glass-highlight: var(--noyo-glass-floating-highlight);
+  --noyo-glass-edge: var(--noyo-glass-floating-edge);
+  --noyo-glass-specular: var(--noyo-glass-floating-specular);
+  --noyo-glass-shadow: var(--noyo-glass-floating-shadow);
+  --noyo-glass-fallback: var(--noyo-glass-floating-fallback);
+  --noyo-glass-blur: var(--noyo-glass-floating-blur);
+  --noyo-glass-saturate: var(--noyo-glass-floating-saturate);
+}
+
+.noyo-glass-group--clear-media {
+  --noyo-glass-tint: var(--noyo-glass-clear-tint);
+  --noyo-glass-border: var(--noyo-glass-clear-border);
+  --noyo-glass-highlight: var(--noyo-glass-clear-highlight);
+  --noyo-glass-edge: var(--noyo-glass-clear-edge);
+  --noyo-glass-specular: var(--noyo-glass-clear-specular);
+  --noyo-glass-shadow: var(--noyo-glass-clear-shadow);
+  --noyo-glass-fallback: var(--noyo-glass-clear-fallback);
+  --noyo-glass-blur: var(--noyo-glass-clear-blur);
+  --noyo-glass-saturate: var(--noyo-glass-clear-saturate);
+}
+
+.noyo-glass-group--shape-rounded { border-radius: var(--noyo-radius-glass); }
+.noyo-glass-group--shape-panel { border-radius: var(--noyo-radius-panel); }
+.noyo-glass-group--shape-pill { border-radius: var(--noyo-radius-pill); }
+.noyo-glass-group--shape-circle { border-radius: 50%; }
+
+.noyo-glass-group--interactive {
+  cursor: pointer;
+}
+
+.noyo-glass-group--interactive:hover .noyo-glass-group__rim,
+.noyo-glass-group--interactive:focus-within .noyo-glass-group__rim {
+  border-color: color-mix(in srgb, var(--color-brand) 32%, var(--noyo-glass-border));
+  background: radial-gradient(
+    circle at var(--noyo-pointer-x) var(--noyo-pointer-y),
+    color-mix(in srgb, var(--noyo-glass-specular) 68%, var(--noyo-color-transparent)),
+    var(--noyo-color-transparent) 46%
+  );
+}
+
+.noyo-glass-group--interactive:active {
+  transform: translateY(1px);
+}
+
+.noyo-glass-zone,
+.noyo-glass-reading-zone,
+.noyo-glass-divider,
+.noyo-glass-action,
+.noyo-glass-group--island table,
+.noyo-glass-group--island tbody,
+.noyo-glass-group--island tr,
+.noyo-glass-group--island th,
+.noyo-glass-group--island td,
+.noyo-glass-group--island input,
+.noyo-glass-group--island select,
+.noyo-glass-group--island .progress,
+.noyo-glass-group--island .noyo-glass-chart {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.noyo-glass-reading-zone {
+  border: 1px solid var(--noyo-glass-island-divider);
+  background: var(--noyo-glass-island-reading);
+}
+
+.noyo-glass-reading-zone--strong {
+  background: var(--noyo-glass-island-reading-strong);
+}
+
+.noyo-glass-divider {
+  border-color: var(--noyo-glass-island-divider) !important;
+}
+
+.noyo-glass-action {
+  border: 1px solid var(--noyo-glass-island-divider);
+  background: var(--noyo-glass-island-action);
+  color: inherit;
+  transition: background-color var(--noyo-duration-fast) var(--noyo-ease-standard), border-color var(--noyo-duration-fast) var(--noyo-ease-standard), transform var(--noyo-duration-fast) var(--noyo-ease-standard);
+}
+
+.noyo-glass-action:hover,
+.noyo-glass-action:focus-visible {
+  border-color: color-mix(in srgb, var(--color-brand) 34%, var(--noyo-glass-island-divider));
+  background: var(--noyo-glass-island-action-hover);
+}
+
+.noyo-glass-action:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--noyo-focus-ring);
+}
+
+.noyo-solid-surface,
+.noyo-content-surface {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  color: var(--text-main);
+  background: var(--noyo-solid-surface) !important;
+  border: 1px solid var(--noyo-solid-border) !important;
+  border-radius: var(--noyo-radius-glass);
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.noyo-solid-surface--flat { box-shadow: var(--noyo-solid-shadow-flat); }
+.noyo-solid-surface--raised,
+.noyo-content-surface { box-shadow: var(--noyo-solid-shadow-raised); }
+.noyo-solid-surface--comfortable { --noyo-surface-inset: 24px; }
+.noyo-solid-surface--compact { --noyo-surface-inset: 16px; }
+
+.noyo-solid-surface--interactive,
+.noyo-content-surface--interactive {
+  cursor: pointer;
+  transition: border-color var(--noyo-duration-standard) ease, box-shadow var(--noyo-duration-standard) ease;
+}
+
+.noyo-solid-surface--interactive:hover,
+.noyo-content-surface--interactive:hover {
+  border-color: color-mix(in srgb, var(--color-brand) 24%, var(--noyo-solid-border)) !important;
+  box-shadow: var(--noyo-solid-shadow-hover);
+}
+
+.lg-navbar > .noyo-glass-group__content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+}
+
+/* Liquid Glass Button - Apple Fluid Spring & Specular Physics */
+.lg-btn {
+  --lg-btn-pointer-x: 50%;
+  --lg-btn-pointer-y: 50%;
+  --lg-btn-ease: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --lg-btn-bg: linear-gradient(135deg, rgba(59, 130, 246, 0.92) 0%, rgba(37, 99, 235, 0.82) 100%);
+  --lg-btn-bg-hover: linear-gradient(135deg, rgba(59, 130, 246, 0.98) 0%, rgba(29, 78, 216, 0.90) 100%);
+  --lg-btn-text: #ffffff;
+  --lg-btn-border: rgba(255, 255, 255, 0.38);
+  --lg-btn-specular: rgba(255, 255, 255, 0.88);
+  --lg-btn-bottom-shadow: rgba(0, 0, 0, 0.16);
+  --lg-btn-ambient-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.38), 0 2px 6px -1px rgba(0, 0, 0, 0.10);
+  --lg-btn-ambient-hover: 0 12px 28px -3px rgba(37, 99, 235, 0.52), 0 4px 10px -2px rgba(0, 0, 0, 0.14);
+  --lg-btn-radius: var(--noyo-radius-pill, 999px);
+
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--lg-btn-radius);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--lg-btn-text);
+  background: var(--lg-btn-bg);
+  border: 1px solid var(--lg-btn-border);
+  box-shadow: 
+    inset 0 1px 1px 0 var(--lg-btn-specular),
+    inset 0 -1.5px 2.5px 0 var(--lg-btn-bottom-shadow),
+    var(--lg-btn-ambient-shadow);
+  backdrop-filter: blur(18px) saturate(190%) brightness(1.05);
+  -webkit-backdrop-filter: blur(18px) saturate(190%) brightness(1.05);
+  cursor: pointer;
+  overflow: hidden;
+  user-select: none;
+  isolation: isolate;
+  transition: 
+    transform 0.35s var(--lg-btn-ease),
+    box-shadow 0.3s ease,
+    background 0.3s ease,
+    border-color 0.3s ease,
+    opacity 0.2s ease;
+}
+
+/* Sizes */
+.lg-btn--sm {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: 0.8125rem;
+  gap: 6px;
+}
+
+.lg-btn--md {
+  min-height: 38px;
+  padding: 7px 18px;
+  font-size: 0.875rem;
+  gap: 8px;
+}
+
+.lg-btn--lg {
+  min-height: 46px;
+  padding: 10px 24px;
+  font-size: 1rem;
+  gap: 10px;
+}
+
+/* Variants */
+.lg-btn--primary {
+  --lg-btn-bg: var(--lg-btn-glass-tint);
+  --lg-btn-bg-hover: var(--lg-btn-glass-tint-hover);
+  --lg-btn-text: var(--lg-btn-text-primary);
+  --lg-btn-border: var(--lg-btn-rim);
+  --lg-btn-specular: var(--lg-btn-specular-top);
+  --lg-btn-ambient-shadow: var(--lg-btn-shadow);
+  --lg-btn-ambient-hover: var(--lg-btn-shadow-hover);
+}
+
+[data-bs-theme="dark"] .lg-btn--primary {
+  --lg-btn-bg: var(--lg-btn-glass-tint);
+  --lg-btn-bg-hover: var(--lg-btn-glass-tint-hover);
+  --lg-btn-text: var(--lg-btn-text-primary);
+  --lg-btn-border: var(--lg-btn-rim);
+  --lg-btn-specular: var(--lg-btn-specular-top);
+  --lg-btn-ambient-shadow: var(--lg-btn-shadow);
+  --lg-btn-ambient-hover: var(--lg-btn-shadow-hover);
+}
+
+.lg-btn--secondary {
+  --lg-btn-bg: var(--lg-btn-glass-tint);
+  --lg-btn-bg-hover: var(--lg-btn-glass-tint-hover);
+  --lg-btn-text: var(--lg-btn-text-secondary);
+  --lg-btn-border: var(--lg-btn-rim);
+  --lg-btn-specular: var(--lg-btn-specular-top);
+  --lg-btn-ambient-shadow: var(--lg-btn-shadow);
+  --lg-btn-ambient-hover: var(--lg-btn-shadow-hover);
+}
+
+[data-bs-theme="dark"] .lg-btn--secondary {
+  --lg-btn-bg: var(--lg-btn-glass-tint);
+  --lg-btn-bg-hover: var(--lg-btn-glass-tint-hover);
+  --lg-btn-text: var(--lg-btn-text-secondary);
+  --lg-btn-border: var(--lg-btn-rim);
+  --lg-btn-specular: var(--lg-btn-specular-top);
+  --lg-btn-ambient-shadow: var(--lg-btn-shadow);
+  --lg-btn-ambient-hover: var(--lg-btn-shadow-hover);
+}
+
+.lg-btn--neutral {
+  --lg-btn-bg: var(--lg-btn-glass-tint);
+  --lg-btn-bg-hover: var(--lg-btn-glass-tint-hover);
+  --lg-btn-text: var(--lg-btn-text-secondary);
+  --lg-btn-border: var(--border-color);
+  --lg-btn-specular: var(--lg-btn-specular-top);
+  --lg-btn-ambient-shadow: var(--lg-btn-shadow);
+  --lg-btn-ambient-hover: var(--lg-btn-shadow-hover);
+}
+
+[data-bs-theme="dark"] .lg-btn--neutral {
+  --lg-btn-bg: var(--lg-btn-glass-tint);
+  --lg-btn-bg-hover: var(--lg-btn-glass-tint-hover);
+  --lg-btn-text: var(--lg-btn-text-secondary);
+  --lg-btn-border: var(--border-color);
+  --lg-btn-specular: var(--lg-btn-specular-top);
+  --lg-btn-ambient-shadow: var(--lg-btn-shadow);
+  --lg-btn-ambient-hover: var(--lg-btn-shadow-hover);
+}
+
+.lg-btn--success {
+  --lg-btn-bg: var(--lg-btn-glass-tint);
+  --lg-btn-bg-hover: var(--lg-btn-glass-tint-hover);
+  --lg-btn-text: var(--lg-btn-text-success);
+  --lg-btn-border: var(--lg-btn-rim);
+  --lg-btn-specular: var(--lg-btn-specular-top);
+  --lg-btn-ambient-shadow: var(--lg-btn-shadow);
+  --lg-btn-ambient-hover: var(--lg-btn-shadow-hover);
+}
+
+.lg-btn--danger {
+  --lg-btn-bg: var(--lg-btn-glass-tint);
+  --lg-btn-bg-hover: var(--lg-btn-glass-tint-hover);
+  --lg-btn-text: var(--lg-btn-text-danger);
+  --lg-btn-border: var(--lg-btn-rim);
+  --lg-btn-specular: var(--lg-btn-specular-top);
+  --lg-btn-ambient-shadow: var(--lg-btn-shadow);
+  --lg-btn-ambient-hover: var(--lg-btn-shadow-hover);
+}
+
+/* Sheen & Refraction Overlays */
+.lg-btn__sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at var(--lg-btn-pointer-x) var(--lg-btn-pointer-y),
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.15) 35%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  mix-blend-mode: overlay;
+  z-index: 1;
+}
+
+.lg-btn__specular {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.32) 0%,
+    rgba(255, 255, 255, 0.06) 45%,
+    rgba(255, 255, 255, 0) 60%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  z-index: 1;
+}
+
+.lg-btn__content {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.lg-btn--secondary .lg-btn__content,
+.lg-btn--neutral .lg-btn__content {
+  text-shadow: none;
+}
+
+.lg-btn__icon {
+  font-size: 1.05em;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Hover & Active Physics */
+.lg-btn:hover:not(:disabled) {
+  transform: translateY(-1.5px) scale(1.02);
+  background: var(--lg-btn-bg-hover);
+  box-shadow: 
+    inset 0 1px 1px 0 var(--lg-btn-specular),
+    inset 0 -1px 2px 0 var(--lg-btn-bottom-shadow),
+    var(--lg-btn-ambient-hover);
+}
+
+.lg-btn:hover:not(:disabled) .lg-btn__sheen {
+  opacity: 1;
+}
+
+.lg-btn:active:not(:disabled) {
+  transform: scale(0.96) translateY(0.5px);
+  box-shadow: 
+    inset 0 2px 3px 0 var(--lg-btn-bottom-shadow),
+    inset 0 -1px 1px 0 var(--lg-btn-specular),
+    0 2px 6px -1px rgba(0, 0, 0, 0.12);
+  transition-duration: 0.1s;
+}
+
+.lg-btn:disabled,
+.lg-btn--loading {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none !important;
+  box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.lg-popover-trigger:focus-visible,
+.lg-btn:focus-visible,
+.noyo-glass-group:focus-visible,
+.noyo-solid-surface--interactive:focus-visible,
+.noyo-content-surface--interactive:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--noyo-focus-ring);
+}
+
+.lg-popover {
+  position: fixed !important;
+  z-index: var(--noyo-layer-popover);
+  width: max-content;
+  min-width: 216px;
+  max-width: min(360px, calc(100vw - 32px));
+}
+
+.lg-popover > .noyo-glass-group__content {
+  padding: 16px;
+}
+
+.lg-popover.noyo-device-filter-popover {
+  width: min(560px, calc(100vw - 32px));
+  max-width: min(560px, calc(100vw - 32px));
+}
+
+.lg-popover.noyo-device-action-popover {
+  width: max-content;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 32px));
+}
+
+.lg-popover.noyo-device-action-popover > .noyo-glass-group__content {
+  padding: 8px;
+}
+
+.noyo-liquid-popover-open .noyo-glass-group:not(.noyo-glass-group--floating) {
+  --noyo-glass-energy: 0 !important;
+  --noyo-edge-energy: 0 !important;
+}
+
+.lg-panel {
+  width: min(440px, calc(100vw - 32px));
+  z-index: var(--noyo-layer-popover);
+}
+
+.lg-panel__surface {
+  height: auto;
+}
+
+.lg-panel__body { padding: var(--noyo-surface-inset); }
+.lg-panel__footer { padding: 16px var(--noyo-surface-inset) var(--noyo-surface-inset); }
+
+.noyo-glass-popover {
+  background: var(--noyo-solid-surface) !important;
+  border: 1px solid var(--noyo-solid-border) !important;
+  box-shadow: var(--noyo-solid-shadow-raised) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+
+
+.dropdown-menu { --bs-dropdown-zindex: var(--noyo-layer-dropdown); }
+.modal-backdrop { --bs-backdrop-zindex: var(--noyo-layer-modal-backdrop); }
+.habit-rule-suggestion-modal { background: var(--noyo-scrim); }
+.modal { --bs-modal-zindex: var(--noyo-layer-modal); }
+.popover { --bs-popover-zindex: var(--noyo-layer-popover); }
+.tooltip { --bs-tooltip-zindex: var(--noyo-layer-tooltip); }
+
+.lg-panel-enter-active,
+.lg-panel-leave-active,
+.lg-popover-enter-active,
+.lg-popover-leave-active {
+  transition: opacity var(--noyo-duration-standard) ease, transform var(--noyo-duration-standard) var(--noyo-ease-standard);
+}
+
+.lg-panel-enter-from,
+.lg-panel-leave-to {
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
+}
+
+.lg-popover-enter-from,
+.lg-popover-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.99);
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .noyo-glass-group__backdrop {
+    background: var(--noyo-glass-fallback);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .noyo-glass-group__tint { display: none; }
+
+  .noyo-glass-group--island .noyo-glass-reading-zone {
+    background: var(--noyo-glass-island-reading-strong);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .noyo-glass-group__backdrop {
+    background: var(--noyo-glass-fallback);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .noyo-glass-group__tint { display: none; }
+
+  .noyo-glass-group--island .noyo-glass-reading-zone {
+    background: var(--noyo-glass-island-reading-strong);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .noyo-glass-group,
+  .noyo-glass-group__rim,
+  .noyo-solid-surface--interactive,
+  .noyo-content-surface--interactive,
+  .lg-btn,
+  .lg-panel-enter-active,
+  .lg-panel-leave-active,
+  .lg-popover-enter-active,
+  .lg-popover-leave-active {
+    transition: none;
+  }
+
+  .noyo-glass-group {
+    --noyo-pointer-x: 50% !important;
+    --noyo-pointer-y: 50% !important;
+    --noyo-glass-energy: 0 !important;
+    --noyo-edge-energy: 0 !important;
+  }
+
+  .noyo-glass-group--interactive:active,
+  .lg-btn:active {
+    transform: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .noyo-glass-group__backdrop,
+  .noyo-glass-group__tint { display: none; }
+
+  .noyo-glass-group,
+  .noyo-solid-surface,
+  .noyo-content-surface,
+  .lg-btn {
+    border: 1px solid CanvasText !important;
+    box-shadow: none;
+  }
+
+  .noyo-glass-reading-zone,
+  .noyo-glass-action {
+    background: Canvas !important;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .noyo-glass-group {
+    --noyo-pointer-x: 50% !important;
+    --noyo-pointer-y: 50% !important;
+    --noyo-glass-energy: 0 !important;
+    --noyo-edge-energy: 0 !important;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .lg-navbar { width: 100%; }
+}

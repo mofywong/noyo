@@ -7,6 +7,7 @@ import (
 	"net"
 	"noyo/core"
 	"noyo/core/protocol"
+	"noyo/core/store"
 	"noyo/core/types"
 	"os"
 	"strings"
@@ -17,6 +18,58 @@ import (
 	bactypes "github.com/alexbeltran/gobacnet/types"
 	"go.uber.org/zap"
 )
+
+const (
+	DefaultDriverCode = "bacnet_default_driver"
+	DefaultDriverName = "BACnet/IP默认驱动"
+	ProtocolName      = "BACnet"
+)
+
+func (p *BacnetPlugin) EnsureDriverExists() error {
+	expected := &store.ProtocolProfile{
+		Code:         DefaultDriverCode,
+		Name:         DefaultDriverName,
+		ProtocolName: ProtocolName,
+		Config:       "{}",
+	}
+
+	profile, err := store.GetProtocolProfile(DefaultDriverCode)
+	if err == nil && profile != nil {
+		changed := false
+		if profile.Name != expected.Name {
+			profile.Name = expected.Name
+			changed = true
+		}
+		if profile.ProtocolName != expected.ProtocolName {
+			profile.ProtocolName = expected.ProtocolName
+			changed = true
+		}
+		if profile.Config == "" {
+			profile.Config = "{}"
+			changed = true
+		}
+		if changed {
+			if err := store.SaveProtocolProfile(profile); err != nil {
+				if p.Logger != nil {
+					p.Logger.Error("Failed to update default BACnet driver", zap.Error(err))
+				}
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := store.SaveProtocolProfile(expected); err != nil {
+		if p.Logger != nil {
+			p.Logger.Error("Failed to create default BACnet driver", zap.Error(err))
+		}
+		return err
+	}
+	if p.Logger != nil {
+		p.Logger.Info("BACnet default driver ensured", zap.String("code", DefaultDriverCode))
+	}
+	return nil
+}
 
 //go:embed icon.svg
 var icon []byte
@@ -66,11 +119,13 @@ func (p *BacnetPlugin) Init(ctx protocol.Context) error {
 	p.BaseProtocolPlugin.Init(ctx)
 	p.Logger = ctx.GetLogger()
 	p.tasks = make(map[string]chan struct{})
+	_ = p.EnsureDriverExists()
 	return nil
 }
 
 // Start implements IProtocolPlugin
 func (p *BacnetPlugin) Start() error {
+	_ = p.EnsureDriverExists()
 	p.Logger.Info("Starting BACnet Plugin V3 (DEBUG-FILE)")
 
 	// Get Config

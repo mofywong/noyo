@@ -1,34 +1,36 @@
 <template>
-  <Transition name="noyo-confirm-fade">
-    <div
-      v-if="confirmState.visible"
-      class="noyo-confirm-overlay"
-      @click.self="handleCancel"
-      @keydown.esc="handleCancel"
-    >
+  <Teleport to="body">
+    <Transition name="noyo-confirm-fade">
       <div
-        class="noyo-confirm"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="noyo-confirm-title"
-        tabindex="-1"
+        v-if="confirmState.visible"
+        class="noyo-confirm-overlay"
+        @click.self="handleCancel"
+        @keydown.esc="handleCancel"
       >
-        <div class="noyo-confirm-icon" :class="iconClass">
-          <i class="bi" :class="iconName"></i>
-        </div>
-        <h5 id="noyo-confirm-title" class="noyo-confirm-title">{{ confirmState.title }}</h5>
-        <p class="noyo-confirm-message">{{ confirmState.message }}</p>
-        <div class="noyo-confirm-actions">
-          <button type="button" ref="cancelRef" class="btn btn-outline-secondary" @click="handleCancel">
-            {{ confirmState.cancelText || $t('common_cancel', '取消 Cancel') }}
-          </button>
-          <button type="button" class="btn" :class="confirmButtonClass" @click="handleConfirm">
-            {{ confirmState.confirmText || $t('common_confirm', '确认 Confirm') }}
-          </button>
+        <div
+          class="noyo-confirm"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="noyo-confirm-title"
+          tabindex="-1"
+        >
+          <div class="noyo-confirm-icon" :class="iconClass">
+            <i class="bi" :class="iconName"></i>
+          </div>
+          <h5 id="noyo-confirm-title" class="noyo-confirm-title">{{ confirmState.title }}</h5>
+          <p class="noyo-confirm-message">{{ confirmState.message }}</p>
+          <div class="noyo-confirm-actions">
+            <LiquidGlassButton variant="outline-secondary" @click="handleCancel">
+              {{ confirmState.cancelText || $t('common_cancel', '取消 Cancel') }}
+            </LiquidGlassButton>
+            <LiquidGlassButton :variant="confirmState.variant === 'neutral' ? 'primary' : 'danger'" @click="handleConfirm">
+              {{ confirmState.confirmText || $t('common_confirm', '确认 Confirm') }}
+            </LiquidGlassButton>
+          </div>
         </div>
       </div>
-    </div>
-  </Transition>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup>
@@ -76,7 +78,7 @@ watch(
 .noyo-confirm-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1080;
+  z-index: var(--lg-layer-tooltip);
   background: rgba(15, 23, 42, 0.5);
   display: flex;
   align-items: center;

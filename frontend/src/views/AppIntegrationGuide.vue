@@ -1,13 +1,18 @@
 <template>
-  <div class="container-fluid py-4">
-    <div class="d-flex align-items-center mb-4">
-      <button class="btn btn-link p-0 me-3 text-secondary" @click="$router.back()">
-        <i class="bi bi-arrow-left fs-4"></i>
-      </button>
-      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ t('app_guide_title') }}</h2>
+  <div class="app-guide-page page-fixed-height">
+    <div class="page-header mb-4">
+      <div class="d-flex align-items-center gap-3">
+        <button class="btn btn-outline-secondary btn-sm" @click="$router.back()">
+          <i class="bi bi-arrow-left me-1"></i> {{ t('back', '返回') }}
+        </button>
+        <div>
+          <h1>{{ t('app_guide_title') }}</h1>
+          <p class="page-subtitle">{{ t('app_guide_subtitle', '第三方系统及移动端接入开放接口指南') }}</p>
+        </div>
+      </div>
     </div>
 
-    <div class="card shadow-sm">
+    <div class="card border-0 shadow-sm table-glass-card">
       <div class="card-body p-4">
         <h5 class="card-title text-primary mb-3">{{ t('app_guide_intro_title') }}</h5>
         <p class="card-text text-muted mb-4">{{ t('app_guide_intro') }}</p>

@@ -15,8 +15,10 @@ type ConfigField struct {
 	Type        string              `json:"type"`        // string, int, bool, etc.
 	Title       map[string]string   `json:"title"`       // Display name in different languages
 	Description map[string]string   `json:"description"` // Helper text in different languages
-	Value       interface{}         `json:"value"`       // Current value
-	Options     []map[string]string `json:"options"`     // List of options for select type (value, label)
+	Value       interface{}         `json:"value"`                 // Current value
+	Options     []map[string]string `json:"options"`               // List of options for select type (value, label)
+	Source      string              `json:"source,omitempty"`      // "platform" or "local"
+	ReadOnly    bool                `json:"read_only,omitempty"`   // true if read-only
 }
 
 // PluginSetupField describes a plugin field that can be collected during first-run setup.
@@ -210,6 +212,34 @@ func cleanupSingleProjectRuntimePluginRows() error {
 }
 
 func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{}, tenantID, projectID uint) error {
+	// Validate a prospective copy before mutating enabled state or persisting.
+	candidate := reflect.ValueOf(plugin)
+	if candidate.Kind() == reflect.Ptr {
+		candidate = candidate.Elem()
+	}
+	if config := candidate.FieldByName("Config"); config.IsValid() && config.Kind() == reflect.Struct {
+		copy := reflect.New(config.Type())
+		copy.Elem().Set(config)
+		if validator, ok := copy.Interface().(interface{ Validate() error }); ok {
+			configChanged := false
+			for i := 0; i < config.NumField(); i++ {
+				field := config.Type().Field(i)
+				name := strings.Split(field.Tag.Get("yaml"), ",")[0]
+				if name == "" {
+					name = field.Name
+				}
+				if value, ok := newConfig[name]; ok && copy.Elem().Field(i).CanSet() {
+					configChanged = true
+					setReflectValue(copy.Elem().Field(i), value)
+				}
+			}
+			if configChanged || gconv.Bool(newConfig["enabled"]) || gconv.Bool(newConfig["enable"]) {
+				if err := validator.Validate(); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	// 1. Handle Enabled status
 	var enabled bool
 
@@ -310,6 +340,13 @@ func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{},
 	}
 
 	name := plugin.GetMeta().Name
+	if tenantID == 0 && projectID == 0 {
+		if runtimeTenantID, runtimeProjectID, ok := singleProjectRuntimePluginScope(); ok {
+			tenantID = runtimeTenantID
+			projectID = runtimeProjectID
+		}
+	}
+
 	if tenantID > 0 && projectID > 0 {
 		if err := store.SavePluginForScope(name, tenantID, projectID, enabled, configToSave); err != nil {
 			return fmt.Errorf("failed to save scoped plugin config to db: %w", err)

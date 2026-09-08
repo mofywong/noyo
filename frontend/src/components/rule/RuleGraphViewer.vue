@@ -1,23 +1,22 @@
 <template>
   <div class="rule-graph-viewer" :class="{ 'rg-editing': isEditing }" v-if="rule || editableRule" ref="graphViewerRef">
     <!-- 顶部工具栏 -->
-    <div class="rg-toolbar text-end mb-3">
-      <button v-if="!isEditing" class="btn btn-sm btn-primary me-2" @click="startEditing">
-        <i class="bi bi-pencil"></i> {{ $t('rule_edit', '编辑规则') }}
-      </button>
-      <button v-if="isEditing" class="btn btn-sm btn-secondary me-2" @click="cancelEditing">
+    <div class="rg-toolbar text-end mb-3 d-flex justify-content-end gap-2">
+      <LiquidGlassButton v-if="!isEditing" variant="primary" size="sm" icon="bi bi-pencil" @click="startEditing">
+        {{ $t('rule_edit', '编辑规则') }}
+      </LiquidGlassButton>
+      <LiquidGlassButton v-if="isEditing" variant="secondary" size="sm" @click="cancelEditing">
         {{ $t('tsl_cancel', '取消') }}
-      </button>
-      <button v-if="isEditing" class="btn btn-sm btn-success me-2" :disabled="savingEditing" @click="saveEditing">
-        <span v-if="savingEditing" class="spinner-border spinner-border-sm me-1"></span>
-        <i class="bi bi-save"></i> {{ $t('save', '保存') }}
-      </button>
-      <button v-if="!isEditing" class="btn btn-sm btn-outline-info me-2" @click="exportToImage">
-        <i class="bi bi-image"></i> {{ $t('export_image', '导出图片') }}
-      </button>
-      <button class="btn btn-sm btn-outline-danger" @click="exportToPdf">
-        <i class="bi bi-file-pdf"></i> {{ $t('export_pdf', '导出PDF') }}
-      </button>
+      </LiquidGlassButton>
+      <LiquidGlassButton v-if="isEditing" variant="success" size="sm" :loading="savingEditing" :disabled="savingEditing" icon="bi bi-save" @click="saveEditing">
+        {{ $t('save', '保存') }}
+      </LiquidGlassButton>
+      <LiquidGlassButton v-if="!isEditing" variant="outline-info" size="sm" icon="bi bi-image" @click="exportToImage">
+        {{ $t('export_image', '导出图片') }}
+      </LiquidGlassButton>
+      <LiquidGlassButton variant="outline-danger" size="sm" icon="bi bi-file-pdf" @click="exportToPdf">
+        {{ $t('export_pdf', '导出PDF') }}
+      </LiquidGlassButton>
     </div>
     <div v-if="saveMessage" class="alert py-2" :class="saveMessageType === 'success' ? 'alert-success' : 'alert-danger'">
       {{ saveMessage }}
@@ -54,31 +53,31 @@
         <h6 class="mb-3"><i class="bi bi-puzzle"></i> {{ $t('rule_components', '组件库') }}</h6>
         <div class="rg-palette-section mb-3">
           <div class="text-muted small mb-2">{{ $t('rule_triggers', '触发条件') }}</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'property_change' }, 'trigger')"><i class="bi bi-graph-up-arrow text-primary"></i> 属性变更触发</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'event' }, 'trigger')"><i class="bi bi-broadcast-pin text-primary"></i> 事件触发</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'device_status' }, 'trigger')"><i class="bi bi-power text-primary"></i> 状态触发</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'cron', cronMode: 'visual' }, 'trigger')"><i class="bi bi-clock-history text-primary"></i> 定时触发</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'property_change' }, 'trigger')"><i class="bi bi-graph-up-arrow text-primary"></i> {{ $t('rule_trigger_property', '属性变更触发') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'event' }, 'trigger')"><i class="bi bi-broadcast-pin text-primary"></i> {{ $t('rule_trigger_event', '事件触发') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'device_status' }, 'trigger')"><i class="bi bi-power text-primary"></i> {{ $t('rule_trigger_status', '状态触发') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'cron', cronMode: 'visual' }, 'trigger')"><i class="bi bi-clock-history text-primary"></i> {{ $t('rule_trigger_cron', '定时触发') }}</div>
         </div>
         <div class="rg-palette-section mb-3">
           <div class="text-muted small mb-2">{{ $t('rule_conditions', '判断条件') }}</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_leaf', detailType: 'property' }, 'condition')"><i class="bi bi-wrench-adjustable text-warning"></i> 属性判断</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_leaf', detailType: 'device_status' }, 'condition')"><i class="bi bi-toggle-on text-warning"></i> 状态判断</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_group_and', logic: 'and' }, 'condition_group')"><i class="bi bi-intersect text-warning"></i> 满足所有(AND)</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_group_or', logic: 'or' }, 'condition_group')"><i class="bi bi-union text-warning"></i> 满足任一(OR)</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_leaf', detailType: 'property' }, 'condition')"><i class="bi bi-wrench-adjustable text-warning"></i> {{ $t('rule_condition_property', '属性判断') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_leaf', detailType: 'device_status' }, 'condition')"><i class="bi bi-toggle-on text-warning"></i> {{ $t('rule_condition_status', '状态判断') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_group_and', logic: 'and' }, 'condition_group')"><i class="bi bi-intersect text-warning"></i> {{ $t('rule_condition_and', '满足所有(AND)') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'condition_group_or', logic: 'or' }, 'condition_group')"><i class="bi bi-union text-warning"></i> {{ $t('rule_condition_or', '满足任一(OR)') }}</div>
         </div>
         <div class="rg-palette-section mb-3">
           <div class="text-muted small mb-2">{{ $t('rule_actions', '执行动作') }}</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'set_property' }, 'action')"><i class="bi bi-pencil-square text-success"></i> 设置属性</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'call_service' }, 'action')"><i class="bi bi-gear-wide-connected text-success"></i> 调用服务</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'notification' }, 'action')"><i class="bi bi-chat-left-dots text-success"></i> 消息通知</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'alarm' }, 'action')"><i class="bi bi-exclamation-triangle-fill text-success"></i> 触发告警</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'create_work_order' }, 'action')"><i class="bi bi-ticket-detailed text-success"></i> 创建工单</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'delay', delaySec: 1 }, 'action')"><i class="bi bi-hourglass-split text-success"></i> 延迟执行</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'text' }, 'action')"><i class="bi bi-text-paragraph text-success"></i> {{ $t('rule_action_text', '文本组件') }}</div>
-          <div class="rg-palette-item rg-palette-item--ai border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm' }, 'action')"><i class="bi bi-stars text-info"></i> {{ $t('rule_action_ai_reasoning', 'AI 推理') }}</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'voice_playback' }, 'action')"><i class="bi bi-volume-up-fill text-success"></i> 语音播放</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'parallel' }, 'action_group')"><i class="bi bi-cpu text-success"></i> 并行执行组</div>
-          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer bg-white shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'sequence' }, 'action_group')"><i class="bi bi-list-ol text-success"></i> 串行执行组</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'set_property' }, 'action')"><i class="bi bi-pencil-square text-success"></i> {{ $t('rule_action_set_property', '设置属性') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'call_service' }, 'action')"><i class="bi bi-gear-wide-connected text-success"></i> {{ $t('rule_action_call_service', '调用服务') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'notification' }, 'action')"><i class="bi bi-chat-left-dots text-success"></i> {{ $t('rule_action_notification', '消息通知') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'alarm' }, 'action')"><i class="bi bi-exclamation-triangle-fill text-success"></i> {{ $t('rule_action_alarm', '触发告警') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'create_work_order' }, 'action')"><i class="bi bi-ticket-detailed text-success"></i> {{ $t('rule_action_work_order', '创建工单') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'delay', delaySec: 1 }, 'action')"><i class="bi bi-hourglass-split text-success"></i> {{ $t('rule_action_delay', '延迟执行') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'text' }, 'action')"><i class="bi bi-text-paragraph text-success"></i> {{ $t('rule_action_text', '文本组件') }}</div>
+          <div class="rg-palette-item rg-palette-item--ai border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'llm' }, 'action')"><i class="bi bi-stars text-info"></i> {{ $t('rule_action_ai_reasoning', 'AI 推理') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'voice_playback' }, 'action')"><i class="bi bi-volume-up-fill text-success"></i> {{ $t('rule_action_voice', '语音播放') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'parallel' }, 'action_group')"><i class="bi bi-cpu text-success"></i> {{ $t('rule_action_parallel_group', '并行执行组') }}</div>
+          <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'sequence' }, 'action_group')"><i class="bi bi-list-ol text-success"></i> {{ $t('rule_action_sequence_group', '串行执行组') }}</div>
         </div>
       </div>
       <!-- 流程图画布 -->
@@ -220,9 +219,7 @@
         <div v-else class="rg-properties-form">
           <div class="d-flex align-items-center justify-content-between mb-3">
             <h6 class="mb-0"><i class="bi bi-sliders"></i> {{ $t('properties', '属性配置') }}</h6>
-            <button v-if="canDeleteSelectedNode" type="button" class="btn btn-sm btn-outline-danger" @click="deleteSelectedNode">
-              <i class="bi bi-trash"></i>
-            </button>
+            <LiquidGlassButton v-if="canDeleteSelectedNode" variant="outline-danger" size="sm" icon="bi bi-trash" @click="deleteSelectedNode" />
           </div>
           <div class="mb-3" v-if="selectedNode._graphKind === 'condition_group'">
             <label class="form-label">{{ $t('rule_logic', '逻辑') }}</label>
@@ -2353,9 +2350,14 @@ export default {
 
 .rg-drag-over { outline: 2px dashed var(--rg-trigger) !important; outline-offset: 2px; background-color: rgba(139, 92, 246, 0.05); }
 .rg-node-selected { outline: 2px solid #0d6efd !important; outline-offset: -2px; box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important; }
-.rg-node-referenced {
-  outline: 2px solid #8b5cf6 !important;
-  outline-offset: 3px;
-  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.16), 0 0.65rem 1.35rem rgba(15, 23, 42, 0.18) !important;
+.rg-palette-item {
+  background: var(--bg-surface);
+  border-color: var(--border-color) !important;
+  color: var(--text-main);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.rg-palette-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 </style>

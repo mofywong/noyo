@@ -10,6 +10,7 @@ import (
 	"math"
 	"noyo/core"
 	"noyo/core/protocol"
+	"noyo/core/store"
 	"noyo/core/types"
 	"noyo/plugins/protocol/modbus/codec"
 	"net"
@@ -20,6 +21,58 @@ import (
 
 	"go.uber.org/zap"
 )
+
+const (
+	DefaultDriverCode = "modbus_tcp_default_driver"
+	DefaultDriverName = "Modbus TCP默认驱动"
+	ProtocolName      = "Modbus"
+)
+
+func (p *ModbusPlugin) EnsureDriverExists() error {
+	expected := &store.ProtocolProfile{
+		Code:         DefaultDriverCode,
+		Name:         DefaultDriverName,
+		ProtocolName: ProtocolName,
+		Config:       "{}",
+	}
+
+	profile, err := store.GetProtocolProfile(DefaultDriverCode)
+	if err == nil && profile != nil {
+		changed := false
+		if profile.Name != expected.Name {
+			profile.Name = expected.Name
+			changed = true
+		}
+		if profile.ProtocolName != expected.ProtocolName {
+			profile.ProtocolName = expected.ProtocolName
+			changed = true
+		}
+		if profile.Config == "" {
+			profile.Config = "{}"
+			changed = true
+		}
+		if changed {
+			if err := store.SaveProtocolProfile(profile); err != nil {
+				if p.Logger != nil {
+					p.Logger.Error("Failed to update default Modbus TCP driver", zap.Error(err))
+				}
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := store.SaveProtocolProfile(expected); err != nil {
+		if p.Logger != nil {
+			p.Logger.Error("Failed to create default Modbus TCP driver", zap.Error(err))
+		}
+		return err
+	}
+	if p.Logger != nil {
+		p.Logger.Info("Modbus TCP default driver ensured", zap.String("code", DefaultDriverCode))
+	}
+	return nil
+}
 
 //go:embed icon.svg
 var icon []byte
@@ -38,14 +91,13 @@ type ModbusPlugin struct {
 	tasks map[string]chan struct{}
 	// State Cache for Events: DeviceCode -> EventIdentifier -> LastState(bool)
 	lastEventStates map[string]map[string]bool
-	// Time Cache for Events: DeviceCode -> EventIdentifier -> LastReportTime(time.Time)
+	// Rate Limiter for Events: DeviceCode -> EventIdentifier -> LastReportTime
 	lastEventReportTimes map[string]map[string]time.Time
-	// Data Cache for Cross-Group Events: DeviceCode -> PointName -> Value
+	// Last Known Device Data: DeviceCode -> PropertyIdentifier -> Value
 	deviceDataCache map[string]map[string]interface{}
-	// Device Runtime State (Online Status Debounce & Heartbeat)
+	// Device Runtime States
 	deviceStates map[string]*DeviceRuntimeState
-
-	// Connection Pool
+	// Connection Pool: Address (ip:port) -> net.Conn
 	conns  map[string]net.Conn
 	connMu sync.Mutex
 }
@@ -86,6 +138,7 @@ func (p *ModbusPlugin) Init(ctx protocol.Context) error {
 	p.deviceDataCache = make(map[string]map[string]interface{})
 	p.deviceStates = make(map[string]*DeviceRuntimeState)
 	p.conns = make(map[string]net.Conn)
+	_ = p.EnsureDriverExists()
 	return nil
 }
 
@@ -126,6 +179,7 @@ func (p *ModbusPlugin) closeConnection(address string, conn net.Conn) {
 
 // Start implements IProtocolPlugin
 func (p *ModbusPlugin) Start() error {
+	_ = p.EnsureDriverExists()
 	p.Ctx.LogInfo("Modbus Plugin Started")
 	return nil
 }

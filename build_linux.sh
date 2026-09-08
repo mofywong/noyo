@@ -62,6 +62,10 @@ build_edition() {
     cd frontend
     npm install
     npm run build
+    if [ ! -s ../backend/dist/index.html ]; then
+        echo "Error: frontend build did not produce backend/dist/index.html"
+        exit 1
+    fi
     cd ..
 
     echo "[2/3] Skipping copy (Vite builds to backend/dist directly)..."

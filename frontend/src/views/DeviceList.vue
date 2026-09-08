@@ -1,61 +1,65 @@
 <template>
-  <div>
+  <div class="device-list-page device-management-page page-fixed-height">
     <!-- Page Header（§7.2） -->
-    <div class="page-header">
-      <div>
+    <div class="page-header list-page-header device-list-context-bar">
+      <div class="device-list-context-copy">
         <h1>{{ $t('sidebar_devices') }}</h1>
-        <p class="page-subtitle">{{ $t('dev_subtitle') }}</p>
+        <p class="page-subtitle device-list-subtitle">{{ $t('dev_subtitle') }}</p>
       </div>
-      <div class="d-flex gap-2 align-items-center">
-        <button class="btn btn-outline-primary" @click="openAIBatchConfigModal" v-permission="'device:edit'">
-          <i class="bi bi-shield-check me-1"></i> {{ $t('ai_batch_config') }}
-        </button>
-        <button class="btn btn-primary" @click="openCreateModal" v-permission="'device:create'">
-          <i class="bi bi-plus-lg me-1"></i> {{ $t('dev_create') }}
-        </button>
-      </div>
-    </div>
-
-    <!-- KPI 统计行（§7.3 / §3.3 语义色） -->
-    <div class="row g-3 mb-3">
-      <div class="col-6 col-md-3 col-xl-2">
-        <div class="kpi-card">
-          <div class="kpi-label">{{ $t('dev_stat_total') }}</div>
-          <div class="kpi-value">{{ stats.total }}</div>
-        </div>
-      </div>
-      <div class="col-6 col-md-3 col-xl-2">
-        <div class="kpi-card">
-          <div class="kpi-label"><span class="status-dot status-dot--online me-1 align-middle"></span>{{ $t('dev_stat_online') }}</div>
-          <div class="kpi-value">{{ stats.online }}</div>
-        </div>
-      </div>
-      <div class="col-6 col-md-3 col-xl-2">
-        <div class="kpi-card">
-          <div class="kpi-label"><span class="status-dot status-dot--offline me-1 align-middle"></span>{{ $t('dev_stat_offline') }}</div>
-          <div class="kpi-value">{{ stats.offline }}</div>
-        </div>
-      </div>
-      <div class="col-6 col-md-3 col-xl-2">
-        <div class="kpi-card">
-          <div class="kpi-label"><i class="bi bi-shield-fill-x me-1" style="color: var(--color-danger);"></i>{{ $t('dev_stat_alarm') }}</div>
-          <div class="kpi-value" style="color: var(--color-danger);">{{ stats.alarm }}</div>
-        </div>
+      <div class="device-header-actions d-flex align-items-center gap-2">
+        <LiquidGlassButton
+          variant="secondary"
+          size="sm"
+          :icon="loading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'"
+          :disabled="loading"
+          @click="fetchDevices(false)"
+        >
+          {{ $t('refresh') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton
+          variant="outline-primary"
+          size="sm"
+          icon="bi bi-shield-check"
+          @click="openAIBatchConfigModal"
+          v-permission="'device:edit'"
+        >
+          {{ $t('ai_batch_config') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton
+          variant="primary"
+          size="sm"
+          icon="bi bi-plus-lg"
+          @click="openCreateModal"
+          v-permission="'device:create'"
+        >
+          {{ $t('dev_create') }}
+        </LiquidGlassButton>
       </div>
     </div>
 
-    <!-- Toolbar（§7.2：搜索 + 筛选折叠 + 批量操作条） -->
-    <div class="page-toolbar">
-      <div class="input-group" style="max-width: 320px;">
-        <span class="input-group-text bg-transparent"><i class="bi bi-search"></i></span>
-        <input v-model="search" type="search" class="form-control" :placeholder="$t('dev_search_placeholder')" :aria-label="$t('dev_search_placeholder')">
-      </div>
-      <div class="dropdown" v-if="devices.length > 0">
-        <button class="btn btn-outline-secondary" type="button" @click="showFilters = !showFilters" :aria-expanded="showFilters">
-          <i class="bi bi-funnel me-1"></i> {{ $t('dev_filter_toggle') }}
-          <span v-if="hasActiveFilters" class="badge text-bg-primary ms-1">&bull;</span>
-        </button>
-        <div v-if="showFilters" class="noyo-filter-panel">
+    <!-- Toolbar（§7.2） -->
+    <div class="page-toolbar device-list-control-bar list-page-controls">
+      <div class="device-list-query list-toolbar-query">
+        <div class="input-group">
+          <span class="input-group-text bg-transparent"><i class="bi bi-search" aria-hidden="true"></i></span>
+          <input v-model="search" type="search" class="form-control" :placeholder="$t('dev_search_placeholder')" :aria-label="$t('dev_search_placeholder')">
+        </div>
+        <LiquidGlassPopover
+          v-if="devices.length > 0"
+          placement="bottom-start"
+          panel-class="noyo-device-filter-popover"
+          :label="$t('dev_filter_toggle')"
+          :trigger-label="$t('dev_filter_toggle')"
+          data-device-filter-popover
+        >
+          <template #trigger>
+            <span class="btn btn-outline-secondary btn-sm device-filter-trigger">
+              <i class="bi bi-funnel" aria-hidden="true"></i>
+              <span>{{ $t('dev_filter_toggle') }}</span>
+              <span v-if="hasActiveFilterFields" class="device-filter-count">{{ activeFilterChips.length }}</span>
+            </span>
+          </template>
+          <div class="noyo-filter-panel">
           <div class="row g-2">
             <div class="col-md-6 col-xl-4">
               <select class="form-select form-select-sm" v-model="filterProduct" :aria-label="$t('dev_product')">
@@ -95,12 +99,49 @@
               </button>
             </div>
           </div>
-        </div>
+          </div>
+        </LiquidGlassPopover>
       </div>
-      <div class="ms-auto d-flex gap-2 align-items-center">
+      <div v-if="activeFilterChips.length > 0" class="device-active-filters list-toolbar-active-filters" aria-live="polite">
+        <button
+          v-for="chip in activeFilterChips"
+          :key="chip.key"
+          type="button"
+          class="device-active-filter"
+          :aria-label="$t('dev_clear_filters') + ': ' + chip.label"
+          @click="removeFilter(chip.key)"
+        >
+          <span>{{ chip.label }}</span>
+          <i class="bi bi-x-lg" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="device-stat-strip list-toolbar-metrics">
+        <button type="button" class="device-stat-item device-stat-item--interactive" :class="{ 'is-active': !deviceMetricFilters.length }" :aria-pressed="!deviceMetricFilters.length" @click="deviceMetricFilters = []">
+          <i class="bi bi-hdd-network-fill device-stat-icon--brand" aria-hidden="true"></i>
+          <span class="device-stat-label">{{ $t('dev_stat_total') }}</span>
+          <strong>{{ stats.total }}</strong>
+        </button>
+        <button
+          type="button"
+          class="device-stat-item device-stat-item--interactive"
+          :class="{ 'is-active': deviceMetricFilters.includes('online') }"
+          :aria-pressed="deviceMetricFilters.includes('online')"
+          @click="toggleDeviceMetricFilter('online')"
+        >
+          <i class="bi bi-broadcast device-stat-icon--success" aria-hidden="true"></i>
+          <span class="device-stat-label">{{ $t('dev_stat_online') }}</span>
+          <strong>{{ stats.online }}</strong>
+        </button>
+        <button type="button" class="device-stat-item device-stat-item--interactive" :class="{ 'is-active': deviceMetricFilters.includes('alarm') }" :aria-pressed="deviceMetricFilters.includes('alarm')" @click="toggleDeviceMetricFilter('alarm')">
+          <i class="bi bi-shield-fill-x device-stat-icon--danger" aria-hidden="true"></i>
+          <span class="device-stat-label">{{ $t('dev_stat_alarm') }}</span>
+          <strong>{{ stats.alarm }}</strong>
+        </button>
+      </div>
+      <div class="device-list-secondary-actions list-toolbar-actions">
         <!-- 批量操作条（§8.3：选中后出现，不改变页面布局） -->
         <div v-if="selectedDevices.length > 0" class="noyo-batch-bar">
-          <span class="fw-bold me-2">{{ selectedDevices.length }} {{ $t('selected') }}</span>
+          <span class="fw-bold me-2 small">{{ selectedDevices.length }} {{ $t('selected') }}</span>
           <div class="btn-group btn-group-sm">
             <button class="btn btn-outline-success" @click="batchEnable" v-permission="'device:control'">
               <i class="bi bi-check-circle me-1"></i>{{ $t('dev_enable') }}
@@ -116,24 +157,25 @@
             <i class="bi bi-x-lg"></i>
           </button>
         </div>
-        <!-- 次要操作（ghost 按钮，§8.1） -->
-        <button class="btn btn-outline-primary btn-sm" @click="downloadTemplate" v-permission="'device:create'">
-          <i class="bi bi-download me-1"></i> {{ $t('download_template') }}
-        </button>
-        <button class="btn btn-outline-primary btn-sm" @click="triggerImport" v-permission="'device:create'">
-          <i class="bi bi-upload me-1"></i> {{ $t('import_devices') }}
-        </button>
-        <input type="file" ref="fileInput" class="d-none" accept=".xlsx" @change="handleFileUpload">
-        <button class="btn btn-outline-info btn-sm" @click="showDiscoveryModal = true" :title="$t('discover_devices')" v-permission="'device:create'">
-          <i class="bi bi-search"></i>
-        </button>
+        <div v-else class="d-flex gap-2 align-items-center device-secondary-actions-inline">
+          <LiquidGlassButton variant="outline-primary" size="sm" icon="bi bi-download" @click="downloadTemplate" v-permission="'device:create'">
+            {{ $t('download_template') }}
+          </LiquidGlassButton>
+          <LiquidGlassButton variant="outline-primary" size="sm" icon="bi bi-upload" @click="triggerImport" v-permission="'device:create'">
+            {{ $t('import_devices') }}
+          </LiquidGlassButton>
+          <LiquidGlassButton variant="outline-info" size="sm" icon="bi bi-search" @click="showDiscoveryModal = true" v-permission="'device:create'">
+            {{ $t('discover_devices') }}
+          </LiquidGlassButton>
+          <input type="file" ref="fileInput" class="d-none" accept=".xlsx" @change="handleFileUpload">
+        </div>
       </div>
     </div>
 
     <!-- 表格容器 -->
-    <div class="card border-0 shadow-sm">
-      <div class="card-body p-0">
-        <div class="table-responsive device-table-wrap" style="min-height: 400px;">
+    <div class="card border-0 shadow-sm table-glass-card">
+      <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+        <div class="table-responsive device-table-wrap flex-grow-1">
           <table class="table table-hover align-middle mb-0 table-compact">
             <thead>
               <tr>
@@ -199,7 +241,19 @@
                 <input class="form-check-input" type="checkbox" :checked="selectedDevices.includes(device.code)" @change="toggleSelection(device.code)" :aria-label="device.name || device.code">
               </td>
               <td class="fw-bold text-primary text-truncate font-mono" style="max-width: 200px;" :title="device.code">{{ device.code }}</td>
-              <td class="text-truncate" style="max-width: 160px;" :title="device.name">{{ device.name || '-' }}</td>
+              <td style="max-width: 180px;">
+                <div class="d-flex flex-column align-items-start gap-1">
+                  <span class="text-truncate w-100" :title="device.name">{{ device.name || '-' }}</span>
+                  <span
+                    v-if="device.parent_code"
+                    class="parent-device-badge text-truncate d-inline-flex align-items-center gap-1"
+                    :title="`${$t('dev_parent')}: ${getParentDeviceName(device.parent_code)} (${device.parent_code})`"
+                  >
+                    <i class="bi bi-diagram-2 flex-shrink-0"></i>
+                    <span class="text-truncate">{{ getParentDeviceName(device.parent_code) }}</span>
+                  </span>
+                </div>
+              </td>
               <td v-if="showProjectColumn">
                 <span class="badge text-bg-light border">{{ device.project_name || '-' }}</span>
               </td>
@@ -223,9 +277,9 @@
                 <span v-else class="text-muted small">-</span>
               </td>
               <td>
-                <!-- 状态指示器（§3.3：在线呼吸点 / 离线灰点） -->
-                <span class="spec-badge" :class="device.online ? 'spec-badge--success' : 'spec-badge--neutral'">
-                  <span class="status-dot" :class="device.online ? 'status-dot--online' : 'status-dot--offline'"></span>
+                <!-- 状态指示器（§3.3：晶体发光胶囊） -->
+                <span class="dash-pill" :class="device.online ? 'dash-pill--success' : 'dash-pill--neutral'">
+                  <span class="dash-pill-dot"></span>
                   {{ device.online ? $t('dev_online') : $t('dev_offline') }}
                 </span>
                 <div v-if="device.last_active && new Date(device.last_active).getFullYear() > 1" class="small text-muted mt-1 font-mono" style="font-size: 0.7rem">
@@ -277,70 +331,77 @@
                 </div>
               </td>
               <td class="text-end pe-4" @click.stop>
-                <button v-if="isCameraDevice(device)" class="btn btn-sm btn-outline-primary rounded-circle me-1 d-inline-flex align-items-center justify-content-center" style="width: 28px; height: 28px; padding: 0;" @click="playVideo(device)" :title="aiText('播放实时视频', 'Play live video')" v-permission="'device:control'">
-                  <i class="bi bi-play-fill fs-6"></i>
-                </button>
-                <div class="d-inline-block">
-                  <button class="btn btn-sm btn-light border-0" type="button" :aria-expanded="activeDeviceActionMenu === device.code" @click="openDeviceActionMenu(device, $event)">
-                    <i class="bi bi-three-dots-vertical"></i>
+                <div class="table-actions">
+                  <button v-if="isCameraDevice(device)" class="table-action-btn table-action-btn--primary" @click="playVideo(device)" :title="aiText('播放实时视频', 'Play live video')" v-permission="'device:control'">
+                    <i class="bi bi-play-fill fs-6"></i>
                   </button>
-                  <ul
-                    v-if="activeDeviceActionMenu === device.code"
-                    class="dropdown-menu dropdown-menu-end shadow-sm border-0 show device-action-menu"
-                    :style="{ top: `${deviceActionMenuPosition.top}px`, left: `${deviceActionMenuPosition.left}px` }"
-                    @click.stop
+                  <LiquidGlassPopover
+                    placement="bottom-end"
+                    panel-class="noyo-device-action-popover"
+                    :label="$t('tsl_actions')"
+                    :trigger-label="`${$t('tsl_actions')}: ${device.name || device.code}`"
+                    data-device-action-popover
                   >
+                    <template #trigger>
+                      <button type="button" class="table-action-btn" :title="$t('tsl_actions')">
+                        <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
+                      </button>
+                    </template>
+                  <template #default="{ close }">
+                    <ul class="dropdown-menu dropdown-menu-end border-0 show device-action-menu" @click.stop>
                     <li><hr class="dropdown-divider"></li>
                     <li>
-                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openDataModal(device, 'realtime'))">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(close, () => openDataModal(device, 'realtime'))">
                         <i class="bi bi-activity me-2 text-success"></i> {{ $t('dev_data') }}
                       </a>
                     </li>
                     <template v-for="action in extensionDeviceActions" :key="action.name">
                       <li v-if="isActionVisible(action, device)">
-                        <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => executeAction(action, device))">
+                        <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(close, () => executeAction(action, device))">
                           <i :class="[action.icon, action.color, 'me-2']"></i> {{ action.labelKey ? $t(action.labelKey, action.label) : action.label }}
                         </a>
                       </li>
                     </template>
                     <li v-permission="'device:edit'">
-                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openDeviceTagsModal(device))">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(close, () => openDeviceTagsModal(device))">
                         <i class="bi bi-tags me-2 text-primary"></i> {{ $t('dev_tag_manage') }}
                       </a>
                     </li>
                     <li v-permission="'device:edit'">
-                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openSingleAIModal(device))">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(close, () => openSingleAIModal(device))">
                         <i class="bi bi-shield-check me-2 text-warning"></i> {{ aiText('AI 设备守护', 'AI Device Guardian') }}
                       </a>
                     </li>
                     <li v-permission="'device:control'">
-                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => toggleDevice(device))">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(close, () => toggleDevice(device))">
                         <i class="bi me-2" :class="device.enabled ? 'bi-stop-fill text-warning' : 'bi-play-fill text-success'"></i>
                         {{ device.enabled ? $t('stop') : $t('start') }}
                       </a>
                     </li>
                     <li v-if="!device.parent_code || isChildOfCascade(device)" v-permission="'device:create'">
-                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openCreateSubDeviceModal(device))">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(close, () => openCreateSubDeviceModal(device))">
                         <i class="bi bi-plus-square me-2 text-primary"></i> {{ $t('dev_create_sub') }}
                       </a>
                     </li>
                     <li v-permission="'device:edit'">
-                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openEditModal(device))">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(close, () => openEditModal(device))">
                         <i class="bi bi-pencil me-2 text-info"></i> {{ $t('dev_edit') }}
                       </a>
                     </li>
                     <li v-if="needsProtocolMapping(device)" v-permission="'device:edit'">
-                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(() => openMappingModal(device))">
+                      <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(close, () => openMappingModal(device))">
                         <i class="bi bi-diagram-3 me-2 text-body"></i> {{ $t('tsl_prop_proto_map') }}
                       </a>
                     </li>
                     <li><hr class="dropdown-divider"></li>
                     <li v-permission="'device:delete'">
-                      <a class="dropdown-item text-danger" href="#" @click.prevent="runDeviceMenuAction(() => deleteDevice(device))">
+                      <a class="dropdown-item text-danger" href="#" @click.prevent="runDeviceMenuAction(close, () => deleteDevice(device))">
                         <i class="bi bi-trash me-2"></i> {{ $t('dev_delete') }}
                       </a>
                     </li>
-                  </ul>
+                    </ul>
+                  </template>
+                </LiquidGlassPopover>
                 </div>
               </td>
             </tr>
@@ -348,14 +409,15 @@
         </table>
       </div>
     </div>
-    </div>
     <ListPagination :page="page" :page-size="pageSize" :total="total" id-prefix="devices" @update:page="changePage" @update:page-size="changePageSize" />
+  </div>
 
+  <Teleport to="body">
     <!-- 详情抽屉（§8.4：通用 DetailDrawer，与产品列表共用） -->
     <DetailDrawer :visible="drawerVisible" :title="drawerDevice?.name || drawerDevice?.code || ''" @close="closeDrawer">
       <template #header-badge>
-        <span class="spec-badge" :class="drawerDevice?.online ? 'spec-badge--success' : 'spec-badge--neutral'">
-          <span class="status-dot" :class="drawerDevice?.online ? 'status-dot--online' : 'status-dot--offline'"></span>
+        <span class="dash-pill" :class="drawerDevice?.online ? 'dash-pill--success' : 'dash-pill--neutral'">
+          <span class="dash-pill-dot"></span>
           {{ drawerDevice?.online ? $t('dev_online') : $t('dev_offline') }}
         </span>
       </template>
@@ -722,13 +784,13 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline-info me-auto" @click="openAIHistoryModal">
-               <i class="bi bi-clock-history me-1"></i> {{ $t('ai_fault_history') }}
-            </button>
-            <button type="button" class="btn btn-outline-secondary" @click="closeSingleAIModal">{{ $t('tsl_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveSingleAIConfig">
-              <i class="bi bi-save me-1"></i> {{ $t('ai_save_apply') }}
-            </button>
+            <LiquidGlassButton variant="outline-info" class="me-auto" icon="bi bi-clock-history" @click="openAIHistoryModal">
+              {{ $t('ai_fault_history') }}
+            </LiquidGlassButton>
+            <LiquidGlassButton variant="outline-secondary" @click="closeSingleAIModal">{{ $t('tsl_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" icon="bi bi-save" @click="saveSingleAIConfig">
+              {{ $t('ai_save_apply') }}
+            </LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -783,7 +845,7 @@
              </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline-secondary" @click="aiHistoryModalVisible = false">{{ $t('common_close') }}</button>
+            <button type="button" class="btn btn-outline-danger" @click="aiHistoryModalVisible = false">{{ $t('common_close') }}</button>
           </div>
         </div>
       </div>
@@ -870,11 +932,11 @@
                <input class="form-check-input" type="checkbox" role="switch" id="batchEnableSwitch" v-model="batchAiConfig.enabled">
                <label class="form-check-label text-warning fw-bold" for="batchEnableSwitch">{{ aiText('立即启用监控', 'Enable Monitoring Now') }}</label>
             </div>
-            <div>
-               <button type="button" class="btn btn-outline-secondary me-2" @click="showBatchAIModal = false">{{ $t('tsl_cancel') }}</button>
-               <button type="button" class="btn btn-primary" :disabled="!batchAiConfig.product_code || !batchAiConfig.property || batchAiConfig.devices.length === 0" @click="saveBatchAITasks">
-                 <i class="bi bi-check2-all me-1"></i> {{ aiText('批量下发配置', 'Deploy Batch Config') }}
-               </button>
+            <div class="d-inline-flex gap-2">
+               <LiquidGlassButton variant="outline-secondary" @click="showBatchAIModal = false">{{ $t('tsl_cancel') }}</LiquidGlassButton>
+               <LiquidGlassButton variant="primary" icon="bi bi-check2-all" :disabled="!batchAiConfig.product_code || !batchAiConfig.property || batchAiConfig.devices.length === 0" @click="saveBatchAITasks">
+                 {{ aiText('批量下发配置', 'Deploy Batch Config') }}
+               </LiquidGlassButton>
             </div>
           </div>
         </div>
@@ -921,10 +983,10 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeImportModal">{{ $t('tsl_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="confirmImport" :disabled="!importProtocol || !importFile">
-              <i class="bi bi-upload me-1"></i> {{ $t('import') }}
-            </button>
+            <LiquidGlassButton variant="secondary" @click="closeImportModal">{{ $t('tsl_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" icon="bi bi-upload" @click="confirmImport" :disabled="!importProtocol || !importFile">
+              {{ $t('import') }}
+            </LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -973,16 +1035,17 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="showDownloadModal = false">{{ $t('tsl_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="confirmDownloadTemplate" :disabled="!targetProtocol">
-              <i class="bi bi-download me-1"></i> {{ $t('download') }}
-            </button>
+            <LiquidGlassButton variant="secondary" @click="showDownloadModal = false">{{ $t('tsl_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" icon="bi bi-download" @click="confirmDownloadTemplate" :disabled="!targetProtocol">
+              {{ $t('download') }}
+            </LiquidGlassButton>
           </div>
         </div>
       </div>
     </div>
     
     <DeviceDiscoveryModal v-if="showDiscoveryModal" @close="showDiscoveryModal = false" @device-added="fetchDevices(false)" />
+  </Teleport>
   </div>
 </template>
 
@@ -997,6 +1060,8 @@ import DeviceDataModal from '../components/device/DeviceDataModal.vue';
 import ListPagination from '../components/ListPagination.vue';
 import Sparkline from '../components/Sparkline.vue';
 import DetailDrawer from '../components/DetailDrawer.vue';
+import GlassGroup from '../components/liquid-glass/GlassGroup.vue';
+import LiquidGlassPopover from '../components/liquid-glass/LiquidGlassPopover.vue';
 import { usePlugins } from '../plugins/registry.js';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 import { applyDriverDefaults } from '../utils/deviceDriverDefaults.js';
@@ -1039,8 +1104,6 @@ const drivers = ref([]);
 const loading = ref(false);
 const showCreateModal = ref(false);
 const showDiscoveryModal = ref(false);
-const activeDeviceActionMenu = ref('');
-const deviceActionMenuPosition = ref({ top: 0, left: 0 });
 const showProjectColumn = computed(() => {
   const mode = localStorage.getItem('system_mode') || '';
   if (isSingleProjectMode(mode)) return false;
@@ -1050,6 +1113,7 @@ const newDevice = ref({ code: '', name: '', product_code: '', protocol_profile_c
 const isSubDeviceForm = computed(() => !isEditing.value && !!newDevice.value.parent_code);
 const currentSchema = ref(null);
 const isEditing = ref(false);
+const lastAutoSipId = ref('');
 const selectedDevices = ref([]);
 
 // 详情抽屉状态（§8.4：右侧 720px 抽屉，替代原 hover 浮层）
@@ -1085,22 +1149,37 @@ const drawerSparkColor = computed(() => chartToken('--text-tertiary'));
 
 // Filter State（§7.2：>3 个条件折叠收纳）
 const search = ref('');
-const showFilters = ref(false);
 const filterProduct = ref('');
 const filterParent = ref('');
 const filterEnabled = ref('');
 const filterOnline = ref('');
 const filterTag = ref('');
 const deviceTags = ref([]);
+const deviceMetricFilters = ref([]);
 
-const hasActiveFilters = computed(() =>
-  search.value.trim() !== ''
-  || filterProduct.value !== ''
+const toggleDeviceMetricFilter = (key) => {
+  deviceMetricFilters.value = deviceMetricFilters.value.includes(key)
+    ? deviceMetricFilters.value.filter((item) => item !== key)
+    : [...deviceMetricFilters.value, key];
+};
+
+const hasActiveFilterFields = computed(() =>
+  filterProduct.value !== ''
   || filterParent.value !== ''
   || filterEnabled.value !== ''
   || filterOnline.value !== ''
   || filterTag.value !== ''
 );
+
+const hasActiveFilters = computed(() => search.value.trim() !== '' || hasActiveFilterFields.value);
+
+const removeFilter = (key) => {
+  if (key === 'product') filterProduct.value = '';
+  if (key === 'parent') filterParent.value = '';
+  if (key === 'enabled') filterEnabled.value = '';
+  if (key === 'online') filterOnline.value = '';
+  if (key === 'tag') filterTag.value = '';
+};
 
 const clearFilters = () => {
   search.value = '';
@@ -1109,6 +1188,7 @@ const clearFilters = () => {
   filterEnabled.value = '';
   filterOnline.value = '';
   filterTag.value = '';
+  deviceMetricFilters.value = [];
 };
 const selectedTagIds = ref([]);
 const showDeviceTagsModal = ref(false);
@@ -1368,6 +1448,44 @@ const uniqueParents = computed(() => {
   });
 });
 
+const deviceMap = computed(() => {
+  const map = new Map();
+  devices.value.forEach(d => {
+    if (d.code) map.set(d.code, d);
+  });
+  return map;
+});
+
+const getParentDeviceName = (parentCode) => {
+  if (!parentCode) return '';
+  const parent = deviceMap.value.get(parentCode);
+  if (parent && parent.name) return parent.name;
+  return parentCode;
+};
+
+const activeFilterChips = computed(() => {
+  const chips = [];
+  if (filterProduct.value) {
+    const product = products.value.find(item => item.code === filterProduct.value);
+    chips.push({ key: 'product', label: `${t('dev_product')}: ${product?.name || filterProduct.value}` });
+  }
+  if (filterParent.value) {
+    const parent = uniqueParents.value.find(item => item.code === filterParent.value);
+    chips.push({ key: 'parent', label: `${t('dev_parent')}: ${parent?.name || filterParent.value}` });
+  }
+  if (filterEnabled.value) {
+    chips.push({ key: 'enabled', label: `${t('dev_status')}: ${filterEnabled.value === 'true' ? t('dev_enabled') : t('dev_disabled')}` });
+  }
+  if (filterOnline.value) {
+    chips.push({ key: 'online', label: `${t('dev_online_status')}: ${filterOnline.value === 'true' ? t('dev_online') : t('dev_offline')}` });
+  }
+  if (filterTag.value) {
+    const tag = deviceTags.value.find(item => String(item.ID) === filterTag.value);
+    chips.push({ key: 'tag', label: `${t('dev_tags')}: ${tag?.name || filterTag.value}` });
+  }
+  return chips;
+});
+
 const filteredDevices = computed(() => {
   const q = search.value.trim().toLowerCase();
   return devices.value.filter(d => {
@@ -1384,6 +1502,8 @@ const filteredDevices = computed(() => {
         const want = filterOnline.value === 'true';
         if (d.online !== want) return false;
     }
+    if (deviceMetricFilters.value.includes('online') && !d.online) return false;
+    if (deviceMetricFilters.value.includes('alarm') && d.ai_anomaly !== true && d.ai_latched !== true) return false;
     if (filterTag.value !== '') {
         const wantTagId = Number(filterTag.value);
         if (!d.tags || !d.tags.some(t => t.ID === wantTagId)) return false;
@@ -1403,7 +1523,6 @@ const stats = computed(() => {
   return {
     total: list.length,
     online: list.filter(d => d.online).length,
-    offline: list.filter(d => !d.online).length,
     alarm: list.filter(d => d.ai_anomaly === true || d.ai_latched === true).length
   };
 });
@@ -1550,23 +1669,8 @@ const { extensions } = usePlugins();
 const extensionDeviceActions = computed(() => extensions.value.deviceActions || []);
 const activeExtensionModals = ref([]);
 
-const closeDeviceActionMenu = () => {
-  activeDeviceActionMenu.value = '';
-};
-
-const openDeviceActionMenu = (device, event) => {
-  const rect = event.currentTarget.getBoundingClientRect();
-  const menuWidth = 220;
-  const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8));
-  activeDeviceActionMenu.value = activeDeviceActionMenu.value === device.code ? '' : device.code;
-  deviceActionMenuPosition.value = {
-    top: Math.min(rect.bottom + 4, window.innerHeight - 8),
-    left
-  };
-};
-
-const runDeviceMenuAction = (fn) => {
-  closeDeviceActionMenu();
+const runDeviceMenuAction = (close, fn) => {
+  close();
   fn();
 };
 
@@ -2658,8 +2762,6 @@ onUnmounted(() => {
   if (aiChartTimer) clearInterval(aiChartTimer);
   if (aiConfigSaveTimer) clearTimeout(aiConfigSaveTimer);
   window.removeEventListener('noyo-data-updated', fetchDevices);
-  window.removeEventListener('click', closeDeviceActionMenu);
-  window.removeEventListener('scroll', closeDeviceActionMenu, true);
   if (sseHeartbeatTimer) clearTimeout(sseHeartbeatTimer);
   if (sseFetchDebounceTimer) clearTimeout(sseFetchDebounceTimer);
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer);
@@ -2825,8 +2927,27 @@ const fetchProtocolSchema = async (protocolName, parentCode, profileCode, defaul
 };
 
 const handleProductChange = () => {
-    // config schema is now fetched via protocol change, not product change.
-  };
+  if (isSubDeviceForm.value) {
+    return;
+  }
+  // 选择产品时，自动联动匹配默认设备驱动
+  if (newDevice.value.product_code) {
+    const matchingDrivers = drivers.value.filter(d => d.product_code === newDevice.value.product_code);
+    if (matchingDrivers.length > 0) {
+      newDevice.value.protocol_profile_code = matchingDrivers[0].code;
+      handleProtocolProfileChange();
+      return;
+    }
+    if (newDevice.value.product_code === 'gb28181_camera') {
+      const gbDriver = drivers.value.find(d => d.code === 'gb28181_camera_driver' || d.protocol_name === 'gb28181');
+      if (gbDriver) {
+        newDevice.value.protocol_profile_code = gbDriver.code;
+        handleProtocolProfileChange();
+        return;
+      }
+    }
+  }
+};
 
 const handleProtocolProfileChange = () => {
     if (isSubDeviceForm.value) {
@@ -2846,12 +2967,32 @@ const handleProtocolProfileChange = () => {
           console.error("Failed to parse driver config", e);
         }
       }
+      // 若为 GB28181 协议/产品且已输入设备编码，自动填充 sip_id 参数
+      if (selectedDriver.protocol_name === 'gb28181' || newDevice.value.product_code === 'gb28181_camera') {
+        if (newDevice.value.code && !defaultConf.sip_id) {
+          defaultConf.sip_id = newDevice.value.code;
+          lastAutoSipId.value = newDevice.value.code;
+        }
+      }
       fetchProtocolSchema(selectedDriver.protocol_name, newDevice.value.parent_code, selectedDriver.code, defaultConf);
     } else {
       newDevice.value.protocol_name = '';
       currentSchema.value = null;
     }
   };
+
+// 监听新建设备编码输入，自动同步至 GB28181 的 sip_id 配置参数
+watch(() => newDevice.value.code, (newCode) => {
+  if (!isEditing.value && (newDevice.value.product_code === 'gb28181_camera' || newDevice.value.protocol_name === 'gb28181')) {
+    if (!newDevice.value.config) {
+      newDevice.value.config = {};
+    }
+    if (!newDevice.value.config.sip_id || newDevice.value.config.sip_id === lastAutoSipId.value) {
+      newDevice.value.config.sip_id = newCode;
+      lastAutoSipId.value = newCode;
+    }
+  }
+});
 
 const clearDeviceDriverSelection = () => {
   newDevice.value.protocol_profile_code = '';
@@ -2893,8 +3034,6 @@ onMounted(() => {
   fetchConfiguredTasks();
   fetchDeviceTags();
   window.addEventListener('noyo-data-updated', fetchDevices);
-  window.addEventListener('click', closeDeviceActionMenu);
-  window.addEventListener('scroll', closeDeviceActionMenu, true);
 
   // 建立SSE连接，支持心跳检测和自动重连
   setupSSE();
@@ -2902,6 +3041,7 @@ onMounted(() => {
 
 const openCreateModal = () => {
   isEditing.value = false;
+  lastAutoSipId.value = '';
   newDevice.value = { code: '', name: '', product_code: '', protocol_profile_code: '', protocol_name: '', parent_code: '', enabled: true, config: {} };
   currentSchema.value = null;
   showCreateModal.value = true;
@@ -3047,6 +3187,20 @@ const openEditModal = async (device) => {
 
 const saveDevice = async () => {
   try {
+    if (newDevice.value.product_code === 'gb28181_camera' || newDevice.value.protocol_name === 'gb28181') {
+      if (!newDevice.value.config) {
+        newDevice.value.config = {};
+      }
+      if (!newDevice.value.config.sip_id && newDevice.value.code) {
+        newDevice.value.config.sip_id = newDevice.value.code;
+      }
+      if (!newDevice.value.protocol_name) {
+        newDevice.value.protocol_name = 'gb28181';
+      }
+      if (!newDevice.value.protocol_profile_code) {
+        newDevice.value.protocol_profile_code = 'gb28181_camera_driver';
+      }
+    }
     // Prepare payload: stringify config
     const payload = {
       ...newDevice.value,
@@ -3318,18 +3472,333 @@ const saveBatchAITasks = async () => {
 </script>
 
 <style scoped>
+.device-list-page {
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.device-list-page .page-header,
+.device-list-page .row,
+.device-list-page .device-table-surface,
+.device-list-page :deep(.list-pagination) {
+  position: relative;
+  z-index: 1;
+}
+
+.device-table-surface :deep(.device-table-pagination) {
+  margin: 0 16px 16px;
+  border: 1px solid var(--noyo-solid-border);
+  border-radius: var(--noyo-radius-control);
+  background: var(--noyo-solid-surface-muted) !important;
+}
+
+.device-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.device-list-context-bar {
+  align-items: center;
+  min-height: var(--list-page-header-min-height);
+  margin: 0;
+  padding: 0 0 var(--list-page-header-block-space);
+}
+
+.device-list-context-copy {
+  display: block;
+  min-width: 0;
+}
+
+.device-list-context-bar .device-list-subtitle {
+  margin: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.device-list-control-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  min-height: 40px;
+  margin: 0;
+  min-width: 0;
+  padding-right: 6px;
+}
+
+.device-list-query,
+.device-list-secondary-actions,
+.device-stat-strip,
+.device-active-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.device-list-query {
+  flex: 0 1 400px;
+}
+
+.device-list-query .input-group {
+  flex: 1 1 240px;
+  max-width: 320px;
+}
+
+.device-filter-trigger,
+.device-secondary-actions-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  white-space: nowrap;
+}
+
+.device-filter-count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--noyo-radius-pill);
+  background: var(--color-brand);
+  color: var(--text-on-brand, var(--noyo-solid-surface));
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.device-active-filters {
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+
+.device-active-filter,
+.device-stat-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  border: 1px solid var(--noyo-solid-border);
+  border-radius: var(--noyo-radius-pill);
+  background: color-mix(in srgb, var(--bg-elevated) 76%, var(--noyo-color-transparent));
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.device-active-filter {
+  max-width: 190px;
+  padding: 0 8px 0 10px;
+  cursor: pointer;
+  transition: background-color var(--noyo-duration-fast) var(--noyo-ease-standard), border-color var(--noyo-duration-fast) var(--noyo-ease-standard);
+}
+
+.device-active-filter span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-active-filter:hover,
+.device-active-filter:focus-visible,
+.device-stat-item--interactive:hover,
+.device-stat-item--interactive:focus-visible,
+.device-stat-item--interactive.is-active {
+  border-color: var(--color-brand);
+  background: color-mix(in srgb, var(--color-brand-subtle) 72%, var(--bg-elevated));
+  color: var(--text-primary);
+}
+
+.device-stat-strip {
+  flex: 0 1 auto;
+}
+
+.device-stat-item {
+  flex: 0 0 auto;
+  padding: 0 10px;
+}
+
+.device-stat-item--interactive {
+  cursor: pointer;
+  transition: background-color var(--noyo-duration-fast) var(--noyo-ease-standard), border-color var(--noyo-duration-fast) var(--noyo-ease-standard), color var(--noyo-duration-fast) var(--noyo-ease-standard);
+}
+
+.device-stat-item strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.device-stat-icon--brand { color: var(--color-brand); }
+.device-stat-icon--success { color: var(--color-success); }
+.device-stat-icon--neutral { color: var(--text-secondary); }
+.device-stat-icon--danger { color: var(--color-danger); }
+
+.device-list-secondary-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.device-secondary-actions-inline {
+  padding-right: 6px;
+  padding-bottom: 2px;
+}
+
+/* 消除次级操作按钮在列表工具栏中的下沉外阴影与灰色脏底，保持清透内描边与液态质感 */
+.device-secondary-actions-inline :deep(.noyo-glass-btn) {
+  box-shadow: none !important;
+}
+
+.device-secondary-actions-inline :deep(.noyo-glass-btn--outline-primary) {
+  box-shadow: inset 0 0 0 1px var(--color-brand) !important;
+}
+
+.device-secondary-actions-inline :deep(.noyo-glass-btn--outline-secondary) {
+  box-shadow: inset 0 0 0 1px var(--border-color) !important;
+}
+
+.device-secondary-actions-inline :deep(.noyo-glass-btn--outline-info) {
+  box-shadow: inset 0 0 0 1px var(--color-info, #0284c7) !important;
+}
+
+.device-secondary-actions-inline :deep(.noyo-glass-btn:hover:not(:disabled)) {
+  box-shadow: inset 0 0 0 1.5px currentColor !important;
+}
+
+/* 父级设备紧凑关系徽标 */
+.parent-device-badge {
+  font-size: 0.68rem;
+  line-height: 1.2;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--glass-tint, rgba(148, 163, 184, 0.1));
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.25));
+  color: var(--text-secondary);
+  max-width: 100%;
+  font-weight: 500;
+  transition: all var(--noyo-duration-fast, 0.15s) ease;
+}
+
+.parent-device-badge:hover {
+  color: var(--color-brand);
+  border-color: color-mix(in srgb, var(--color-brand) 40%, var(--border-color));
+}
+
+.device-secondary-actions-menu {
+  display: grid;
+  gap: 8px;
+  min-width: 164px;
+}
+
+.device-secondary-actions-menu :deep(.noyo-liquid-glass-button) {
+  justify-content: flex-start;
+}
+
+/* 晶体发光胶囊 */
+.dash-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  transition: all var(--noyo-duration-fast) var(--noyo-ease-standard);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.dash-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+  box-shadow: 0 0 6px currentColor;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.dash-pill--success {
+  color: #15803d !important;
+  background: rgba(22, 163, 74, 0.12);
+  border: 1px solid rgba(22, 163, 74, 0.28);
+}
+
+[data-bs-theme="dark"] .dash-pill--success {
+  color: #4ade80 !important;
+  background: rgba(74, 222, 128, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+
+.dash-pill--neutral {
+  color: var(--text-secondary) !important;
+  background: rgba(100, 116, 139, 0.12);
+  border: 1px solid rgba(100, 116, 139, 0.24);
+}
+
+.device-table-surface,
+.table-glass-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-card, 16px);
+  background: var(--noyo-dashboard-liquid-tint, var(--bg-surface));
+  backdrop-filter: blur(var(--noyo-dashboard-liquid-blur, 10px)) saturate(175%) brightness(var(--noyo-dashboard-liquid-backdrop-brightness, 1.05));
+  -webkit-backdrop-filter: blur(var(--noyo-dashboard-liquid-blur, 10px)) saturate(175%) brightness(var(--noyo-dashboard-liquid-backdrop-brightness, 1.05));
+  border: 1px solid var(--noyo-dashboard-liquid-edge, var(--border-color));
+}
+
+.device-table-surface .card-body {
+  border-radius: inherit;
+  background: transparent;
+}
+
+.device-table-surface .table {
+  --bs-table-bg: transparent;
+  --bs-table-hover-bg: color-mix(in srgb, var(--color-brand) 5%, var(--noyo-color-transparent));
+  --bs-table-border-color: var(--noyo-solid-border);
+  margin: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: var(--noyo-color-transparent);
+}
+
+.device-table-surface thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--noyo-solid-surface-muted) !important;
+  border-bottom-color: var(--noyo-solid-border);
+}
+
+.device-table-surface tbody tr,
+.device-table-surface tbody td {
+  background: transparent !important;
+}
+
 .animation-blink {
   animation: blinker 1.5s linear infinite;
 }
 .device-table-wrap {
-  overflow-x: visible;
-  overflow-y: visible;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 .device-action-menu {
-  position: fixed;
+  position: static;
   display: block;
   min-width: 220px;
-  z-index: 1080;
+  margin: 0;
+  padding: 0;
+  background: var(--noyo-color-transparent);
+  box-shadow: none;
 }
 @media (max-width: 1200px) {
   .device-table-wrap {
@@ -3419,27 +3888,90 @@ const saveBatchAITasks = async () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  min-height: 38px;
+  padding: 0 8px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--color-info) 10%, var(--bg-elevated));
-  border: 1px solid color-mix(in srgb, var(--color-info) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-info) 25%, var(--noyo-color-transparent));
 }
 
 /* 筛选折叠面板（§7.2） */
 .noyo-filter-panel {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 1040;
-  width: min(560px, 90vw);
-  padding: 16px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-control);
-  box-shadow: var(--shadow-floating);
+  width: 100%;
+  padding: 0;
+  background: var(--noyo-color-transparent);
+  border: 0;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
-[data-bs-theme='dark'] .noyo-filter-panel {
-  box-shadow: var(--shadow-floating), var(--surface-highlight);
+@media (max-width: 991.98px) {
+  .device-list-context-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    min-height: auto;
+  }
+
+  .device-header-actions {
+    justify-content: flex-start;
+  }
+
+  .device-list-control-bar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    padding-bottom: 2px;
+  }
+
+  .device-list-query {
+    flex: 0 0 auto;
+  }
+
+  .device-active-filters {
+    overflow: visible;
+  }
+
+  .device-stat-strip {
+    max-width: min(420px, 52vw);
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+}
+
+@media (max-width: 575.98px) {
+  .device-list-context-copy {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .device-list-context-bar .device-list-subtitle {
+    display: block;
+  }
+
+  .device-header-actions {
+    width: 100%;
+  }
+
+  .device-header-actions :deep(.noyo-liquid-glass-button) {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
+  .device-list-query .input-group {
+    flex-basis: 220px;
+  }
+
+  .device-stat-strip {
+    max-width: 300px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .device-active-filter,
+  .device-stat-item {
+    transition: none;
+  }
 }
 </style>

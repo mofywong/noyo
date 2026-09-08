@@ -1,23 +1,35 @@
 <template>
-  <div class="card border-0 shadow-sm h-100">
-    <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center py-3">
-      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_topology') }}</h2>
-      <div class="btn-group">
+  <div class="device-topology-page page-fixed-height d-flex flex-column h-100">
+    <div class="page-header">
+      <div>
+        <h1>{{ $t('sidebar_topology') }}</h1>
+        <p class="page-subtitle">{{ $t('topology_subtitle', '网关与子设备通信拓扑与运行状态图谱') }}</p>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <LiquidGlassButton
+          variant="secondary"
+          size="sm"
+          :icon="loading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'"
+          :disabled="loading"
+          @click="refresh"
+        >
+          {{ $t('refresh') }}
+        </LiquidGlassButton>
         <button class="btn btn-outline-secondary btn-sm" @click="fitView" :title="$t('tsl_actions')">
-          <i class="bi bi-arrows-fullscreen"></i>
-        </button>
-        <button class="btn btn-outline-secondary btn-sm" @click="refresh" :title="$t('tsl_actions')">
-          <i class="bi bi-arrow-clockwise"></i>
+          <i class="bi bi-arrows-fullscreen me-1"></i> {{ $t('topology_fit_view', '自适应视图') }}
         </button>
       </div>
     </div>
-    <div class="card-body p-0 position-relative" style="overflow: hidden; min-height: 600px;">
-      <div v-if="loading" class="position-absolute top-50 start-50 translate-middle" style="z-index: 10;">
-        <div class="spinner-border text-primary" role="status">
-          <span class="visually-hidden">Loading...</span>
+
+    <div class="card border-0 shadow-sm table-glass-card flex-grow-1 position-relative" style="overflow: hidden; min-height: 550px;">
+      <div class="card-body p-0 position-relative h-100">
+        <div v-if="loading" class="position-absolute top-50 start-50 translate-middle" style="z-index: 10;">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
         </div>
+        <div id="mountNode" ref="container" style="width: 100%; height: 100%;"></div>
       </div>
-      <div id="mountNode" ref="container" style="width: 100%; height: 100%;"></div>
     </div>
   </div>
   
@@ -25,21 +37,19 @@
   <div v-if="tooltipVisible" 
        @mouseenter="onTooltipEnter"
        @mouseleave="onTooltipLeave"
-       class="card position-fixed shadow border-0 bg-body-tertiary" 
+       class="card position-fixed shadow-lg border-0 table-glass-card" 
        :style="{ 
           left: tooltipX + 'px', 
           top: tooltipY + 'px', 
           zIndex: 1000, 
-          maxWidth: '300px',
-          overflow: 'hidden',
-          '--bs-bg-opacity': 0.9,
-          backdropFilter: 'blur(10px)'
+          maxWidth: '320px',
+          overflow: 'hidden'
        }">
     <div class="card-header py-2 border-bottom bg-transparent fw-bold d-flex justify-content-between align-items-center">
       <h6 class="mb-0 text-truncate text-body-emphasis">
         <i class="bi bi-cpu me-2"></i>{{ hoveredDevice?.name || hoveredDevice?.code }}
       </h6>
-      <span v-if="hoveredDevice?.online !== undefined" class="badge rounded-pill" :class="hoveredDevice.online ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border border-secondary-subtle'">
+      <span v-if="hoveredDevice?.online !== undefined" class="dash-pill" :class="hoveredDevice.online ? 'dash-pill--success' : 'dash-pill--secondary'">
           {{ hoveredDevice.online ? $t('dev_online') : $t('dev_offline') }}
       </span>
     </div>
@@ -67,20 +77,22 @@
     </div>
   </div>
 
-  <DeviceDataModal 
-    :visible="showDataModal" 
-    :device="currentDataDevice" 
-    :products="products" 
-    @close="showDataModal = false" 
-  />
-  <!-- Dynamic Extension Modals -->
-  <component 
-    v-for="modal in activeExtensionModals" 
-    :key="modal.name"
-    :is="modal.component"
-    v-bind="modal.props"
-    @close="closeExtensionModal(modal.name)"
-  />
+  <Teleport to="body">
+    <DeviceDataModal 
+      :visible="showDataModal" 
+      :device="currentDataDevice" 
+      :products="products" 
+      @close="showDataModal = false" 
+    />
+    <!-- Dynamic Extension Modals -->
+    <component 
+      v-for="modal in activeExtensionModals" 
+      :key="modal.name"
+      :is="modal.component"
+      v-bind="modal.props"
+      @close="closeExtensionModal(modal.name)"
+    />
+  </Teleport>
 </template>
 
 <script setup>
@@ -780,6 +792,8 @@ onUnmounted(() => {
 
 <style scoped>
 #mountNode {
-  background: var(--bs-body-bg);
+  background: transparent;
+  width: 100%;
+  height: 100%;
 }
 </style>

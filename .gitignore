@@ -62,3 +62,5 @@ go.work.sum
 docs/*
 .superpowers/*
 backend/noyo.db*
+backend/linux/*
+frontend/public/*

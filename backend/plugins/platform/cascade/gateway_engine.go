@@ -12,38 +12,81 @@ import (
 	"time"
 
 	"noyo/core"
+	"noyo/core/deviceidentity"
 	"noyo/core/platform"
 	"noyo/core/store"
 	"noyo/core/system"
 	"noyo/core/types"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/pion/stun/v3"
 	"go.uber.org/zap"
 )
 
 type gatewayEngineImpl struct {
-	ctx            platform.Context
-	logger         *zap.Logger
-	config         *Config
-	client         mqtt.Client
-	receivers      map[string]*FileReceiver
-	receiversMux   sync.Mutex
-	cancel         context.CancelFunc
-	isRegistered   atomic.Bool
-	platformOnline atomic.Bool
-	configVersion  atomic.Int64
-	localEventSubs map[types.EventType]uint64
+	ctx                platform.Context
+	logger             *zap.Logger
+	config             *Config
+	gatewayCode        string
+	client             mqtt.Client
+	receivers          map[string]*FileReceiver
+	receiversMux       sync.Mutex
+	cancel             context.CancelFunc
+	isRegistered       atomic.Bool
+	platformOnline     atomic.Bool
+	configVersion      atomic.Int64
+	localEventSubs     map[types.EventType]uint64
+	mediaSignalMu      sync.RWMutex
+	mediaSignalHandler func(platform.MediaSignal)
+}
+
+func keepGatewayLocalDevice(device *store.Device) bool {
+	if device == nil {
+		return false
+	}
+	return device.ProtocolName == "gb28181" || device.ProductCode == "gb28181_camera"
+}
+
+func prepareGatewayDiscoveredDevice(gateway, device *store.Device) *store.Device {
+	if device == nil {
+		return nil
+	}
+	prepared := *device
+	prepared.ID = 0
+	if gateway != nil {
+		sipID := deviceidentity.GB28181SIPID(&prepared)
+		deviceidentity.SetGB28181SIPID(&prepared, sipID)
+		prepared.Code = deviceidentity.GB28181DeviceCode(sipID, gateway.Code)
+		prepared.TenantID = gateway.TenantID
+		prepared.ProjectID = gateway.ProjectID
+		prepared.ParentCode = deviceidentity.GB28181IngressParentCode(gateway.Code)
+	}
+	return &prepared
+}
+
+func prepareGatewayTelemetryEvent(gatewayCode string, event types.Event, device *store.Device) types.Event {
+	if device == nil || !keepGatewayLocalDevice(device) {
+		return event
+	}
+	sipID := deviceidentity.GB28181SIPID(device)
+	if sipID == "" {
+		return event
+	}
+	event.Topic = deviceidentity.GB28181DeviceCode(sipID, gatewayCode)
+	return event
 }
 
 func NewGatewayEngine(ctx platform.Context, logger *zap.Logger, cfg *Config) GatewayEngine {
-	return &gatewayEngineImpl{
+	engine := &gatewayEngineImpl{
 		ctx:            ctx,
 		logger:         logger,
 		config:         cfg,
 		receivers:      make(map[string]*FileReceiver),
 		localEventSubs: make(map[types.EventType]uint64),
 	}
+	if code, err := cfg.GatewayCodeValue(); err == nil {
+		engine.gatewayCode = code
+	}
+	return engine
 }
 
 func (e *gatewayEngineImpl) Start() error {
@@ -52,14 +95,18 @@ func (e *gatewayEngineImpl) Start() error {
 	if e.config.MqttUrl == "" {
 		return fmt.Errorf("gateway mqtt_url is empty")
 	}
-	if e.config.GatewaySn == "" {
-		return fmt.Errorf("gateway_sn is empty")
+	if e.gatewayCode == "" {
+		gatewayCode, err := e.config.GatewayCodeValue()
+		if err != nil {
+			return err
+		}
+		e.gatewayCode = gatewayCode
 	}
 
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(e.config.MqttUrl)
 	// Use deterministic ClientID so broker properly handles session takeover and LWT
-	opts.SetClientID(fmt.Sprintf("noyo-gw-cascade-%s", e.config.GatewaySn))
+	opts.SetClientID(fmt.Sprintf("noyo-gw-cascade-%s", e.gatewayCode))
 	opts.SetUsername(e.config.Username)
 	opts.SetPassword(e.config.Password)
 	applyMQTTTLSOptions(opts, e.config)
@@ -70,7 +117,7 @@ func (e *gatewayEngineImpl) Start() error {
 	// Set Last Will and Testament (LWT) for Gateway offline status
 	// 使用固定时间戳 0，便于区分 LWT 触发的 offline 和主动发布的 offline
 	willPayload := `{"status":"offline","timestamp":0}`
-	opts.SetWill(fmt.Sprintf("noyo/cascade/gw/%s/status", e.config.GatewaySn), willPayload, 1, true)
+	opts.SetWill(fmt.Sprintf("noyo/cascade/gw/%s/status", e.gatewayCode), willPayload, 1, true)
 
 	opts.SetOnConnectHandler(func(c mqtt.Client) {
 		e.logger.Info("Gateway MQTT Connected")
@@ -139,12 +186,12 @@ func (e *gatewayEngineImpl) telemetryLoop(ctx context.Context) {
 					}
 					event := types.Event{
 						Type:      types.EventPropertyReported,
-						Topic:     e.config.GatewaySn,
+						Topic:     e.gatewayCode,
 						Payload:   props,
 						Timestamp: time.Now().UnixMilli(),
 					}
 					payloadBytes, _ := json.Marshal(event)
-					e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.config.GatewaySn), 1, false, payloadBytes)
+					e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.gatewayCode), 1, false, payloadBytes)
 				}
 			}
 		}
@@ -167,7 +214,7 @@ func (e *gatewayEngineImpl) Stop() error {
 		// Explicitly publish Offline status before graceful disconnect
 		// to ensure the retained "online" message is cleared.
 		offlinePayload := fmt.Sprintf(`{"status":"offline","timestamp":%d}`, time.Now().UnixMilli())
-		token := e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/status", e.config.GatewaySn), 1, true, []byte(offlinePayload))
+		token := e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/status", e.gatewayCode), 1, true, []byte(offlinePayload))
 		token.WaitTimeout(2 * time.Second)
 
 		e.client.Disconnect(250)
@@ -182,7 +229,10 @@ func (e *gatewayEngineImpl) handleLocalEvent(event types.Event) {
 	if !e.isRegistered.Load() {
 		return
 	}
-	topic := fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.config.GatewaySn)
+	if device, err := store.GetDevice(event.Topic); err == nil {
+		event = prepareGatewayTelemetryEvent(e.gatewayCode, event, device)
+	}
+	topic := fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.gatewayCode)
 	payloadBytes, err := json.Marshal(event)
 	if err == nil {
 		e.client.Publish(topic, 1, false, payloadBytes)
@@ -190,23 +240,26 @@ func (e *gatewayEngineImpl) handleLocalEvent(event types.Event) {
 }
 
 func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
-	configTopic := fmt.Sprintf("noyo/cascade/gw/%s/config/version", e.config.GatewaySn)
+	configTopic := fmt.Sprintf("noyo/cascade/gw/%s/config/version", e.gatewayCode)
 	c.Subscribe(configTopic, 1, e.handleConfigVersion)
 
-	cmdTopic := fmt.Sprintf("noyo/cascade/gw/%s/command/request", e.config.GatewaySn)
+	cmdTopic := fmt.Sprintf("noyo/cascade/gw/%s/command/request", e.gatewayCode)
 	c.Subscribe(cmdTopic, 1, e.handleCommand)
+
+	mediaSignalTopic := fmt.Sprintf("noyo/cascade/gw/%s/media/signal/down", e.gatewayCode)
+	c.Subscribe(mediaSignalTopic, 1, e.handleMediaSignalDown)
 
 	platformStatusTopic := "noyo/cascade/platform/status"
 	c.Subscribe(platformStatusTopic, 1, e.handlePlatformStatus)
 
-	regRespTopic := fmt.Sprintf("noyo/cascade/gw/%s/register/response", e.config.GatewaySn)
+	regRespTopic := fmt.Sprintf("noyo/cascade/gw/%s/register/response", e.gatewayCode)
 	if token := c.Subscribe(regRespTopic, 1, e.handleRegisterResponse); token.Wait() && token.Error() != nil {
 		e.logger.Error("Failed to subscribe to register response topic", zap.Error(token.Error()))
 	}
 
 	e.sendRegisterRequest()
 
-	fileMetaTopic := fmt.Sprintf("noyo/cascade/gw/%s/file/meta", e.config.GatewaySn)
+	fileMetaTopic := fmt.Sprintf("noyo/cascade/gw/%s/file/meta", e.gatewayCode)
 	c.Subscribe(fileMetaTopic, 1, func(client mqtt.Client, msg mqtt.Message) {
 		if msg.Retained() {
 			return
@@ -232,7 +285,7 @@ func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
 		}
 	})
 
-	fileChunkTopic := fmt.Sprintf("noyo/cascade/gw/%s/file/chunk", e.config.GatewaySn)
+	fileChunkTopic := fmt.Sprintf("noyo/cascade/gw/%s/file/chunk", e.gatewayCode)
 	c.Subscribe(fileChunkTopic, 1, func(client mqtt.Client, msg mqtt.Message) {
 		if msg.Retained() {
 			return
@@ -256,51 +309,47 @@ func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
 
 }
 
-// getPublicIP returns the gateway's public IP via STUN discovery.
-func (e *gatewayEngineImpl) getPublicIP() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func (e *gatewayEngineImpl) SetMediaSignalHandler(handler func(platform.MediaSignal)) {
+	e.mediaSignalMu.Lock()
+	e.mediaSignalHandler = handler
+	e.mediaSignalMu.Unlock()
+}
 
-	stunServers := []string{
-		"stun:stun.l.google.com:19302",
-		"stun:stun.cloudflare.com:3478",
+// PublishMediaSignal sends a gateway-discovered ICE candidate to the platform.
+func (e *gatewayEngineImpl) PublishMediaSignal(signal platform.MediaSignal) error {
+	if signal.SessionID == "" {
+		return fmt.Errorf("media session id is required")
 	}
-	for _, uriStr := range stunServers {
-		uri, err := stun.ParseURI(uriStr)
-		if err != nil {
-			continue
-		}
-		client, err := stun.DialURI(uri, &stun.DialConfig{})
-		if err != nil {
-			continue
-		}
-		message := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
-		var publicIP string
-		err = client.Do(message, func(res stun.Event) {
-			if res.Error != nil {
-				return
-			}
-			var xorAddr stun.XORMappedAddress
-			if xorAddr.GetFrom(res.Message) == nil {
-				publicIP = xorAddr.IP.String()
-			} else {
-				var mappedAddr stun.MappedAddress
-				if mappedAddr.GetFrom(res.Message) == nil {
-					publicIP = mappedAddr.IP.String()
-				}
-			}
-		})
-		client.Close()
-		if err == nil && publicIP != "" {
-			return publicIP
-		}
-		select {
-		case <-ctx.Done():
-			return ""
-		default:
-		}
+	if e.client == nil || !e.client.IsConnected() {
+		return fmt.Errorf("gateway MQTT client not connected")
 	}
-	return ""
+	payload, err := json.Marshal(signal)
+	if err != nil {
+		return fmt.Errorf("marshal media signal: %w", err)
+	}
+	topic := fmt.Sprintf("noyo/cascade/gw/%s/media/signal/up", e.gatewayCode)
+	token := e.client.Publish(topic, 1, false, payload)
+	token.Wait()
+	return token.Error()
+}
+
+func (e *gatewayEngineImpl) handleMediaSignalDown(_ mqtt.Client, msg mqtt.Message) {
+	if msg.Retained() {
+		return
+	}
+	var signal platform.MediaSignal
+	if err := json.Unmarshal(msg.Payload(), &signal); err != nil || signal.SessionID == "" {
+		if err != nil {
+			e.logger.Warn("Invalid platform media signal", zap.Error(err))
+		}
+		return
+	}
+	e.mediaSignalMu.RLock()
+	handler := e.mediaSignalHandler
+	e.mediaSignalMu.RUnlock()
+	if handler != nil {
+		handler(signal)
+	}
 }
 
 func (e *gatewayEngineImpl) handleReceivedFile(fileName, filePath string) {
@@ -322,9 +371,10 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 	}
 
 	var syncData struct {
-		Timestamp int64            `json:"timestamp"`
-		Products  []*store.Product `json:"products"`
-		Devices   []*store.Device  `json:"devices"`
+		Timestamp    int64               `json:"timestamp"`
+		Products     []*store.Product    `json:"products"`
+		Devices      []*store.Device     `json:"devices"`
+		MediaNetwork *SyncMediaNetwork   `json:"media_network,omitempty"`
 	}
 
 	if err := json.Unmarshal(data, &syncData); err != nil {
@@ -340,6 +390,24 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 		return
 	}
 
+	if syncData.MediaNetwork != nil {
+		e.logger.Info("Gateway received media network config from platform",
+			zap.String("stun_urls", syncData.MediaNetwork.StunURLs),
+			zap.String("turn_urls", syncData.MediaNetwork.TurnURLs))
+		if b, err := json.Marshal(syncData.MediaNetwork); err == nil {
+			_ = store.SetSystemConfigValue("platform_media_network", string(b))
+		}
+		if coreServer != nil && coreServer.Manager != nil {
+			if webrtcPlugin := coreServer.Manager.GetPlugin("webrtc"); webrtcPlugin != nil {
+				if updater, ok := webrtcPlugin.(interface {
+					SetPlatformICEFromNetwork(stunURLs, turnURLs, username, password string)
+				}); ok {
+					updater.SetPlatformICEFromNetwork(syncData.MediaNetwork.StunURLs, syncData.MediaNetwork.TurnURLs, syncData.MediaNetwork.TurnUsername, syncData.MediaNetwork.TurnPassword)
+				}
+			}
+		}
+	}
+
 	// 1. Sync Products
 	for _, p := range syncData.Products {
 		p.ID = 0 // Clear Platform ID to avoid local SQLite primary key conflicts
@@ -347,7 +415,7 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 		// 检查产品信息是否有变化，避免无变化时触发插件重载
 		productChanged := true
 		if existingP, err := store.GetProduct(p.Code); err == nil && existingP != nil {
-			if existingP.Name == p.Name  && existingP.Config == p.Config {
+			if existingP.Name == p.Name && existingP.Config == p.Config {
 				productChanged = false
 			}
 		}
@@ -410,6 +478,12 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 		for _, ld := range localDevices {
 			// Skip gateway device itself
 			if ld.Code == e.config.GatewaySn {
+				continue
+			}
+			// GB28181 cameras are discovered and owned by the gateway. They are
+			// reported upward after registration, not provisioned by a platform
+			// configuration snapshot.
+			if keepGatewayLocalDevice(&ld) {
 				continue
 			}
 			// If local device is not in sync data, it was deleted on platform
@@ -481,43 +555,8 @@ func (e *gatewayEngineImpl) handlePlatformStatus(client mqtt.Client, msg mqtt.Me
 		} else {
 			wasOnline := e.platformOnline.Swap(true)
 			if !wasOnline {
-				e.logger.Info("Platform online: triggering sync request and re-publishing status")
-				// Publish own online status again to ensure platform knows we are here
-				onlineEvent := types.Event{
-					Type:      types.EventDeviceStatusChanged,
-					Topic:     e.config.GatewaySn,
-					Payload:   types.DeviceStatusOnline,
-					Timestamp: time.Now().UnixMilli(),
-				}
-				onlineBytes, _ := json.Marshal(onlineEvent)
-				// 使用 retained=false，避免 broker 缓存网关旧的在线状态导致与遗嘱消息冲突
-				e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.config.GatewaySn), 1, false, onlineBytes)
-
-				// Also publish statuses of all sub-devices
-				if coreServer, ok := e.ctx.GetCoreServer().(*core.Server); ok {
-					allDevices := coreServer.DeviceManager.Registry.GetAllDevices()
-					for _, dev := range allDevices {
-						if dev.Code == e.config.GatewaySn {
-							continue
-						}
-						if status, ok := coreServer.DeviceManager.GetStatus(dev.Code); ok {
-							statusPayload := types.DeviceStatusOffline
-							if status.Online {
-								statusPayload = types.DeviceStatusOnline
-							}
-							devEvent := types.Event{
-								Type:      types.EventDeviceStatusChanged,
-								Topic:     dev.Code,
-								Payload:   statusPayload,
-								Timestamp: time.Now().UnixMilli(),
-							}
-							devBytes, _ := json.Marshal(devEvent)
-							// 使用 retained=false，避免 broker 缓存旧的子设备状态
-							// 平台重启时不应收到这些过期的 retained 消息
-							e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.config.GatewaySn), 1, false, devBytes)
-						}
-					}
-				}
+				e.logger.Info("Platform online: triggering sync request and replaying gateway state")
+				e.publishGatewayStateReplay()
 
 				// 仅当没有有效的本地版本时才全量同步
 				if e.configVersion.Load() == 0 {
@@ -537,17 +576,20 @@ func (e *gatewayEngineImpl) sendRegisterRequest() {
 	if e.client == nil || !e.client.IsConnected() {
 		return
 	}
-	topic := fmt.Sprintf("noyo/cascade/gw/%s/register/request", e.config.GatewaySn)
+	topic := fmt.Sprintf("noyo/cascade/gw/%s/register/request", e.gatewayCode)
 
 	req := map[string]interface{}{
 		"gateway_name": e.config.GatewayName,
+		"gateway_sn":   e.config.GatewaySn,
+		"tenant_id":    e.config.TenantID,
+		"project_id":   e.config.ProjectID,
 		"tenant_name":  e.config.TenantName,
 		"project_name": e.config.ProjectName,
 	}
 	reqBytes, _ := json.Marshal(req)
 
 	e.client.Publish(topic, 1, false, reqBytes)
-	e.logger.Info("Sent register request", zap.String("name", e.config.GatewayName), zap.String("tenant", e.config.TenantName), zap.String("project", e.config.ProjectName))
+	e.logger.Info("Sent register request", zap.String("name", e.config.GatewayName), zap.Uint("tenant_id", e.config.TenantID), zap.Uint("project_id", e.config.ProjectID), zap.String("gateway_code", e.gatewayCode))
 }
 
 func (e *gatewayEngineImpl) handleRegisterResponse(client mqtt.Client, msg mqtt.Message) {
@@ -572,36 +614,9 @@ func (e *gatewayEngineImpl) handleRegisterResponse(client mqtt.Client, msg mqtt.
 
 		// Publish Online status
 		onlinePayload := fmt.Sprintf(`{"status":"online","timestamp":%d}`, time.Now().UnixMilli())
-		e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/status", e.config.GatewaySn), 1, true, []byte(onlinePayload))
+		e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/status", e.gatewayCode), 1, true, []byte(onlinePayload))
 
-		// Also publish statuses of all sub-devices
-		if coreServer, ok := e.ctx.GetCoreServer().(*core.Server); ok {
-			allDevices := coreServer.DeviceManager.Registry.GetAllDevices()
-			for _, dev := range allDevices {
-				if dev.Code == e.config.GatewaySn {
-					continue
-				}
-				if status, ok := coreServer.DeviceManager.GetStatus(dev.Code); ok {
-					statusPayload := types.DeviceStatusOffline
-					if status.Online {
-						statusPayload = types.DeviceStatusOnline
-					}
-					devEvent := types.Event{
-						Type:      types.EventDeviceStatusChanged,
-						Topic:     dev.Code,
-						Payload:   statusPayload,
-						Timestamp: time.Now().UnixMilli(),
-					}
-					devBytes, _ := json.Marshal(devEvent)
-					// 使用 retained=false，避免 broker 缓存旧的子设备状态
-					// 平台重启时不应收到这些过期的 retained 消息
-					e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.config.GatewaySn), 1, false, devBytes)
-				}
-			}
-		}
-
-		// STUN 公网 IP 发现并上报给平台
-		e.discoverAndPublishMediaAddress()
+		e.publishGatewayStateReplay()
 
 		// 仅当没有有效的本地版本时才全量同步，离线变更将通过 retained 的 config/version 触发
 		if e.configVersion.Load() == 0 {
@@ -614,7 +629,89 @@ func (e *gatewayEngineImpl) handleRegisterResponse(client mqtt.Client, msg mqtt.
 		// Explicitly publish Offline status if registration fails
 		// This clears the retained "Online" state if the device was previously registered
 		offlinePayload := fmt.Sprintf(`{"status":"offline","timestamp":%d}`, time.Now().UnixMilli())
-		e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/status", e.config.GatewaySn), 1, true, []byte(offlinePayload))
+		e.client.Publish(fmt.Sprintf("noyo/cascade/gw/%s/status", e.gatewayCode), 1, true, []byte(offlinePayload))
+	}
+}
+
+// buildGatewayStateReplayEvents rebuilds the gateway's telemetry snapshot after
+// the platform becomes reachable. Gateway-local GB28181 devices use a local
+// code, so every replayed event must go through prepareGatewayTelemetryEvent to
+// keep the platform-side device identity stable.
+func buildGatewayStateReplayEvents(gatewayCode, gatewaySN string, timestamp int64, gatewayProperties map[string]interface{}, devices []*store.Device, getStatus func(string) (core.DeviceStatus, bool), getLatestData func(string) map[string]interface{}) []types.Event {
+	events := []types.Event{{
+		Type:      types.EventDeviceStatusChanged,
+		Topic:     gatewayCode,
+		Payload:   types.DeviceStatusOnline,
+		Timestamp: timestamp,
+	}}
+	if len(gatewayProperties) > 0 {
+		events = append(events, types.Event{
+			Type:      types.EventPropertyReported,
+			Topic:     gatewayCode,
+			Payload:   gatewayProperties,
+			Timestamp: timestamp,
+		})
+	}
+
+	for _, device := range devices {
+		if device == nil || device.Code == gatewaySN {
+			continue
+		}
+		if status, ok := getStatus(device.Code); ok {
+			statusPayload := types.DeviceStatusOffline
+			if status.Online {
+				statusPayload = types.DeviceStatusOnline
+			}
+			event := types.Event{
+				Type:      types.EventDeviceStatusChanged,
+				Topic:     device.Code,
+				Payload:   statusPayload,
+				Timestamp: timestamp,
+			}
+			events = append(events, prepareGatewayTelemetryEvent(gatewayCode, event, device))
+		}
+		if properties := getLatestData(device.Code); len(properties) > 0 {
+			event := types.Event{
+				Type:      types.EventPropertyReported,
+				Topic:     device.Code,
+				Payload:   properties,
+				Timestamp: timestamp,
+			}
+			events = append(events, prepareGatewayTelemetryEvent(gatewayCode, event, device))
+		}
+	}
+	return events
+}
+
+func (e *gatewayEngineImpl) publishGatewayStateReplay() {
+	if e.client == nil || !e.client.IsConnected() {
+		return
+	}
+	coreServer, ok := e.ctx.GetCoreServer().(*core.Server)
+	if !ok {
+		e.logger.Warn("Cannot replay gateway state because the core server is unavailable")
+		return
+	}
+
+	events := buildGatewayStateReplayEvents(
+		e.gatewayCode,
+		e.config.GatewaySn,
+		time.Now().UnixMilli(),
+		coreServer.DeviceManager.GetLatestData(e.gatewayCode),
+		coreServer.DeviceManager.Registry.GetAllDevices(),
+		coreServer.DeviceManager.GetStatus,
+		coreServer.DeviceManager.GetLatestData,
+	)
+	topic := fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.gatewayCode)
+	for _, event := range events {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			e.logger.Warn("Failed to marshal gateway state replay event", zap.String("device", event.Topic), zap.Error(err))
+			continue
+		}
+		// State replays are deliberately not retained: stale telemetry must never
+		// overwrite a later MQTT last-will or a newer property report.
+		e.client.Publish(topic, 1, false, payload)
 	}
 }
 
@@ -631,7 +728,7 @@ func (e *gatewayEngineImpl) sendSyncRequest() {
 		LastSyncTime: 0,
 	}
 	reqBytes, _ := json.Marshal(req)
-	topic := fmt.Sprintf("noyo/cascade/gw/%s/sync/request", e.config.GatewaySn)
+	topic := fmt.Sprintf("noyo/cascade/gw/%s/sync/request", e.gatewayCode)
 	e.client.Publish(topic, 1, false, reqBytes)
 	e.logger.Info("Sent sync request")
 }
@@ -813,78 +910,4 @@ SEND_REPLY:
 	replyBytes, _ := json.Marshal(reply)
 	replyTopic := msg.Topic() + "_reply"
 	client.Publish(replyTopic, 1, false, replyBytes)
-}
-
-// discoverAndPublishMediaAddress uses STUN to discover the gateway's public IP
-// and publishes it to the platform via MQTT so that the platform can use it
-// in SDP offers for cameras behind this gateway.
-func (e *gatewayEngineImpl) discoverAndPublishMediaAddress() {
-	if e.client == nil || !e.client.IsConnected() {
-		return
-	}
-
-	go func() {
-		stunServers := []string{
-			"stun:stun.l.google.com:19302",
-			"stun:stun1.l.google.com:19302",
-			"stun:stun.cloudflare.com:3478",
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		publicIP := ""
-		for _, uriStr := range stunServers {
-			uri, err := stun.ParseURI(uriStr)
-			if err != nil {
-				continue
-			}
-			client, err := stun.DialURI(uri, &stun.DialConfig{})
-			if err != nil {
-				continue
-			}
-			message := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
-			err = client.Do(message, func(res stun.Event) {
-				if res.Error != nil {
-					client.Close()
-					return
-				}
-				var xorAddr stun.XORMappedAddress
-				if xorAddr.GetFrom(res.Message) == nil {
-					publicIP = xorAddr.IP.String()
-				} else {
-					var mappedAddr stun.MappedAddress
-					if mappedAddr.GetFrom(res.Message) == nil {
-						publicIP = mappedAddr.IP.String()
-					}
-				}
-			})
-			client.Close()
-			if err == nil && publicIP != "" {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-		}
-
-		if publicIP == "" {
-			e.logger.Warn("STUN discovery failed, gateway media address not published")
-			return
-		}
-
-		e.logger.Info("STUN discovery succeeded", zap.String("public_ip", publicIP))
-
-		payload := map[string]interface{}{
-			"public_ip": publicIP,
-			"local_ip":  system.GetOutboundIP(),
-			"timestamp": time.Now().UnixMilli(),
-		}
-		payloadBytes, _ := json.Marshal(payload)
-		topic := fmt.Sprintf("noyo/cascade/gw/%s/media/address", e.config.GatewaySn)
-		e.client.Publish(topic, 1, true, payloadBytes) // retained=true
-		e.logger.Info("Published gateway media address", zap.String("topic", topic), zap.String("public_ip", publicIP))
-	}()
 }

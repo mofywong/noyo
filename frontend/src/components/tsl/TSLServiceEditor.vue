@@ -33,51 +33,53 @@
     </table>
 
     <!-- Modal -->
-    <div v-if="showModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">{{ editingIndex === -1 ? $t('tsl_add') : $t('tsl_edit') }} {{ $t('tsl_services') }}</h5>
-            <button type="button" class="btn-close" @click="closeModal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="mb-3">
-              <label class="form-label">{{ $t('tsl_name') }}</label>
-              <input v-model="currentSvc.name" type="text" class="form-control">
+    <Teleport to="body">
+      <div v-if="showModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ editingIndex === -1 ? $t('tsl_add') : $t('tsl_edit') }} {{ $t('tsl_services') }}</h5>
+              <button type="button" class="btn-close" @click="closeModal"></button>
             </div>
-            <div class="mb-3">
-              <label class="form-label">{{ $t('tsl_identifier') }}</label>
-              <input v-model="currentSvc.identifier" type="text" class="form-control" :disabled="editingIndex !== -1">
-            </div>
-             <div class="mb-3">
-              <label class="form-label">{{ $t('tsl_svc_call_type') }}</label>
-              <select v-model="currentSvc.callType" class="form-select">
-                <option value="async">{{ $t('tsl_svc_async') }}</option>
-                <option value="sync">{{ $t('tsl_svc_sync') }}</option>
-              </select>
-            </div>
-            
-            <div class="mb-3">
-              <TSLParamEditor 
-                :title="$t('tsl_svc_input')" 
-                v-model="currentSvc.inputData" 
-              />
-            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">{{ $t('tsl_name') }}</label>
+                <input v-model="currentSvc.name" type="text" class="form-control">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ $t('tsl_identifier') }}</label>
+                <input v-model="currentSvc.identifier" type="text" class="form-control" :disabled="editingIndex !== -1">
+              </div>
+               <div class="mb-3">
+                <label class="form-label">{{ $t('tsl_svc_call_type') }}</label>
+                <select v-model="currentSvc.callType" class="form-select">
+                  <option value="async">{{ $t('tsl_svc_async') }}</option>
+                  <option value="sync">{{ $t('tsl_svc_sync') }}</option>
+                </select>
+              </div>
+              
+              <div class="mb-3">
+                <TSLParamEditor 
+                  :title="$t('tsl_svc_input')" 
+                  v-model="currentSvc.inputData" 
+                />
+              </div>
 
-            <div class="mb-3">
-              <TSLParamEditor 
-                :title="$t('tsl_svc_output')" 
-                v-model="currentSvc.outputData" 
-              />
+              <div class="mb-3">
+                <TSLParamEditor 
+                  :title="$t('tsl_svc_output')" 
+                  v-model="currentSvc.outputData" 
+                />
+              </div>
             </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeModal">{{ $t('tsl_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveService">{{ $t('tsl_confirm') }}</button>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" @click="closeModal">{{ $t('tsl_cancel') }}</button>
+              <button type="button" class="btn btn-primary" @click="saveService">{{ $t('tsl_confirm') }}</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 

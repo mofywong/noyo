@@ -319,6 +319,12 @@ func requestAuthContext(r *ghttp.Request) *AuthContext {
 	return nil
 }
 
+// RequestAuthContext returns the authenticated request principal for plugin
+// handlers that need to apply the same permission checks as core APIs.
+func RequestAuthContext(r *ghttp.Request) *AuthContext {
+	return requestAuthContext(r)
+}
+
 // TenantMiddleware ensures tenant-scoped APIs are never reached without a
 // concrete tenant context. System admins manage tenants through dedicated
 // system routes and do not receive tenant business-data scope.

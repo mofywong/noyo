@@ -1,15 +1,31 @@
 <template>
-  <div class="settings-container">
-    <h2 class="h4 mb-4 fw-bold text-primary border-start border-primary border-4 ps-2">{{ $t('sidebar_settings') }}</h2>
+  <div class="settings-page page-fixed-height">
+    <div class="page-header mb-4">
+      <div>
+        <h1>{{ $t('sidebar_settings') }}</h1>
+        <p class="page-subtitle">{{ $t('settings_subtitle', '配置网关系统服务端口、时序数据库与核心运行参数') }}</p>
+      </div>
+      <div>
+        <LiquidGlassButton
+          variant="primary"
+          :icon="saving ? 'bi bi-arrow-repeat spin' : 'bi bi-check2'"
+          :disabled="saving"
+          @click="saveConfig"
+        >
+          {{ saving ? $t('saving') : $t('save') }}
+        </LiquidGlassButton>
+      </div>
+    </div>
 
+    <div class="settings-content">
     <div v-if="loading" class="text-center py-4">
       <div class="spinner-border text-primary" role="status">
         <span class="visually-hidden">{{ $t('loading') }}</span>
       </div>
     </div>
-    <form v-else @submit.prevent="saveConfig">
+    <form v-else @submit.prevent="saveConfig" style="max-width: 960px;">
       <!-- Server Config Card -->
-      <div class="card border-0 shadow-sm mb-4">
+      <div class="card border-0 shadow-sm table-glass-card mb-4">
         <div class="card-header bg-transparent border-bottom-0 pt-4 pb-0">
           <h5 class="mb-0"><i class="bi bi-hdd-network me-2"></i>{{ $t('server_config') || 'Server Configuration' }}</h5>
         </div>
@@ -25,9 +41,9 @@
       </div>
 
       <!-- TSDB Config Card -->
-      <div class="card border-0 shadow-sm mb-4">
+      <div class="card border-0 shadow-sm table-glass-card mb-4">
         <div class="card-header bg-transparent border-bottom-0 pt-4 pb-0">
-          <h5 class="mb-0"><i class="bi bi-database me-2"></i>{{ $t('tsdb_config') || 'TSDB Configuration' }}</h5>
+          <h5 class="mb-0 fw-bold"><i class="bi bi-database me-2"></i>{{ $t('tsdb_config') || 'TSDB Configuration' }}</h5>
         </div>
         <div class="card-body">
           <div class="row g-3">
@@ -64,9 +80,9 @@
       </div>
 
       <!-- Log Config Card -->
-      <div class="card border-0 shadow-sm mb-4">
+      <div class="card border-0 shadow-sm table-glass-card mb-4">
         <div class="card-header bg-transparent border-bottom-0 pt-4 pb-0">
-          <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>{{ $t('log_config') }}</h5>
+          <h5 class="mb-0 fw-bold"><i class="bi bi-journal-text me-2"></i>{{ $t('log_config') }}</h5>
         </div>
         <div class="card-body">
           <div class="row g-3">
@@ -118,6 +134,8 @@
         </div>
       </div>
     </form>
+    <MediaNetworkSettings v-if="props.remoteApiBase === '/api/system' && auth.isSystemAdmin" />
+    </div>
   </div>
 </template>
 
@@ -126,6 +144,9 @@ import { ref, onMounted } from 'vue';
 import axios from 'axios';
 import { inject } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '../stores/auth';
+import MediaNetworkSettings from '../components/settings/MediaNetworkSettings.vue';
+const auth = useAuthStore();
 
 const props = defineProps({
   remoteApiBase: {
@@ -204,6 +225,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.settings-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 24px;
+}
 .settings-container {
   max-width: 800px;
   margin: 0 auto;

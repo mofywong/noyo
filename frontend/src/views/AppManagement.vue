@@ -1,66 +1,86 @@
 <template>
-  <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h2 class="h4 mb-0 fw-bold text-primary border-start border-primary border-4 ps-2">{{ t('app_management') }}</h2>
+  <div class="app-management-page page-fixed-height">
+    <div class="page-header list-page-header">
       <div>
-        <button class="btn btn-outline-info me-2" @click="goToGuide">
-          <i class="bi bi-book me-1"></i> {{ t('app_access_guide') }}
-        </button>
-        <button class="btn btn-primary" @click="openCreateModal" v-permission="'app:create'">
-          <i class="bi bi-window-sidebar me-1"></i> {{ t('app_add') }}
-        </button>
+        <h1>{{ t('app_management') }}</h1>
+        <p class="page-subtitle">{{ t('app_management_subtitle', '管理系统 Open API 应用凭证、流控与集成配置') }}</p>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <LiquidGlassButton variant="outline-info" size="sm" icon="bi bi-book" @click="goToGuide">
+          {{ t('app_access_guide') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton variant="primary" size="sm" icon="bi bi-window-sidebar" @click="openCreateModal" v-permission="'app:create'">
+          {{ t('app_add') }}
+        </LiquidGlassButton>
       </div>
     </div>
 
-    <div class="card shadow-sm">
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
+    <div class="page-toolbar device-list-control-bar list-page-controls">
+      <CompactListMetrics v-model="metricFilters" :metrics="metricCards" class="list-toolbar-metrics" :aria-label="t('stat_total', '应用统计')" />
+    </div>
+
+    <div class="card border-0 shadow-sm table-glass-card">
+      <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+        <div class="table-responsive flex-grow-1">
+          <table class="table table-hover align-middle mb-0 table-compact">
+            <thead>
               <tr>
-                <th>AppID</th>
+                <th class="ps-4">AppID</th>
                 <th>{{ t('app_name') }}</th>
                 <th>{{ t('app_description') }}</th>
                 <th>{{ t('app_rate_limit') }}</th>
                 <th>{{ t('app_status') }}</th>
                 <th>{{ t('app_created_at') }}</th>
-                <th class="text-end">{{ t('app_actions') }}</th>
+                <th class="text-end pe-4">{{ t('app_actions') }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="loading">
-                <td colspan="7" class="text-center py-4">
-                  <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">{{ t('loading') }}</span>
+              <!-- 骨架屏 -->
+              <tr v-if="loading" v-for="n in 5" :key="'sk-' + n">
+                <td><div class="skeleton" style="height: 16px; width: 100px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 140px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 160px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 80px;"></div></td>
+                <td><div class="skeleton" style="height: 20px; width: 80px; border-radius: 999px;"></div></td>
+                <td><div class="skeleton" style="height: 16px; width: 130px;"></div></td>
+                <td class="text-end pe-4"><div class="skeleton ms-auto" style="height: 28px; width: 100px;"></div></td>
+              </tr>
+              <!-- 空状态 -->
+              <tr v-else-if="filteredApps.length === 0">
+                <td colspan="7" class="p-0">
+                  <div class="empty-state">
+                    <i class="bi bi-grid-fill"></i>
+                    <p>{{ t('app_no_data', '暂无应用接入数据') }}</p>
+                    <LiquidGlassButton variant="primary" icon="bi bi-plus-lg" @click="openAppModal" v-permission="'app:create'">
+                      {{ t('app_create') }}
+                    </LiquidGlassButton>
                   </div>
                 </td>
               </tr>
-              <tr v-else-if="apps.length === 0">
-                <td colspan="7" class="text-center py-4 text-muted">{{ t('app_no_data') }}</td>
-              </tr>
-              <tr v-for="a in apps" :key="a.ID" v-else>
+              <tr v-for="a in filteredApps" :key="a.ID" v-else>
                 <td><code class="text-primary">{{ a.app_id }}</code></td>
                 <td>{{ a.name }}</td>
                 <td>{{ a.description }}</td>
                 <td>{{ a.rate_limit || t('app_unlimited') }}</td>
                 <td>
-                  <span class="badge" :class="a.status === 1 ? 'bg-success' : 'bg-danger'">
+                  <span class="dash-pill" :class="a.status === 1 ? 'dash-pill--success' : 'dash-pill--neutral'">
+                    <span class="dash-pill-dot"></span>
                     {{ a.status === 1 ? t('app_status_active') : t('app_status_disabled') }}
                   </span>
                 </td>
                 <td>{{ formatDateTime(a.CreatedAt) }}</td>
-                <td class="text-end">
-                  <div class="d-inline-flex align-items-center justify-content-end gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" @click="openAccessModal(a)" :title="t('app_access')" v-permission="'app:edit'">
+                <td class="text-end pe-4">
+                  <div class="table-actions">
+                    <button class="table-action-btn table-action-btn--info" @click="openAccessModal(a)" :title="t('app_access')" v-permission="'app:edit'">
                       <i class="bi bi-shield-lock"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-warning" @click="resetAppKey(a)" :title="t('app_reset_key')" v-permission="'app:reset-key'">
+                    <button class="table-action-btn table-action-btn--warning" @click="resetAppKey(a)" :title="t('app_reset_key')" v-permission="'app:reset-key'">
                       <i class="bi bi-key"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" @click="openEditModal(a)" :title="t('app_edit')" v-permission="'app:edit'">
+                    <button class="table-action-btn table-action-btn--primary" @click="openEditModal(a)" :title="t('app_edit')" v-permission="'app:edit'">
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" @click="deleteApp(a)" :title="t('common_delete')" v-permission="'app:delete'">
+                    <button class="table-action-btn table-action-btn--danger" @click="deleteApp(a)" :title="t('common_delete')" v-permission="'app:delete'">
                       <i class="bi bi-trash"></i>
                     </button>
                   </div>
@@ -72,7 +92,8 @@
       </div>
     </div>
 
-    <div class="modal fade" id="appModal" tabindex="-1" ref="appModalRef">
+    <Teleport to="body">
+      <div class="modal fade" id="appModal" tabindex="-1" ref="appModalRef">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -100,8 +121,8 @@
             </form>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('role_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveApp">{{ t('role_save') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ t('role_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" @click="saveApp">{{ t('role_save') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
@@ -117,11 +138,11 @@
             </div>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
-          <div class="modal-body bg-light">
+          <div class="modal-body app-access-modal-body">
             <div v-if="accessLoading" class="text-center py-5">
               <div class="spinner-border text-primary" role="status"></div>
             </div>
-            <div v-else-if="availableProjects.length === 0" class="text-center text-muted py-5 bg-white border rounded">
+            <div v-else-if="availableProjects.length === 0" class="text-center text-muted py-5 border rounded app-access-empty">
               {{ t('app_access_no_projects') }}
             </div>
             <div v-else class="app-access-grid">
@@ -184,14 +205,14 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('role_cancel') }}</button>
-            <button type="button" class="btn btn-primary" @click="saveAppAccess">{{ t('app_save_access') }}</button>
+            <LiquidGlassButton variant="secondary" data-bs-dismiss="modal">{{ t('role_cancel') }}</LiquidGlassButton>
+            <LiquidGlassButton variant="primary" @click="saveAppAccess">{{ t('app_save_access') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="modal fade" id="appSuccessModal" tabindex="-1" ref="appSuccessModalRef">
+    <div class="modal fade" id="appSuccessModal" tabindex="-1" ref="appSuccessModalRef" data-bs-backdrop="static">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header bg-success text-white">
@@ -223,21 +244,23 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">{{ t('app_i_know') }}</button>
+            <LiquidGlassButton variant="primary" data-bs-dismiss="modal">{{ t('app_i_know') }}</LiquidGlassButton>
           </div>
         </div>
       </div>
     </div>
+  </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { Modal } from 'bootstrap'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { formatDateTime } from '../utils/dateTime.js'
+import CompactListMetrics from '../components/CompactListMetrics.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -245,6 +268,28 @@ const { t } = useI18n()
 const apps = ref([])
 const loading = ref(false)
 const accessLoading = ref(false)
+
+const activeAppCount = computed(() => apps.value.filter(a => a.status === 1).length)
+const disabledAppCount = computed(() => apps.value.filter(a => a.status !== 1).length)
+const metricCards = computed(() => [
+  { key: 'total', label: t('stat_total', '总接入应用'), value: apps.value.length, icon: 'bi-grid-fill', tone: 'brand' },
+  { key: 'active', label: t('stat_active_apps', '正常运行'), value: activeAppCount.value, icon: 'bi-check-circle-fill', tone: 'success' },
+  { key: 'disabled', label: t('stat_disabled_apps', '限制/停用'), value: disabledAppCount.value, icon: 'bi-slash-circle', tone: 'neutral' }
+])
+const metricFilters = ref([])
+const filteredApps = computed(() => {
+  if (!metricFilters.value.length) return apps.value
+  return apps.value.filter((app) =>
+    (metricFilters.value.includes('active') && app.status === 1) ||
+    (metricFilters.value.includes('disabled') && app.status !== 1)
+  )
+})
+
+const toggleMetricFilter = (key) => {
+  metricFilters.value = metricFilters.value.includes(key)
+    ? metricFilters.value.filter((item) => item !== key)
+    : [...metricFilters.value, key]
+}
 
 const appModalRef = ref(null)
 let appModal = null
@@ -573,5 +618,15 @@ const resetAppKey = async (item) => {
   .app-project-body {
     grid-template-columns: 1fr;
   }
+}
+
+.app-access-modal-body {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+
+.app-access-empty {
+  background: var(--bg-elevated);
+  border-color: var(--border-color) !important;
 }
 </style>

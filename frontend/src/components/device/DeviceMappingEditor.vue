@@ -43,7 +43,7 @@
         {{ $t('tsl_warn_no_groups') }}
       </div>
       <div v-else class="table-responsive">
-        <table class="table table-sm table-bordered mb-0 bg-white">
+        <table class="table table-sm table-bordered mb-0">
           <thead>
             <tr>
               <th>{{ $t('name') }}</th>
@@ -112,8 +112,8 @@
             {{ $t('tsl_warn_no_groups_auto') }}
           </div>
           <div v-else class="table-responsive">
-            <table class="table table-sm table-bordered mb-0 bg-white">
-              <thead class="table-light">
+            <table class="table table-sm table-bordered mb-0">
+              <thead>
                 <tr>
                   <th>{{ $t('name') }}</th>
                   <th>{{ $t('slave_id') }}</th>
@@ -158,8 +158,8 @@
         {{ $t('tsl_warn_no_groups') }}
       </div>
       <div v-else class="table-responsive">
-        <table class="table table-sm table-bordered mb-0 bg-white">
-          <thead class="table-light">
+        <table class="table table-sm table-bordered mb-0">
+          <thead>
             <tr>
               <th>{{ $t('name') }}</th>
               <th>{{ $t('slave_id') }}</th>
@@ -351,7 +351,7 @@
       </div>
 
       <!-- Online Status Config Tab -->
-      <div v-if="activeTab === 'online'" class="p-3 border rounded bg-white">
+      <div v-if="activeTab === 'online'" class="p-3 border rounded mapping-online-card">
         <div class="mb-4">
           <label class="form-label">{{ $t('online_check_strategy') }}</label>
           <div class="d-flex flex-column gap-2">
@@ -501,7 +501,7 @@
 
                     <div v-if="activeEventRule">
                         <!-- Triggers -->
-                        <div class="card mb-3 border-light bg-light">
+                        <div class="card mb-3 mapping-rule-card">
                             <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
                                 <div class="d-flex align-items-center gap-2">
                                     <span class="fw-bold small text-uppercase text-muted">{{ $t('trigger_condition') }}</span>
@@ -545,7 +545,7 @@
                         </div>
 
                         <!-- Conditions -->
-                        <div class="card mb-3 border-light bg-light">
+                        <div class="card mb-3 mapping-rule-card">
                             <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
                                 <div class="d-flex align-items-center gap-2">
                                     <span class="fw-bold small text-uppercase text-muted">{{ $t('judgment_condition') }}</span>
@@ -588,7 +588,7 @@
                         </div>
 
                         <!-- Report Interval -->
-                        <div class="card mb-3 border-light bg-light">
+                        <div class="card mb-3 mapping-rule-card">
                             <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center">
                                 <div class="d-flex align-items-center gap-2">
                                     <span class="fw-bold small text-uppercase text-muted">{{ $t('report_interval') }}</span>
@@ -640,7 +640,8 @@
     </div>
 
     <!-- Add/Edit Custom Point Modal -->
-    <div v-if="showCustomPointModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
+    <Teleport to="body">
+      <div v-if="showCustomPointModal" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -1061,6 +1062,7 @@
         </div>
       </div>
     </div>
+  </Teleport>
   </div>
 </template>
 
@@ -1934,3 +1936,12 @@ const closeModal = () => {
       closeModal();
     };
 </script>
+
+<style scoped>
+.mapping-rule-card,
+.mapping-online-card {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main);
+}
+</style>

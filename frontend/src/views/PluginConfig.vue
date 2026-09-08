@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div v-if="loading" class="d-flex justify-content-center py-5">
     <div class="spinner-border text-primary" role="status">
       <span class="visually-hidden">Loading...</span>
@@ -32,7 +32,7 @@
             <component :is="activePluginComponent" :pluginName="pluginName" :key="pluginName" v-if="activePluginComponent" />
           </template>
           <template v-if="activeConfigComponent" #custom>
-            <component :is="activeConfigComponent" :pluginName="pluginName" :key="'cfg-'+pluginName" v-if="activeConfigComponent" />
+            <component :is="activeConfigComponent" :pluginName="pluginName" :key="'cfg-'+pluginName" v-if="activeConfigComponent" @saved="handleCustomSaved" />
           </template>
         </PluginConfigForm>
       </div>
@@ -129,13 +129,19 @@ watch(pluginName, (newName) => {
 }, { immediate: true });
 
 
+const handleCustomSaved = (data) => {
+  window.dispatchEvent(new CustomEvent('plugin-config-updated', { detail: { plugin: pluginName.value, data } }));
+  window.dispatchEvent(new CustomEvent('cascade-config-updated', { detail: { plugin: pluginName.value, data } }));
+};
+
 const saveConfig = async () => {
   saving.value = true;
   try {
     const res = await axios.post(`/api/plugins/${pluginName.value}/config`, expandDottedConfig(formData.value));
     if (res.data.code === 0) {
       showToast('success', 'Saved & Restarted Successfully');
-      // Ideally trigger a plugin list refresh if status changed, but usually config doesn't change status directly
+      window.dispatchEvent(new CustomEvent('plugin-config-updated', { detail: { plugin: pluginName.value } }));
+      window.dispatchEvent(new CustomEvent('cascade-config-updated', { detail: { plugin: pluginName.value } }));
     } else {
       showToast('danger', res.data.message);
     }
