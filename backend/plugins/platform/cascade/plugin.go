@@ -1183,9 +1183,9 @@ func enrichRemoteWebRTCPluginSummary(summary *remotePluginSummary) {
 			}
 		case "turn_password":
 			summary.Schema.Fields[i].Source = "platform"
-			if isPlatformSource && (f.Value == nil || f.Value == "") {
-				summary.Schema.Fields[i].Value = cfg.TurnPassword
-			}
+			// TURN credentials are write-only. Do not reintroduce the platform
+			// secret while enriching a remote gateway's configuration schema.
+			summary.Schema.Fields[i].Value = ""
 		case "public_ip", "media_port_min", "media_port_max":
 			summary.Schema.Fields[i].Source = "local"
 		case "platform_ice_fallback":
