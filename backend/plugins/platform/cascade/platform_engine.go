@@ -706,9 +706,9 @@ func (e *platformEngineImpl) handleTelemetryUp(client mqtt.Client, msg mqtt.Mess
 		if data, ok := event.Payload.(map[string]interface{}); ok {
 			eventId, _ := data["eventId"].(string)
 			params, _ := data["params"].(map[string]interface{})
-			if eventId == "gb28181.device.registered" {
-				if err := e.upsertGatewayDiscoveredDevice(coreServer, gatewayCode, params); err != nil {
-					e.logger.Warn("Failed to sync gateway-discovered GB28181 device", zap.String("gateway", gatewayCode), zap.String("device", deviceCode), zap.Error(err))
+			if handled, err := coreServer.Manager.HandleGatewayDeviceEvent(gatewayCode, eventId, params); handled {
+				if err != nil {
+					e.logger.Warn("Failed to sync gateway-discovered device", zap.String("gateway", gatewayCode), zap.String("device", deviceCode), zap.Error(err))
 				}
 				return
 			}
@@ -717,38 +717,6 @@ func (e *platformEngineImpl) handleTelemetryUp(client mqtt.Client, msg mqtt.Mess
 			}
 		}
 	}
-}
-
-func (e *platformEngineImpl) upsertGatewayDiscoveredDevice(coreServer *core.Server, gatewayCode string, params map[string]interface{}) error {
-	if coreServer == nil {
-		return fmt.Errorf("core server is unavailable")
-	}
-	gateway, err := store.GetDevice(gatewayCode)
-	if err != nil || gateway == nil {
-		return fmt.Errorf("gateway %q is not registered", gatewayCode)
-	}
-	devicePayload, ok := params["device"]
-	if !ok {
-		return fmt.Errorf("registered device payload is missing")
-	}
-	data, err := json.Marshal(devicePayload)
-	if err != nil {
-		return fmt.Errorf("marshal registered device payload: %w", err)
-	}
-	var device store.Device
-	if err := json.Unmarshal(data, &device); err != nil {
-		return fmt.Errorf("unmarshal registered device payload: %w", err)
-	}
-	if device.Code == "" || !keepGatewayLocalDevice(&device) {
-		return fmt.Errorf("registered device is not a GB28181 camera")
-	}
-	prepared := prepareGatewayDiscoveredDevice(gateway, &device)
-	if err := store.SaveDevice(prepared); err != nil {
-		return fmt.Errorf("save gateway-discovered device: %w", err)
-	}
-	coreServer.DeviceManager.Registry.UpdateDevice(prepared)
-	e.logger.Info("Synced gateway-discovered GB28181 device", zap.String("gateway", gatewayCode), zap.String("device", prepared.Code))
-	return nil
 }
 
 func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.Message) {
@@ -908,14 +876,15 @@ func (e *platformEngineImpl) handleSyncRequest(client mqtt.Client, msg mqtt.Mess
 	go e.doSyncRequest(gwSn, req.LastSyncTime)
 }
 
-func prepareGatewaySyncDevices(gatewayCode string, devices []store.Device) []*store.Device {
+func (e *platformEngineImpl) prepareGatewaySyncDevices(gatewayCode string, devices []store.Device) []*store.Device {
 	prepared := make([]*store.Device, 0, len(devices))
+	coreServer, _ := e.ctx.GetCoreServer().(*core.Server)
 	for i := range devices {
 		device := devices[i]
 		// GB28181 cameras are discovered and owned by the gateway. Sending the
 		// platform-side child record back to that same gateway would create a
 		// second, offline local device beside the actively registered camera.
-		if keepGatewayLocalDevice(&device) {
+		if coreServer != nil && coreServer.Manager.IsGatewayOwnedDevice(&device) {
 			continue
 		}
 		if device.ParentCode == gatewayCode {
@@ -962,7 +931,7 @@ func (e *platformEngineImpl) doSyncRequest(gwSn string, lastSyncTime int64) {
 		}
 	}
 
-	allDevices := prepareGatewaySyncDevices(gwSn, subDevices)
+	allDevices := e.prepareGatewaySyncDevices(gwSn, subDevices)
 
 	productMap := make(map[string]*store.Product)
 	for _, sub := range allDevices {
@@ -979,20 +948,24 @@ func (e *platformEngineImpl) doSyncRequest(gwSn string, lastSyncTime int64) {
 	}
 
 	var mediaNet *SyncMediaNetwork
-	if cfg, _, err := core.LoadMediaNetworkConfig(); err == nil {
-		mediaNet = &SyncMediaNetwork{
-			StunURLs:     cfg.StunURLs,
-			TurnURLs:     cfg.TurnURLs,
-			TurnUsername: cfg.TurnUsername,
-			TurnPassword: cfg.TurnPassword,
+	if coreServer, ok := e.ctx.GetCoreServer().(*core.Server); ok && coreServer.Manager != nil {
+		if provider := coreServer.Manager.MediaNetworkProvider(); provider != nil {
+			if cfg, found := provider.GetGatewayMediaNetwork(); found {
+				mediaNet = &SyncMediaNetwork{
+					StunURLs:     cfg.StunURLs,
+					TurnURLs:     cfg.TurnURLs,
+					TurnUsername: cfg.TurnUsername,
+					TurnPassword: cfg.TurnPassword,
+				}
+			}
 		}
 	}
 
 	resp := struct {
-		Timestamp    int64               `json:"timestamp"`
-		Products     []*store.Product    `json:"products"`
-		Devices      []*store.Device     `json:"devices"`
-		MediaNetwork *SyncMediaNetwork   `json:"media_network,omitempty"`
+		Timestamp    int64             `json:"timestamp"`
+		Products     []*store.Product  `json:"products"`
+		Devices      []*store.Device   `json:"devices"`
+		MediaNetwork *SyncMediaNetwork `json:"media_network,omitempty"`
 	}{
 		Timestamp:    time.Now().UnixMilli(),
 		Products:     products,

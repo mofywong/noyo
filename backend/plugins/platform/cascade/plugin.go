@@ -6,7 +6,6 @@ import (
 
 	"fmt"
 	"noyo/core"
-	"noyo/core/deviceidentity"
 	"noyo/core/platform"
 	"noyo/core/protocol"
 	"noyo/core/store"
@@ -131,14 +130,12 @@ func (p *CascadePlugin) WritePoint(device types.DeviceMeta, pointCode string, va
 	return fmt.Errorf("write point not supported directly")
 }
 
-// gatewayCommandDeviceCode translates a platform-scoped GB28181 identity to
-// the direct identity used by the camera registry on the gateway. Other
-// cascaded devices are already synchronized with the same code on both sides.
-func gatewayCommandDeviceCode(device types.DeviceMeta) string {
-	if device.ProductCode == "gb28181_camera" {
-		if sipID, ok := device.Extras["sip_id"].(string); ok && strings.TrimSpace(sipID) != "" {
-			return deviceidentity.GB28181DeviceCode(sipID, "")
-		}
+func (p *CascadePlugin) gatewayCommandDeviceCode(device types.DeviceMeta) string {
+	if p.ctx == nil {
+		return device.DeviceCode
+	}
+	if coreServer, ok := p.ctx.GetCoreServer().(*core.Server); ok && coreServer.Manager != nil {
+		return coreServer.Manager.GatewayCommandDeviceCode(device)
 	}
 	return device.DeviceCode
 }
@@ -167,7 +164,7 @@ func (p *CascadePlugin) CallService(device types.DeviceMeta, serviceCode string,
 	payload := map[string]interface{}{
 		"id":          cmdId,
 		"version":     "1.0",
-		"deviceCode":  gatewayCommandDeviceCode(device),
+		"deviceCode":  p.gatewayCommandDeviceCode(device),
 		"productCode": device.ProductCode,
 		"method":      "service_invoke",
 		"params": map[string]interface{}{
@@ -762,9 +759,6 @@ func (p *CascadePlugin) handleGatewayPluginConfig(r *ghttp.Request) {
 	if err != nil {
 		if item, found := gatewayPluginStateCache.Get(gwSn, pluginName); found {
 			cached := summaryFromCacheItem(item)
-			if pluginName == "webrtc" {
-				enrichRemoteWebRTCPluginSummary(&cached)
-			}
 			r.Response.WriteJson(map[string]interface{}{"code": 0, "data": cached, "message": err.Error()})
 			return
 		}
@@ -780,9 +774,6 @@ func (p *CascadePlugin) handleGatewayPluginConfig(r *ghttp.Request) {
 		if _, conflict := gatewayPluginStateCache.MarkConflictIfGatewayChanged(gwSn, pluginName, summary.ConfigVersion); conflict {
 			if conflictItem, ok := gatewayPluginStateCache.Get(gwSn, pluginName); ok {
 				cachedConflict := summaryFromCacheItem(conflictItem)
-				if pluginName == "webrtc" {
-					enrichRemoteWebRTCPluginSummary(&cachedConflict)
-				}
 				r.Response.WriteJson(map[string]interface{}{"code": 0, "data": cachedConflict})
 				return
 			}
@@ -795,23 +786,14 @@ func (p *CascadePlugin) handleGatewayPluginConfig(r *ghttp.Request) {
 			if err == nil {
 				if appliedSummary, decodeErr := decodeRemotePluginSummary(applied); decodeErr == nil {
 					synced := gatewayPluginStateCache.MarkSynced(gwSn, *appliedSummary, time.Now())
-					if pluginName == "webrtc" {
-						enrichRemoteWebRTCPluginSummary(&synced)
-					}
 					r.Response.WriteJson(map[string]interface{}{"code": 0, "data": synced})
 					return
 				}
 			}
 		}
 	}
-	if pluginName == "webrtc" {
-		enrichRemoteWebRTCPluginSummary(summary)
-	}
 	gatewayPluginStateCache.SaveSnapshot(gwSn, *summary, time.Now())
 	merged := gatewayPluginStateCache.MergeSummary(gwSn, *summary)
-	if pluginName == "webrtc" {
-		enrichRemoteWebRTCPluginSummary(&merged)
-	}
 	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": merged})
 }
 
@@ -1142,56 +1124,4 @@ func (p *CascadePlugin) Status() string {
 		return "Gateway Mode Running"
 	}
 	return "Unconfigured"
-}
-
-func enrichRemoteWebRTCPluginSummary(summary *remotePluginSummary) {
-	if summary == nil || summary.Schema == nil {
-		return
-	}
-	cfg, _, err := core.LoadMediaNetworkConfig()
-	if err != nil {
-		return
-	}
-
-	iceConfigSource := "platform"
-	for _, f := range summary.Schema.Fields {
-		if f.Name == "ice_config_source" {
-			if s, ok := f.Value.(string); ok && s != "" {
-				iceConfigSource = strings.ToLower(s)
-			}
-		}
-	}
-
-	isPlatformSource := iceConfigSource == "platform"
-
-	for i, f := range summary.Schema.Fields {
-		switch f.Name {
-		case "stun_server_url":
-			summary.Schema.Fields[i].Source = "platform"
-			if isPlatformSource && (f.Value == nil || f.Value == "") {
-				summary.Schema.Fields[i].Value = cfg.StunURLs
-			}
-		case "turn_server_url":
-			summary.Schema.Fields[i].Source = "platform"
-			if isPlatformSource && (f.Value == nil || f.Value == "") {
-				summary.Schema.Fields[i].Value = cfg.TurnURLs
-			}
-		case "turn_username":
-			summary.Schema.Fields[i].Source = "platform"
-			if isPlatformSource && (f.Value == nil || f.Value == "") {
-				summary.Schema.Fields[i].Value = cfg.TurnUsername
-			}
-		case "turn_password":
-			summary.Schema.Fields[i].Source = "platform"
-			// TURN credentials are write-only. Do not reintroduce the platform
-			// secret while enriching a remote gateway's configuration schema.
-			summary.Schema.Fields[i].Value = ""
-		case "public_ip", "media_port_min", "media_port_max":
-			summary.Schema.Fields[i].Source = "local"
-		case "platform_ice_fallback":
-			if isPlatformSource {
-				summary.Schema.Fields[i].Value = true
-			}
-		}
-	}
 }

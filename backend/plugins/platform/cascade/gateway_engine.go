@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"noyo/core"
-	"noyo/core/deviceidentity"
 	"noyo/core/platform"
 	"noyo/core/store"
 	"noyo/core/system"
@@ -37,42 +36,23 @@ type gatewayEngineImpl struct {
 	localEventSubs     map[types.EventType]uint64
 	mediaSignalMu      sync.RWMutex
 	mediaSignalHandler func(platform.MediaSignal)
+	server             *core.Server
 }
 
-func keepGatewayLocalDevice(device *store.Device) bool {
-	if device == nil {
-		return false
-	}
-	return device.ProtocolName == "gb28181" || device.ProductCode == "gb28181_camera"
+func (e *gatewayEngineImpl) keepGatewayLocalDevice(device *store.Device) bool {
+	return e.server != nil && e.server.Manager.IsGatewayOwnedDevice(device)
 }
-
-func prepareGatewayDiscoveredDevice(gateway, device *store.Device) *store.Device {
-	if device == nil {
+func (e *gatewayEngineImpl) prepareGatewayDiscoveredDevice(gateway, device *store.Device) *store.Device {
+	if e.server == nil {
 		return nil
 	}
-	prepared := *device
-	prepared.ID = 0
-	if gateway != nil {
-		sipID := deviceidentity.GB28181SIPID(&prepared)
-		deviceidentity.SetGB28181SIPID(&prepared, sipID)
-		prepared.Code = deviceidentity.GB28181DeviceCode(sipID, gateway.Code)
-		prepared.TenantID = gateway.TenantID
-		prepared.ProjectID = gateway.ProjectID
-		prepared.ParentCode = deviceidentity.GB28181IngressParentCode(gateway.Code)
-	}
-	return &prepared
+	return e.server.Manager.PrepareGatewayDevice(gateway, device)
 }
-
-func prepareGatewayTelemetryEvent(gatewayCode string, event types.Event, device *store.Device) types.Event {
-	if device == nil || !keepGatewayLocalDevice(device) {
+func (e *gatewayEngineImpl) prepareGatewayTelemetryEvent(gatewayCode string, event types.Event, device *store.Device) types.Event {
+	if e.server == nil {
 		return event
 	}
-	sipID := deviceidentity.GB28181SIPID(device)
-	if sipID == "" {
-		return event
-	}
-	event.Topic = deviceidentity.GB28181DeviceCode(sipID, gatewayCode)
-	return event
+	return e.server.Manager.PrepareGatewayTelemetry(gatewayCode, event, device)
 }
 
 func NewGatewayEngine(ctx platform.Context, logger *zap.Logger, cfg *Config) GatewayEngine {
@@ -83,6 +63,7 @@ func NewGatewayEngine(ctx platform.Context, logger *zap.Logger, cfg *Config) Gat
 		receivers:      make(map[string]*FileReceiver),
 		localEventSubs: make(map[types.EventType]uint64),
 	}
+	engine.server, _ = ctx.GetCoreServer().(*core.Server)
 	if code, err := cfg.GatewayCodeValue(); err == nil {
 		engine.gatewayCode = code
 	}
@@ -230,7 +211,7 @@ func (e *gatewayEngineImpl) handleLocalEvent(event types.Event) {
 		return
 	}
 	if device, err := store.GetDevice(event.Topic); err == nil {
-		event = prepareGatewayTelemetryEvent(e.gatewayCode, event, device)
+		event = e.prepareGatewayTelemetryEvent(e.gatewayCode, event, device)
 	}
 	topic := fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.gatewayCode)
 	payloadBytes, err := json.Marshal(event)
@@ -371,10 +352,10 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 	}
 
 	var syncData struct {
-		Timestamp    int64               `json:"timestamp"`
-		Products     []*store.Product    `json:"products"`
-		Devices      []*store.Device     `json:"devices"`
-		MediaNetwork *SyncMediaNetwork   `json:"media_network,omitempty"`
+		Timestamp    int64             `json:"timestamp"`
+		Products     []*store.Product  `json:"products"`
+		Devices      []*store.Device   `json:"devices"`
+		MediaNetwork *SyncMediaNetwork `json:"media_network,omitempty"`
 	}
 
 	if err := json.Unmarshal(data, &syncData); err != nil {
@@ -394,16 +375,12 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 		e.logger.Info("Gateway received media network config from platform",
 			zap.String("stun_urls", syncData.MediaNetwork.StunURLs),
 			zap.String("turn_urls", syncData.MediaNetwork.TurnURLs))
-		if b, err := json.Marshal(syncData.MediaNetwork); err == nil {
-			_ = store.SetSystemConfigValue("platform_media_network", string(b))
-		}
 		if coreServer != nil && coreServer.Manager != nil {
-			if webrtcPlugin := coreServer.Manager.GetPlugin("webrtc"); webrtcPlugin != nil {
-				if updater, ok := webrtcPlugin.(interface {
-					SetPlatformICEFromNetwork(stunURLs, turnURLs, username, password string)
-				}); ok {
-					updater.SetPlatformICEFromNetwork(syncData.MediaNetwork.StunURLs, syncData.MediaNetwork.TurnURLs, syncData.MediaNetwork.TurnUsername, syncData.MediaNetwork.TurnPassword)
-				}
+			if provider := coreServer.Manager.MediaNetworkProvider(); provider != nil {
+				provider.SetGatewayMediaNetwork(platform.GatewayMediaNetwork{
+					StunURLs: syncData.MediaNetwork.StunURLs, TurnURLs: syncData.MediaNetwork.TurnURLs,
+					TurnUsername: syncData.MediaNetwork.TurnUsername, TurnPassword: syncData.MediaNetwork.TurnPassword,
+				})
 			}
 		}
 	}
@@ -483,7 +460,7 @@ func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
 			// GB28181 cameras are discovered and owned by the gateway. They are
 			// reported upward after registration, not provisioned by a platform
 			// configuration snapshot.
-			if keepGatewayLocalDevice(&ld) {
+			if e.keepGatewayLocalDevice(&ld) {
 				continue
 			}
 			// If local device is not in sync data, it was deleted on platform
@@ -637,7 +614,7 @@ func (e *gatewayEngineImpl) handleRegisterResponse(client mqtt.Client, msg mqtt.
 // the platform becomes reachable. Gateway-local GB28181 devices use a local
 // code, so every replayed event must go through prepareGatewayTelemetryEvent to
 // keep the platform-side device identity stable.
-func buildGatewayStateReplayEvents(gatewayCode, gatewaySN string, timestamp int64, gatewayProperties map[string]interface{}, devices []*store.Device, getStatus func(string) (core.DeviceStatus, bool), getLatestData func(string) map[string]interface{}) []types.Event {
+func buildGatewayStateReplayEvents(gatewayCode, gatewaySN string, timestamp int64, gatewayProperties map[string]interface{}, devices []*store.Device, getStatus func(string) (core.DeviceStatus, bool), getLatestData func(string) map[string]interface{}, prepareTelemetry func(string, types.Event, *store.Device) types.Event) []types.Event {
 	events := []types.Event{{
 		Type:      types.EventDeviceStatusChanged,
 		Topic:     gatewayCode,
@@ -668,7 +645,7 @@ func buildGatewayStateReplayEvents(gatewayCode, gatewaySN string, timestamp int6
 				Payload:   statusPayload,
 				Timestamp: timestamp,
 			}
-			events = append(events, prepareGatewayTelemetryEvent(gatewayCode, event, device))
+			events = append(events, prepareTelemetry(gatewayCode, event, device))
 		}
 		if properties := getLatestData(device.Code); len(properties) > 0 {
 			event := types.Event{
@@ -677,7 +654,7 @@ func buildGatewayStateReplayEvents(gatewayCode, gatewaySN string, timestamp int6
 				Payload:   properties,
 				Timestamp: timestamp,
 			}
-			events = append(events, prepareGatewayTelemetryEvent(gatewayCode, event, device))
+			events = append(events, prepareTelemetry(gatewayCode, event, device))
 		}
 	}
 	return events
@@ -701,6 +678,7 @@ func (e *gatewayEngineImpl) publishGatewayStateReplay() {
 		coreServer.DeviceManager.Registry.GetAllDevices(),
 		coreServer.DeviceManager.GetStatus,
 		coreServer.DeviceManager.GetLatestData,
+		e.prepareGatewayTelemetryEvent,
 	)
 	topic := fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.gatewayCode)
 	for _, event := range events {
