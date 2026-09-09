@@ -488,6 +488,10 @@ func alarmInstanceResponse(instance store.AlarmInstance, handlers map[string][]a
 	if err != nil {
 		return nil, err
 	}
+	clearedEvidence, err := decodeAlarmJSON(instance.ClearedEvidenceSnapshot)
+	if err != nil {
+		return nil, err
+	}
 	policy, err := decodeAlarmJSON(instance.PolicySnapshot)
 	if err != nil {
 		return nil, err
@@ -496,7 +500,7 @@ func alarmInstanceResponse(instance store.AlarmInstance, handlers map[string][]a
 	if linkedHandlers, exists := handlers[strings.TrimSpace(instance.WorkOrderPublicID)]; exists {
 		currentHandlers = linkedHandlers
 	}
-	return g.Map{"alarm": instance, "evidence": evidence, "policy": policy, "current_handlers": currentHandlers}, nil
+	return g.Map{"alarm": instance, "evidence": evidence, "cleared_evidence": clearedEvidence, "policy": policy, "current_handlers": currentHandlers}, nil
 }
 
 func decodeAlarmJSON(value string) (map[string]any, error) {

@@ -188,6 +188,13 @@ func (s *GormAlarmInstanceStore) transition(ctx context.Context, scope Scope, pu
 			updates["condition_status"] = "recovered"
 			updates["recovered_at"] = &now
 			updates["handling_status"] = gorm.Expr("CASE WHEN work_order_public_id <> '' THEN 'pending_verification' WHEN handling_status = 'closed' THEN 'closed' ELSE 'acknowledged' END")
+			if len(payload) > 0 {
+				clearedEvidence, err := encodeAlarmMap(payload)
+				if err == nil {
+					updates["cleared_evidence_snapshot"] = clearedEvidence
+					instance.ClearedEvidenceSnapshot = clearedEvidence
+				}
+			}
 		}
 		query := tx.Model(&store.AlarmInstance{}).Where("id = ? AND version = ?", instance.ID, instance.Version).Updates(updates)
 		if query.Error != nil {
@@ -350,9 +357,13 @@ func appendStoredAlarmEvent(tx *gorm.DB, instance store.AlarmInstance, eventType
 	if err != nil {
 		return err
 	}
+	evidenceSnapshot := instance.EvidenceSnapshot
+	if (eventType == AlarmEventCleared || eventType == AlarmEventRecovered) && strings.TrimSpace(instance.ClearedEvidenceSnapshot) != "" {
+		evidenceSnapshot = instance.ClearedEvidenceSnapshot
+	}
 	record := store.AlarmInstanceEvent{
 		TenantID: instance.TenantID, ProjectID: instance.ProjectID, AlarmInstanceID: instance.ID,
-		Type: eventType, Payload: encodedPayload, EvidenceSnapshot: instance.EvidenceSnapshot,
+		Type: eventType, Payload: encodedPayload, EvidenceSnapshot: evidenceSnapshot,
 	}
 	if err := tx.Create(&record).Error; err != nil {
 		return fmt.Errorf("append alarm event: %w", err)
@@ -365,6 +376,10 @@ func decodeStoredAlarmInstance(instance store.AlarmInstance) (*AlarmInstance, er
 	if err != nil {
 		return nil, err
 	}
+	clearedEvidence, err := decodeAlarmMap(instance.ClearedEvidenceSnapshot)
+	if err != nil {
+		return nil, err
+	}
 	return &AlarmInstance{
 		ID: instance.PublicID, TenantID: instance.TenantID, ProjectID: instance.ProjectID,
 		AlarmFingerprint: instance.AlarmFingerprint, Generation: instance.Generation, Status: instance.Status,
@@ -374,7 +389,7 @@ func decodeStoredAlarmInstance(instance store.AlarmInstance) (*AlarmInstance, er
 		FirstOccurredAt: instance.FirstOccurredAt, LastOccurredAt: instance.LastOccurredAt, RecoveredAt: instance.RecoveredAt,
 		VerificationAfter: instance.VerificationAfter, ClosedAt: instance.ClosedAt, ClosedBy: instance.ClosedBy,
 		CloseDisposition: instance.CloseDisposition, NotificationMuted: instance.NotificationMuted, InhibitedBy: instance.InhibitedBy,
-		EvidenceSnapshot: evidence, WorkOrderPublicID: instance.WorkOrderPublicID, Version: instance.Version,
+		EvidenceSnapshot: evidence, ClearedEvidenceSnapshot: clearedEvidence, WorkOrderPublicID: instance.WorkOrderPublicID, Version: instance.Version,
 		AcknowledgedAt: instance.AcknowledgedAt, ClearedAt: instance.ClearedAt,
 		CreatedAt: instance.CreatedAt, UpdatedAt: instance.UpdatedAt,
 	}, nil

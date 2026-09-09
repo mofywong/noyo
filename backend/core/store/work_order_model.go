@@ -350,11 +350,12 @@ type AlarmInstance struct {
 	ClosedBy          uint       `json:"closed_by"`
 	CloseDisposition  string     `gorm:"size:64;index" json:"close_disposition"`
 	PolicySnapshot    string     `gorm:"type:text" json:"policy_snapshot"`
-	NotificationMuted bool       `gorm:"not null;default:false;index" json:"notification_muted"`
-	InhibitedBy       string     `gorm:"size:36;index" json:"inhibited_by"`
-	EvidenceSnapshot  string     `gorm:"type:text;not null" json:"evidence_snapshot"`
-	WorkOrderPublicID string     `gorm:"size:36;index" json:"work_order_public_id"`
-	Version           int        `gorm:"not null;default:1" json:"version"`
+	NotificationMuted       bool       `gorm:"not null;default:false;index" json:"notification_muted"`
+	InhibitedBy             string     `gorm:"size:36;index" json:"inhibited_by"`
+	EvidenceSnapshot        string     `gorm:"type:text;not null" json:"evidence_snapshot"`
+	ClearedEvidenceSnapshot string     `gorm:"type:text" json:"cleared_evidence_snapshot"`
+	WorkOrderPublicID       string     `gorm:"size:36;index" json:"work_order_public_id"`
+	Version                 int        `gorm:"not null;default:1" json:"version"`
 	AcknowledgedAt    *time.Time `json:"acknowledged_at"`
 	ClearedAt         *time.Time `json:"cleared_at"`
 }

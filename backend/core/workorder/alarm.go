@@ -58,8 +58,9 @@ type AlarmInstance struct {
 	CloseDisposition  string         `json:"close_disposition,omitempty"`
 	NotificationMuted bool           `json:"notification_muted"`
 	InhibitedBy       string         `json:"inhibited_by,omitempty"`
-	EvidenceSnapshot  map[string]any `json:"evidence_snapshot"`
-	WorkOrderPublicID string         `json:"work_order_public_id,omitempty"`
+	EvidenceSnapshot        map[string]any `json:"evidence_snapshot"`
+	ClearedEvidenceSnapshot map[string]any `json:"cleared_evidence_snapshot,omitempty"`
+	WorkOrderPublicID       string         `json:"work_order_public_id,omitempty"`
 	Version           int            `json:"version"`
 	AcknowledgedAt    *time.Time     `json:"acknowledged_at,omitempty"`
 	ClearedAt         *time.Time     `json:"cleared_at,omitempty"`
@@ -209,6 +210,9 @@ func (s *AlarmInstanceStore) transition(ctx context.Context, scope Scope, id, ta
 		instance.AcknowledgedAt = &now
 	} else {
 		instance.ClearedAt = &now
+		if len(payload) > 0 {
+			instance.ClearedEvidenceSnapshot = cloneAlarmMap(payload)
+		}
 	}
 	s.appendEventLocked(instance, eventType, payload)
 	return nil
@@ -290,10 +294,14 @@ func (s *AlarmInstanceStore) History(scope Scope, id string) []AlarmEvent {
 }
 
 func (s *AlarmInstanceStore) appendEventLocked(instance *AlarmInstance, eventType string, payload map[string]any) {
+	evidence := instance.EvidenceSnapshot
+	if (eventType == AlarmEventCleared || eventType == AlarmEventRecovered) && len(instance.ClearedEvidenceSnapshot) > 0 {
+		evidence = instance.ClearedEvidenceSnapshot
+	}
 	s.events[instance.ID] = append(s.events[instance.ID], AlarmEvent{
 		ID: uuid.NewString(), AlarmInstanceID: instance.ID, TenantID: instance.TenantID,
 		ProjectID: instance.ProjectID, Type: eventType, Payload: cloneAlarmMap(payload),
-		EvidenceSnapshot: cloneAlarmMap(instance.EvidenceSnapshot), CreatedAt: time.Now().UTC(),
+		EvidenceSnapshot: cloneAlarmMap(evidence), CreatedAt: time.Now().UTC(),
 	})
 }
 
@@ -327,6 +335,7 @@ func cloneAlarmInstance(instance *AlarmInstance) *AlarmInstance {
 	}
 	copy := *instance
 	copy.EvidenceSnapshot = cloneAlarmMap(instance.EvidenceSnapshot)
+	copy.ClearedEvidenceSnapshot = cloneAlarmMap(instance.ClearedEvidenceSnapshot)
 	return &copy
 }
 

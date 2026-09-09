@@ -307,6 +307,13 @@ func (s *AlarmCenterService) Recover(scope workorder.Scope, publicID string, pay
 		}
 		handling := restoreRecoveredHandling(instance, policy, verificationAfter)
 		updates := map[string]any{"condition_status": AlarmConditionRecovered, "recovered_at": &now, "verification_after": verificationAfter, "handling_status": handling}
+		if len(payload) > 0 {
+			encoded, err := json.Marshal(payload)
+			if err == nil {
+				updates["cleared_evidence_snapshot"] = string(encoded)
+				instance.ClearedEvidenceSnapshot = string(encoded)
+			}
+		}
 		if err := updateAlarmInstance(tx, instance, updates); err != nil {
 			return fmt.Errorf("mark alarm recovered: %w", err)
 		}
@@ -945,7 +952,11 @@ func appendAlarmCenterEvent(tx *gorm.DB, instance *store.AlarmInstance, eventTyp
 	if err != nil {
 		return fmt.Errorf("encode alarm event payload: %w", err)
 	}
-	return tx.Create(&store.AlarmInstanceEvent{TenantID: instance.TenantID, ProjectID: instance.ProjectID, AlarmInstanceID: instance.ID, Type: strings.TrimSpace(eventType), Payload: string(encoded), EvidenceSnapshot: instance.EvidenceSnapshot}).Error
+	evidenceSnapshot := instance.EvidenceSnapshot
+	if (eventType == workorder.AlarmEventRecovered || eventType == workorder.AlarmEventCleared) && strings.TrimSpace(instance.ClearedEvidenceSnapshot) != "" {
+		evidenceSnapshot = instance.ClearedEvidenceSnapshot
+	}
+	return tx.Create(&store.AlarmInstanceEvent{TenantID: instance.TenantID, ProjectID: instance.ProjectID, AlarmInstanceID: instance.ID, Type: strings.TrimSpace(eventType), Payload: string(encoded), EvidenceSnapshot: evidenceSnapshot}).Error
 }
 
 func validateAlarmCenterScope(scope workorder.Scope) error {

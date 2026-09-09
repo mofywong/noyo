@@ -481,41 +481,144 @@
               </div>
             </div>
 
-            <!-- 告警现场证据卡片 -->
+            <!-- 告警与消警现场证据卡片 -->
             <section class="card border mb-4">
-              <div class="card-header bg-transparent py-2">
+              <div class="card-header bg-transparent py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <h3 class="section-title mb-0"><i class="bi bi-shield-check me-1"></i>{{ t('evidence') }}</h3>
+                <div v-if="hasClearedEvidence(selected)" class="btn-group btn-group-sm" role="group" :aria-label="t('evidence')">
+                  <button
+                    type="button"
+                    class="btn"
+                    :class="activeEvidenceTab === 'alarm' ? 'btn-primary' : 'btn-outline-secondary'"
+                    @click="activeEvidenceTab = 'alarm'"
+                  >
+                    <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>{{ t('alarmEvidence') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn"
+                    :class="activeEvidenceTab === 'cleared' ? 'btn-success text-white' : 'btn-outline-secondary'"
+                    @click="activeEvidenceTab = 'cleared'"
+                  >
+                    <i class="bi bi-check-circle-fill me-1" :class="activeEvidenceTab === 'cleared' ? 'text-white' : 'text-success'"></i>{{ t('clearedEvidence') }}
+                  </button>
+                  <button
+                    v-if="snapshotUrl(selected) && clearedSnapshotUrl(selected)"
+                    type="button"
+                    class="btn"
+                    :class="activeEvidenceTab === 'comparison' ? 'btn-primary' : 'btn-outline-secondary'"
+                    @click="activeEvidenceTab = 'comparison'"
+                  >
+                    <i class="bi bi-layout-split me-1"></i>{{ t('evidenceComparison') }}
+                  </button>
+                </div>
               </div>
               <div class="card-body p-3">
-                <div v-if="snapshotUrl(selected)" class="mb-3 text-center">
-                  <a :href="snapshotUrl(selected)" target="_blank" rel="noopener" class="d-inline-block">
-                    <img :src="snapshotUrl(selected)" class="img-fluid rounded border shadow-sm" style="max-height: 180px; object-fit: contain;" :alt="t('snapshot')">
-                  </a>
+                <!-- 1. 告警证据视图 (Alarm Evidence) -->
+                <div v-if="activeEvidenceTab === 'alarm' || !hasClearedEvidence(selected)">
+                  <div v-if="snapshotUrl(selected)" class="mb-3 text-center">
+                    <a :href="snapshotUrl(selected)" target="_blank" rel="noopener" class="d-inline-block position-relative">
+                      <img :src="snapshotUrl(selected)" class="img-fluid rounded border shadow-sm border-danger" style="max-height: 180px; object-fit: contain;" :alt="t('snapshot')">
+                      <span class="badge bg-danger position-absolute top-0 start-0 m-1 shadow-sm">{{ t('firingState') }}</span>
+                    </a>
+                  </div>
+                  <div v-else class="text-body-secondary small text-center py-3 mb-3 border rounded bg-body-tertiary">
+                    {{ t('noAlarmEvidence') }}
+                  </div>
+                  <div class="row g-2 small">
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('device') }}</div>
+                      <div class="fw-semibold text-body">{{ alarmDeviceName(selected) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('product') }}</div>
+                      <div class="fw-semibold text-body">{{ alarmProductName(selected) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('alarmTarget') }}</div>
+                      <div class="fw-semibold text-danger">{{ alarmTargetName(selected) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('event') }}</div>
+                      <div class="fw-semibold text-body">{{ alarmEventName(selected) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('firstSeen') }}</div>
+                      <div class="text-body">{{ formatTime(selectedAlarm.first_occurred_at) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('source') }}</div>
+                      <div class="fw-semibold text-body">{{ sourceTypeText(selectedAlarm.source_type) }}</div>
+                    </div>
+                  </div>
                 </div>
-                <div class="row g-2 small">
-                  <div class="col-12 col-sm-6">
-                    <div class="text-secondary fw-normal">{{ t('device') }}</div>
-                    <div class="fw-semibold text-body">{{ alarmDeviceName(selected) }}</div>
+
+                <!-- 2. 消警证据视图 (Clearance Evidence) -->
+                <div v-else-if="activeEvidenceTab === 'cleared'">
+                  <div v-if="clearedSnapshotUrl(selected)" class="mb-3 text-center">
+                    <a :href="clearedSnapshotUrl(selected)" target="_blank" rel="noopener" class="d-inline-block position-relative">
+                      <img :src="clearedSnapshotUrl(selected)" class="img-fluid rounded border shadow-sm border-success" style="max-height: 180px; object-fit: contain;" :alt="t('clearedSnapshot')">
+                      <span class="badge bg-success position-absolute top-0 start-0 m-1 shadow-sm">{{ t('clearedState') }}</span>
+                    </a>
                   </div>
-                  <div class="col-12 col-sm-6">
-                    <div class="text-secondary fw-normal">{{ t('product') }}</div>
-                    <div class="fw-semibold text-body">{{ alarmProductName(selected) }}</div>
+                  <div v-else class="text-body-secondary small text-center py-3 mb-3 border rounded bg-body-tertiary">
+                    {{ t('noClearedEvidence') }}
                   </div>
-                  <div class="col-12 col-sm-6">
-                    <div class="text-secondary fw-normal">{{ t('event') }}</div>
-                    <div class="fw-semibold text-body">{{ alarmEventName(selected) }}</div>
+                  <div class="row g-2 small">
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('device') }}</div>
+                      <div class="fw-semibold text-body">{{ clearedAlarmDeviceName(selected) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('product') }}</div>
+                      <div class="fw-semibold text-body">{{ clearedAlarmProductName(selected) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('clearedTarget') }}</div>
+                      <div class="fw-semibold text-success">{{ clearedAlarmTargetName(selected) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('event') }}</div>
+                      <div class="fw-semibold text-body">{{ clearedAlarmEventName(selected) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('clearedAt') }}</div>
+                      <div class="text-body fw-semibold text-success">{{ formatTime(selectedAlarm.recovered_at || clearedEvidenceOf(selected).cleared_at) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('firstSeen') }}</div>
+                      <div class="text-body">{{ formatTime(selectedAlarm.first_occurred_at) }}</div>
+                    </div>
                   </div>
-                  <div class="col-12 col-sm-6">
-                    <div class="text-secondary fw-normal">{{ t('source') }}</div>
-                    <div class="fw-semibold text-body">{{ sourceTypeText(selectedAlarm.source_type) }}</div>
+                </div>
+
+                <!-- 3. 双图对比视图 (Comparison) -->
+                <div v-else-if="activeEvidenceTab === 'comparison'">
+                  <div class="row g-2 mb-3">
+                    <div class="col-6 text-center">
+                      <div class="small fw-semibold text-danger mb-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ t('alarmEvidence') }}</div>
+                      <a :href="snapshotUrl(selected)" target="_blank" rel="noopener" class="d-inline-block">
+                        <img :src="snapshotUrl(selected)" class="img-fluid rounded border border-danger shadow-sm" style="max-height: 140px; object-fit: contain;" :alt="t('snapshot')">
+                      </a>
+                      <div class="small text-body-secondary mt-1 text-truncate">{{ formatTime(selectedAlarm.first_occurred_at) }}</div>
+                    </div>
+                    <div class="col-6 text-center">
+                      <div class="small fw-semibold text-success mb-1"><i class="bi bi-check-circle-fill me-1"></i>{{ t('clearedEvidence') }}</div>
+                      <a :href="clearedSnapshotUrl(selected)" target="_blank" rel="noopener" class="d-inline-block">
+                        <img :src="clearedSnapshotUrl(selected)" class="img-fluid rounded border border-success shadow-sm" style="max-height: 140px; object-fit: contain;" :alt="t('clearedSnapshot')">
+                      </a>
+                      <div class="small text-success mt-1 text-truncate">{{ formatTime(selectedAlarm.recovered_at || clearedEvidenceOf(selected).cleared_at) }}</div>
+                    </div>
                   </div>
-                  <div class="col-12 col-sm-6">
-                    <div class="text-secondary fw-normal">{{ t('firstSeen') }}</div>
-                    <div class="text-body">{{ formatTime(selectedAlarm.first_occurred_at) }}</div>
-                  </div>
-                  <div class="col-12 col-sm-6">
-                    <div class="text-secondary fw-normal">{{ t('recoveredAt') }}</div>
-                    <div class="text-body">{{ formatTime(selectedAlarm.recovered_at) }}</div>
+                  <div class="row g-2 small border-top pt-2">
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('alarmTarget') }}</div>
+                      <div class="fw-semibold text-danger">{{ alarmTargetName(selected) }}</div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                      <div class="text-secondary fw-normal">{{ t('clearedTarget') }}</div>
+                      <div class="fw-semibold text-success">{{ clearedAlarmTargetName(selected) }}</div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -536,6 +639,11 @@
                     <p v-if="timelineDetail(event)" class="mb-0 text-body-secondary small mt-1">
                       {{ timelineDetail(event) }}
                     </p>
+                    <div v-if="timelineSnapshotUrl(event)" class="mt-2">
+                      <a :href="timelineSnapshotUrl(event)" target="_blank" rel="noopener" class="d-inline-block">
+                        <img :src="timelineSnapshotUrl(event)" class="rounded border shadow-sm" style="max-height: 60px; object-fit: contain;" :alt="t('snapshot')">
+                      </a>
+                    </div>
                   </li>
                   <li v-if="!selectedEvents.length" class="text-body-secondary small">
                     {{ t('noTimeline') }}
@@ -850,7 +958,18 @@ const extraCopy = {
     timelineSuppressionExpired: '暂停通知时间已到，已自动恢复告警通知',
     assignedTo: '分派给 {name}',
     handledBy: '操作人：{name}',
-    dispositionText: '关闭结论：{value}'
+    dispositionText: '关闭结论：{value}',
+    clearedEvidence: '消警证据',
+    clearedSnapshot: '消警现场截图',
+    alarmEvidence: '告警证据',
+    evidenceComparison: '双图对比',
+    clearedAt: '消除时间',
+    clearedTarget: '消除状态',
+    noClearedEvidence: '暂无消警现场证据',
+    noAlarmEvidence: '暂无告警现场抓拍',
+    alarmTarget: '告警目标',
+    firingState: '告警中',
+    clearedState: '已消除'
   },
   en: {
     eventParameters: 'Event parameters',
@@ -961,7 +1080,18 @@ const extraCopy = {
     timelineSuppressionExpired: 'Notification pause expired and notifications resumed automatically',
     assignedTo: 'Assigned to {name}',
     handledBy: 'Handled by {name}',
-    dispositionText: 'Closure disposition: {value}'
+    dispositionText: 'Closure disposition: {value}',
+    clearedEvidence: 'Clearance evidence',
+    clearedSnapshot: 'Clearance snapshot',
+    alarmEvidence: 'Alarm evidence',
+    evidenceComparison: 'Comparison',
+    clearedAt: 'Cleared at',
+    clearedTarget: 'Clearance status',
+    noClearedEvidence: 'No clearance evidence',
+    noAlarmEvidence: 'No alarm snapshot',
+    alarmTarget: 'Alarm target',
+    firingState: 'Firing',
+    clearedState: 'Cleared'
   }
 }
 const t = key => {
@@ -1290,7 +1420,20 @@ function canAssignAlarm(item) { const alarm = alarmOf(item); return canOperate(i
 function canCreateWorkOrder(item) { const alarm = alarmOf(item); return canOperate(item) && !alarm.work_order_public_id }
 function canExceptionClose(item) { return Boolean(item?.policy?.allow_exception_close) }
 function canClose(item) { const alarm = alarmOf(item); return canOperate(item) && (alarm.condition_status === 'recovered' || canExceptionClose(item)) }
+const activeEvidenceTab = ref('alarm')
 function snapshotUrl(item) { const evidence = evidenceOf(item); return normaliseSnapshot(evidence.params?.snapshot_url || evidence.snapshot_url || evidence.params?.snapshot_base64) }
+function clearedEvidenceOf(item) { return item?.cleared_evidence || {} }
+function clearedSnapshotUrl(item) { const evidence = clearedEvidenceOf(item); return normaliseSnapshot(evidence.params?.snapshot_url || evidence.snapshot_url || evidence.params?.snapshot_base64) }
+function hasClearedEvidence(item) { const cleared = clearedEvidenceOf(item); return Boolean(clearedSnapshotUrl(item) || cleared.event_id || cleared.params?.event_id || item?.alarm?.recovered_at || item?.alarm?.cleared_at) }
+function hasAlarmEvidence(item) { return Boolean(snapshotUrl(item)) }
+function timelineSnapshotUrl(event) { const evidence = event?.evidence || {}; return normaliseSnapshot(evidence.params?.snapshot_url || evidence.snapshot_url || evidence.params?.snapshot_base64) }
+function clearedAlarmDeviceCode(item) { const evidence = clearedEvidenceOf(item); return evidence.device_code || evidence.params?.device_code || alarmDeviceCode(item) }
+function clearedAlarmProductCode(item) { const evidence = clearedEvidenceOf(item); return evidence.product_code || evidence.params?.product_code || alarmProductCode(item) }
+function clearedAlarmDeviceName(item) { const evidence = clearedEvidenceOf(item); return deviceDisplayName(clearedAlarmDeviceCode(item), evidence.device_name || evidence.params?.device_name) }
+function clearedAlarmProductName(item) { const evidence = clearedEvidenceOf(item); return productDisplayName(clearedAlarmProductCode(item), evidence.product_name || evidence.params?.product_name) }
+function clearedAlarmEventName(item) { const evidence = clearedEvidenceOf(item); const eventID = evidence.event_id || evidence.params?.event_id || ''; return eventDisplayName(eventID, clearedAlarmProductCode(item), evidence.event_name || evidence.params?.event_name) }
+function clearedAlarmTargetName(item) { const evidence = clearedEvidenceOf(item); return evidence.params?.target_name || evidence.params?.alarm_status || t('clearedState') }
+function alarmTargetName(item) { const evidence = evidenceOf(item); return evidence.params?.target_name || evidence.params?.alarm_status || t('firingState') }
 function legacySnapshotUrls(event) {
   const payload = event?.params && typeof event.params === 'object' ? event.params : {}
   const values = ['snapshot_url', 'image_url', 'picture_url', 'capture_url', 'snapshot', 'image', 'picture', 'snapshot_base64', 'image_base64']
@@ -1578,6 +1721,7 @@ async function openDetail(item) {
   const requestVersion = ++detailLoadVersion
   if (!selected.value) detailReturnFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
   selected.value = item
+  activeEvidenceTab.value = (hasClearedEvidence(item) && !hasAlarmEvidence(item)) ? 'cleared' : 'alarm'
   detailLoading.value = true
   selectedEvents.value = []
   focusModal(detailDialog)
@@ -1585,7 +1729,12 @@ async function openDetail(item) {
     const id = alarmOf(item).public_id
     const [detailResponse, eventsResponse] = await Promise.all([axios.get(`/api/alarm-instances/${id}`), axios.get(`/api/alarm-instances/${id}/events`)])
     if (requestVersion !== detailLoadVersion) return
-    if (detailResponse.data?.code === 0) selected.value = detailResponse.data.data
+    if (detailResponse.data?.code === 0) {
+      selected.value = detailResponse.data.data
+      if (!snapshotUrl(selected.value) && clearedSnapshotUrl(selected.value)) {
+        activeEvidenceTab.value = 'cleared'
+      }
+    }
     if (eventsResponse.data?.code === 0) selectedEvents.value = eventsResponse.data.data || []
   } catch (error) {
     if (requestVersion !== detailLoadVersion) return

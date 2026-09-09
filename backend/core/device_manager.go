@@ -584,10 +584,22 @@ func (dm *DeviceManager) enrichAlarmEvent(meta DeviceMeta, eventID string, param
 	if isWorkOrderAlarmClearEvent(eventID, params) {
 		instance, err := dm.Server.AlarmInstances.GetActive(context.Background(), scope, fingerprint)
 		if err == nil {
-			if err := dm.Server.AlarmInstances.Clear(context.Background(), scope, instance.ID, map[string]any{"event_id": eventID, "params": cloneEventParams(params)}); err != nil {
+			clearPayload := map[string]any{
+				"event_id":     eventID,
+				"device_code":  meta.DeviceCode,
+				"product_code": meta.ProductCode,
+				"event_name":   eventName,
+				"event_level":  eventLevel,
+				"device_name":  device.Name,
+				"product_name": productName,
+				"params":       cloneEventParams(params),
+				"reported_at":  time.Now().UTC().Format(time.RFC3339Nano),
+				"cleared_at":   time.Now().UTC().Format(time.RFC3339Nano),
+			}
+			if err := dm.Server.AlarmInstances.Clear(context.Background(), scope, instance.ID, clearPayload); err != nil {
 				dm.Server.Logger.Warn("clear alarm instance", zap.Error(err), zap.String("device_code", meta.DeviceCode), zap.String("event_id", eventID))
 			} else if dm.Server.AlarmCenter != nil {
-				if err := dm.Server.AlarmCenter.Recover(scope, instance.ID, map[string]any{"event_id": eventID, "params": cloneEventParams(params)}); err != nil {
+				if err := dm.Server.AlarmCenter.Recover(scope, instance.ID, clearPayload); err != nil {
 					dm.Server.Logger.Warn("recover alarm center instance", zap.Error(err), zap.String("device_code", meta.DeviceCode), zap.String("event_id", eventID))
 				}
 			}
