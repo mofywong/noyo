@@ -121,7 +121,7 @@
                               <td><input v-model="item.key" type="text" class="form-control form-control-sm"></td>
                               <td><input v-model="item.value" type="text" class="form-control form-control-sm"></td>
                               <td class="text-center align-middle">
-                                <button class="btn btn-xs btn-link text-danger p-0" @click="removeEnumItem(idx)">
+                                <button class="btn btn-icon btn-link text-danger p-0" @click="removeEnumItem(idx)">
                                   <i class="bi bi-x-lg"></i>
                                 </button>
                               </td>
@@ -226,7 +226,7 @@
                             <td><input v-model="item.key" type="text" class="form-control form-control-sm"></td>
                             <td><input v-model="item.value" type="text" class="form-control form-control-sm"></td>
                             <td class="text-center align-middle">
-                              <button class="btn btn-xs btn-link text-danger p-0" @click="removeEnumItem(idx)">
+                              <button class="btn btn-icon btn-link text-danger p-0" @click="removeEnumItem(idx)">
                                 <i class="bi bi-x-lg"></i>
                               </button>
                             </td>

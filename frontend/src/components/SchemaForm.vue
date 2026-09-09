@@ -59,7 +59,7 @@
         <div v-for="(item, index) in (modelValue[key] || [])" :key="index" class="mb-2 border-bottom pb-2">
           <div class="d-flex justify-content-between mb-2">
             <small class="fw-bold">{{ $t('item') }} {{ index + 1 }}</small>
-            <button type="button" class="btn btn-xs btn-outline-danger" @click="removeArrayItem(key, index)">
+            <button type="button" class="btn btn-icon btn-outline-danger" @click="removeArrayItem(key, index)">
               <i class="bi bi-trash"></i>
             </button>
           </div>

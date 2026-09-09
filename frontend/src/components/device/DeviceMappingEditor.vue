@@ -84,7 +84,7 @@
                <td><input v-model.number="group.interval" type="number" class="form-control form-control-sm"></td>
                <td><input v-model="group.description" class="form-control form-control-sm"></td>
                <td class="text-center">
-                 <button class="btn btn-sm btn-link text-danger p-0" @click="removePollingGroup(index)">
+                 <button class="btn btn-icon btn-link text-danger p-0" @click="removePollingGroup(index)">
                    <i class="bi bi-trash"></i>
                  </button>
                </td>
@@ -537,7 +537,7 @@
                                         <option value="change">{{ $t('op_change') }}</option>
                                      </select>
                                      <input v-if="trigger.operator !== 'change'" v-model.number="trigger.value" type="number" class="form-control form-control-sm" :placeholder="$t('dev_data_val_placeholder')">
-                                     <button class="btn btn-sm btn-link text-danger p-0" @click="removeTrigger(idx)">
+                                     <button class="btn btn-icon btn-link text-danger p-0" @click="removeTrigger(idx)">
                                         <i class="bi bi-trash"></i>
                                      </button>
                                 </div>
@@ -580,7 +580,7 @@
                                         <option value="<=">&lt;=</option>
                                      </select>
                                      <input v-model.number="cond.value" type="number" class="form-control form-control-sm" :placeholder="$t('dev_data_val_placeholder')">
-                                     <button class="btn btn-sm btn-link text-danger p-0" @click="removeCondition(idx)">
+                                     <button class="btn btn-icon btn-link text-danger p-0" @click="removeCondition(idx)">
                                         <i class="bi bi-trash"></i>
                                      </button>
                                 </div>
