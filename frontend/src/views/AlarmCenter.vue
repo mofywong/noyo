@@ -68,8 +68,10 @@
 
     <!-- Tab Content: Active Queue -->
     <template v-if="activeView === 'queue'">
-      <div class="page-toolbar device-list-control-bar list-page-controls" :aria-label="t('overview')">
-        <div class="device-list-query list-toolbar-query">
+      <div class="card border-0 shadow-sm table-glass-card d-flex flex-column flex-grow-1 min-h-0 overflow-hidden" role="tabpanel" aria-labelledby="alarm-queue-tab">
+      <div class="card-header bg-transparent p-2 border-bottom flex-shrink-0 alarm-filter-toolbar" :aria-label="t('overview')">
+        <CompactListMetrics v-model="activeQuickFilters" :metrics="statCards" class="alarm-filter-metrics" :aria-label="t('overview')" @toggle="applyQuickFilter" />
+        <div class="alarm-filter-query">
           <div class="input-group input-group-sm">
             <span class="input-group-text bg-transparent"><i class="bi bi-search" aria-hidden="true"></i></span>
             <input
@@ -81,11 +83,11 @@
               @keyup.enter="applyFilters"
             >
           </div>
-          <LiquidGlassPopover placement="bottom-start" panel-class="noyo-device-filter-popover" :label="t('filter')" :trigger-label="t('filter')">
+          <LiquidGlassPopover placement="bottom-start" panel-class="noyo-device-filter-popover" :label="t('filterConditions')" :trigger-label="t('filterConditions')">
             <template #trigger>
               <span class="btn btn-outline-secondary btn-sm device-filter-trigger">
                 <i class="bi bi-funnel" aria-hidden="true"></i>
-                <span>{{ t('filter') }}</span>
+                <span>{{ t('filterConditions') }}</span>
                 <span v-if="activeFilterLabels.length" class="device-filter-count">{{ activeFilterLabels.length }}</span>
               </span>
             </template>
@@ -130,12 +132,13 @@
               </div>
             </div>
           </LiquidGlassPopover>
+          <button type="button" class="btn btn-primary btn-sm text-nowrap" :disabled="loading" @click="applyFilters">
+            <i class="bi bi-search me-1" aria-hidden="true"></i>{{ t('search') }}
+          </button>
         </div>
-        <CompactListMetrics v-model="activeQuickFilters" :metrics="statCards" class="list-toolbar-metrics" :aria-label="t('overview')" @toggle="applyQuickFilter" />
       </div>
 
-      <div class="card border-0 shadow-sm table-glass-card flex-grow-1 min-h-0 overflow-hidden" role="tabpanel" aria-labelledby="alarm-queue-tab">
-        <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
+        <div class="card-body p-0 d-flex flex-column flex-grow-1 min-h-0 overflow-hidden">
           <div class="table-responsive flex-grow-1 overflow-auto">
             <table class="table table-hover align-middle mb-0 alarm-table">
               <thead class="table-light sticky-top">
@@ -817,8 +820,8 @@ const extraCopy = {
     aiFaultEvent: 'AI 预测维护异常',
     ruleAlarmEvent: '规则引擎告警',
     illegalParkingEvent: '非法停车告警',
-    fireLaneOccupiedEvent: '消防通道占用告警',
-    indoorFirePassageEvent: '室内消防通道占用告警',
+    fireLaneOccupiedEvent: '消防车道占用告警',
+    indoorFirePassageEvent: '消防通道阻塞告警',
     objectMissingEvent: '物品缺失告警',
     areaIntrusionEvent: '区域入侵告警',
     product: '产品',
@@ -929,7 +932,7 @@ const extraCopy = {
     ruleAlarmEvent: 'Rule-engine alarm',
     illegalParkingEvent: 'Illegal parking alarm',
     fireLaneOccupiedEvent: 'Fire-lane occupancy alarm',
-    indoorFirePassageEvent: 'Indoor fire-passage occupancy alarm',
+    indoorFirePassageEvent: 'Fire passage blockage alarm',
     objectMissingEvent: 'Object missing alarm',
     areaIntrusionEvent: 'Area intrusion alarm',
     product: 'Product',
@@ -962,6 +965,7 @@ const extraCopy = {
   }
 }
 const t = key => {
+  if (key === 'filterConditions') return language.value === 'zh' ? '筛选条件' : 'Filters'
   if (extraCopy[language.value]?.[key]) return extraCopy[language.value][key]
   return copy[language.value]?.[key] || copy.en[key] || key
 }
@@ -986,7 +990,7 @@ const items = ref([])
 const stats = ref({})
 const loading = ref(false)
 const requestError = ref('')
-const filters = ref({ search: '', severity: '', condition: '', handling: '', includeClosed: false, closedToday: false })
+const filters = ref({ search: '', severity: '', condition: '', handling: '', includeClosed: true, closedToday: false })
 const activeQuickFilters = ref([])
 const activeView = ref('queue')
 const legacyPage = ref(1)
@@ -1542,14 +1546,14 @@ async function loadEntityCatalog() {
 }
 function applyFilters() { page.value = 1; activeQuickFilters.value = []; loadQueue() }
 function toggleIncludeClosed() { if (!filters.value.includeClosed && filters.value.closedToday) { filters.value.closedToday = false; if (filters.value.handling === 'closed') filters.value.handling = '' } applyFilters() }
-function resetFilters() { filters.value = { search: '', severity: '', condition: '', handling: '', includeClosed: false, closedToday: false }; activeQuickFilters.value = []; applyFilters() }
+function resetFilters() { filters.value = { search: '', severity: '', condition: '', handling: '', includeClosed: true, closedToday: false }; activeQuickFilters.value = []; applyFilters() }
 function applyQuickFilter() {
   const selectedCards = statCards.value.filter((item) => activeQuickFilters.value.includes(item.key))
   const selectedValues = (field) => [...new Set(selectedCards.map((item) => item.filter[field]).filter(Boolean))]
   const conditions = selectedValues('condition')
   const handlings = selectedValues('handling')
   const hasConflict = conditions.length > 1 || handlings.length > 1
-  const includesClosed = selectedCards.some((item) => item.filter.includeClosed)
+  const includesClosed = selectedCards.length === 0 || selectedCards.some((item) => item.filter.includeClosed)
   const closedToday = selectedCards.some((item) => item.filter.closedToday)
 
   filters.value = {
@@ -1782,6 +1786,55 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleModalKeyboard)
 </script>
 
 <style scoped>
+.alarm-filter-toolbar,
+.alarm-filter-query {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alarm-filter-toolbar {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.alarm-filter-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.alarm-filter-query {
+  flex: 0 1 480px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.alarm-filter-query > .input-group {
+  flex: 1 1 160px;
+  width: auto;
+  min-width: 0;
+}
+
+.alarm-filter-query :deep(.device-filter-trigger) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.alarm-filter-query :deep(.btn),
+.alarm-filter-query .input-group {
+  min-height: 32px;
+}
+
+@media (max-width: 575.98px) {
+  .alarm-filter-query {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+  }
+}
+
 .alarm-center-page {
   --alarm-surface: var(--bg-surface, var(--bs-body-bg));
   --alarm-surface-muted: var(--bs-tertiary-bg);

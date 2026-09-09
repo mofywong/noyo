@@ -293,23 +293,35 @@
     </div>
 
     <!-- 摄像机实时视频播放悬浮框 -->
-    <div v-if="floatingVideoDevice" 
-         class="position-fixed shadow-lg border rounded overflow-hidden" 
-         style="bottom: 20px; left: 20px; width: 480px; height: 320px; z-index: 1080; border-color: rgba(220,53,69,0.5) !important;">
-      <div class="bg-danger text-white px-2 py-1 small d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-exclamation-triangle-fill me-1"></i> {{ $t('header_alarm_video', '告警联动视频') }}</span>
-        <button type="button" class="btn-close btn-close-white" style="font-size: 0.6rem;" @click="floatingVideoDevice = null"></button>
+    <Teleport to="body">
+      <div v-if="floatingVideoDevice" 
+         class="position-fixed shadow-lg border rounded alarm-video-window" 
+         :style="floatingWindowStyle">
+      <div class="alarm-video-titlebar small d-flex justify-content-between align-items-center"
+           @pointerdown="startFloatingDrag"
+           style="cursor: move; user-select: none;">
+        <span class="user-select-none"><i class="bi bi-exclamation-triangle-fill me-1"></i> {{ $t('header_alarm_video', '告警联动视频') }}</span>
+        <button type="button" 
+                class="alarm-video-close d-flex align-items-center justify-content-center" 
+                 
+                @pointerdown.stop 
+                @click.stop="closeFloatingVideo" 
+                :title="$t('close', '关闭')" 
+                :aria-label="$t('close', '关闭')">
+          <span aria-hidden="true">×</span>
+        </button>
       </div>
-      <div style="height: calc(100% - 28px);">
+      <div class="alarm-video-content">
         <component
           v-if="alarmVideoWidget"
           :is="alarmVideoWidget.component"
           :device="floatingVideoDevice" 
           :embedded="true"
-          @close="floatingVideoDevice = null" 
+          @close="closeFloatingVideo" 
         />
       </div>
     </div>
+    </Teleport>
 
     <!-- 个人资料弹框 -->
     <div class="modal fade" id="profileModal" tabindex="-1" ref="profileModalRef">
@@ -336,7 +348,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, onMounted, onUnmounted } from 'vue';
+import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { Modal } from 'bootstrap';
@@ -352,8 +364,11 @@ import {
   getAlarmToastMessage,
   getAlarmEventKey,
   mergeRecentAlarmEvents,
-  isAlarmEvent
+  isAlarmEvent,
+  isAlarmClearedEvent
 } from '../utils/alarmEvents.js';
+import { publishAlarmEvent, subscribeAlarmEvents, resetAlarmEvents } from '../utils/alarmRealtime.js';
+import { setAlarmBadge, clearAlarmBadge } from '../utils/browserAlarmNotifier.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
 import { formatDateTime } from '../utils/dateTime.js';
 
@@ -564,6 +579,11 @@ const closeLiquidGlassDensityMenu = async (restoreFocus = false) => {
 };
 
 const handleDropdownKeydown = (event) => {
+  if (event.key === 'Escape' && floatingVideoDevice.value) {
+    event.preventDefault();
+    closeFloatingVideo();
+    return;
+  }
   if (event.key !== 'Escape' || activeDropdown.value !== 'liquid-glass') return;
   event.preventDefault();
   closeLiquidGlassDensityMenu(true);
@@ -620,17 +640,88 @@ const getEventDef = (evt) => {
   return prod.model.events.find(e => e.key === evt.event_id);
 };
 
+const floatingPos = ref({ x: 20, y: null });
+const floatingViewport = ref({ width: window.innerWidth, height: window.innerHeight });
+const resizeFloatingVideo = () => {
+  floatingViewport.value = { width: window.innerWidth, height: window.innerHeight };
+};
+let isDraggingFloating = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragInitialX = 0;
+let dragInitialY = 0;
+
+const floatingWindowStyle = computed(() => {
+  const maxX = Math.max(0, floatingViewport.value.width - 480);
+  const maxY = Math.max(0, floatingViewport.value.height - 320);
+  const y = floatingPos.value.y !== null ? floatingPos.value.y : Math.max(0, maxY - 24);
+  return {
+    left: `${Math.min(floatingPos.value.x, maxX)}px`,
+    top: `${Math.min(y, maxY)}px`,
+    width: 'min(480px, 100vw)',
+    height: 'min(320px, 100dvh)',
+    zIndex: 1080,
+    borderColor: 'var(--bs-danger)'
+  };
+});
+
+const onFloatingDragMove = (e) => {
+  if (!isDraggingFloating) return;
+  const dx = e.clientX - dragStartX;
+  const dy = e.clientY - dragStartY;
+  const maxX = Math.max(0, (window.innerWidth || 1200) - 480);
+  const maxY = Math.max(0, (window.innerHeight || 800) - 320);
+  
+  floatingPos.value = {
+    x: Math.min(Math.max(0, dragInitialX + dx), maxX),
+    y: Math.min(Math.max(0, dragInitialY + dy), maxY)
+  };
+};
+
+const stopFloatingDrag = () => {
+  if (!isDraggingFloating) return;
+  isDraggingFloating = false;
+  window.removeEventListener('pointermove', onFloatingDragMove);
+  window.removeEventListener('pointerup', stopFloatingDrag);
+  window.removeEventListener('pointercancel', stopFloatingDrag);
+};
+
+const startFloatingDrag = (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.currentTarget.setPointerCapture?.(e.pointerId);
+  isDraggingFloating = true;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  const bounds = e.currentTarget.parentElement.getBoundingClientRect();
+  dragInitialX = bounds.left;
+  dragInitialY = bounds.top;
+  
+  window.addEventListener('pointermove', onFloatingDragMove);
+  window.addEventListener('pointerup', stopFloatingDrag);
+  window.addEventListener('pointercancel', stopFloatingDrag);
+};
+
+const closeFloatingVideo = () => {
+  stopFloatingDrag();
+  floatingVideoDevice.value = null;
+};
+
 const isAlarmVideoDevice = (device) => Boolean(alarmVideoWidget.value?.condition?.(device));
 
 const openAlarmVideoIfReady = (evt) => {
+  if (isAlarmClearedEvent(evt)) return false;
   const device = findAlarmVideoDevice([evt], devices.value, isAlarmVideoDevice);
   if (!device) return false;
+  if (floatingVideoDevice.value?.code === device.code) {
+    return true;
+  }
   floatingVideoDevice.value = device;
   return true;
 };
 
 const queueAlarmVideoOpen = (evt) => {
-  if (openAlarmVideoIfReady(evt)) return;
+  if (isAlarmClearedEvent(evt) || openAlarmVideoIfReady(evt)) return;
   pendingVideoAlarmEvents.push(evt);
   if (pendingVideoAlarmEvents.length > 20) {
     pendingVideoAlarmEvents.shift();
@@ -638,6 +729,9 @@ const queueAlarmVideoOpen = (evt) => {
 };
 
 const flushPendingVideoAlarmOpen = () => {
+  for (let i = pendingVideoAlarmEvents.length - 1; i >= 0; i--) {
+    if (Date.now() - pendingVideoAlarmEvents[i].ts > 30000) pendingVideoAlarmEvents.splice(i, 1);
+  }
   const device = findAlarmVideoDevice(pendingVideoAlarmEvents, devices.value, isAlarmVideoDevice);
   if (!device) return;
   floatingVideoDevice.value = device;
@@ -655,10 +749,41 @@ const getEventTypeLabel = (evt) => {
 const activeToasts = ref([]);
 let toastIdCounter = 0;
 const toastShownForTs = new Set();
+const lastToastAtByRule = new Map();
+
+const shouldShowAlarmToast = (evt) => {
+  const ruleKey = `${evt.device_code}:${evt.params?.rule_id || evt.event_id || ''}`;
+  const now = Date.now();
+
+  // 消警事件：清除规则防抖记录，使后续再次发生新告警时可以立刻弹出提醒
+  if (isAlarmClearedEvent(evt)) {
+    lastToastAtByRule.delete(ruleKey);
+    return false;
+  }
+
+  // Occurrence IDs deduplicate transports; a fresh occurrence must not be
+  // suppressed merely because another incident happened less than a minute ago.
+  if (evt.params?.signal_id) return true;
+  const lastShown = lastToastAtByRule.get(ruleKey) || 0;
+  // 防抖去重：同一设备同一规则/事件在 60 秒内不重复弹出 Toast 弹窗
+  if (now - lastShown < 60000) {
+    return false;
+  }
+  lastToastAtByRule.set(ruleKey, now);
+  if (lastToastAtByRule.size > 200) {
+    const keysToDelete = Array.from(lastToastAtByRule.keys()).slice(0, 100);
+    keysToDelete.forEach(k => lastToastAtByRule.delete(k));
+  }
+  return true;
+};
 
 const showToast = (title, message) => {
   const id = toastIdCounter++;
   const toast = { id, title, message };
+  // 限制同时最多展示 3 个 Toast，避免堆叠铺满屏幕
+  if (activeToasts.value.length >= 3) {
+    activeToasts.value.shift();
+  }
   activeToasts.value.push(toast);
   setTimeout(() => {
     closeToast(id);
@@ -689,6 +814,9 @@ const fetchRecentEvents = async () => {
     });
     if (res.data.code === 0 && res.data.data) {
       if (eventStreamStopped) return;
+      for (const evt of [...(res.data.data.list || [])].sort((a, b) => a.ts - b.ts)) {
+        if (isAlarmClearedEvent(evt) && Date.now() - evt.ts < 30000) publishAlarmEvent(evt);
+      }
       const list = mergeRecentAlarmEvents(recentEvents.value, res.data.data.list || []);
       recentEvents.value = list;
       
@@ -701,15 +829,9 @@ const fetchRecentEvents = async () => {
           
           const eventKey = getAlarmEventKey(evt);
           if (!toastShownForTs.has(eventKey)) {
-            toastShownForTs.add(eventKey);
-            // 只有最近30秒内发生的新告警才弹窗，避免初次加载时弹出一堆历史告警
-            if (Date.now() - evt.ts < 30000) {
-              const alarmName = getEventName(evt);
-              const deviceName = getDeviceName(evt.device_code);
-              showToast(alarmName, getAlarmToastMessage(evt, deviceName, locale.value));
-              
-              queueAlarmVideoOpen(evt);
-            }
+            // 只有最近30秒内发生的新告警且未被防抖去重才弹窗，避免初次加载时弹出一堆历史告警
+            if (Date.now() - evt.ts < 30000) publishAlarmEvent(evt);
+            else toastShownForTs.add(eventKey);
           }
         }
       }
@@ -728,6 +850,41 @@ const fetchRecentEvents = async () => {
   }
 };
 
+const unsubscribeRealtimeAlarms = subscribeAlarmEvents((evt) => {
+  if (eventStreamStopped || !authStore.hasPermission('device:list')) return;
+      const isAlarm = isAlarmEvent(evt);
+      if (isAlarm) {
+        const isCleared = isAlarmClearedEvent(evt);
+        if (isCleared) {
+          for (let i = pendingVideoAlarmEvents.length - 1; i >= 0; i--) {
+            const pending = pendingVideoAlarmEvents[i];
+            if (pending.device_code === evt.device_code && pending.params?.rule_id === evt.params?.rule_id) pendingVideoAlarmEvents.splice(i, 1);
+          }
+        }
+        if (!isCleared) {
+          recentEvents.value = mergeRecentAlarmEvents(recentEvents.value, [evt]);
+          unreadCount.value = recentEvents.value.filter(item => item.ts > lastSeenTs).length;
+        }
+        
+        const eventKey = getAlarmEventKey(evt);
+        if (!toastShownForTs.has(eventKey)) {
+          toastShownForTs.add(eventKey);
+          if (shouldShowAlarmToast(evt)) {
+            const alarmName = getEventName(evt);
+            const deviceName = getDeviceName(evt.device_code);
+            showToast(alarmName, getAlarmToastMessage(evt, deviceName, locale.value));
+            
+            queueAlarmVideoOpen(evt);
+          }
+        }
+        
+        if (toastShownForTs.size > 100) {
+          const toDelete = Array.from(toastShownForTs).slice(0, 50);
+          toDelete.forEach(ts => toastShownForTs.delete(ts));
+        }
+      }
+});
+
 const setupEventStream = () => {
   const token = localStorage.getItem('access_token');
   if (eventSource || eventStreamStopped || !token || !authStore.hasPermission('device:list')) return;
@@ -744,26 +901,7 @@ const setupEventStream = () => {
         ts: data.Timestamp
       };
       
-      const isAlarm = isAlarmEvent(evt);
-      if (isAlarm) {
-        recentEvents.value = mergeRecentAlarmEvents(recentEvents.value, [evt]);
-        unreadCount.value = recentEvents.value.filter(item => item.ts > lastSeenTs).length;
-        
-        const eventKey = getAlarmEventKey(evt);
-        if (!toastShownForTs.has(eventKey)) {
-          toastShownForTs.add(eventKey);
-          const alarmName = getEventName(evt);
-          const deviceName = getDeviceName(evt.device_code);
-          showToast(alarmName, getAlarmToastMessage(evt, deviceName, locale.value));
-          
-          queueAlarmVideoOpen(evt);
-        }
-        
-        if (toastShownForTs.size > 100) {
-          const toDelete = Array.from(toastShownForTs).slice(0, 50);
-          toDelete.forEach(ts => toastShownForTs.delete(ts));
-        }
-      }
+      publishAlarmEvent(evt);
     } catch (err) {
       console.error('Failed to parse SSE event:', err);
     }
@@ -812,11 +950,17 @@ const fetchDataMetadata = async () => {
 
 const clearUnread = () => {
   unreadCount.value = 0;
+  clearAlarmBadge();
   if (recentEvents.value.length > 0) {
     lastSeenTs = recentEvents.value[0].ts;
     localStorage.setItem('noyo_alarms_last_seen', lastSeenTs.toString());
   }
 };
+
+watch([unreadCount, locale], ([count, lang]) => {
+  setAlarmBadge(count, lang);
+}, { immediate: true });
+
 
 const goToAlarms = () => {
   clearUnread();
@@ -853,6 +997,7 @@ const openProfileModal = () => {
 };
 
 onMounted(() => {
+  window.addEventListener('resize', resizeFloatingVideo);
   if (profileModalRef.value) {
     profileModal = new Modal(profileModalRef.value);
   }
@@ -888,6 +1033,11 @@ const getDisplayNameLabel = (user) => {
 };
 
 onUnmounted(() => {
+  window.removeEventListener('resize', resizeFloatingVideo);
+  clearAlarmBadge();
+  unsubscribeRealtimeAlarms();
+  resetAlarmEvents();
+  stopFloatingDrag();
   eventStreamStopped = true;
   clearInterval(eventsRefreshTimer);
   if (eventSource) {
@@ -903,6 +1053,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+
+.alarm-video-window { display: flex; flex-direction: column; overflow: hidden; background: var(--bs-body-bg); }
+.alarm-video-titlebar { position: relative; z-index: 2; flex: 0 0 40px; gap: 8px; padding: 0 8px; color: var(--bs-body-color); background: var(--bs-danger-bg-subtle); touch-action: none; }
+.alarm-video-close { flex: 0 0 32px; height: 32px; border: 0; border-radius: 8px; color: var(--bs-body-color); background: var(--bs-tertiary-bg); font-size: 24px; }
+.alarm-video-close:focus-visible { outline: 2px solid var(--bs-danger); outline-offset: -2px; }
+.alarm-video-content { position: relative; flex: 1; min-height: 0; overflow: hidden; isolation: isolate; }
+
 /* 状态栏一体化融合式液态玻璃按钮 */
 .header-action-btn {
   display: inline-flex;
@@ -1299,6 +1456,13 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
+
+.alarm-video-window { display: flex; flex-direction: column; overflow: hidden; background: var(--bs-body-bg); }
+.alarm-video-titlebar { position: relative; z-index: 2; flex: 0 0 40px; gap: 8px; padding: 0 8px; color: var(--bs-body-color); background: var(--bs-danger-bg-subtle); touch-action: none; }
+.alarm-video-close { flex: 0 0 32px; height: 32px; border: 0; border-radius: 8px; color: var(--bs-body-color); background: var(--bs-tertiary-bg); font-size: 24px; }
+.alarm-video-close:focus-visible { outline: 2px solid var(--bs-danger); outline-offset: -2px; }
+.alarm-video-content { position: relative; flex: 1; min-height: 0; overflow: hidden; isolation: isolate; }
+
 :deep(.svg-container svg) {
   max-width: 100%;
   max-height: 100%;
