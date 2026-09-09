@@ -20,7 +20,8 @@ const messages = {
     scenes: {
       illegal_parking: '机动车违法停车',
       fire_lane_occupied: '消防通道占用',
-      indoor_fire_passage_occupied: '室内消防通道占用',
+      indoor_fire_passage_occupied: '消防通道阻塞',
+      fire_passage_blocked: '消防通道阻塞',
       object_missing: '物品丢失',
       area_intrusion: '区域入侵',
       area_intrusion_leave: '区域入侵离开'
@@ -37,7 +38,8 @@ const messages = {
     scenes: {
       illegal_parking: 'Illegal Parking',
       fire_lane_occupied: 'Fire Lane Occupied',
-      indoor_fire_passage_occupied: 'Indoor Fire Passage Occupied',
+      indoor_fire_passage_occupied: 'Fire Passage Blockage',
+      fire_passage_blocked: 'Fire Passage Blockage',
       object_missing: 'Object Missing',
       area_intrusion: 'Area Intrusion',
       area_intrusion_leave: 'Area Intrusion Left'
@@ -57,26 +59,36 @@ const isAreaIntrusionAlarm = (evt) => {
     evt?.params?.scene_type === 'area_intrusion'
 }
 
+export const isAlarmClearedEvent = (evt) => {
+  if (!evt) return false
+  if (evt.event_id === 'area_intrusion_leave') return true
+  if (evt.params?.alarm_status === 'cleared' || evt.params?.alarm_status === 'left') return true
+  if (String(evt.params?.alarm_phase).toLowerCase() === 'recovered') return true
+  return false
+}
+
 export const isAlarmEvent = (evt) => {
   if (!evt) return false
   return Boolean(evt.params?.scene_type) || ALARM_EVENT_IDS.includes(evt.event_id)
 }
 
+
 export const getAlarmEventKey = (evt) => JSON.stringify([
-  evt.device_code, evt.event_id, evt.ts, evt.params?.rule_id || ''
+  evt.device_code, evt.event_id, evt.params?.signal_id || evt.params?.occurred_at || evt.ts,
+  evt.params?.rule_id || '', evt.params?.target_id || '', evt.params?.alarm_status || ''
 ])
 
 export const mergeRecentAlarmEvents = (current, incoming) => {
   const events = new Map()
   for (const evt of [...current, ...incoming]) {
-    if (isAlarmEvent(evt)) events.set(getAlarmEventKey(evt), evt)
+    if (isAlarmEvent(evt) && !isAlarmClearedEvent(evt)) events.set(getAlarmEventKey(evt), evt)
   }
   return [...events.values()].sort((a, b) => b.ts - a.ts).slice(0, 50)
 }
 
 export const findAlarmVideoDevice = (events, devices = {}, isVideoDevice = () => true) => {
   for (const evt of events || []) {
-    if (!isAlarmEvent(evt)) continue
+    if (!isAlarmEvent(evt) || isAlarmClearedEvent(evt)) continue
     const device = devices?.[evt.device_code]
     if (device && isVideoDevice(device)) {
       return device
@@ -102,6 +114,9 @@ export const getAlarmEventName = (evt, eventDef = null, locale = 'zh') => {
     return eventDef.name
   }
   if (evt?.params?.rule_name) {
+    if (evt.params.rule_name === '室内消防通道占用' || evt.params.rule_name === 'Indoor Fire Passage Occupied') {
+      return messages[lang].scenes.indoor_fire_passage_occupied
+    }
     return evt.params.rule_name
   }
   if (evt?.params?.scene_type) {
