@@ -350,6 +350,8 @@ import {
   getAlarmEventName,
   getAlarmEventTypeLabel,
   getAlarmToastMessage,
+  getAlarmEventKey,
+  mergeRecentAlarmEvents,
   isAlarmEvent
 } from '../utils/alarmEvents.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
@@ -669,7 +671,13 @@ const closeToast = (id) => {
 
 const formatTimeAgo = (ts) => formatDateTime(ts);
 
+let eventsFetchPending = false;
+let eventsRefreshTimer = null;
+let eventStreamStopped = false;
+
 const fetchRecentEvents = async () => {
+  if (eventsFetchPending || eventStreamStopped || !localStorage.getItem('access_token') || !authStore.hasPermission('device:list')) return;
+  eventsFetchPending = true;
   try {
     const res = await axios.post('/api/history/query', {
       device_code: "",
@@ -680,7 +688,8 @@ const fetchRecentEvents = async () => {
       page_size: 50  // 多拉一些，过滤后取告警
     });
     if (res.data.code === 0 && res.data.data) {
-      const list = res.data.data.list || [];
+      if (eventStreamStopped) return;
+      const list = mergeRecentAlarmEvents(recentEvents.value, res.data.data.list || []);
       recentEvents.value = list;
       
       // 只统计告警事件的未读数
@@ -690,8 +699,9 @@ const fetchRecentEvents = async () => {
         if (isAlarm && evt.ts > lastSeenTs) {
           newCount++;
           
-          if (!toastShownForTs.has(evt.ts)) {
-            toastShownForTs.add(evt.ts);
+          const eventKey = getAlarmEventKey(evt);
+          if (!toastShownForTs.has(eventKey)) {
+            toastShownForTs.add(eventKey);
             // 只有最近30秒内发生的新告警才弹窗，避免初次加载时弹出一堆历史告警
             if (Date.now() - evt.ts < 30000) {
               const alarmName = getEventName(evt);
@@ -713,12 +723,16 @@ const fetchRecentEvents = async () => {
     }
   } catch (e) {
     // ignore
+  } finally {
+    eventsFetchPending = false;
   }
 };
 
 const setupEventStream = () => {
-  if (eventSource) return;
-  eventSource = new EventSource('/api/devices/stream?token=' + localStorage.getItem('access_token'));
+  const token = localStorage.getItem('access_token');
+  if (eventSource || eventStreamStopped || !token || !authStore.hasPermission('device:list')) return;
+  eventSource = new EventSource('/api/devices/stream?token=' + encodeURIComponent(token));
+  eventSource.addEventListener('open', fetchRecentEvents);
   
   eventSource.addEventListener('event.reported', (e) => {
     try {
@@ -732,15 +746,12 @@ const setupEventStream = () => {
       
       const isAlarm = isAlarmEvent(evt);
       if (isAlarm) {
-        recentEvents.value.unshift(evt);
-        if (recentEvents.value.length > 50) {
-          recentEvents.value.pop();
-        }
+        recentEvents.value = mergeRecentAlarmEvents(recentEvents.value, [evt]);
+        unreadCount.value = recentEvents.value.filter(item => item.ts > lastSeenTs).length;
         
-        unreadCount.value++;
-        
-        if (!toastShownForTs.has(evt.ts)) {
-          toastShownForTs.add(evt.ts);
+        const eventKey = getAlarmEventKey(evt);
+        if (!toastShownForTs.has(eventKey)) {
+          toastShownForTs.add(eventKey);
           const alarmName = getEventName(evt);
           const deviceName = getDeviceName(evt.device_code);
           showToast(alarmName, getAlarmToastMessage(evt, deviceName, locale.value));
@@ -759,7 +770,7 @@ const setupEventStream = () => {
   });
 
   eventSource.onerror = () => {
-    if (eventSource.readyState === EventSource.CLOSED) {
+    if (!eventStreamStopped && eventSource?.readyState === EventSource.CLOSED) {
       setTimeout(() => {
         eventSource = null;
         setupEventStream();
@@ -846,6 +857,7 @@ onMounted(() => {
     profileModal = new Modal(profileModalRef.value);
   }
   setupEventStream();
+  eventsRefreshTimer = setInterval(fetchRecentEvents, 5000);
   fetchDataMetadata().then(() => fetchRecentEvents());
   document.addEventListener('click', closeAllDropdowns);
   document.addEventListener('keydown', handleDropdownKeydown);
@@ -876,6 +888,8 @@ const getDisplayNameLabel = (user) => {
 };
 
 onUnmounted(() => {
+  eventStreamStopped = true;
+  clearInterval(eventsRefreshTimer);
   if (eventSource) {
     eventSource.close();
     eventSource = null;

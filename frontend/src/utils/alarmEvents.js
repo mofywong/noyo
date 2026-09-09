@@ -62,6 +62,18 @@ export const isAlarmEvent = (evt) => {
   return Boolean(evt.params?.scene_type) || ALARM_EVENT_IDS.includes(evt.event_id)
 }
 
+export const getAlarmEventKey = (evt) => JSON.stringify([
+  evt.device_code, evt.event_id, evt.ts, evt.params?.rule_id || ''
+])
+
+export const mergeRecentAlarmEvents = (current, incoming) => {
+  const events = new Map()
+  for (const evt of [...current, ...incoming]) {
+    if (isAlarmEvent(evt)) events.set(getAlarmEventKey(evt), evt)
+  }
+  return [...events.values()].sort((a, b) => b.ts - a.ts).slice(0, 50)
+}
+
 export const findAlarmVideoDevice = (events, devices = {}, isVideoDevice = () => true) => {
   for (const evt of events || []) {
     if (!isAlarmEvent(evt)) continue
