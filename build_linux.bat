@@ -19,29 +19,16 @@ if not exist "..\backend\dist\index.html" (
 )
 cd ..
 
-echo [2/3] Building Linux Backend Binaries...
-rem 1. Build Community Edition (using Go cross compilation)
-echo --- Compiling Community Edition (noyo-linux-amd64) ---
-set NOYO_EDITION=community
-call node scripts\sync-pro.mjs
-cd backend
-set CGO_ENABLED=0
-set GOOS=linux
-set GOARCH=amd64
-go build -ldflags "-w -s" -o "linux\noyo-linux-amd64" .
-if %errorlevel% neq 0 (
-    echo Error: Community backend build failed.
-    exit /b %errorlevel%
-)
-cd ..
-
 rem 2. Build Pro Edition (using WSL with CGO and $ORIGIN RPATH)
 echo --- Compiling Pro Edition (noyo-linux-amd64-pro) ---
 set NOYO_EDITION=pro
 call node scripts\sync-pro.mjs
-wsl -d Ubuntu -- bash -c "cd /mnt/d/code/github/noyo/noyo/backend && export PATH=/usr/local/go/bin:/usr/bin:/bin && export CGO_ENABLED=1 && go build -ldflags '-w -s' -o 'linux/noyo-linux-amd64-pro' . && (which patchelf >/dev/null 2>&1 || (sudo apt-get update -qq && sudo apt-get install -y patchelf)) && patchelf --set-rpath '\$ORIGIN/lib:\$ORIGIN' linux/noyo-linux-amd64-pro"
+if errorlevel 1 exit /b !errorlevel!
+rem WSL inherits the current project directory; keep shell quoting in a shell script.
+wsl -d Ubuntu -- bash scripts/build-linux-pro.sh
 if %errorlevel% neq 0 (
-    echo Warning: Pro edition build in WSL failed.
+    echo Error: Pro edition build in WSL failed. Resources were not packaged.
+    exit /b %errorlevel%
 )
 
 echo [3/3] Syncing Resources to backend/linux/...
@@ -52,20 +39,19 @@ if not exist "backend\linux\data" mkdir "backend\linux\data"
 
 attrib -r "backend\linux\*.*" /s 2>nul
 
-if exist "backend\linux\noyo-linux-amd64-pro" (
-    copy /y "backend\linux\noyo-linux-amd64-pro" "backend\linux\noyo" >nul
-) else if exist "backend\linux\noyo-linux-amd64" (
-    copy /y "backend\linux\noyo-linux-amd64" "backend\linux\noyo" >nul
-)
+if errorlevel 1 exit /b !errorlevel!
 
 if exist "backend\lib\*.so" (
     attrib -r "backend\linux\lib\*.so" 2>nul
     copy /y "backend\lib\*.so" "backend\linux\lib\" >nul
+    if errorlevel 1 exit /b !errorlevel!
 )
 xcopy /s /e /y /q "backend\models\*" "backend\linux\models\" >nul
+if errorlevel 2 exit /b !errorlevel!
 
 echo ==========================================
 echo Build Linux Success!
 echo Output Directory: %~dp0backend\linux\
 echo ==========================================
 endlocal
+exit /b 0
