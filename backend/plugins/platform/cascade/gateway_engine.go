@@ -49,6 +49,13 @@ func (e *gatewayEngineImpl) prepareGatewayDiscoveredDevice(gateway, device *stor
 	return e.server.Manager.PrepareGatewayDevice(gateway, device)
 }
 func (e *gatewayEngineImpl) prepareGatewayTelemetryEvent(gatewayCode string, event types.Event, device *store.Device) types.Event {
+	if prepared, err := attachGatewaySnapshot(event); err != nil {
+		if e.logger != nil {
+			e.logger.Warn("Failed to attach gateway alarm snapshot", zap.String("device", event.Topic), zap.Error(err))
+		}
+	} else {
+		event = prepared
+	}
 	if e.server == nil {
 		return event
 	}
@@ -210,9 +217,8 @@ func (e *gatewayEngineImpl) handleLocalEvent(event types.Event) {
 	if !e.isRegistered.Load() {
 		return
 	}
-	if device, err := store.GetDevice(event.Topic); err == nil {
-		event = e.prepareGatewayTelemetryEvent(e.gatewayCode, event, device)
-	}
+	device, _ := store.GetDevice(event.Topic)
+	event = e.prepareGatewayTelemetryEvent(e.gatewayCode, event, device)
 	topic := fmt.Sprintf("noyo/cascade/gw/%s/telemetry/up", e.gatewayCode)
 	payloadBytes, err := json.Marshal(event)
 	if err == nil {
