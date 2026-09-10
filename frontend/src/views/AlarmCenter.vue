@@ -1138,8 +1138,7 @@ const selected = ref(null)
 const selectedEvents = ref([])
 const timelineEvents = computed(() => buildAlarmTimeline(selectedEvents.value))
 function occurrenceText(index) {
-  if (index === 0) return language.value === 'en' ? 'First occurrence' : '首次发生'
-  return language.value === 'en' ? `Repeat occurrence ${index}` : `第${index}次发生`
+  return language.value === 'en' ? `Occurrence ${index + 1}` : `第${index + 1}次发生`
 }
 const detailLoading = ref(false)
 const participants = ref([])
