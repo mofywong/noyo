@@ -99,7 +99,7 @@ func (s *Server) handleAlarmMediaFile(r *ghttp.Request) {
 		return
 	}
 	kind := r.Get("kind").String()
-	if kind != "preview.mp4" && kind != "source.ts" {
+	if kind != "preview.mp4" {
 		r.Response.WriteStatus(404)
 		return
 	}
@@ -127,10 +127,6 @@ func (s *Server) handleAlarmMediaFile(r *ghttp.Request) {
 	r.Response.Header().Set("Cache-Control", "private, no-store")
 	r.Response.Header().Set("Referrer-Policy", "no-referrer")
 	r.Response.Header().Set("X-Content-Type-Options", "nosniff")
-	if kind == "preview.mp4" {
-		r.Response.Header().Set("Content-Type", "video/mp4")
-	} else {
-		r.Response.Header().Set("Content-Type", "video/mp2t")
-	}
+	r.Response.Header().Set("Content-Type", "video/mp4")
 	http.ServeContent(r.Response.Writer, r.Request, kind, st.ModTime(), f)
 }

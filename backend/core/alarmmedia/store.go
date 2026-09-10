@@ -126,16 +126,42 @@ func HasCapacity() bool {
 		}
 		return nil
 	})
-	return n < MaxStorageBytes-MaxFileBytes*2
+	return n < MaxStorageBytes-MaxFileBytes
 }
 
 // Recover marks interrupted local jobs explicitly instead of showing eternal capture.
 func Recover() {
+	PruneOriginals()
 	for _, r := range List() {
 		if !r.Remote && (r.Status == "capturing" || r.Status == "rendering") {
 			r.Status = "failed"
 			r.Reason = "interrupted"
 			_ = Save(r)
+		}
+	}
+}
+
+// PruneOriginals removes legacy duplicate videos only after a completed MP4
+// exists. Failed recordings without a replacement keep their original evidence.
+func PruneOriginals() {
+	mu.Lock()
+	defer mu.Unlock()
+	for _, r := range List() {
+		if r.Status != "ready" && r.Status != "partial" {
+			continue
+		}
+		preview, err := Path(r.ID, "preview.mp4")
+		if err != nil {
+			continue
+		}
+		if st, err := os.Stat(preview); err != nil || !st.Mode().IsRegular() || st.Size() == 0 {
+			continue
+		}
+		for _, kind := range []string{"source.ts", "source.ts.part", "overlay.ass"} {
+			path, err := Path(r.ID, kind)
+			if err == nil {
+				_ = os.Remove(path)
+			}
 		}
 	}
 }

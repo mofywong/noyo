@@ -89,6 +89,7 @@ func registerRemoteAlarmVideo(gateway, device, id string) bool {
 }
 
 func (e *gatewayEngineImpl) alarmVideoUploadLoop(ctx context.Context) {
+	alarmmedia.PruneOriginals()
 	type retryState struct {
 		next  time.Time
 		delay time.Duration
@@ -199,7 +200,7 @@ func hashAlarmVideo(path string) (alarmVideoFile, error) {
 func (e *gatewayEngineImpl) uploadAlarmVideo(ctx context.Context, r alarmmedia.Record) error {
 	files := map[string]alarmVideoFile{}
 	if r.Status != "failed" {
-		for _, kind := range []string{"source.ts", "preview.mp4"} {
+		for _, kind := range []string{"preview.mp4"} {
 			p, _ := alarmmedia.Path(r.ID, kind)
 			info, err := hashAlarmVideo(p)
 			if err != nil {
@@ -212,7 +213,7 @@ func (e *gatewayEngineImpl) uploadAlarmVideo(ctx context.Context, r alarmmedia.R
 	if err != nil || ack.Done {
 		return err
 	}
-	for _, kind := range []string{"source.ts", "preview.mp4"} {
+	for _, kind := range []string{"preview.mp4"} {
 		ack, err = e.sendAlarmVideo(ctx, alarmVideoMessage{Op: "offset", Record: r, Kind: kind})
 		if err != nil {
 			return err
@@ -273,6 +274,7 @@ func (e *platformEngineImpl) handleAlarmVideo(_ mqtt.Client, msg mqtt.Message) {
 	} // Sender retries from durable acknowledged offset.
 }
 func (e *platformEngineImpl) alarmVideoReceiveLoop(ctx context.Context) {
+	alarmmedia.PruneOriginals()
 	for {
 		select {
 		case <-ctx.Done():
@@ -320,10 +322,10 @@ func receiveAlarmVideo(m alarmVideoMessage) (int64, bool, error) {
 			m.Record.Uploaded = true
 			return 0, true, alarmmedia.Save(m.Record)
 		}
-		if len(m.Files) != 2 {
+		if len(m.Files) != 1 {
 			return 0, false, errors.New("invalid_files")
 		}
-		for _, kind := range []string{"source.ts", "preview.mp4"} {
+		for _, kind := range []string{"preview.mp4"} {
 			info := m.Files[kind]
 			if info.Size <= 0 || info.Size > alarmmedia.MaxFileBytes || len(info.SHA256) != 64 {
 				return 0, false, errors.New("file_limit")
@@ -334,7 +336,7 @@ func receiveAlarmVideo(m alarmVideoMessage) (int64, bool, error) {
 		}
 		if previous, e := os.ReadFile(metaPath); e == nil {
 			var saved alarmVideoMessage
-			if json.Unmarshal(previous, &saved) != nil || saved.Files["source.ts"] != m.Files["source.ts"] || saved.Files["preview.mp4"] != m.Files["preview.mp4"] {
+			if json.Unmarshal(previous, &saved) != nil || saved.Files["preview.mp4"] != m.Files["preview.mp4"] {
 				return 0, false, errors.New("manifest_conflict")
 			}
 			return 0, false, nil
@@ -357,7 +359,7 @@ func receiveAlarmVideo(m alarmVideoMessage) (int64, bool, error) {
 		return 0, false, err
 	}
 	if m.Op == "complete" {
-		for _, kind := range []string{"source.ts", "preview.mp4"} {
+		for _, kind := range []string{"preview.mp4"} {
 			part, _ := alarmmedia.Path(m.Record.ID, kind+".part")
 			dest, _ := alarmmedia.Path(m.Record.ID, kind)
 			if _, err = os.Stat(part); os.IsNotExist(err) {
@@ -379,7 +381,7 @@ func receiveAlarmVideo(m alarmVideoMessage) (int64, bool, error) {
 		r.Uploaded = true
 		return 0, true, alarmmedia.Save(r)
 	}
-	if m.Kind != "source.ts" && m.Kind != "preview.mp4" {
+	if m.Kind != "preview.mp4" {
 		return 0, false, errors.New("invalid_kind")
 	}
 	p, _ := alarmmedia.Path(m.Record.ID, m.Kind+".part")

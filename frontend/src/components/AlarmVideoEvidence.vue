@@ -17,7 +17,7 @@
           <video :key="selected.id" :src="previewUrl" controls playsinline preload="metadata" tabindex="0" :aria-label="text.title" @error="playbackError = true" @loadeddata="playbackError = false">{{ text.unsupported }}</video>
           <p v-if="playbackError" role="alert" class="small text-danger">{{ text.playFailed }}</p>
           <p class="small text-body-secondary mt-2 mb-2">{{ text.range }}: {{ formatTime(selected.start_at) }} – {{ formatTime(selected.end_at) }}</p>
-          <a :href="sourceUrl" class="btn btn-outline-secondary btn-sm" download rel="noreferrer">{{ text.source }}</a>
+          <a :href="previewUrl" class="btn btn-outline-primary btn-sm" download rel="noreferrer">{{ language === 'en' ? 'Download annotated recording' : '下载标注录像' }}</a>
         </template>
         <p v-else-if="selected.status === 'failed'" class="small text-body-secondary">{{ text.failedHint }}</p>
       </template>
@@ -53,7 +53,6 @@ const fileUrl = kind => {
   return `/api/alarm-instances/${encodeURIComponent(props.alarmId)}/media/${encodeURIComponent(selected.value.id)}/${kind}?${query}`
 }
 const previewUrl = computed(() => fileUrl('preview.mp4'))
-const sourceUrl = computed(() => fileUrl('source.ts'))
 const statusText = status => text.value[status] || text.value.unknown
 const formatTime = time => time ? new Date(time).toLocaleString(props.language === 'en' ? 'en-US' : 'zh-CN') : text.value.unknownTime
 const eventTime = record => formatTime(record.occurred_at)
