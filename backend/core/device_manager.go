@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"noyo/core/alarmmedia"
 	"noyo/core/protocol"
 	"noyo/core/store"
 	"noyo/core/tsdb"
@@ -527,6 +528,14 @@ func buildDeviceServiceResultEvent(deviceCode, serviceID string, params map[stri
 func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, params map[string]interface{}) error {
 	if params == nil {
 		params = make(map[string]interface{})
+	}
+	if id, ok := params["recording_id"].(string); ok {
+		record, err := alarmmedia.Load(id)
+		if err != nil || record.DeviceCode != meta.DeviceCode {
+			delete(params, "recording_id")
+		} else if device, e := store.GetDevice(meta.DeviceCode); e == nil && device != nil {
+			_ = alarmmedia.Update(id, func(r *alarmmedia.Record) { r.TenantID = device.TenantID; r.ProjectID = device.ProjectID })
+		}
 	}
 	if base64Str, ok := params["snapshot_base64"].(string); ok && len(base64Str) > 0 {
 		b64Data, ext := normalizeSnapshotBase64(base64Str)

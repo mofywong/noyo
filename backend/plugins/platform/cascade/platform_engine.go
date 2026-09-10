@@ -22,6 +22,7 @@ import (
 )
 
 type platformEngineImpl struct {
+	alarmVideoInbox    chan alarmVideoEnvelope
 	ctx                platform.Context
 	logger             *zap.Logger
 	config             *Config
@@ -48,6 +49,10 @@ func NewPlatformEngine(ctx platform.Context, logger *zap.Logger, cfg *Config) Pl
 }
 
 func (e *platformEngineImpl) Start() error {
+	e.alarmVideoInbox = make(chan alarmVideoEnvelope, 64)
+	videoCtx, videoCancel := context.WithCancel(context.Background())
+	e.cancel = videoCancel
+	go e.alarmVideoReceiveLoop(videoCtx)
 	e.logger.Info("Platform Engine Started", zap.String("mqtt_url", e.config.MqttUrl))
 
 	opts := mqtt.NewClientOptions().AddBroker(e.config.MqttUrl)
@@ -88,6 +93,7 @@ func (e *platformEngineImpl) Start() error {
 
 	e.client = mqtt.NewClient(opts)
 	if token := e.client.Connect(); token.Wait() && token.Error() != nil {
+		videoCancel()
 		return fmt.Errorf("platform engine failed to connect to mqtt broker: %w", token.Error())
 	}
 
@@ -463,6 +469,7 @@ func (e *platformEngineImpl) findAffectedGwByProduct(db *gorm.DB, productCode st
 }
 
 func (e *platformEngineImpl) subscribeTopics(c mqtt.Client) {
+	c.Subscribe("noyo/cascade/gw/+/alarm-video/up", 1, e.handleAlarmVideo)
 	c.Subscribe("noyo/cascade/gw/+/provision/request", 1, e.handleProvisionRequest)
 	c.Subscribe("noyo/cascade/gw/+/register/request", 1, e.handleRegisterRequest)
 	c.Subscribe("noyo/cascade/gw/+/sync/request", 1, e.handleSyncRequest)
@@ -713,6 +720,9 @@ func (e *platformEngineImpl) handleTelemetryUp(client mqtt.Client, msg mqtt.Mess
 				return
 			}
 			if eventId != "" {
+				if id, ok := params["recording_id"].(string); ok && !registerRemoteAlarmVideo(gatewayCode, deviceCode, id) {
+					delete(params, "recording_id")
+				}
 				e.ctx.ReportDeviceEvent(deviceCode, eventId, params)
 			}
 		}

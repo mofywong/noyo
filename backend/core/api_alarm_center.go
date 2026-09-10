@@ -17,6 +17,8 @@ import (
 )
 
 func (s *Server) RegisterAlarmCenterRoutes(group *ghttp.RouterGroup) {
+	permissionGET(group, "/alarm-instances/:id/media", "alarm:list", s.handleAlarmMedia)
+	permissionGET(group, "/alarm-instances/:id/media/:recording/:kind", "alarm:list", s.handleAlarmMediaFile)
 	permissionGET(group, "/alarm-instances/stats", "alarm:list", s.handleAlarmStats)
 	permissionGET(group, "/alarm-instances", "alarm:list", s.handleListAlarmInstances)
 	permissionGET(group, "/alarm-instances/:id", "alarm:list", s.handleGetAlarmInstance)

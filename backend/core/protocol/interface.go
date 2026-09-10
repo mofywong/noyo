@@ -89,3 +89,15 @@ type IRawStreamProvider interface {
 	AttachRawStream(deviceCode string, viewerID string, onFrame func(frame []byte, duration time.Duration), onClose func()) (cleanup func(), err error)
 }
 
+// EncodedVideoSample is one Annex-B access unit. PTS/DTS are in milliseconds.
+// Data is borrowed for the callback duration; consumers retaining it must copy.
+type EncodedVideoSample struct {
+	Data       []byte
+	PTS, DTS   uint64
+	Duration   time.Duration
+	CapturedAt time.Time
+	KeyFrame   bool
+}
+type ITimedRawStreamProvider interface {
+	AttachTimedRawStream(deviceCode, viewerID string, onFrame func(EncodedVideoSample), onClose func()) (func(), error)
+}

@@ -22,6 +22,7 @@ import (
 )
 
 type gatewayEngineImpl struct {
+	alarmVideoAcks     chan alarmVideoAck
 	ctx                platform.Context
 	logger             *zap.Logger
 	config             *Config
@@ -78,6 +79,7 @@ func NewGatewayEngine(ctx platform.Context, logger *zap.Logger, cfg *Config) Gat
 }
 
 func (e *gatewayEngineImpl) Start() error {
+	e.alarmVideoAcks = make(chan alarmVideoAck, 8)
 	e.logger.Info("Gateway Engine Started", zap.String("mqtt_url", e.config.MqttUrl))
 
 	if e.config.MqttUrl == "" {
@@ -128,6 +130,7 @@ func (e *gatewayEngineImpl) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 	go e.telemetryLoop(ctx)
+	go e.alarmVideoUploadLoop(ctx)
 
 	// Subscribe to local core events for telemetry routing to Platform
 	e.localEventSubs[types.EventDeviceStatusChanged] = e.ctx.SubscribeEvent(types.EventDeviceStatusChanged, e.handleLocalEvent)
@@ -227,6 +230,18 @@ func (e *gatewayEngineImpl) handleLocalEvent(event types.Event) {
 }
 
 func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
+	c.Subscribe(fmt.Sprintf("noyo/cascade/gw/%s/alarm-video/down", e.gatewayCode), 1, func(_ mqtt.Client, msg mqtt.Message) {
+		if msg.Retained() || len(msg.Payload()) > 4096 {
+			return
+		}
+		var ack alarmVideoAck
+		if json.Unmarshal(msg.Payload(), &ack) == nil {
+			select {
+			case e.alarmVideoAcks <- ack:
+			default:
+			}
+		}
+	})
 	configTopic := fmt.Sprintf("noyo/cascade/gw/%s/config/version", e.gatewayCode)
 	c.Subscribe(configTopic, 1, e.handleConfigVersion)
 

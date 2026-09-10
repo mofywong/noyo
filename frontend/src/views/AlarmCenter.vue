@@ -418,6 +418,7 @@
             <span class="spinner-border spinner-border-sm me-2"></span>{{ t('loading') }}
           </div>
           <template v-else>
+            <AlarmVideoEvidence v-if="selectedAlarm.public_id" :alarm-id="selectedAlarm.public_id" :language="language" />
             <!-- 核心指标摘要卡片 -->
             <div class="card border mb-3 alarm-detail-summary">
               <div class="card-body p-3">
@@ -631,8 +632,8 @@
               </div>
               <div class="card-body p-3">
                 <ol class="timeline mb-0">
-                  <li v-for="event in selectedEvents" :key="event.event.id || event.event.ID">
-                    <strong class="text-body">{{ eventText(event.event.type) }}</strong>
+                  <li v-for="event in timelineEvents" :key="event.event.id || event.event.ID">
+                    <strong class="text-body">{{ event.occurrenceIndex === undefined ? eventText(event.event.type) : occurrenceText(event.occurrenceIndex) }}</strong>
                     <time :datetime="event.created_at || event.event.created_at || event.event.CreatedAt || undefined">
                       {{ formatTime(event.created_at || event.event.created_at || event.event.CreatedAt) }}
                     </time>
@@ -644,8 +645,9 @@
                         <img :src="timelineSnapshotUrl(event)" class="rounded border shadow-sm" style="max-height: 60px; object-fit: contain;" :alt="t('snapshot')">
                       </a>
                     </div>
+                    <AlarmVideoEvidence v-if="event.recordingId && selectedAlarm.public_id" :alarm-id="selectedAlarm.public_id" :recording-id="event.recordingId" :language="language" />
                   </li>
-                  <li v-if="!selectedEvents.length" class="text-body-secondary small">
+                  <li v-if="!timelineEvents.length" class="text-body-secondary small">
                     {{ t('noTimeline') }}
                   </li>
                 </ol>
@@ -834,8 +836,10 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import WorkOrderFormFields from '../components/work-order/WorkOrderFormFields.vue'
+import AlarmVideoEvidence from '../components/AlarmVideoEvidence.vue'
 import ListPagination from '../components/ListPagination.vue'
 import { ALARM_EVENT_IDS } from '../utils/alarmEvents.js'
+import { buildAlarmTimeline } from '../utils/alarmTimeline.js'
 import { loadAllWorkOrderParticipants } from '../utils/workOrderApi.js'
 import { formatDateTime } from '../utils/dateTime.js'
 import CompactListMetrics from '../components/CompactListMetrics.vue'
@@ -1132,6 +1136,11 @@ const historyLoading = ref(false)
 const legacyDetail = ref(null)
 const selected = ref(null)
 const selectedEvents = ref([])
+const timelineEvents = computed(() => buildAlarmTimeline(selectedEvents.value))
+function occurrenceText(index) {
+  if (index === 0) return language.value === 'en' ? 'First occurrence' : '首次发生'
+  return language.value === 'en' ? `Repeat occurrence ${index}` : `第${index}次发生`
+}
 const detailLoading = ref(false)
 const participants = ref([])
 const operation = ref('')

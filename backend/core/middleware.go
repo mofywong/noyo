@@ -54,7 +54,13 @@ func resetAppRateLimiterForTest() {
 // Returns *AuthContext on success, nil on failure (response already written).
 func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" { tokenParam := r.Get("token").String(); if tokenParam != "" { authHeader = "Bearer " + tokenParam } }; if authHeader == "" {
+	if authHeader == "" {
+		tokenParam := r.Get("token").String()
+		if tokenParam != "" {
+			authHeader = "Bearer " + tokenParam
+		}
+	}
+	if authHeader == "" {
 		r.Response.WriteJson(map[string]interface{}{
 			"code":    401,
 			"message": "Missing Authorization header",
@@ -92,6 +98,16 @@ func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 	// Extract current context from headers
 	headerTenantID, _ := strconv.ParseUint(r.Header.Get("X-Current-Tenant-ID"), 10, 64)
 	headerProjectID, _ := strconv.ParseUint(r.Header.Get("X-Current-Project-ID"), 10, 64)
+	// Native media elements cannot set scope headers. These selectors still go
+	// through the same tenant and project authorization as header selectors.
+	if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/alarm-instances/") && strings.Contains(r.URL.Path, "/media/") {
+		if headerTenantID == 0 {
+			headerTenantID, _ = strconv.ParseUint(r.GetQuery("media_tenant_id").String(), 10, 64)
+		}
+		if headerProjectID == 0 {
+			headerProjectID, _ = strconv.ParseUint(r.GetQuery("media_project_id").String(), 10, 64)
+		}
+	}
 
 	currentTenantID := uint(headerTenantID)
 	currentProjectID := uint(headerProjectID)
