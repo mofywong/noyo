@@ -410,10 +410,14 @@
               {{ alarmContextText(selected) }}
             </p>
           </div>
+          <button type="button" class="btn btn-outline-primary btn-sm flex-shrink-0" :disabled="detailLoading || !pdfDetailReady || pdfExporting" @click="downloadAlarmPdf">
+            {{ pdfExporting ? pdfCopy.exporting : pdfCopy.export }}
+          </button>
           <button type="button" class="btn-close flex-shrink-0" :aria-label="t('close')" @click="closeDetail"></button>
         </div>
 
         <div class="alarm-drawer__body">
+          <p v-if="pdfError" role="alert" class="text-danger">{{ pdfError }}</p>
           <div v-if="detailLoading" class="text-center py-5">
             <span class="spinner-border spinner-border-sm me-2"></span>{{ t('loading') }}
           </div>
@@ -837,6 +841,7 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import WorkOrderFormFields from '../components/work-order/WorkOrderFormFields.vue'
 import AlarmVideoEvidence from '../components/AlarmVideoEvidence.vue'
+import { exportAlarmPdf, alarmPdfFilename } from '../utils/alarmPdf.js'
 import ListPagination from '../components/ListPagination.vue'
 import { ALARM_EVENT_IDS } from '../utils/alarmEvents.js'
 import { buildAlarmTimeline } from '../utils/alarmTimeline.js'
@@ -1124,6 +1129,78 @@ const items = ref([])
 const stats = ref({})
 const loading = ref(false)
 const requestError = ref('')
+const pdfExporting = ref(false)
+const pdfDetailReady = ref(false)
+const pdfError = ref('')
+const pdfCopy = computed(() => language.value === 'en' ? {
+  export: 'Export PDF', exporting: 'Exporting…', failed: 'PDF export failed. Please retry.',
+  imageFailure: 'Evidence image unavailable.', video: 'Recording evidence',
+  videoHint: 'Recordings are listed by ID and time range. Open alarm details to play the annotated video.',
+  mediaFailure: 'Recording evidence could not be loaded. Please retry.',
+  states: { capturing: 'Capturing', rendering: 'Rendering', uploading: 'Uploading', ready: 'Ready', partial: 'Partial', failed: 'Failed' }, unknown: 'Unknown',
+} : {
+  export: '导出 PDF', exporting: '正在导出…', failed: 'PDF 导出失败，请重试。',
+  imageFailure: '证据图片无法加载。', video: '录像证据',
+  videoHint: '录像以编号和时间范围列出，请在告警详情中播放标注录像。',
+  mediaFailure: '录像证据加载失败，请重试。',
+  states: { capturing: '录制中', rendering: '生成中', uploading: '上传中', ready: '已就绪', partial: '部分录像', failed: '生成失败' }, unknown: '未知',
+})
+async function downloadAlarmPdf() {
+  if (!selected.value || detailLoading.value || !pdfDetailReady.value || pdfExporting.value) return
+  pdfExporting.value = true
+  pdfError.value = ''
+  const item = selected.value
+  const alarm = { ...selectedAlarm.value }
+  const copy = { ...pdfCopy.value }
+  const blocks = []
+  const field = (key, value) => blocks.push({ text: `${t(key)}: ${value || '—'}` })
+  const reportTitle = t('details')
+  const filename = alarmPdfFilename(alarmDeviceName(item), titleOf(item), alarm.first_occurred_at)
+  blocks.push({ text: titleOf(item), hero: true })
+  blocks.push({ text: alarm.public_id })
+  const overview = [
+    ['severity', severityText(severityOf(item))], ['condition', conditionText(alarm.condition_status)],
+    ['handling', handlingText(alarm.handling_status)], ['owner', currentHandlerText(item)],
+    ['occurrence', alarm.occurrence_count || 1], ['device', alarmDeviceName(item)],
+    ['product', alarmProductName(item)], ['alarmTarget', alarmTargetName(item)],
+    ['event', alarmEventName(item)], ['firstSeen', formatTime(alarm.first_occurred_at)],
+    ['clearedAt', formatTime(alarm.recovered_at)],
+    ['source', sourceTypeText(alarm.source_type)], ['workOrder', alarm.work_order_public_id],
+  ].map(([key, value]) => ({ label: t(key), value: value || '—' }))
+  blocks.push({ fields: overview })
+  const evidence = evidenceOf(item)
+  const description = evidence.params?.description || evidence.description
+  if (description) field('summary', description)
+  blocks.push({ text: t('alarmEvidence'), heading: true }, { image: snapshotUrl(item) })
+  if (hasClearedEvidence(item)) {
+    blocks.push({ text: t('clearedEvidence'), heading: true }, { image: clearedSnapshotUrl(item) })
+    field('clearedTarget', clearedAlarmTargetName(item))
+    field('event', clearedAlarmEventName(item))
+  }
+  blocks.push({ text: t('timeline'), heading: true })
+  for (const event of timelineEvents.value) {
+    blocks.push({ text: `${formatTime(event.created_at || event.event.created_at || event.event.CreatedAt)} · ${event.occurrenceIndex === undefined ? eventText(event.event.type) : occurrenceText(event.occurrenceIndex)}` })
+    const entry = blocks[blocks.length - 1]
+    entry.timeline = true
+    entry.text += `\n${timelineDetail(event)}`
+    if (event.recordingId) entry.text += `\n${copy.video}: ${event.recordingId}`
+    entry.image = timelineSnapshotUrl(event)
+  }
+  if (!timelineEvents.value.length) blocks.push({ text: t('noTimeline') })
+  try {
+    const response = await axios.get(`/api/alarm-instances/${encodeURIComponent(alarm.public_id)}/media`)
+    if (response.data?.code !== 0 || !Array.isArray(response.data.data)) throw new Error(copy.mediaFailure)
+    if (response.data.data.length) {
+      blocks.push({ text: copy.video, heading: true }, { text: copy.videoHint })
+      for (const record of response.data.data) blocks.push({ text: `${record.id} · ${copy.states[record.status] || copy.unknown}\n${formatTime(record.start_at)} – ${formatTime(record.end_at)}` })
+    }
+    await exportAlarmPdf({ title: reportTitle, blocks, filename, imageFailure: copy.imageFailure })
+  } catch {
+    pdfError.value = copy.failed
+  } finally {
+    pdfExporting.value = false
+  }
+}
 const filters = ref({ search: '', severity: '', condition: '', handling: '', includeClosed: true, closedToday: false })
 const activeQuickFilters = ref([])
 const activeView = ref('queue')
@@ -1732,6 +1809,8 @@ async function openDetail(item) {
   activeEvidenceTab.value = (hasClearedEvidence(item) && !hasAlarmEvidence(item)) ? 'cleared' : 'alarm'
   detailLoading.value = true
   selectedEvents.value = []
+  pdfDetailReady.value = false
+  pdfError.value = ''
   focusModal(detailDialog)
   try {
     const id = alarmOf(item).public_id
@@ -1744,6 +1823,7 @@ async function openDetail(item) {
       }
     }
     if (eventsResponse.data?.code === 0) selectedEvents.value = eventsResponse.data.data || []
+    pdfDetailReady.value = detailResponse.data?.code === 0 && eventsResponse.data?.code === 0 && Array.isArray(eventsResponse.data.data)
   } catch (error) {
     if (requestVersion !== detailLoadVersion) return
     requestError.value = errorMessage(error)
