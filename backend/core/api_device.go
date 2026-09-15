@@ -256,8 +256,7 @@ func (s *Server) handleGetDevice(r *ghttp.Request) {
 }
 
 func (s *Server) handleListDevices(r *ghttp.Request) {
-	page := r.Get("page", 1).Int()
-	pageSize := r.Get("pageSize", 10).Int()
+	page, pageSize := normalizeListPage(r.Get("page", 1).Int(), r.Get("pageSize", 10).Int())
 
 	r.Response.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	r.Response.Header().Set("Pragma", "no-cache")

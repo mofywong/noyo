@@ -225,7 +225,7 @@ func (c *PlatformContextImpl) GetDeviceData(deviceCode string) map[string]interf
 
 func (c *PlatformContextImpl) GetEnabledProtocols() ([]types.PluginMeta, error) {
 	var protocols []types.PluginMeta
-	for _, p := range c.server.Manager.ProtocolPlugins {
+	for _, p := range c.server.Manager.ProtocolSnapshot() {
 		if p.IsEnabled() {
 			protocols = append(protocols, *p.GetMeta())
 		}

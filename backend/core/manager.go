@@ -509,6 +509,18 @@ func (pm *PluginManager) GetPlugin(name string) IManagedPlugin {
 	return nil
 }
 
+// ProtocolSnapshot copies membership under the lock; callers invoke plugins
+// after releasing the manager lock to allow reentrant plugin callbacks.
+func (pm *PluginManager) ProtocolSnapshot() []protocol.IProtocolPlugin {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	plugins := make([]protocol.IProtocolPlugin, 0, len(pm.ProtocolPlugins))
+	for _, plugin := range pm.ProtocolPlugins {
+		plugins = append(plugins, plugin)
+	}
+	return plugins
+}
+
 // StartPlugins starts all plugins
 func (pm *PluginManager) StartPlugins() {
 	// Gather plugins to start

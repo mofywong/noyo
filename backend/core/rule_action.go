@@ -383,6 +383,10 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 		}
 		_, err = ae.deviceManager.CallDeviceService(action.DeviceCode, action.ServiceCode, action.ServiceParams)
 	case RuleActionNotification:
+		if ae.deviceManager == nil || !ae.deviceManager.EventBus.HasSubscribers(types.EventType("rule.notification")) {
+			err = fmt.Errorf("rule capability unavailable: notification consumer is not installed")
+			break
+		}
 		if ae.deviceManager != nil && ae.deviceManager.EventBus != nil {
 			ae.deviceManager.EventBus.Publish(types.Event{
 				Type:  types.EventType("rule.notification"),
@@ -464,15 +468,26 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 			"created":         commandResult.Created,
 		}
 	case RuleActionLLM:
+		if ae.deviceManager == nil || !ae.deviceManager.EventBus.HasSubscribers(types.EventType("rule.action.llm")) {
+			err = fmt.Errorf("rule capability unavailable: llm consumer is not installed")
+			break
+		}
 		if ae.deviceManager != nil && ae.deviceManager.EventBus != nil {
 			responseTopic := fmt.Sprintf("rule.action.llm.response.%s.%d", ctx.Rule.Code, time.Now().UnixNano())
 			responseChan := make(chan string, 1)
 
 			subID := ae.deviceManager.EventBus.SubscribeWithID(types.EventType(responseTopic), func(e types.Event) {
-				if text, ok := e.Payload.(map[string]any)["text"].(string); ok {
-					responseChan <- text
-				} else {
-					responseChan <- ""
+				payload, ok := e.Payload.(map[string]any)
+				if !ok {
+					return
+				}
+				text, ok := payload["text"].(string)
+				if !ok {
+					return
+				}
+				select {
+				case responseChan <- text:
+				default:
 				}
 			})
 			defer ae.deviceManager.EventBus.Unsubscribe(types.EventType(responseTopic), subID)
@@ -515,9 +530,15 @@ func (ae *ActionExecutor) executeSingleAction(execCtx context.Context, ctx *Rule
 				}
 			case <-time.After(30 * time.Second):
 				err = fmt.Errorf("llm action timeout")
+			case <-actionCtx.Done():
+				err = actionCtx.Err()
 			}
 		}
 	case RuleActionVoicePlayback:
+		if ae.deviceManager == nil || !ae.deviceManager.EventBus.HasSubscribers(types.EventType("rule.action.voice_playback")) {
+			err = fmt.Errorf("rule capability unavailable: voice playback consumer is not installed")
+			break
+		}
 		if ae.deviceManager != nil && ae.deviceManager.EventBus != nil {
 			text := action.VoiceText
 			if text == "" {

@@ -32,6 +32,11 @@ type DispatchService struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
+	mu            sync.RWMutex
+	accepting     bool
+	enqueueWG     sync.WaitGroup
+	closeOnce     sync.Once
+	closeDone     chan struct{}
 }
 
 // NewDispatchService creates a new DispatchService
@@ -45,11 +50,15 @@ func NewDispatchService(manager *PluginManager, registry *DeviceRegistry, eventB
 		dispatchQueue: make(chan dispatchJob, 10000), // Large buffer for dispatch
 		ctx:           ctx,
 		cancel:        cancel,
+		closeDone:     make(chan struct{}),
 	}
 }
 
 // Start subscribes to events and starts managing dispatch
 func (s *DispatchService) Start() {
+	s.mu.Lock()
+	s.accepting = true
+	s.mu.Unlock()
 	// Start Worker Pool
 	workers := 50 // Configurable?
 	for i := 0; i < workers; i++ {
@@ -66,18 +75,42 @@ func (s *DispatchService) Start() {
 
 // Stop shuts down the dispatch service
 func (s *DispatchService) Stop() {
-	s.cancel()
-	s.wg.Wait()
+	_ = s.CloseWithContext(context.Background())
 	s.Logger.Info("DispatchService stopped")
+}
+
+// CloseWithContext drains work already accepted from EventBus before plugins
+// are stopped.  A deadline makes an overloaded shutdown observable instead of
+// blocking process termination forever.
+func (s *DispatchService) CloseWithContext(ctx context.Context) error {
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		s.accepting = false
+		s.mu.Unlock()
+		go func() {
+			s.enqueueWG.Wait()
+			close(s.dispatchQueue)
+			s.wg.Wait()
+			s.cancel()
+			close(s.closeDone)
+		}()
+	})
+	select {
+	case <-s.closeDone:
+		return nil
+	case <-ctx.Done():
+		s.cancel()
+		return ctx.Err()
+	}
 }
 
 func (s *DispatchService) worker() {
 	defer s.wg.Done()
-	for {
+	for job := range s.dispatchQueue {
 		select {
 		case <-s.ctx.Done():
 			return
-		case job := <-s.dispatchQueue:
+		default:
 			s.processJob(job)
 		}
 	}
@@ -149,6 +182,14 @@ func (s *DispatchService) getProductCode(deviceCode string) string {
 
 // pushJob enqueues a job with non-blocking logic (or timeout)
 func (s *DispatchService) pushJob(job dispatchJob) {
+	s.mu.RLock()
+	if !s.accepting {
+		s.mu.RUnlock()
+		return
+	}
+	s.enqueueWG.Add(1)
+	s.mu.RUnlock()
+	defer s.enqueueWG.Done()
 	select {
 	case s.dispatchQueue <- job:
 	case <-time.After(100 * time.Millisecond): // Unified timeout with EventBus

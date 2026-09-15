@@ -34,6 +34,10 @@ type EventBus struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	wg             sync.WaitGroup
+	publishWG      sync.WaitGroup
+	closed         bool
+	closeOnce      sync.Once
+	closeDone      chan struct{}
 	logger         *zap.Logger
 }
 
@@ -52,6 +56,7 @@ func NewEventBus(logger *zap.Logger) *EventBus {
 		ctx:            ctx,
 		cancel:         cancel,
 		logger:         logger,
+		closeDone:      make(chan struct{}),
 	}
 
 	// Start Workers
@@ -92,19 +97,30 @@ func (eb *EventBus) worker() {
 
 // Subscribe subscribes a handler to a specific event type (legacy, no unsubscribe support)
 func (eb *EventBus) Subscribe(eventType types.EventType, handler EventHandler) {
-	eb.mu.Lock()
-	defer eb.mu.Unlock()
-	id := eb.nextID.Add(1)
-	eb.subscribers[eventType] = append(eb.subscribers[eventType], subscription{id: id, handler: handler})
+	eb.SubscribeWithID(eventType, handler)
 }
 
 // SubscribeWithID subscribes a handler and returns a unique subscription ID for later unsubscription
 func (eb *EventBus) SubscribeWithID(eventType types.EventType, handler EventHandler) uint64 {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
+	if eb.closed || handler == nil {
+		return 0
+	}
 	id := eb.nextID.Add(1)
 	eb.subscribers[eventType] = append(eb.subscribers[eventType], subscription{id: id, handler: handler})
 	return id
+}
+
+// HasSubscribers reports whether a running bus has an installed capability
+// consumer. Delivery may still fail or time out after this availability check.
+func (eb *EventBus) HasSubscribers(eventType types.EventType) bool {
+	if eb == nil {
+		return false
+	}
+	eb.mu.RLock()
+	defer eb.mu.RUnlock()
+	return !eb.closed && len(eb.subscribers[eventType]) > 0
 }
 
 // Unsubscribe removes a subscription by its ID
@@ -123,6 +139,12 @@ func (eb *EventBus) Unsubscribe(eventType types.EventType, id uint64) {
 // Publish publishes an event to all subscribers asynchronously via the worker pool
 func (eb *EventBus) Publish(event types.Event) {
 	eb.mu.RLock()
+	if eb.closed {
+		eb.mu.RUnlock()
+		return
+	}
+	eb.publishWG.Add(1)
+	defer eb.publishWG.Done()
 	subs := eb.subscribers[event.Type]
 	// Copy handlers to avoid holding lock during enqueue
 	handlers := make([]EventHandler, len(subs))
@@ -148,6 +170,12 @@ func (eb *EventBus) Publish(event types.Event) {
 // PublishSync publishes an event to all subscribers synchronously
 func (eb *EventBus) PublishSync(event types.Event) {
 	eb.mu.RLock()
+	if eb.closed {
+		eb.mu.RUnlock()
+		return
+	}
+	eb.publishWG.Add(1)
+	defer eb.publishWG.Done()
 	subs := eb.subscribers[event.Type]
 	handlers := make([]EventHandler, len(subs))
 	for i, s := range subs {
@@ -162,7 +190,30 @@ func (eb *EventBus) PublishSync(event types.Event) {
 
 // Close shuts down the event bus
 func (eb *EventBus) Close() {
-	eb.cancel()
-	close(eb.jobQueue)
-	eb.wg.Wait()
+	_ = eb.CloseWithContext(context.Background())
+}
+
+// CloseWithContext stops new publications and drains accepted jobs. A timeout
+// cancels workers without pretending that queued work was delivered. A handler
+// that ignores cancellation may continue until it returns.
+func (eb *EventBus) CloseWithContext(ctx context.Context) error {
+	eb.closeOnce.Do(func() {
+		eb.mu.Lock()
+		eb.closed = true
+		eb.mu.Unlock()
+		go func() {
+			eb.publishWG.Wait()
+			close(eb.jobQueue)
+			eb.wg.Wait()
+			eb.cancel()
+			close(eb.closeDone)
+		}()
+	})
+	select {
+	case <-eb.closeDone:
+		return nil
+	case <-ctx.Done():
+		eb.cancel()
+		return ctx.Err()
+	}
 }

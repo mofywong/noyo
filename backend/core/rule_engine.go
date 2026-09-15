@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"noyo/core/store"
@@ -31,9 +32,11 @@ type RuleEngine struct {
 	cron              *cron.Cron
 	cronMu            sync.Mutex
 	cronEntries       map[string]cron.EntryID
+	cronRunning       bool
+	loadMu            sync.Mutex
 	controlMu         sync.Mutex
 	controls          map[string]*ruleExecutionControl
-	rules             sync.Map
+	rules             atomic.Pointer[ruleSnapshot]
 	execQueue         chan *RuleExecContext
 	workerCount       int
 	ruleTimeout       time.Duration
@@ -42,6 +45,12 @@ type RuleEngine struct {
 	depthLimit        int
 	workOrderCommands workorder.CommandPort
 	cancel            context.CancelFunc
+}
+
+// A published snapshot is immutable. Events retain the matching runtime even
+// when a new rule version is published before they enter the execution queue.
+type ruleSnapshot struct {
+	byCode map[string]*RuleRuntime
 }
 
 func NewRuleEngine(server *Server) *RuleEngine {
@@ -95,7 +104,10 @@ func (re *RuleEngine) Start() error {
 	re.eventBus.Subscribe(types.EventPropertyReported, re.handleEvent)
 	re.eventBus.Subscribe(types.EventEventReported, re.handleEvent)
 	re.eventBus.Subscribe(types.EventDeviceStatusChanged, re.handleEvent)
+	re.cronMu.Lock()
+	re.cronRunning = true
 	re.cron.Start()
+	re.cronMu.Unlock()
 	return nil
 }
 
@@ -103,33 +115,62 @@ func (re *RuleEngine) Stop() {
 	if re.cancel != nil {
 		re.cancel()
 	}
+	re.cronMu.Lock()
+	re.cronRunning = false
 	if re.cron != nil {
 		re.cron.Stop()
 	}
+	re.cronMu.Unlock()
 }
 
 func (re *RuleEngine) LoadRules() error {
+	re.loadMu.Lock()
+	defer re.loadMu.Unlock()
 	var rules []store.Rule
 	if err := store.DB.Where("enabled = ? AND status = ?", true, RuleStatusEnabled).Find(&rules).Error; err != nil {
 		return err
 	}
-	re.clearCronEntries()
-	re.rules.Range(func(key, value any) bool {
-		re.rules.Delete(key)
-		return true
-	})
+	next := &ruleSnapshot{byCode: make(map[string]*RuleRuntime, len(rules))}
+	nextCron := newRuleCronScheduler()
+	nextEntries := make(map[string]cron.EntryID)
 	for _, rule := range rules {
-		if err := re.loadRule(rule); err != nil && re.server != nil && re.server.Logger != nil {
-			re.server.Logger.Warn("failed to load rule", zap.String("rule", rule.Code), zap.Error(err))
+		runtime, err := compileRuleRuntime(rule)
+		if err != nil {
+			return fmt.Errorf("load rule %s: %w", rule.Code, err)
 		}
+		next.byCode[rule.Code] = runtime
+		for _, trigger := range runtime.Triggers {
+			if trigger.Type != RuleTriggerCron || trigger.CronExpr == "" {
+				continue
+			}
+			entryID, err := nextCron.AddFunc(trigger.CronExpr, func() {
+				re.enqueueRuntime(runtime, trigger, types.Event{Type: types.EventType(RuleTriggerCron), Timestamp: time.Now().UnixMilli()}, 1)
+			})
+			if err != nil {
+				return fmt.Errorf("load cron for rule %s: %w", rule.Code, err)
+			}
+			nextEntries[rule.Code+":"+trigger.ID] = entryID
+		}
+	}
+	// Invalid definitions leave both the prior rules and scheduler untouched.
+	re.cronMu.Lock()
+	defer re.cronMu.Unlock()
+	if re.cron != nil {
+		re.cron.Stop()
+	}
+	re.rules.Store(next)
+	re.cron = nextCron
+	re.cronEntries = nextEntries
+	if re.cronRunning {
+		nextCron.Start()
 	}
 	return nil
 }
 
-func (re *RuleEngine) loadRule(rule store.Rule) error {
+func compileRuleRuntime(rule store.Rule) (*RuleRuntime, error) {
 	def, err := RuleDefinitionFromStore(&rule)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rt := &RuleRuntime{
 		TenantID:      rule.TenantID,
@@ -150,35 +191,7 @@ func (re *RuleEngine) loadRule(rule store.Rule) error {
 	if rt.Priority <= 0 {
 		rt.Priority = 50
 	}
-	re.rules.Store(rule.Code, rt)
-	for _, trigger := range rt.Triggers {
-		if trigger.Type == RuleTriggerCron && trigger.CronExpr != "" {
-			ruleCode := rule.Code
-			triggerCopy := trigger
-			entryID, err := re.cron.AddFunc(trigger.CronExpr, func() {
-				re.enqueue(ruleCode, triggerCopy, types.Event{Type: types.EventType(RuleTriggerCron), Timestamp: time.Now().UnixMilli()}, 1)
-			})
-			if err != nil {
-				return err
-			}
-			re.cronMu.Lock()
-			re.cronEntries[rule.Code+":"+trigger.ID] = entryID
-			re.cronMu.Unlock()
-		}
-	}
-	return nil
-}
-
-func (re *RuleEngine) clearCronEntries() {
-	if re == nil || re.cron == nil {
-		return
-	}
-	re.cronMu.Lock()
-	defer re.cronMu.Unlock()
-	for key, entryID := range re.cronEntries {
-		re.cron.Remove(entryID)
-		delete(re.cronEntries, key)
-	}
+	return rt, nil
 }
 
 func (re *RuleEngine) handleEvent(event types.Event) {
@@ -190,7 +203,7 @@ func (re *RuleEngine) handleEvent(event types.Event) {
 	}
 
 	for _, match := range re.matchingRules(event) {
-		re.enqueue(match.ruleCode, match.trigger, event, 1)
+		re.enqueueRuntime(match.runtime, match.trigger, event, 1)
 	}
 }
 
@@ -199,6 +212,7 @@ type ruleExecutionControl struct {
 }
 
 type matchedRuleTrigger struct {
+	runtime  *RuleRuntime
 	ruleCode string
 	priority int
 	trigger  RuleTrigger
@@ -206,19 +220,22 @@ type matchedRuleTrigger struct {
 
 func (re *RuleEngine) matchingRules(event types.Event) []matchedRuleTrigger {
 	matches := make([]matchedRuleTrigger, 0)
-	re.rules.Range(func(_, value any) bool {
-		rule := value.(*RuleRuntime)
+	snapshot := re.rules.Load()
+	if snapshot == nil {
+		return matches
+	}
+	for _, rule := range snapshot.byCode {
 		for _, trigger := range rule.Triggers {
 			if re.triggerMatches(trigger, event) {
 				matches = append(matches, matchedRuleTrigger{
+					runtime:  rule,
 					ruleCode: rule.Code,
 					priority: rule.Priority,
 					trigger:  trigger,
 				})
 			}
 		}
-		return true
-	})
+	}
 	sort.SliceStable(matches, func(i, j int) bool {
 		if matches[i].priority == matches[j].priority {
 			return matches[i].ruleCode < matches[j].ruleCode
@@ -229,14 +246,18 @@ func (re *RuleEngine) matchingRules(event types.Event) []matchedRuleTrigger {
 }
 
 func (re *RuleEngine) enqueue(ruleCode string, trigger RuleTrigger, event types.Event, depth int) {
-	if depth > re.depthLimit {
+	snapshot := re.rules.Load()
+	if snapshot == nil {
 		return
 	}
-	value, ok := re.rules.Load(ruleCode)
-	if !ok {
+	re.enqueueRuntime(snapshot.byCode[ruleCode], trigger, event, depth)
+}
+
+func (re *RuleEngine) enqueueRuntime(runtime *RuleRuntime, trigger RuleTrigger, event types.Event, depth int) {
+	if runtime == nil || depth > re.depthLimit {
 		return
 	}
-	rule := *value.(*RuleRuntime)
+	rule := *runtime
 	ctx := &RuleExecContext{
 		Context:       context.Background(),
 		Rule:          rule,

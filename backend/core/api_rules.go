@@ -502,20 +502,12 @@ func (s *Server) buildRuleFromPayload(code string, payload rulePayload, tenantID
 }
 
 func (s *Server) applyRuleScope(rule *store.Rule) {
-	if s.RuleEngine == nil || s.RuleEngine.distributor == nil {
-		rule.Scope = RuleScopePlatform
-		rule.GatewaySN = ""
-		rule.SyncState = "local"
-		return
-	}
-	scope, gatewaySN := s.RuleEngine.distributor.AnalyzeScope(rule)
-	rule.Scope = scope
-	rule.GatewaySN = gatewaySN
-	if scope == RuleScopeGateway {
-		rule.SyncState = "pending"
-	} else {
-		rule.SyncState = "local"
-	}
+	// There is no versioned gateway deployment or acknowledgement path yet.
+	// Keep rules locally executable so the API never advertises a gateway state
+	// that cannot complete or leaves execution ownership ambiguous.
+	rule.Scope = RuleScopePlatform
+	rule.GatewaySN = ""
+	rule.SyncState = "local"
 }
 
 func (s *Server) validateRuleControlPermission(r *ghttp.Request, rule *store.Rule) error {
