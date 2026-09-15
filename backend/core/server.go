@@ -1,8 +1,11 @@
 package core
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -19,13 +22,16 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 
 	// ort "github.com/yalue/onnxruntime_go"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // Server represents the gateway core server
@@ -45,6 +51,7 @@ type Server struct {
 	MediaSessions     *MediaSessionManager
 	WebServer         *ghttp.Server
 	uiFS              fs.FS
+	setupMu           sync.Mutex
 }
 
 func (s *Server) SetUI(uiFS fs.FS) {
@@ -90,20 +97,25 @@ func NewServer() (*Server, error) {
 
 	// 1. Load Config from Database
 	cfg, err := store.LoadGlobalConfig()
-	if err != nil {
-		// If not found or error, use default and save it
+	newConfig := errors.Is(err, gorm.ErrRecordNotFound)
+	if err != nil && !newConfig {
+		return nil, fmt.Errorf("load global config: %w", err)
+	}
+	if newConfig {
 		cfg = config.DefaultConfig()
-		if saveErr := store.SaveGlobalConfig(cfg); saveErr != nil {
-			// ignore save error, just use default
+	}
+	changed, err := cfg.NormalizeAuth()
+	if err != nil {
+		return nil, fmt.Errorf("normalize authentication config: %w", err)
+	}
+	if newConfig || changed {
+		if err := store.SaveGlobalConfig(cfg); err != nil {
+			return nil, fmt.Errorf("persist authentication config: %w", err)
 		}
 	}
 
 	logger := InitLogger(cfg.Log)
 	store.SetDBLogLevel(cfg.Log.Level)
-
-	if err != nil && err.Error() != "record not found" {
-		logger.Warn("Failed to load global config from db, using defaults", zap.Error(err))
-	}
 
 	s := &Server{
 		Config: cfg,
@@ -181,20 +193,10 @@ func (s *Server) Run() error {
 	if s.uiFS != nil {
 		// Serve static images from /data/images and attachments from /data/attachments
 		s.WebServer.BindHandler("/data/images/*", func(r *ghttp.Request) {
-			path := strings.TrimPrefix(r.Request.URL.Path, "/data/images/")
-			if path != "" {
-				r.Response.ServeFile("./data/images/" + path)
-			} else {
-				r.Response.WriteStatus(404)
-			}
+			s.serveAuthorizedAsset(r, "./data/images", "/data/images/", false)
 		})
 		s.WebServer.BindHandler("/data/attachments/*", func(r *ghttp.Request) {
-			path := strings.TrimPrefix(r.Request.URL.Path, "/data/attachments/")
-			if path != "" {
-				r.Response.ServeFile("./data/attachments/" + path)
-			} else {
-				r.Response.WriteStatus(404)
-			}
+			s.serveAuthorizedAsset(r, "./data/attachments", "/data/attachments/", true)
 		})
 
 		s.WebServer.BindHandler("/*", func(r *ghttp.Request) {
@@ -270,14 +272,26 @@ func (s *Server) Run() error {
 	<-quit
 
 	s.Logger.Info("Shutting down server...")
+	if s.WebServer != nil {
+		s.WebServer.Shutdown()
+	}
 	if s.RuleEngine != nil {
 		s.RuleEngine.Stop()
 	}
 	s.DeviceManager.StopAll()
-	s.Manager.StopPlugins()
-	if s.WebServer != nil {
-		s.WebServer.Shutdown()
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelShutdown()
+	if s.DeviceManager != nil && s.DeviceManager.EventBus != nil {
+		if err := s.DeviceManager.EventBus.CloseWithContext(shutdownCtx); err != nil {
+			s.Logger.Warn("Event bus shutdown did not drain", zap.Error(err))
+		}
 	}
+	if s.DispatchService != nil {
+		if err := s.DispatchService.CloseWithContext(shutdownCtx); err != nil {
+			s.Logger.Warn("Dispatch shutdown did not drain", zap.Error(err))
+		}
+	}
+	s.Manager.StopPlugins()
 	s.Logger.Sync()
 	return nil
 }
@@ -317,15 +331,14 @@ func (s *Server) handleUploadImage(r *ghttp.Request) {
 		return
 	}
 
-	// Ensure directory exists
-	os.MkdirAll("./data/images", 0755)
-
-	// Save file with original name or generate one
-	filename := file.Filename
-	savePath := "./data/images/"
-
-	if _, err := file.Save(savePath); err != nil {
-		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to save file"})
+	filename, err := saveUploadedImage(file, "./data/images")
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid image or image storage unavailable"})
+		return
+	}
+	if err := recordUploadedAsset(r,"/data/images/"+filename); err != nil {
+		_ = os.Remove("./data/images/"+filename)
+		r.Response.WriteJson(g.Map{"code":500,"message":"Failed to record image ownership"})
 		return
 	}
 

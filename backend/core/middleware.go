@@ -87,7 +87,7 @@ func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 		return nil
 	}
 
-	if isTokenBlacklisted(tokenString) {
+	if isTokenBlacklisted(tokenString) || !activeTokenSession(claims) {
 		r.Response.WriteJson(map[string]interface{}{
 			"code":    401,
 			"message": "Token has been revoked",
@@ -193,6 +193,9 @@ func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 		return nil
 	}
 
+	if strings.HasPrefix(r.URL.Path,"/api/") && claims.ExpiresAt != nil {
+		setAssetCookie(r,tokenString,int(time.Until(claims.ExpiresAt.Time).Seconds()))
+	}
 	return authCtx
 }
 

@@ -108,6 +108,11 @@ func (s *Server) handleGetSetupStatus(r *ghttp.Request) {
 }
 
 func (s *Server) handleApplySetup(r *ghttp.Request) {
+	// A first-run installation has a single winner.  This protects concurrent
+	// browser submissions within a process; applyInitialSetup still verifies
+	// persisted state before modifying it.
+	s.setupMu.Lock()
+	defer s.setupMu.Unlock()
 	var req setupApplyRequest
 	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
@@ -172,6 +177,17 @@ func (s *Server) buildSetupStatus(mode string) setupStatusResponse {
 	}
 	if status.Mode == "" {
 		status.Mode = mode
+	}
+	if status.Initialized {
+		// Setup is intentionally unauthenticated only for first-run bootstrap.
+		// Do not turn it into a tenant/project and plugin inventory endpoint once
+		// the system has an administrator and authenticated APIs are available.
+		status.TenantID = 0
+		status.ProjectID = 0
+		status.ServerPort = 0
+		status.RuntimeModes = nil
+		status.PluginSteps = nil
+		return status
 	}
 	if s != nil && s.Config != nil {
 		status.ServerPort = s.Config.Server.Port

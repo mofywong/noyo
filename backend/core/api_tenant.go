@@ -231,6 +231,11 @@ func (s *Server) handleGetTenantUsers(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid tenant ID"})
 		return
 	}
+	authCtx := requestAuthContext(r)
+	if authCtx == nil || (!authCtx.IsSystemAdmin && authCtx.TenantID != id) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "Forbidden"})
+		return
+	}
 
 	var users []store.User
 	if err := store.DB.Where("tenant_id = ?", id).Order("created_at desc").Find(&users).Error; err != nil {

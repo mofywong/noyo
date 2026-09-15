@@ -199,10 +199,24 @@ func validateUserDeletion(tx *gorm.DB, authCtx *AuthContext, user store.User, cu
 	return nil
 }
 
+const maxListPageSize = 100
+
+func normalizeListPage(page, pageSize int) (int, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 10
+	}
+	if pageSize > maxListPageSize {
+		pageSize = maxListPageSize
+	}
+	return page, pageSize
+}
+
 // handleListUsers returns a paginated list of users
 func (s *Server) handleListUsers(r *ghttp.Request) {
-	page := r.Get("page", 1).Int()
-	pageSize := r.Get("pageSize", 10).Int()
+	page, pageSize := normalizeListPage(r.Get("page", 1).Int(), r.Get("pageSize", 10).Int())
 
 	tenantID := r.GetCtxVar("tenant_id").Uint()
 	roleID := r.Get("role_id").Uint()

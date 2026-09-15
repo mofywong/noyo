@@ -23,6 +23,7 @@ func CheckPasswordHash(password, hash string) bool {
 
 // JWTClaims represents the claims inside the JWT token
 type JWTClaims struct {
+	SessionID       string `json:"session_id,omitempty"`
 	UserID          uint   `json:"user_id"`
 	TenantID        uint   `json:"tenant_id"`
 	Username        string `json:"username"`

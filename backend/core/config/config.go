@@ -1,5 +1,40 @@
 package config
 
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"strings"
+)
+
+const legacyJWTSecret = "noyo_default_secret_key_change_me_in_production"
+
+// NormalizeAuth fills server-side defaults and replaces the legacy signing key.
+// The caller must persist changes before accepting any requests.
+func (c *GlobalConfig) NormalizeAuth() (bool, error) {
+	changed := false
+	if strings.TrimSpace(c.Auth.JWTSecret) == "" || c.Auth.JWTSecret == legacyJWTSecret {
+		var key [32]byte
+		if _, err := rand.Read(key[:]); err != nil {
+			return false, err
+		}
+		c.Auth.JWTSecret = hex.EncodeToString(key[:])
+		changed = true
+	}
+	for _, setting := range []struct {
+		value    *int
+		fallback int
+	}{
+		{&c.Auth.AccessTokenExpiry, 120}, {&c.Auth.RefreshTokenExpiry, 10080},
+		{&c.Auth.LoginFailLockCount, 5}, {&c.Auth.LoginFailLockMin, 15},
+	} {
+		if *setting.value <= 0 {
+			*setting.value = setting.fallback
+			changed = true
+		}
+	}
+	return changed, nil
+}
+
 // GlobalConfig represents the root configuration structure
 type GlobalConfig struct {
 	Server ServerConfig `yaml:"server" json:"server"`
@@ -23,9 +58,9 @@ type LogConfig struct {
 
 type TSDBConfig struct {
 	Enabled         bool   `yaml:"enabled" json:"enabled"`
-	Dir             string `yaml:"dir" json:"dir"`                               // e.g. "./data/db/history"
-	RetentionDays   int    `yaml:"retention_days" json:"retention_days"`         // e.g. 90
-	BatchSize       int    `yaml:"batch_size" json:"batch_size"`                 // e.g. 100
+	Dir             string `yaml:"dir" json:"dir"`                             // e.g. "./data/db/history"
+	RetentionDays   int    `yaml:"retention_days" json:"retention_days"`       // e.g. 90
+	BatchSize       int    `yaml:"batch_size" json:"batch_size"`               // e.g. 100
 	FlushIntervalMs int    `yaml:"flush_interval_ms" json:"flush_interval_ms"` // e.g. 1000
 }
 
@@ -59,12 +94,11 @@ func DefaultConfig() *GlobalConfig {
 			Compress:   true,
 		},
 		Auth: AuthConfig{
-			JWTSecret:          "noyo_default_secret_key_change_me_in_production", // 默认密钥
-			AccessTokenExpiry:  120,                                               // 2 小时
-			RefreshTokenExpiry: 10080,                                             // 7 天
+			JWTSecret:          "",    // Generated and persisted before server startup.
+			AccessTokenExpiry:  120,   // 2 小时
+			RefreshTokenExpiry: 10080, // 7 天
 			LoginFailLockCount: 5,
 			LoginFailLockMin:   15,
 		},
 	}
 }
-

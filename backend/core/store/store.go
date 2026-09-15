@@ -121,6 +121,8 @@ func InitDB(dsn string) error {
 		&AppDeviceTagPermission{},
 		&AuditLog{},
 		&TokenBlacklist{},
+		&AuthSession{},
+		&StoredAsset{},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)

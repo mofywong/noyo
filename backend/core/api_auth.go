@@ -17,6 +17,7 @@ import (
 
 	"noyo/core/store"
 	"noyo/core/utils"
+	"gorm.io/gorm"
 )
 
 var (
@@ -32,14 +33,30 @@ type LoginAttemptTracker struct {
 type AttemptInfo struct {
 	FailCount   int
 	LockedUntil time.Time
+	ExpiresAt   time.Time
 }
 
-func (t *LoginAttemptTracker) CheckAndRecord(key string, success bool) error {
+func (t *LoginAttemptTracker) CheckAndRecord(key string, success bool, policy ...int) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	limit, minutes := 5, 15
+	if len(policy) == 2 {
+		if policy[0] > 0 {
+			limit = policy[0]
+		}
+		if policy[1] > 0 {
+			minutes = policy[1]
+		}
+	}
+	now := time.Now()
+	for k, entry := range t.attempts {
+		if !entry.ExpiresAt.IsZero() && !now.Before(entry.ExpiresAt) {
+			delete(t.attempts, k)
+		}
+	}
 
 	info, exists := t.attempts[key]
-	if exists && time.Now().Before(info.LockedUntil) {
+	if exists && now.Before(info.LockedUntil) {
 		return fmt.Errorf("Account locked, try again after %v", info.LockedUntil.Format("15:04:05"))
 	}
 
@@ -49,12 +66,17 @@ func (t *LoginAttemptTracker) CheckAndRecord(key string, success bool) error {
 	}
 
 	if !exists {
+		// Fail closed at the bound rather than evicting a locked identity.
+		if len(t.attempts) >= 10000 {
+			return errors.New("Too many login attempts; try again later")
+		}
 		info = &AttemptInfo{}
 		t.attempts[key] = info
 	}
 	info.FailCount++
-	if info.FailCount >= 5 {
-		info.LockedUntil = time.Now().Add(15 * time.Minute)
+	info.ExpiresAt = now.Add(time.Duration(minutes) * time.Minute)
+	if info.FailCount >= limit {
+		info.LockedUntil = info.ExpiresAt
 	}
 	return nil
 }
@@ -173,7 +195,7 @@ func normalizedTokenExpiries(accessExpiry, refreshExpiry int) (int, int) {
 
 func issueAppTokens(app store.App, secret string, accessExpiryMin, refreshExpiryMin int) (string, string, error) {
 	accessExpiryMin, refreshExpiryMin = normalizedTokenExpiries(accessExpiryMin, refreshExpiryMin)
-	return utils.GenerateAppTokens(
+	a, r, err := utils.GenerateAppTokens(
 		app.ID,
 		app.TenantID,
 		app.AppID,
@@ -182,6 +204,10 @@ func issueAppTokens(app store.App, secret string, accessExpiryMin, refreshExpiry
 		accessExpiryMin,
 		refreshExpiryMin,
 	)
+	if err != nil {
+		return "", "", err
+	}
+	return persistTokenPair(a, r, "", secret)
 }
 
 func buildAppTokenResponse(app store.App, authCtx *AuthContext, accessToken, refreshToken string, accessExpiryMin, refreshExpiryMin int) g.Map {
@@ -244,7 +270,7 @@ func (s *Server) handleLogin(r *ghttp.Request) {
 	// Rate Limiting based on IP and Username
 	clientIP := r.GetClientIp()
 	trackerKey := fmt.Sprintf("%s:%s", clientIP, req.Username)
-	if err := loginTracker.CheckAndRecord(trackerKey, false); err != nil {
+	if err := loginTracker.CheckAndRecord(trackerKey, false, s.Config.Auth.LoginFailLockCount, s.Config.Auth.LoginFailLockMin); err != nil {
 		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
 		return
 	}
@@ -323,11 +349,15 @@ func (s *Server) handleLogin(r *ghttp.Request) {
 		accessExpiry,
 		refreshExpiry,
 	)
+	if err == nil {
+		accessToken, refreshToken, err = persistTokenPair(accessToken, refreshToken, "", s.Config.Auth.JWTSecret)
+	}
 
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to generate tokens"})
 		return
 	}
+	setAssetCookie(r, accessToken, accessExpiry*60)
 
 	var tenantName string
 	var tenantLogo string
@@ -386,7 +416,7 @@ func (s *Server) handleIssueAppToken(r *ghttp.Request) {
 	}
 
 	appTrackerKey := fmt.Sprintf("app:%s", req.AppID)
-	if err := loginTracker.CheckAndRecord(appTrackerKey, false); err != nil {
+	if err := loginTracker.CheckAndRecord(appTrackerKey, false, s.Config.Auth.LoginFailLockCount, s.Config.Auth.LoginFailLockMin); err != nil {
 		r.Response.WriteJson(g.Map{"code": 403, "message": err.Error()})
 		return
 	}
@@ -448,7 +478,10 @@ func (s *Server) handleRefreshAppToken(r *ghttp.Request) {
 	}
 
 	accessExpiry, refreshExpiry := normalizedTokenExpiries(s.Config.Auth.AccessTokenExpiry, s.Config.Auth.RefreshTokenExpiry)
-	accessToken, refreshToken, err := issueAppTokens(app, s.Config.Auth.JWTSecret, accessExpiry, refreshExpiry)
+	accessToken, refreshToken, err := utils.GenerateAppTokens(app.ID, app.TenantID, app.AppID, "app:"+app.Name, s.Config.Auth.JWTSecret, accessExpiry, refreshExpiry)
+	if err == nil {
+		accessToken, refreshToken, err = persistTokenPair(accessToken, refreshToken, req.RefreshToken, s.Config.Auth.JWTSecret)
+	}
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to generate app tokens"})
 		return
@@ -473,7 +506,7 @@ func (s *Server) handleRefreshToken(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 401, "message": "Invalid or expired refresh token"})
 		return
 	}
-	if claims.SubjectType == "app" {
+	if claims.SubjectType == "app" || claims.TokenUse != "refresh" || claims.SessionID == "" {
 		r.Response.WriteJson(g.Map{"code": 401, "message": "Invalid or expired refresh token"})
 		return
 	}
@@ -506,7 +539,7 @@ func (s *Server) handleRefreshToken(r *ghttp.Request) {
 	effectiveRole := authCtx.Role
 	allowedTenants, allowedProjects := getAllowedScopes(user)
 
-	// Generate only new access token (or could generate both, but we'll stick to rotating access)
+	// Rotate within the original, revocable session family.
 	accessToken, newRefreshToken, err := utils.GenerateTokens(
 		user.ID,
 		user.TenantID,
@@ -518,11 +551,15 @@ func (s *Server) handleRefreshToken(r *ghttp.Request) {
 		accessExpiry,
 		s.Config.Auth.RefreshTokenExpiry,
 	)
+	if err == nil {
+		accessToken, newRefreshToken, err = persistTokenPair(accessToken, newRefreshToken, req.RefreshToken, s.Config.Auth.JWTSecret)
+	}
 
 	if err != nil {
-		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to generate access token"})
+		r.Response.WriteJson(g.Map{"code": 401, "message": "Invalid, expired, or already-used refresh token"})
 		return
 	}
+	setAssetCookie(r, accessToken, accessExpiry*60)
 
 	r.Response.WriteJson(g.Map{
 		"code": 0,
@@ -607,8 +644,13 @@ func (s *Server) handleChangePassword(r *ghttp.Request) {
 
 	user.Password = newHash
 	user.MustChangePassword = false
-	if err := store.SaveUser(user); err != nil {
-		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to update password"})
+	if err := store.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(user).Error; err != nil {
+			return err
+		}
+		return tx.Model(&store.AuthSession{}).Where("user_id = ?", user.ID).Update("revoked", true).Error
+	}); err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to update password and revoke sessions"})
 		return
 	}
 
@@ -616,6 +658,7 @@ func (s *Server) handleChangePassword(r *ghttp.Request) {
 }
 
 func (s *Server) handleLogout(r *ghttp.Request) {
+	setAssetCookie(r,"",-1)
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" {
 		parts := strings.SplitN(authHeader, " ", 2)
@@ -623,6 +666,12 @@ func (s *Server) handleLogout(r *ghttp.Request) {
 			tokenString := parts[1]
 			claims, _ := utils.ParseToken(tokenString, s.Config.Auth.JWTSecret)
 			if claims != nil {
+				if claims.SessionID != "" {
+					if err := store.DB.Model(&store.AuthSession{}).Where("id = ?", claims.SessionID).Update("revoked", true).Error; err != nil {
+						r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to revoke session"})
+						return
+					}
+				}
 				blacklistToken(tokenString, claims.ExpiresAt.Time)
 			}
 		}
