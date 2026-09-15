@@ -2,10 +2,10 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	einomodel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -59,17 +59,11 @@ func (r *Runtime) Generate(ctx context.Context, messages []*schema.Message) (*sc
 	if err != nil {
 		return nil, err
 	}
-	if reqBytes, err := json.MarshalIndent(messages, "", "  "); err == nil {
-		fmt.Printf("========== LLM Generate Request ==========\n%s\n==========================================\n", string(reqBytes))
-	}
+	started := time.Now()
 	msg, err := model.Generate(ctx, messages)
-	if err == nil {
-		if respBytes, err := json.MarshalIndent(msg, "", "  "); err == nil {
-			fmt.Printf("========== LLM Generate Response ==========\n%s\n==========================================\n", string(respBytes))
-		}
-	} else {
-		fmt.Printf("========== LLM Generate Error ==========\n%v\n==========================================\n", err)
-	}
+	// Prompts, model output and provider errors can contain user data or secrets.
+	// Keep operational metadata only; provider errors still reach the caller.
+	fmt.Printf("LLM Generate completed messages=%d duration_ms=%d success=%t\n", len(messages), time.Since(started).Milliseconds(), err == nil)
 	return msg, err
 }
 
@@ -142,9 +136,7 @@ func (r *Runtime) RunStreamToolLoop(ctx context.Context, messages []*schema.Mess
 
 	conversation := append([]*schema.Message(nil), messages...)
 	for turn := 0; turn < maxTurns; turn++ {
-		if reqBytes, err := json.MarshalIndent(conversation, "", "  "); err == nil {
-			fmt.Printf("========== LLM Stream Request (Turn %d) ==========\n%s\n==========================================\n", turn, string(reqBytes))
-		}
+		started := time.Now()
 		stream, err := r.Stream(ctx, conversation)
 		if err != nil {
 			return err
@@ -177,9 +169,7 @@ func (r *Runtime) RunStreamToolLoop(ctx context.Context, messages []*schema.Mess
 		if err != nil {
 			return err
 		}
-		if respBytes, err := json.MarshalIndent(msg, "", "  "); err == nil {
-			fmt.Printf("========== LLM Stream Response (Turn %d) ==========\n%s\n==========================================\n", turn, string(respBytes))
-		}
+		fmt.Printf("LLM Stream completed turn=%d duration_ms=%d tool_calls=%d\n", turn, time.Since(started).Milliseconds(), len(msg.ToolCalls))
 		if len(msg.ToolCalls) == 0 {
 			return nil
 		}

@@ -11,14 +11,14 @@ import (
 
 // ConfigField describes a single configuration field
 type ConfigField struct {
-	Name        string              `json:"name"`        // YAML key
-	Type        string              `json:"type"`        // string, int, bool, etc.
-	Title       map[string]string   `json:"title"`       // Display name in different languages
-	Description map[string]string   `json:"description"` // Helper text in different languages
-	Value       interface{}         `json:"value"`                 // Current value
-	Options     []map[string]string `json:"options"`               // List of options for select type (value, label)
-	Source      string              `json:"source,omitempty"`      // "platform" or "local"
-	ReadOnly    bool                `json:"read_only,omitempty"`   // true if read-only
+	Name        string              `json:"name"`                // YAML key
+	Type        string              `json:"type"`                // string, int, bool, etc.
+	Title       map[string]string   `json:"title"`               // Display name in different languages
+	Description map[string]string   `json:"description"`         // Helper text in different languages
+	Value       interface{}         `json:"value"`               // Current value
+	Options     []map[string]string `json:"options"`             // List of options for select type (value, label)
+	Source      string              `json:"source,omitempty"`    // "platform" or "local"
+	ReadOnly    bool                `json:"read_only,omitempty"` // true if read-only
 }
 
 // PluginSetupField describes a plugin field that can be collected during first-run setup.
@@ -47,6 +47,16 @@ type IConfigSchemaProvider interface {
 	GetConfigSchema() *PluginConfigSchema
 }
 
+// IConfigUpdatePreparer merges write-only settings before validation or mutation.
+type IConfigUpdatePreparer interface {
+	PrepareConfigUpdate(map[string]interface{}, uint, uint) (map[string]interface{}, error)
+}
+
+// IConfigSchemaSanitizer removes credentials from generated or custom schemas.
+type IConfigSchemaSanitizer interface {
+	SanitizeConfigSchema(*PluginConfigSchema)
+}
+
 // ISetupSchemaProvider allows plugins to contribute first-run setup fields.
 type ISetupSchemaProvider interface {
 	GetSetupSchema(mode string) *PluginSetupSchema
@@ -61,7 +71,12 @@ type PluginConfigSchema struct {
 }
 
 // GetPluginConfigSchema generates the schema from the plugin's Config struct
-func GetPluginConfigSchema(plugin IManagedPlugin) *PluginConfigSchema {
+func GetPluginConfigSchema(plugin IManagedPlugin) (result *PluginConfigSchema) {
+	defer func() {
+		if sanitizer, ok := plugin.(IConfigSchemaSanitizer); ok && result != nil {
+			sanitizer.SanitizeConfigSchema(result)
+		}
+	}()
 	// 1. Check if plugin implements IConfigSchemaProvider for dynamic schema
 	if provider, ok := plugin.(IConfigSchemaProvider); ok {
 		return provider.GetConfigSchema()
@@ -212,6 +227,13 @@ func cleanupSingleProjectRuntimePluginRows() error {
 }
 
 func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{}, tenantID, projectID uint) error {
+	if preparer, ok := plugin.(IConfigUpdatePreparer); ok {
+		prepared, err := preparer.PrepareConfigUpdate(newConfig, tenantID, projectID)
+		if err != nil {
+			return err
+		}
+		newConfig = prepared
+	}
 	// Validate a prospective copy before mutating enabled state or persisting.
 	candidate := reflect.ValueOf(plugin)
 	if candidate.Kind() == reflect.Ptr {

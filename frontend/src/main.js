@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { createApp, watch } from 'vue'
 import { createPinia } from 'pinia'
 import 'bootstrap/dist/css/bootstrap.min.css'
 import 'bootstrap/dist/js/bootstrap.bundle.min.js'
@@ -53,10 +53,17 @@ app.component('LiquidGlassCard', LiquidGlassCard)
 app.directive('permission', {
   mounted(el, binding) {
     const authStore = useAuthStore()
-    if (!authStore.hasPermission(binding.value)) {
-      el.parentNode && el.parentNode.removeChild(el)
+    const updateVisibility = () => {
+      const allowed = authStore.hasPermission(binding.value)
+      el.hidden = !allowed
+      el.setAttribute('aria-hidden', String(!allowed))
     }
-  }
+    el.__noyoPermissionStop = watch(() => authStore.user, updateVisibility, { deep: true, immediate: true })
+  },
+  beforeUnmount(el) {
+    el.__noyoPermissionStop?.()
+    delete el.__noyoPermissionStop
+  },
 })
 
 // Configure global Axios interceptors

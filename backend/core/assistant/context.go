@@ -18,6 +18,9 @@ type Scope struct {
 	APIBaseURL       string
 	Channel          string
 	AssistantSubject string
+	// EntityContext contains resource references validated by the request handler.
+	// It is retrieval context, never a substitute for tenant/project authorization.
+	EntityContext []EntityRef
 }
 
 func WithScope(ctx context.Context, scope Scope) context.Context {

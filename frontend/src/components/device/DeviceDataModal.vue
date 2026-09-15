@@ -315,6 +315,7 @@ const invokeServiceResultMode = ref({});
 
 let dataTimer = null;
 let trendTimer = null;
+let modalRequestEpoch = 0;
 
 const historyQuery = ref({
   startTime: '',
@@ -342,8 +343,12 @@ const closeModal = () => {
 };
 
 // Initialize when modal becomes visible
-watch(() => props.visible, async (val) => {
-  if (val && props.device) {
+watch(() => [props.visible, props.device?.code], async ([val, deviceCode]) => {
+  const requestEpoch = ++modalRequestEpoch;
+  if (dataTimer) { clearInterval(dataTimer); dataTimer = null; }
+  if (trendTimer) { clearInterval(trendTimer); trendTimer = null; }
+  if (val && deviceCode && props.device) {
+    const selectedDevice = props.device;
     deviceData.value = {};
     realtimeTrendData.value = {};
     writeValues.value = {};
@@ -358,7 +363,7 @@ watch(() => props.visible, async (val) => {
     
     // Parse config to get point configs
     try {
-      const config = props.device.config ? JSON.parse(props.device.config) : {};
+      const config = selectedDevice.config ? JSON.parse(selectedDevice.config) : {};
       if (config.points) {
         if (Array.isArray(config.points)) {
           config.points.forEach(p => {
@@ -374,14 +379,16 @@ watch(() => props.visible, async (val) => {
 
     let product = null;
     try {
-        const res = await axios.get(`/api/products/${props.device.product_code}`);
+        const res = await axios.get(`/api/products/${selectedDevice.product_code}`);
         if (res.data.code === 0) {
             product = res.data.data;
         }
     } catch (e) {
         console.warn("Failed to fetch product for TSL", e);
-        product = products.value.find(p => p.code === props.device.product_code);
+        product = products.value.find(p => p.code === selectedDevice.product_code);
     }
+
+    if (requestEpoch !== modalRequestEpoch || !props.visible || props.device?.code !== deviceCode) return;
 
     if (product && product.config) {
         try {
@@ -416,8 +423,6 @@ watch(() => props.visible, async (val) => {
     trendTimer = setInterval(fetchRealtimeTrend, 30000);
   } else {
     // Cleanup when hiding
-    if (dataTimer) { clearInterval(dataTimer); dataTimer = null; }
-    if (trendTimer) { clearInterval(trendTimer); trendTimer = null; }
   }
 });
 
@@ -794,13 +799,14 @@ const renderChart = () => {
 
 const fetchRealtimeTrend = async () => {
   if (!currentDataDevice.value) return;
+  const deviceCode = currentDataDevice.value.code;
   
   const endTs = Date.now();
   const startTs = endTs - 30 * 60 * 1000; // 30 minutes ago
 
   try {
     const res = await axios.post('/api/history/query', {
-      device_code: currentDataDevice.value.code,
+      device_code: deviceCode,
       start_time: startTs,
       end_time: endTs,
       type: 1, // property
@@ -809,7 +815,7 @@ const fetchRealtimeTrend = async () => {
       agg_method: 'avg'
     });
 
-    if (res.data.code === 0) {
+    if (res.data.code === 0 && currentDataDevice.value?.code === deviceCode) {
       const list = res.data.data.list || [];
       const trendMap = {};
       
@@ -867,9 +873,10 @@ const displayDataList = computed(() => {
 
 const fetchDeviceData = async () => {
   if (!currentDataDevice.value) return;
+  const deviceCode = currentDataDevice.value.code;
   try {
-    const res = await axios.get(`/api/devices/${currentDataDevice.value.code}/data`);
-    if (res.data.code === 0) {
+    const res = await axios.get(`/api/devices/${deviceCode}/data`);
+    if (res.data.code === 0 && currentDataDevice.value?.code === deviceCode) {
       deviceData.value = res.data.data || {};
     }
   } catch (e) {
