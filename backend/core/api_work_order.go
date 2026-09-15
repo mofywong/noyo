@@ -90,12 +90,18 @@ func (s *Server) handleUploadWorkOrderImage(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to prepare image storage"})
 		return
 	}
-	filename, err := file.Save(imageDirectory, true)
+	filename, err := saveUploadedImage(file, imageDirectory)
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to save image"})
 		return
 	}
-	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{"url": "/data/images/" + filepath.Base(filename)}})
+	assetURL := "/data/images/" + filepath.Base(filename)
+	if err := recordUploadedAsset(r, assetURL); err != nil {
+		_ = os.Remove(filepath.Join(imageDirectory, filepath.Base(filename)))
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to record image owner"})
+		return
+	}
+	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{"url": assetURL}})
 }
 
 func (s *Server) handleUploadWorkOrderAttachment(r *ghttp.Request) {
@@ -125,6 +131,11 @@ func (s *Server) handleUploadWorkOrderAttachment(r *ghttp.Request) {
 		return
 	}
 	savedBaseName := filepath.Base(filename)
+	if err := recordUploadedAsset(r, "/data/attachments/"+savedBaseName); err != nil {
+		_ = os.Remove(filepath.Join(attachmentDirectory, savedBaseName))
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to record attachment owner"})
+		return
+	}
 	r.Response.WriteJson(g.Map{
 		"code": 0,
 		"data": g.Map{
@@ -781,10 +792,10 @@ func (s *Server) handleTransitionWorkOrder(r *ghttp.Request) {
 		return
 	}
 	var payload struct {
-		Key             string                   `json:"key"`
-		Comment         string                   `json:"comment"`
-		ExpectedVersion *int                     `json:"expected_version"`
-		Resolution      workorder.Resolution     `json:"resolution"`
+		Key             string                     `json:"key"`
+		Comment         string                     `json:"comment"`
+		ExpectedVersion *int                       `json:"expected_version"`
+		Resolution      workorder.Resolution       `json:"resolution"`
 		Attachments     []workorder.AttachmentItem `json:"attachments"`
 	}
 	if !decodeWorkOrderRequest(r, &payload) {
@@ -999,8 +1010,8 @@ func (s *Server) handleCompleteWorkOrderTask(r *ghttp.Request) {
 		return
 	}
 	var payload struct {
-		Comment         string                   `json:"comment"`
-		ExpectedVersion *int                     `json:"expected_version"`
+		Comment         string                     `json:"comment"`
+		ExpectedVersion *int                       `json:"expected_version"`
 		Attachments     []workorder.AttachmentItem `json:"attachments"`
 	}
 	if !decodeWorkOrderRequest(r, &payload) {

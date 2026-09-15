@@ -42,7 +42,7 @@ func (a *LocalCommandAdapter) Create(ctx context.Context, command workorder.Crea
 	if strings.TrimSpace(command.TemplateCode) == "" || strings.TrimSpace(command.Title) == "" {
 		return workorder.CommandResult{}, workorder.NewError(workorder.CodeValidationFailed, "template code and title are required")
 	}
-	return a.withReceipt(command.Scope, command.Meta, "create", command, func() (workorder.CommandResult, error) {
+	return a.withReceipt(command.Scope, command.Meta, "create", command, func(a *LocalCommandAdapter) (workorder.CommandResult, error) {
 		templateID, err := a.templateID(command.Scope, command.TemplateCode)
 		if err != nil {
 			return workorder.CommandResult{}, err
@@ -89,7 +89,7 @@ func (a *LocalCommandAdapter) Execute(ctx context.Context, command workorder.Exe
 	if !strings.EqualFold(strings.TrimSpace(command.Action), "claim") && strings.TrimSpace(command.Comment) == "" {
 		return workorder.CommandResult{}, workorder.NewError(workorder.CodeValidationFailed, "processing opinion is required")
 	}
-	return a.withReceipt(command.Scope, command.Meta, "execute", command, func() (workorder.CommandResult, error) {
+	return a.withReceipt(command.Scope, command.Meta, "execute", command, func(a *LocalCommandAdapter) (workorder.CommandResult, error) {
 		serviceScope := a.serviceScope(command.Scope)
 		order, err := a.service.findWorkOrderByPublicID(a.service.db, serviceScope, command.WorkOrderPublicID)
 		if err != nil {
@@ -164,7 +164,7 @@ func (a *LocalCommandAdapter) decide(ctx context.Context, command workorder.Appr
 	if reject {
 		commandType = "reject"
 	}
-	return a.withReceipt(command.Scope, command.Meta, commandType, command, func() (workorder.CommandResult, error) {
+	return a.withReceipt(command.Scope, command.Meta, commandType, command, func(a *LocalCommandAdapter) (workorder.CommandResult, error) {
 		serviceScope := a.serviceScope(command.Scope)
 		order, err := a.service.findWorkOrderByPublicID(a.service.db, serviceScope, command.WorkOrderPublicID)
 		if err != nil {
@@ -247,7 +247,7 @@ func (a *LocalCommandAdapter) resultFromOrder(order *store.WorkOrder, created bo
 	return result, nil
 }
 
-func (a *LocalCommandAdapter) withReceipt(scope workorder.Scope, meta workorder.CommandMeta, commandType string, command any, fn func() (workorder.CommandResult, error)) (workorder.CommandResult, error) {
+func (a *LocalCommandAdapter) withReceipt(scope workorder.Scope, meta workorder.CommandMeta, commandType string, command any, fn func(*LocalCommandAdapter) (workorder.CommandResult, error)) (workorder.CommandResult, error) {
 	// Serialize commands through the same local adapter while the durable
 	// receipt is being completed. The database uniqueness constraint still
 	// protects multiple server instances; this lock prevents a second request
@@ -264,53 +264,59 @@ func (a *LocalCommandAdapter) withReceipt(scope workorder.Scope, meta workorder.
 	digest := fmt.Sprintf("%x", sha256.Sum256(digestBytes))
 	var result workorder.CommandResult
 	var operationErr error
-	var receipt store.WorkOrderCommandReceipt
-	lookup := a.service.db.Where("tenant_id = ? AND project_id = ? AND principal_type = ? AND principal_ref = ? AND idempotency_key = ?", scope.TenantID, scope.ProjectID, scope.Principal.Type, scope.Principal.Ref, meta.IdempotencyKey)
-	if findErr := lookup.First(&receipt).Error; findErr == nil {
-		if receipt.RequestDigest != digest {
-			return workorder.CommandResult{}, workorder.NewError(workorder.CodeIdempotencyConflict, "idempotency key was already used with a different command")
-		}
-		if receipt.Status == commandReceiptError {
-			return workorder.CommandResult{}, workorder.NewError(receipt.ErrorCode, "command previously failed")
-		}
-		if decodeErr := json.Unmarshal([]byte(receipt.ResponseJSON), &result); decodeErr != nil {
-			return workorder.CommandResult{}, decodeErr
-		}
-		return result, nil
-	} else if !errors.Is(findErr, gorm.ErrRecordNotFound) {
-		return workorder.CommandResult{}, mapCommandError(findErr)
-	}
-	receipt = store.WorkOrderCommandReceipt{TenantID: scope.TenantID, ProjectID: scope.ProjectID, PrincipalType: scope.Principal.Type, PrincipalRef: scope.Principal.Ref, IdempotencyKey: meta.IdempotencyKey, RequestDigest: digest, CommandType: commandType, Status: commandReceiptSuccess}
-	if createErr := a.service.db.Create(&receipt).Error; createErr != nil {
-		// Another caller may have won the unique receipt race. Re-read it and
-		// return its stable result rather than executing the command twice.
-		if reloadErr := lookup.First(&receipt).Error; reloadErr == nil {
-			if receipt.RequestDigest != digest {
-				return workorder.CommandResult{}, workorder.NewError(workorder.CodeIdempotencyConflict, "idempotency key was already used with a different command")
+	err = a.service.db.Transaction(func(tx *gorm.DB) error {
+		var receipt store.WorkOrderCommandReceipt
+		lookup := tx.Where("tenant_id = ? AND project_id = ? AND principal_type = ? AND principal_ref = ? AND idempotency_key = ?", scope.TenantID, scope.ProjectID, scope.Principal.Type, scope.Principal.Ref, meta.IdempotencyKey)
+		if findErr := lookup.First(&receipt).Error; findErr == nil {
+			if receipt.RequestDigest != digest || receipt.CommandType != commandType {
+				return workorder.NewError(workorder.CodeIdempotencyConflict, "idempotency key was already used with a different command")
 			}
-			if receipt.Status == commandReceiptSuccess {
-				if decodeErr := json.Unmarshal([]byte(receipt.ResponseJSON), &result); decodeErr == nil {
-					return result, nil
-				}
+			if receipt.Status == commandReceiptError {
+				operationErr = workorder.NewError(receipt.ErrorCode, "command previously failed")
+				return nil
 			}
+			if receipt.Status != commandReceiptSuccess || strings.TrimSpace(receipt.ResponseJSON) == "" {
+				// Legacy incomplete receipts may already have committed a side effect.
+				return workorder.NewError(workorder.CodeIdempotencyConflict, "incomplete command receipt requires reconciliation")
+			}
+			return json.Unmarshal([]byte(receipt.ResponseJSON), &result)
+		} else if !errors.Is(findErr, gorm.ErrRecordNotFound) {
+			return findErr
 		}
-		return workorder.CommandResult{}, mapCommandError(createErr)
-	}
-	result, operationErr = fn()
-	if operationErr != nil {
-		var commandErr *workorder.Error
-		if errors.As(operationErr, &commandErr) {
-			receipt.Status = commandReceiptError
-			receipt.ErrorCode = commandErr.Code
+		receipt = store.WorkOrderCommandReceipt{TenantID: scope.TenantID, ProjectID: scope.ProjectID, PrincipalType: scope.Principal.Type, PrincipalRef: scope.Principal.Ref, IdempotencyKey: meta.IdempotencyKey, RequestDigest: digest, CommandType: commandType, Status: commandReceiptSuccess}
+		if createErr := tx.Create(&receipt).Error; createErr != nil {
+			return createErr
 		}
-	} else if encoded, encodeErr := json.Marshal(result); encodeErr != nil {
-		return workorder.CommandResult{}, encodeErr
-	} else {
-		receipt.ResponseJSON = string(encoded)
-	}
-	if saveErr := a.service.db.Save(&receipt).Error; saveErr != nil {
-		return workorder.CommandResult{}, mapCommandError(saveErr)
-	}
+		// Bind a private service to this transaction without replacing the shared
+		// database or copying a live mutex. Archive hooks keep their transaction.
+		service := NewWorkOrderService(tx)
+		a.service.closedHandlersMu.RLock()
+		for name, handler := range a.service.closedHandlers {
+			service.closedHandlers[name] = handler
+		}
+		a.service.closedHandlersMu.RUnlock()
+		if saveErr := tx.SavePoint("command_operation").Error; saveErr != nil {
+			return saveErr
+		}
+		result, operationErr = fn(NewLocalCommandAdapter(service))
+		if operationErr != nil {
+			if rollbackErr := tx.RollbackTo("command_operation").Error; rollbackErr != nil {
+				return rollbackErr
+			}
+			var commandErr *workorder.Error
+			if errors.As(operationErr, &commandErr) {
+				receipt.Status = commandReceiptError
+				receipt.ErrorCode = commandErr.Code
+			} else {
+				return operationErr
+			}
+		} else if encoded, encodeErr := json.Marshal(result); encodeErr != nil {
+			return encodeErr
+		} else {
+			receipt.ResponseJSON = string(encoded)
+		}
+		return tx.Save(&receipt).Error
+	})
 	if err != nil {
 		return workorder.CommandResult{}, mapCommandError(err)
 	}

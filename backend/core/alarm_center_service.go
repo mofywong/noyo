@@ -218,6 +218,41 @@ func (s *AlarmCenterService) Stats(scope workorder.Scope) (AlarmStats, error) {
 }
 
 func (s *AlarmCenterService) Observe(ctx context.Context, scope workorder.Scope, publicID string, metadata AlarmSignalMetadata) error {
+	return s.observe(ctx, scope, publicID, metadata, true)
+}
+
+// OpenObserved commits the alarm occurrence and its policy/suppression state
+// together. Automatic ticket creation remains a separate idempotent operation
+// after the alarm transaction has committed.
+func (s *AlarmCenterService) OpenObserved(ctx context.Context, scope workorder.Scope, fingerprint string, snapshot map[string]any, metadata AlarmSignalMetadata) (*workorder.AlarmInstance, error) {
+	var instance *workorder.AlarmInstance
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		instances := workorder.NewGormAlarmInstanceStore(tx)
+		var err error
+		instance, err = instances.Open(ctx, scope, fingerprint, snapshot)
+		if err != nil {
+			return err
+		}
+		scoped := NewAlarmCenterService(tx, instances, nil, nil)
+		return scoped.observe(ctx, scope, instance.ID, metadata, false)
+	})
+	if err != nil {
+		return nil, err
+	}
+	policy, err := s.matchPolicyForSignal(scope, metadata)
+	if err != nil {
+		_ = s.recordServiceEvent(scope, instance.ID, "work_order_auto_create_failed", map[string]any{"error": err.Error()})
+		return instance, nil
+	}
+	if policy.RequireWorkOrder && policy.AutoCreateWorkOrder {
+		if err := s.autoCreateWorkOrder(ctx, scope, instance.ID, policy); err != nil {
+			_ = s.recordServiceEvent(scope, instance.ID, "work_order_auto_create_failed", map[string]any{"error": err.Error()})
+		}
+	}
+	return instance, nil
+}
+
+func (s *AlarmCenterService) observe(ctx context.Context, scope workorder.Scope, publicID string, metadata AlarmSignalMetadata, createWorkOrder bool) error {
 	if err := validateAlarmCenterScope(scope); err != nil {
 		return err
 	}
@@ -278,7 +313,7 @@ func (s *AlarmCenterService) Observe(ctx context.Context, scope workorder.Scope,
 	if err != nil {
 		return err
 	}
-	if policy.RequireWorkOrder && policy.AutoCreateWorkOrder {
+	if createWorkOrder && policy.RequireWorkOrder && policy.AutoCreateWorkOrder {
 		if err := s.autoCreateWorkOrder(ctx, scope, publicID, policy); err != nil {
 			_ = s.recordServiceEvent(scope, publicID, "work_order_auto_create_failed", map[string]any{"error": err.Error()})
 		}

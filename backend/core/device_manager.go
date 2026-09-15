@@ -541,9 +541,16 @@ func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, para
 		b64Data, ext := normalizeSnapshotBase64(base64Str)
 		imgData, err := base64.StdEncoding.DecodeString(b64Data)
 		if err == nil {
-			filename := fmt.Sprintf("%s_%s_%d%s", meta.DeviceCode, eventId, time.Now().UnixNano(), ext)
+			filename := fmt.Sprintf("snapshot_%d%s", time.Now().UnixNano(), ext)
 			if err := os.MkdirAll("./data/images", 0755); err == nil && os.WriteFile("./data/images/"+filename, imgData, 0644) == nil {
-				params["snapshot_url"] = "/data/images/" + filename
+				assetURL := "/data/images/" + filename
+				device, lookupErr := store.GetDevice(meta.DeviceCode)
+				if lookupErr == nil && device != nil && store.DB.Create(&store.StoredAsset{Path: assetURL, TenantID: device.TenantID, ProjectID: device.ProjectID, DeviceCode: meta.DeviceCode}).Error == nil {
+					params["snapshot_url"] = assetURL
+				} else {
+					_ = os.Remove("./data/images/" + filename)
+					delete(params, "snapshot_url")
+				}
 				delete(params, "snapshot_base64")
 			}
 		}
@@ -615,17 +622,12 @@ func (dm *DeviceManager) enrichAlarmEvent(meta DeviceMeta, eventID string, param
 		}
 		return
 	}
-	instance, err := dm.Server.AlarmInstances.Open(context.Background(), scope, fingerprint, map[string]any{
+	snapshot := map[string]any{
 		"event_id": eventID, "device_code": meta.DeviceCode, "product_code": meta.ProductCode,
 		"event_name": eventName, "event_level": eventLevel, "device_name": device.Name, "product_name": productName,
 		"params": cloneEventParams(params), "reported_at": time.Now().UTC().Format(time.RFC3339Nano),
-	})
-	if err != nil {
-		dm.Server.Logger.Warn("open alarm instance", zap.Error(err), zap.String("device_code", meta.DeviceCode), zap.String("event_id", eventID))
-		return
 	}
-	params["_alarm_instance_id"] = instance.ID
-	params["_generation"] = instance.Generation
+	var instance *workorder.AlarmInstance
 	if dm.Server.AlarmCenter != nil {
 		severity, _ := params["alarm_severity"].(string)
 		if strings.TrimSpace(severity) == "" {
@@ -648,10 +650,16 @@ func (dm *DeviceManager) enrichAlarmEvent(meta DeviceMeta, eventID string, param
 			"product_code": meta.ProductCode, "product_name": productName,
 			"params": cloneEventParams(params),
 		}
-		if err := dm.Server.AlarmCenter.Observe(context.Background(), scope, instance.ID, signalMetadata); err != nil {
-			dm.Server.Logger.Warn("enrich alarm center instance", zap.Error(err), zap.String("device_code", meta.DeviceCode), zap.String("event_id", eventID))
-		}
+		instance, err = dm.Server.AlarmCenter.OpenObserved(context.Background(), scope, fingerprint, snapshot, signalMetadata)
+	} else {
+		instance, err = dm.Server.AlarmInstances.Open(context.Background(), scope, fingerprint, snapshot)
 	}
+	if err != nil {
+		dm.Server.Logger.Warn("open and enrich alarm instance", zap.Error(err), zap.String("device_code", meta.DeviceCode), zap.String("event_id", eventID))
+		return
+	}
+	params["_alarm_instance_id"] = instance.ID
+	params["_generation"] = instance.Generation
 }
 
 func resolveAlarmEventMetadata(productCode, eventID string) (string, string, string) {
