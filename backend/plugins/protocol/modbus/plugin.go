@@ -97,16 +97,24 @@ type ModbusPlugin struct {
 	deviceDataCache map[string]map[string]interface{}
 	// Device Runtime States
 	deviceStates map[string]*DeviceRuntimeState
-	// Connection Pool: Address (ip:port) -> net.Conn
-	conns  map[string]net.Conn
+	// Connection Pool: Address (ip:port) -> *ModbusConnEntry
+	conns  map[string]*ModbusConnEntry
 	connMu sync.Mutex
+}
+
+// ModbusConnEntry wraps a persistent TCP connection with its own mutex for transaction serialization.
+type ModbusConnEntry struct {
+	mu   sync.Mutex
+	conn net.Conn
 }
 
 // DeviceRuntimeState holds the runtime state for online status detection
 type DeviceRuntimeState struct {
+	mu                 sync.Mutex
 	CurrentStatus      bool        // true = online
 	ConsecutiveSuccess int         // For online debounce
 	ConsecutiveFailure int         // For offline debounce
+	LastSuccessTime    time.Time   // Last successful communication
 	LastChangeTime     time.Time   // For value change check
 	LastChangeValue    interface{} // For value change check
 	LastReportTime     time.Time   // Last time status was reported
@@ -137,43 +145,103 @@ func (p *ModbusPlugin) Init(ctx protocol.Context) error {
 	p.lastEventReportTimes = make(map[string]map[string]time.Time)
 	p.deviceDataCache = make(map[string]map[string]interface{})
 	p.deviceStates = make(map[string]*DeviceRuntimeState)
-	p.conns = make(map[string]net.Conn)
+	p.conns = make(map[string]*ModbusConnEntry)
 	_ = p.EnsureDriverExists()
 	return nil
 }
 
-// getConnection retrieves a cached connection or creates a new one
-func (p *ModbusPlugin) getConnection(address string, timeout int) (net.Conn, error) {
+// getConnEntry returns or creates a ModbusConnEntry for the given address
+func (p *ModbusPlugin) getConnEntry(address string) *ModbusConnEntry {
 	p.connMu.Lock()
 	defer p.connMu.Unlock()
+	if p.conns == nil {
+		p.conns = make(map[string]*ModbusConnEntry)
+	}
+	entry, ok := p.conns[address]
+	if !ok {
+		entry = &ModbusConnEntry{}
+		p.conns[address] = entry
+	}
+	return entry
+}
 
-	if conn, ok := p.conns[address]; ok {
-		// Simple health check?
-		// Writing to a closed connection usually detects it.
-		// For now, return cached.
-		return conn, nil
+// ExecuteTransaction executes a Modbus transaction with connection reuse and serialization.
+// If the connection is broken or times out, it is closed and cleaned up so the next attempt will reconnect.
+func (p *ModbusPlugin) ExecuteTransaction(address string, timeoutMS int, fn func(conn net.Conn) error) error {
+	if timeoutMS <= 0 {
+		timeoutMS = 1000
+	}
+	entry := p.getConnEntry(address)
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	// 1. Ensure active connection
+	if entry.conn == nil {
+		c, err := net.DialTimeout("tcp", address, time.Duration(timeoutMS)*time.Millisecond)
+		if err != nil {
+			return err
+		}
+		entry.conn = c
+	}
+
+	// 2. Set deadline for this transaction
+	_ = entry.conn.SetDeadline(time.Now().Add(time.Duration(timeoutMS) * time.Millisecond))
+
+	// 3. Execute request/response transaction
+	err := fn(entry.conn)
+	if err != nil {
+		// On I/O or protocol error, close and discard connection to avoid desync on stream
+		_ = entry.conn.Close()
+		entry.conn = nil
+		return err
+	}
+
+	return nil
+}
+
+// CloseAllConnections closes and cleans up all active persistent connections
+func (p *ModbusPlugin) CloseAllConnections() {
+	p.connMu.Lock()
+	defer p.connMu.Unlock()
+	for _, entry := range p.conns {
+		entry.mu.Lock()
+		if entry.conn != nil {
+			_ = entry.conn.Close()
+			entry.conn = nil
+		}
+		entry.mu.Unlock()
+	}
+	p.conns = make(map[string]*ModbusConnEntry)
+}
+
+// getConnection retrieves a cached connection or creates a new one (legacy compatibility)
+func (p *ModbusPlugin) getConnection(address string, timeout int) (net.Conn, error) {
+	entry := p.getConnEntry(address)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	if entry.conn != nil {
+		return entry.conn, nil
 	}
 
 	conn, err := net.DialTimeout("tcp", address, time.Duration(timeout)*time.Millisecond)
 	if err != nil {
 		return nil, err
 	}
-	p.conns[address] = conn
+	entry.conn = conn
 	return conn, nil
 }
 
-// closeConnection closes a connection and removes it from the pool (used on error)
+// closeConnection closes a connection and removes it from the pool (legacy compatibility)
 func (p *ModbusPlugin) closeConnection(address string, conn net.Conn) {
-	p.connMu.Lock()
-	defer p.connMu.Unlock()
+	entry := p.getConnEntry(address)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
 
-	// Only close/delete if it's the specific connection passed (avoid race where it was already replaced)
-	if current, ok := p.conns[address]; ok && current == conn {
-		conn.Close()
-		delete(p.conns, address)
-	} else {
-		// Just close the passed one to be safe if it's not in map
-		conn.Close()
+	if entry.conn != nil && (conn == nil || entry.conn == conn) {
+		_ = entry.conn.Close()
+		entry.conn = nil
 	}
 }
 
@@ -187,11 +255,13 @@ func (p *ModbusPlugin) Start() error {
 // Stop implements IProtocolPlugin
 func (p *ModbusPlugin) Stop() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	for id, stop := range p.tasks {
 		close(stop)
 		delete(p.tasks, id)
 	}
+	p.mu.Unlock()
+
+	p.CloseAllConnections()
 	p.Ctx.LogInfo("Modbus Plugin Stopped")
 	return nil
 }
@@ -493,17 +563,7 @@ func (p *ModbusPlugin) writePointInternal(device types.DeviceMeta, product types
 		}
 	}
 
-	// 3. Connect
-	addr := net.JoinHostPort(devConfig.IP, strconv.Itoa(devConfig.Port))
-	// Use Connection Pool
-	conn, err := p.getConnection(addr, devConfig.TimeoutMS)
-	if err != nil {
-		return err
-	}
-	// DO NOT defer conn.Close() here, as we want to reuse it.
-
-	// 4. Encode Value
-
+	// 3. Encode Value
 	var valUint16 uint16
 
 	// Evaluate Write Expression if present
@@ -517,8 +577,7 @@ func (p *ModbusPlugin) writePointInternal(device types.DeviceMeta, product types
 
 	// Handle Coil (FC 5) vs Register (FC 6)
 	if functionCode == 5 {
-		// Write Single Coil
-		// ON = 0xFF00, OFF = 0x0000
+		// Write Single Coil: ON = 0xFF00, OFF = 0x0000
 		var boolVal bool
 		switch v := value.(type) {
 		case bool:
@@ -556,38 +615,28 @@ func (p *ModbusPlugin) writePointInternal(device types.DeviceMeta, product types
 				floatVal = 0
 			}
 		case string:
-			// Try parsing string to float
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
 				floatVal = f
 			}
 		default:
-			// Fallback
 			floatVal = 0
 		}
 
 		valUint16 = uint16(math.Round(floatVal))
 	}
 
-	// 5. Send Request
 	if functionCode > 6 {
 		return fmt.Errorf("write function code %d not supported for single point write yet", functionCode)
 	}
 
-	var writeErr error
-	if devConfig.ProtocolType == "Modbus-RTU over TCP" || devConfig.ProtocolType == "RTU_OVER_TCP" {
-		writeErr = p.writeSingleItemRTU(conn, targetSlaveID, functionCode, address, valUint16, devConfig.TimeoutMS)
-	} else {
-		writeErr = p.writeSingleItemTCP(conn, targetSlaveID, functionCode, address, valUint16, devConfig.TimeoutMS)
-	}
-
-	if writeErr != nil {
-		// On error, assume connection might be broken (or timeout), close it.
-		p.closeConnection(addr, conn)
-		// Option: Retry once?
-		// For now, just return error.
-		return writeErr
-	}
-	return nil
+	// 4. Connect and Send Request via ExecuteTransaction
+	addr := net.JoinHostPort(devConfig.IP, strconv.Itoa(devConfig.Port))
+	return p.ExecuteTransaction(addr, devConfig.TimeoutMS, func(conn net.Conn) error {
+		if devConfig.ProtocolType == "Modbus-RTU over TCP" || devConfig.ProtocolType == "RTU_OVER_TCP" {
+			return p.writeSingleItemRTU(conn, targetSlaveID, functionCode, address, valUint16, devConfig.TimeoutMS)
+		}
+		return p.writeSingleItemTCP(conn, targetSlaveID, functionCode, address, valUint16, devConfig.TimeoutMS)
+	})
 }
 
 func (p *ModbusPlugin) writeSingleItemTCP(conn net.Conn, slaveID uint8, functionCode uint8, address uint16, value uint16, timeout int) error {

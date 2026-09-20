@@ -437,6 +437,8 @@ func (p *CascadePlugin) Init(ctx platform.Context) error {
 	// Register HTTP routes
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/status", p.handleGetStatus)
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/stream", p.handleStream)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/sync/conflicts", p.handleSyncConflicts)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/sync/conflicts/resolve", p.handleSyncConflictResolve)
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways", p.handleGatewayList)
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins", p.handleGatewayPlugins)
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName", p.handleGatewayPluginConfig)
@@ -715,6 +717,129 @@ func valueOrDefaultGatewayName(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// activeSyncContext exposes the synchronization identity and push hook of the
+// running engine, so HTTP handlers do not have to branch on the mode themselves.
+func (p *CascadePlugin) activeSyncContext() (nodeID, origin string, notify func(store.SyncChange)) {
+	active := p.getActivePlugin()
+	switch active.Config.Mode {
+	case "platform":
+		engine, ok := active.PlatformEngine.(*platformEngineImpl)
+		if !ok || engine == nil {
+			return "", "", nil
+		}
+		return cloudSyncNodeID, cloudSyncNodeID, func(ch store.SyncChange) {
+			if engine.syncHub != nil {
+				engine.syncHub.notifyChange(ch)
+			}
+		}
+	case "gateway":
+		engine, ok := active.GatewayEngine.(*gatewayEngineImpl)
+		if !ok || engine == nil {
+			return "", "", nil
+		}
+		return engine.gatewayCode, gatewayOrigin, func(ch store.SyncChange) {
+			if engine.syncHub != nil {
+				engine.syncHub.notifyChange(ch)
+			}
+		}
+	}
+	return "", "", nil
+}
+
+// handleSyncConflicts lists the entities awaiting manual arbitration. The
+// synchronization layer never overwrites a divergent version on its own, so
+// these records are the operator's queue rather than an error state.
+func (p *CascadePlugin) handleSyncConflicts(r *ghttp.Request) {
+	if r.Method != "GET" {
+		r.Response.WriteStatus(405)
+		return
+	}
+	active := p.getActivePlugin()
+	tenantID := r.GetCtxVar("tenant_id").Uint()
+	projectID := r.GetCtxVar("project_id").Uint()
+	items, err := collectSyncConflicts(tenantID, projectID)
+	if err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
+		return
+	}
+	nodeID, _, _ := active.activeSyncContext()
+	data := map[string]interface{}{
+		"node_id": nodeID,
+		"mode":    active.Config.Mode,
+		"total":   len(items),
+		"items":   items,
+	}
+	if active.Config.Mode == "gateway" {
+		if engine, ok := active.GatewayEngine.(*gatewayEngineImpl); ok && engine != nil {
+			data["sync"] = engine.syncDiagnostics()
+		}
+	}
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": data})
+}
+
+// handleSyncConflictResolve records an operator's decision and pushes it to the
+// peer. A single decision may be posted directly, or many at once through
+// "items" when clearing the queue in bulk.
+func (p *CascadePlugin) handleSyncConflictResolve(r *ghttp.Request) {
+	if r.Method != "POST" {
+		r.Response.WriteStatus(405)
+		return
+	}
+	active := p.getActivePlugin()
+
+	var body struct {
+		syncResolveRequestItem
+		Items []syncResolveRequestItem `json:"items"`
+	}
+	if err := json.Unmarshal(r.GetBody(), &body); err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "Invalid JSON"})
+		return
+	}
+	requests := body.Items
+	if body.EntityCode != "" {
+		requests = append(requests, body.syncResolveRequestItem)
+	}
+	if len(requests) == 0 {
+		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "no resolutions supplied"})
+		return
+	}
+
+	nodeID, origin, notify := active.activeSyncContext()
+	if nodeID == "" {
+		r.Response.WriteJson(map[string]interface{}{"code": 503, "message": "cascade engine is not running"})
+		return
+	}
+
+	results := make([]map[string]interface{}, 0, len(requests))
+	succeeded, failed := 0, 0
+	for _, item := range requests {
+		entry := map[string]interface{}{
+			"entity_type": item.EntityType,
+			"entity_code": item.EntityCode,
+			"resolution":  item.Resolution,
+		}
+		change, err := resolveEntityConflict(item, nodeID, origin, active.Logger)
+		if err != nil {
+			entry["ok"] = false
+			entry["message"] = err.Error()
+			failed++
+		} else {
+			entry["ok"] = true
+			succeeded++
+			if change != nil && notify != nil {
+				recorded := *change
+				go notify(recorded)
+			}
+		}
+		results = append(results, entry)
+	}
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": map[string]interface{}{
+		"succeeded": succeeded,
+		"failed":    failed,
+		"results":   results,
+	}})
 }
 
 func (p *CascadePlugin) handleGatewayPlugins(r *ghttp.Request) {

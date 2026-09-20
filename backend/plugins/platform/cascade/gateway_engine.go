@@ -38,17 +38,12 @@ type gatewayEngineImpl struct {
 	mediaSignalMu      sync.RWMutex
 	mediaSignalHandler func(platform.MediaSignal)
 	server             *core.Server
+	// syncHub owns the synchronization session with the platform.
+	syncHub *syncHub
+	// recorder turns local writes into the propagation log.
+	recorder *changeRecorder
 }
 
-func (e *gatewayEngineImpl) keepGatewayLocalDevice(device *store.Device) bool {
-	return e.server != nil && e.server.Manager.IsGatewayOwnedDevice(device)
-}
-func (e *gatewayEngineImpl) prepareGatewayDiscoveredDevice(gateway, device *store.Device) *store.Device {
-	if e.server == nil {
-		return nil
-	}
-	return e.server.Manager.PrepareGatewayDevice(gateway, device)
-}
 func (e *gatewayEngineImpl) prepareGatewayTelemetryEvent(gatewayCode string, event types.Event, device *store.Device) types.Event {
 	if prepared, err := attachGatewaySnapshot(event); err != nil {
 		if e.logger != nil {
@@ -112,6 +107,11 @@ func (e *gatewayEngineImpl) Start() error {
 	opts.SetOnConnectHandler(func(c mqtt.Client) {
 		e.logger.Info("Gateway MQTT Connected")
 		e.subscribeTopics(c)
+		// Re-handshake after every reconnect so a gap that opened while the link
+		// was down is discovered by comparing cursors rather than by guessing.
+		if e.syncHub != nil {
+			e.syncHub.onConnected()
+		}
 	})
 
 	opts.SetConnectionLostHandler(func(c mqtt.Client, err error) {
@@ -136,6 +136,14 @@ func (e *gatewayEngineImpl) Start() error {
 	e.localEventSubs[types.EventDeviceStatusChanged] = e.ctx.SubscribeEvent(types.EventDeviceStatusChanged, e.handleLocalEvent)
 	e.localEventSubs[types.EventPropertyReported] = e.ctx.SubscribeEvent(types.EventPropertyReported, e.handleLocalEvent)
 	e.localEventSubs[types.EventEventReported] = e.ctx.SubscribeEvent(types.EventEventReported, e.handleLocalEvent)
+
+	// Wire the bidirectional change stream. The gateway code is resolved above,
+	// so every change can be stamped with its routing identity.
+	if err := e.initSync(); err != nil {
+		cancel()
+		return fmt.Errorf("gateway engine failed to initialize sync: %w", err)
+	}
+	go startSyncMaintenance(ctx, e.logger, e.gatewayCode)
 
 	return nil
 }
@@ -254,6 +262,12 @@ func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
 	platformStatusTopic := "noyo/cascade/platform/status"
 	c.Subscribe(platformStatusTopic, 1, e.handlePlatformStatus)
 
+	// The change stream carries every device and product mutation in both
+	// directions. Deletion travels as an explicit record in this stream, which
+	// is what removes any need to infer it from a snapshot's contents.
+	syncDownTopicName := syncDownTopic(e.gatewayCode)
+	c.Subscribe(syncDownTopicName, 1, e.handleSyncDown)
+
 	regRespTopic := fmt.Sprintf("noyo/cascade/gw/%s/register/response", e.gatewayCode)
 	if token := c.Subscribe(regRespTopic, 1, e.handleRegisterResponse); token.Wait() && token.Error() != nil {
 		e.logger.Error("Failed to subscribe to register response topic", zap.Error(token.Error()))
@@ -276,7 +290,6 @@ func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
 				e.receiversMux.Lock()
 				delete(e.receivers, info.FileID)
 				e.receiversMux.Unlock()
-				go e.handleReceivedFile(info.FileName, finalPath)
 			})
 			if err == nil {
 				e.receivers[info.FileID] = recv
@@ -354,166 +367,13 @@ func (e *gatewayEngineImpl) handleMediaSignalDown(_ mqtt.Client, msg mqtt.Messag
 	}
 }
 
-func (e *gatewayEngineImpl) handleReceivedFile(fileName, filePath string) {
-	if fileName == "sync_config.json" {
-		e.processSyncConfig(filePath)
-	} else {
-		e.logger.Info("Unhandled file type received", zap.String("name", fileName))
-	}
-}
-
-func (e *gatewayEngineImpl) processSyncConfig(filePath string) {
-	e.logger.Info("Processing sync config file", zap.String("path", filePath))
-	defer os.Remove(filePath)
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		e.logger.Error("Failed to read sync config file", zap.Error(err))
-		return
-	}
-
-	var syncData struct {
-		Timestamp    int64             `json:"timestamp"`
-		Products     []*store.Product  `json:"products"`
-		Devices      []*store.Device   `json:"devices"`
-		MediaNetwork *SyncMediaNetwork `json:"media_network,omitempty"`
-	}
-
-	if err := json.Unmarshal(data, &syncData); err != nil {
-		e.logger.Error("Failed to unmarshal sync config", zap.Error(err))
-		return
-	}
-
-	e.logger.Info("Gateway received sync config from platform", zap.Int("products_count", len(syncData.Products)), zap.Int("devices_count", len(syncData.Devices)))
-
-	coreServer, ok := e.ctx.GetCoreServer().(*core.Server)
-	if !ok {
-		e.logger.Error("Core server not available")
-		return
-	}
-
-	if syncData.MediaNetwork != nil {
-		e.logger.Info("Gateway received media network config from platform",
-			zap.String("stun_urls", syncData.MediaNetwork.StunURLs),
-			zap.String("turn_urls", syncData.MediaNetwork.TurnURLs))
-		if coreServer != nil && coreServer.Manager != nil {
-			if provider := coreServer.Manager.MediaNetworkProvider(); provider != nil {
-				provider.SetGatewayMediaNetwork(platform.GatewayMediaNetwork{
-					StunURLs: syncData.MediaNetwork.StunURLs, TurnURLs: syncData.MediaNetwork.TurnURLs,
-					TurnUsername: syncData.MediaNetwork.TurnUsername, TurnPassword: syncData.MediaNetwork.TurnPassword,
-				})
-			}
-		}
-	}
-
-	// 1. Sync Products
-	for _, p := range syncData.Products {
-		p.ID = 0 // Clear Platform ID to avoid local SQLite primary key conflicts
-
-		// 检查产品信息是否有变化，避免无变化时触发插件重载
-		productChanged := true
-		if existingP, err := store.GetProduct(p.Code); err == nil && existingP != nil {
-			if existingP.Name == p.Name && existingP.Config == p.Config {
-				productChanged = false
-			}
-		}
-
-		if err := store.SaveProduct(p); err != nil {
-			e.logger.Error("Failed to sync product", zap.String("code", p.Code), zap.Error(err))
-		} else {
-			if !productChanged {
-				e.logger.Debug("Product unchanged, skip reload", zap.String("code", p.Code))
-				continue
-			}
-
-			e.logger.Info("Synced product", zap.String("code", p.Code))
-			coreServer.DeviceManager.Registry.UpdateProduct(p)
-		}
-	}
-
-	// 2. Sync Devices
-	syncedDeviceCodes := make(map[string]bool)
-	parentsToRestart := make(map[string]bool)
-	for _, d := range syncData.Devices {
-		d.ID = 0 // Clear Platform ID to avoid local SQLite primary key conflicts
-		syncedDeviceCodes[d.Code] = true
-
-		deviceChanged := true
-		if existingD, err := store.GetDevice(d.Code); err == nil && existingD != nil {
-			if existingD.Name == d.Name && existingD.ProductCode == d.ProductCode && existingD.ParentCode == d.ParentCode && existingD.Enabled == d.Enabled && existingD.Config == d.Config {
-				deviceChanged = false
-			}
-		}
-
-		if err := store.SaveDevice(d); err != nil {
-			e.logger.Error("Failed to sync device", zap.String("code", d.Code), zap.Error(err))
-		} else {
-			e.logger.Info("Synced device", zap.String("code", d.Code))
-			coreServer.DeviceManager.Registry.UpdateDevice(d)
-
-			if deviceChanged {
-				if d.ParentCode != "" {
-					parentsToRestart[d.ParentCode] = true
-				}
-				if d.Enabled {
-					e.logger.Info("Device changed, restarting", zap.String("code", d.Code))
-					_ = coreServer.DeviceManager.RestartDevice(d.Code)
-				} else {
-					e.logger.Info("Device changed to disabled, stopping", zap.String("code", d.Code))
-					_ = coreServer.DeviceManager.StopDevice(d.Code)
-				}
-			} else {
-				e.logger.Debug("Device unchanged, skip restart", zap.String("code", d.Code))
-			}
-		}
-	}
-
-	// 3. Clean up deleted devices
-	localDevices, _, err := store.ListDevices(0, 0, 0, 0)
-	if err != nil {
-		e.logger.Error("Failed to list local devices for cleanup", zap.Error(err))
-	} else {
-		for _, ld := range localDevices {
-			// Skip gateway device itself
-			if ld.Code == e.config.GatewaySn {
-				continue
-			}
-			// GB28181 cameras are discovered and owned by the gateway. They are
-			// reported upward after registration, not provisioned by a platform
-			// configuration snapshot.
-			if e.keepGatewayLocalDevice(&ld) {
-				continue
-			}
-			// If local device is not in sync data, it was deleted on platform
-			if !syncedDeviceCodes[ld.Code] {
-				e.logger.Info("Deleting local device not present in sync data", zap.String("code", ld.Code))
-				if ld.ParentCode != "" {
-					parentsToRestart[ld.ParentCode] = true
-				}
-				_ = coreServer.DeviceManager.StopDevice(ld.Code)
-				coreServer.DeviceManager.Registry.RemoveDevice(ld.Code)
-				if err := store.DeleteDevice(ld.Code); err != nil {
-					e.logger.Error("Failed to delete local device", zap.String("code", ld.Code), zap.Error(err))
-				}
-			}
-		}
-	}
-
-	// 4. Restart affected parents
-	for pCode := range parentsToRestart {
-		if pCode != "" && coreServer.DeviceManager.IsRunning(pCode) {
-			e.logger.Info("Restarting parent device due to sub-device changes", zap.String("parent", pCode))
-			if err := coreServer.DeviceManager.RestartDevice(pCode); err != nil {
-				e.logger.Error("Failed to restart parent device", zap.String("parent", pCode), zap.Error(err))
-			}
-		}
-	}
-
-	// Update local config version
-	e.configVersion.Store(syncData.Timestamp)
-	e.logger.Info("Config sync complete", zap.Int("products", len(syncData.Products)), zap.Int("devices", len(syncData.Devices)), zap.Int64("version", syncData.Timestamp))
-}
-
+// handleConfigVersion reacts to the platform's configuration nudge.
+//
+// It deliberately no longer pulls the whole configuration. A nudge only
+// re-triggers the handshake, after which the platform replays exactly the
+// changes this gateway has not acknowledged. Pulling a full snapshot instead
+// would overwrite local edits with platform state and — before the change stream
+// existed — delete local devices merely because they were absent from it.
 func (e *gatewayEngineImpl) handleConfigVersion(client mqtt.Client, msg mqtt.Message) {
 	var payload struct {
 		Version int64 `json:"version"`
@@ -523,14 +383,16 @@ func (e *gatewayEngineImpl) handleConfigVersion(client mqtt.Client, msg mqtt.Mes
 	}
 
 	localVer := e.configVersion.Load()
-	if payload.Version > localVer {
-		e.logger.Info("Config version updated, requesting sync", zap.Int64("local", localVer), zap.Int64("remote", payload.Version))
-		// Always verify registration to handle case where gateway was disabled
-		e.sendRegisterRequest()
-		e.sendSyncRequest()
-	} else {
-		e.logger.Debug("Config version matches or older, skipping sync", zap.Int64("local", localVer), zap.Int64("remote", payload.Version))
+	if payload.Version <= localVer {
+		return
 	}
+	e.logger.Info("Platform configuration changed; catching up from the change stream",
+		zap.Int64("local_version", localVer),
+		zap.Int64("platform_version", payload.Version))
+	e.configVersion.Store(payload.Version)
+	// Always verify registration to handle the case where the gateway was disabled
+	e.sendRegisterRequest()
+	e.announceSyncPosition()
 }
 
 func (e *gatewayEngineImpl) handlePlatformStatus(client mqtt.Client, msg mqtt.Message) {
@@ -553,13 +415,9 @@ func (e *gatewayEngineImpl) handlePlatformStatus(client mqtt.Client, msg mqtt.Me
 		} else {
 			wasOnline := e.platformOnline.Swap(true)
 			if !wasOnline {
-				e.logger.Info("Platform online: triggering sync request and replaying gateway state")
+				e.logger.Info("Platform online: re-handshaking to replay unsynchronized changes")
 				e.publishGatewayStateReplay()
-
-				// 仅当没有有效的本地版本时才全量同步
-				if e.configVersion.Load() == 0 {
-					e.sendSyncRequest()
-				}
+				e.announceSyncPosition()
 			} else {
 				e.logger.Debug("Received duplicate platform online status, ignoring")
 			}
@@ -616,10 +474,10 @@ func (e *gatewayEngineImpl) handleRegisterResponse(client mqtt.Client, msg mqtt.
 
 		e.publishGatewayStateReplay()
 
-		// 仅当没有有效的本地版本时才全量同步，离线变更将通过 retained 的 config/version 触发
-		if e.configVersion.Load() == 0 {
-			e.sendSyncRequest()
-		}
+		// Announce our position and let the platform replay whatever we have not
+		// acknowledged. A fresh gateway has an empty change log, so this also
+		// performs the initial provisioning without any full-snapshot comparison.
+		e.announceSyncPosition()
 	} else {
 		e.logger.Info("Gateway registration pending or failed", zap.String("status", resp.Status), zap.String("message", resp.Message))
 		e.isRegistered.Store(false)
@@ -712,24 +570,6 @@ func (e *gatewayEngineImpl) publishGatewayStateReplay() {
 		// overwrite a later MQTT last-will or a newer property report.
 		e.client.Publish(topic, 1, false, payload)
 	}
-}
-
-func (e *gatewayEngineImpl) sendSyncRequest() {
-	if e.client == nil || !e.client.IsConnected() {
-		return
-	}
-	if !e.isRegistered.Load() {
-		return
-	}
-	req := struct {
-		LastSyncTime int64 `json:"last_sync_time"`
-	}{
-		LastSyncTime: 0,
-	}
-	reqBytes, _ := json.Marshal(req)
-	topic := fmt.Sprintf("noyo/cascade/gw/%s/sync/request", e.gatewayCode)
-	e.client.Publish(topic, 1, false, reqBytes)
-	e.logger.Info("Sent sync request")
 }
 
 func (e *gatewayEngineImpl) handleCommand(client mqtt.Client, msg mqtt.Message) {

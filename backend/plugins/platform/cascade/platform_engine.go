@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +29,12 @@ type platformEngineImpl struct {
 	mediaSignalMu      sync.RWMutex
 	mediaSignalHandler func(platform.MediaSignal)
 	cancel             context.CancelFunc
-	syncMu             sync.Mutex // 防止并发 sync 操作
+	// syncHub owns one synchronization session per gateway.
+	syncHub *syncHub
+	// recorder turns local writes into the propagation log.
+	recorder *changeRecorder
+	// instanceID identifies the platform's change log.
+	instanceID string
 }
 
 const (
@@ -81,9 +84,14 @@ func (e *platformEngineImpl) Start() error {
 		e.subscribeTopics(c)
 
 		// 发布平台 Online 状态（retained=true），通知所有网关平台已上线
-		// 网关收到后会上报一次全量设备状态
+		// 网关收到后会重新握手并按游标补发，不依赖任何全量比对
 		onlinePayload := fmt.Sprintf(`{"status":"online","timestamp":%d}`, time.Now().UnixMilli())
 		c.Publish("noyo/cascade/platform/status", 1, true, []byte(onlinePayload))
+
+		// 重连后重新握手：离线期间产生的变更通过游标补发，不做任何推断
+		if e.syncHub != nil {
+			e.syncHub.onConnected()
+		}
 	}
 	opts.OnConnectionLost = func(c mqtt.Client, err error) {
 		e.logger.Error("Platform Engine MQTT Connection Lost! LWT will be triggered by broker.",
@@ -101,6 +109,14 @@ func (e *platformEngineImpl) Start() error {
 
 	// Reset all cascade devices to offline on startup
 	e.resetAllCascadeDevicesOffline()
+
+	// Wire the bidirectional change stream. This must happen after the client is
+	// connected so that changes recorded during startup have a transport.
+	if err := e.initSync(); err != nil {
+		videoCancel()
+		return fmt.Errorf("platform engine failed to initialize sync: %w", err)
+	}
+	go startSyncMaintenance(videoCtx, e.logger, cloudSyncNodeID)
 
 	// Register DB Hooks for config changes
 	e.registerDBHooks()
@@ -255,6 +271,12 @@ func (e *platformEngineImpl) registerDBHooks() {
 func (e *platformEngineImpl) onDBChange(db *gorm.DB) {
 	if db.Error != nil {
 		// 如果事务失败或回滚，不触发同步
+		return
+	}
+	// A replayed change from a gateway must not be echoed back as a config
+	// nudge: the gateway would reconnect, re-handshake and rediscover the same
+	// state, which is pure noise.
+	if _, applying := db.Get(store.SyncApplyingKey); applying {
 		return
 	}
 	if db.Statement.Schema == nil {
@@ -472,7 +494,7 @@ func (e *platformEngineImpl) subscribeTopics(c mqtt.Client) {
 	c.Subscribe("noyo/cascade/gw/+/alarm-video/up", 1, e.handleAlarmVideo)
 	c.Subscribe("noyo/cascade/gw/+/provision/request", 1, e.handleProvisionRequest)
 	c.Subscribe("noyo/cascade/gw/+/register/request", 1, e.handleRegisterRequest)
-	c.Subscribe("noyo/cascade/gw/+/sync/request", 1, e.handleSyncRequest)
+	c.Subscribe("noyo/cascade/gw/+/sync/up", 1, e.handleSyncUp)
 	c.Subscribe("noyo/cascade/gw/+/telemetry/up", 1, e.handleTelemetryUp)
 	c.Subscribe("noyo/cascade/gw/+/command/request_reply", 1, e.handleCommandReply)
 	c.Subscribe("noyo/cascade/gw/+/status", 1, e.handleGatewayStatus)
@@ -859,163 +881,6 @@ func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.
 	respBytes, _ := json.Marshal(resp)
 	respTopic := fmt.Sprintf("noyo/cascade/gw/%s/register/response", gwSn)
 	client.Publish(respTopic, 1, false, respBytes)
-}
-
-func (e *platformEngineImpl) handleSyncRequest(client mqtt.Client, msg mqtt.Message) {
-	if msg.Retained() {
-		return
-	}
-	topic := msg.Topic()
-	match, gwSn := parseTopicGwSn(topic, "noyo/cascade/gw/%s/sync/request")
-	if !match {
-		return
-	}
-
-	var req struct {
-		LastSyncTime int64 `json:"last_sync_time"`
-	}
-	if err := json.Unmarshal(msg.Payload(), &req); err != nil {
-		e.logger.Error("Failed to parse sync request", zap.Error(err))
-		return
-	}
-
-	// 在独立 goroutine 中执行 sync，避免阻塞 paho 的消息回调 goroutine。
-	// 如果 sync 在消息回调中通过 token.Wait() 阻塞，会导致 paho 内部的消息处理
-	// goroutine 被占用，最终 keepalive ping 无法按时发送，broker 在 1.5×KeepAlive
-	// 后触发 LWT 导致平台状态变为 offline。
-	go e.doSyncRequest(gwSn, req.LastSyncTime)
-}
-
-func (e *platformEngineImpl) prepareGatewaySyncDevices(gatewayCode string, devices []store.Device) []*store.Device {
-	prepared := make([]*store.Device, 0, len(devices))
-	coreServer, _ := e.ctx.GetCoreServer().(*core.Server)
-	for i := range devices {
-		device := devices[i]
-		// GB28181 cameras are discovered and owned by the gateway. Sending the
-		// platform-side child record back to that same gateway would create a
-		// second, offline local device beside the actively registered camera.
-		if coreServer != nil && coreServer.Manager.IsGatewayOwnedDevice(&device) {
-			continue
-		}
-		if device.ParentCode == gatewayCode {
-			device.ParentCode = ""
-		}
-		prepared = append(prepared, &device)
-	}
-	return prepared
-}
-
-func (e *platformEngineImpl) doSyncRequest(gwSn string, lastSyncTime int64) {
-	// 使用互斥锁防止并发 sync 操作（网关可能频繁发送 sync 请求）
-	if !e.syncMu.TryLock() {
-		e.logger.Info("Sync already in progress, skipping", zap.String("gw_sn", gwSn))
-		return
-	}
-	defer e.syncMu.Unlock()
-
-	e.logger.Info("Handling sync request", zap.String("gw_sn", gwSn), zap.Int64("last_sync_time", lastSyncTime))
-
-	gwDevice, err := store.GetDevice(gwSn)
-	if err != nil || gwDevice == nil {
-		e.logger.Info("Gateway device not found, skip sync", zap.String("gw_sn", gwSn))
-		return
-	}
-
-	if !gwDevice.Enabled {
-		e.logger.Info("Gateway device is pending registration, skip sync", zap.String("gw_sn", gwSn))
-		return
-	}
-
-	// 获取所有层级的子设备
-	var subDevices []store.Device
-	queue := []string{gwSn}
-	for len(queue) > 0 {
-		currentParent := queue[0]
-		queue = queue[1:]
-		children, _ := store.ListDevicesByParent(currentParent)
-		if len(children) > 0 {
-			subDevices = append(subDevices, children...)
-			for i := range children {
-				queue = append(queue, children[i].Code)
-			}
-		}
-	}
-
-	allDevices := e.prepareGatewaySyncDevices(gwSn, subDevices)
-
-	productMap := make(map[string]*store.Product)
-	for _, sub := range allDevices {
-		if _, ok := productMap[sub.ProductCode]; !ok {
-			if p, err := store.GetProduct(sub.ProductCode); err == nil && p != nil {
-				productMap[p.Code] = p
-			}
-		}
-	}
-
-	products := make([]*store.Product, 0, len(productMap))
-	for _, p := range productMap {
-		products = append(products, p)
-	}
-
-	var mediaNet *SyncMediaNetwork
-	if coreServer, ok := e.ctx.GetCoreServer().(*core.Server); ok && coreServer.Manager != nil {
-		if provider := coreServer.Manager.MediaNetworkProvider(); provider != nil {
-			if cfg, found := provider.GetGatewayMediaNetwork(); found {
-				mediaNet = &SyncMediaNetwork{
-					StunURLs:     cfg.StunURLs,
-					TurnURLs:     cfg.TurnURLs,
-					TurnUsername: cfg.TurnUsername,
-					TurnPassword: cfg.TurnPassword,
-				}
-			}
-		}
-	}
-
-	resp := struct {
-		Timestamp    int64             `json:"timestamp"`
-		Products     []*store.Product  `json:"products"`
-		Devices      []*store.Device   `json:"devices"`
-		MediaNetwork *SyncMediaNetwork `json:"media_network,omitempty"`
-	}{
-		Timestamp:    time.Now().UnixMilli(),
-		Products:     products,
-		Devices:      allDevices,
-		MediaNetwork: mediaNet,
-	}
-
-	respBytes, err := json.Marshal(resp)
-	if err != nil {
-		e.logger.Error("Failed to marshal sync response", zap.Error(err))
-		return
-	}
-
-	e.logger.Info("Platform sending sync config to gateway", zap.String("gw_sn", gwSn), zap.Int("products_count", len(resp.Products)), zap.Int("devices_count", len(resp.Devices)))
-
-	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("sync_%s_%d.json", gwSn, time.Now().UnixNano()))
-	if err := os.WriteFile(tmpFile, respBytes, 0644); err != nil {
-		e.logger.Error("Failed to write sync temp file", zap.Error(err))
-		return
-	}
-	defer os.Remove(tmpFile)
-
-	publishFunc := func(topic string, p []byte) error {
-		token := e.client.Publish(topic, 1, false, p)
-		token.Wait()
-		return token.Error()
-	}
-
-	sender, err := NewFileSender(tmpFile, publishFunc, e.logger)
-	if err != nil {
-		e.logger.Error("Failed to create file sender", zap.Error(err))
-		return
-	}
-	sender.Info.FileName = "sync_config.json"
-
-	if err := sender.Send(gwSn); err != nil {
-		e.logger.Error("Failed to send sync config", zap.Error(err))
-	} else {
-		e.logger.Info("Successfully sent sync config", zap.String("gw_sn", gwSn), zap.Int("bytes", len(respBytes)))
-	}
 }
 
 func (e *platformEngineImpl) handleGatewayStatus(client mqtt.Client, msg mqtt.Message) {

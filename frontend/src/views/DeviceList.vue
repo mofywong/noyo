@@ -45,7 +45,7 @@
           <input v-model="search" type="search" class="form-control" :placeholder="$t('dev_search_placeholder')" :aria-label="$t('dev_search_placeholder')">
         </div>
         <LiquidGlassPopover
-          v-if="devices.length > 0"
+          v-if="stats.total > 0 || devices.length > 0"
           placement="bottom-start"
           panel-class="noyo-device-filter-popover"
           :label="$t('dev_filter_toggle')"
@@ -208,7 +208,7 @@
               <td class="text-end pe-4"><div class="skeleton ms-auto" style="width: 96px; height: 24px;"></div></td>
             </tr>
             <!-- 空状态：无设备（§8.6） -->
-            <tr v-else-if="devices.length === 0">
+            <tr v-else-if="devices.length === 0 && !hasActiveFilters && deviceMetricFilters.length === 0">
               <td :colspan="showProjectColumn ? 11 : 10" class="p-0">
                 <div class="empty-state">
                   <i class="bi bi-hdd-network"></i>
@@ -220,7 +220,7 @@
               </td>
             </tr>
             <!-- 空状态：搜索/筛选无结果（§10.3 空结果规则） -->
-            <tr v-else-if="filteredDevices.length === 0">
+            <tr v-else-if="devices.length === 0">
               <td :colspan="showProjectColumn ? 11 : 10" class="p-0">
                 <div class="empty-state">
                   <i class="bi bi-funnel"></i>
@@ -236,28 +236,29 @@
               :key="device.code"
               class="device-row"
               @click="openDrawer(device)"
+              @mouseleave="handleRowHoverLeave"
             >
-              <td class="ps-4" @click.stop>
+              <td class="ps-4" @click.stop @mouseenter="handleTriggerCellHover(device, $event)">
                 <input class="form-check-input" type="checkbox" :checked="selectedDevices.includes(device.code)" @change="toggleSelection(device.code)" :aria-label="device.name || device.code">
               </td>
-              <td class="fw-bold text-primary text-truncate font-mono" style="max-width: 200px;" :title="device.code">{{ device.code }}</td>
-              <td style="max-width: 180px;">
+              <td class="fw-bold text-primary text-truncate font-mono" style="max-width: 200px;" :title="device.code" @mouseenter="handleTriggerCellHover(device, $event)">{{ device.code }}</td>
+              <td style="max-width: 180px;" @mouseenter="handleTriggerCellHover(device, $event)">
                 <div class="d-flex flex-column align-items-start gap-1">
                   <span class="text-truncate w-100" :title="device.name">{{ device.name || '-' }}</span>
                   <span
                     v-if="device.parent_code"
                     class="parent-device-badge text-truncate d-inline-flex align-items-center gap-1"
-                    :title="`${$t('dev_parent')}: ${getParentDeviceName(device.parent_code)} (${device.parent_code})`"
+                    :title="`${$t('dev_parent')}: ${device.parent_name || getParentDeviceName(device.parent_code)} (${device.parent_code})`"
                   >
                     <i class="bi bi-diagram-2 flex-shrink-0"></i>
-                    <span class="text-truncate">{{ getParentDeviceName(device.parent_code) }}</span>
+                    <span class="text-truncate">{{ device.parent_name || getParentDeviceName(device.parent_code) }}</span>
                   </span>
                 </div>
               </td>
-              <td v-if="showProjectColumn">
+              <td v-if="showProjectColumn" @mouseenter="handleTriggerCellHover(device, $event)">
                 <span class="badge text-bg-light border">{{ device.project_name || '-' }}</span>
               </td>
-              <td class="device-tags-cell">
+              <td class="device-tags-cell" @mouseenter="handleTriggerCellHover(device, $event)">
                 <div v-if="device.tags && device.tags.length" class="device-tag-chip-list">
                   <span
                     v-for="(tag, index) in device.tags.slice(0, 4)"
@@ -276,7 +277,7 @@
                 </div>
                 <span v-else class="text-muted small">-</span>
               </td>
-              <td>
+              <td @mouseenter="handleTriggerCellHover(device, $event)">
                 <!-- 状态指示器（§3.3：晶体发光胶囊） -->
                 <span class="dash-pill" :class="device.online ? 'dash-pill--success' : 'dash-pill--neutral'">
                   <span class="dash-pill-dot"></span>
@@ -286,7 +287,7 @@
                   {{ formatDateTime(device.last_active) }}
                 </div>
               </td>
-              <td class="text-truncate" style="max-width: 150px;" :title="getProductName(device.product_code)">
+              <td class="text-truncate" style="max-width: 150px;" :title="getProductName(device.product_code)" @mouseenter="dismissHoverCard">
                 <div class="d-flex flex-column align-items-start">
                   <span class="badge bg-light text-body border text-truncate w-100" style="vertical-align: middle;">{{ getProductName(device.product_code) }}</span>
                   <span v-if="device.protocol_profile_code" class="badge bg-primary-subtle text-primary border border-primary-subtle mt-1 text-truncate" style="font-size: 0.65rem; max-width: 100%;">
@@ -294,7 +295,7 @@
                   </span>
                 </div>
               </td>
-              <td @click.stop="openSingleAIModal(device)">
+              <td @click.stop="openSingleAIModal(device)" @mouseenter="dismissHoverCard">
                 <!-- 在线 + 有得分 -->
                 <div v-if="device.online && device.ai_health_score !== undefined && device.ai_health_score !== null"
                      class="d-flex align-items-center ai-health-cell"
@@ -324,13 +325,13 @@
                   {{ $t('ai_not_configured') }}
                 </div>
               </td>
-              <td @click.stop>
+              <td @click.stop @mouseenter="dismissHoverCard">
                 <div class="form-check form-switch" v-permission="'device:control'">
                   <input class="form-check-input" type="checkbox" role="switch" :checked="device.enabled" @click.prevent="toggleDevice(device)">
                   <label class="form-check-label small text-muted ms-1">{{ device.enabled ? $t('dev_enabled') : $t('dev_disabled') }}</label>
                 </div>
               </td>
-              <td class="text-end pe-4" @click.stop>
+              <td class="text-end pe-4" @click.stop @mouseenter="dismissHoverCard">
                 <div class="table-actions">
                   <button v-if="isCameraDevice(device)" class="table-action-btn table-action-btn--primary" @click="playVideo(device)" :title="aiText('播放实时视频', 'Play live video')" v-permission="'device:control'">
                     <i class="bi bi-play-fill fs-6"></i>
@@ -411,6 +412,33 @@
     </div>
     <ListPagination :page="page" :page-size="pageSize" :total="total" id-prefix="devices" @update:page="changePage" @update:page-size="changePageSize" />
   </div>
+
+  <!-- 行悬浮属性卡片：支持移入交互与滚动浏览，完整详情仍由右侧抽屉承载 -->
+  <LiquidGlassHoverCard
+    :open="hoverCardOpen && !!hoveredDevice"
+    :anchor-x="hoverAnchor.x"
+    :anchor-y="hoverAnchor.y"
+    :interactive="true"
+    :offset-x="10"
+    :offset-y="10"
+    :label="hoveredDevice ? (hoveredDevice.name || hoveredDevice.code) : ''"
+    @mouseenter="handleCardMouseEnter"
+    @mouseleave="handleCardMouseLeave"
+    @dismiss="dismissHoverCard"
+  >
+    <DeviceHoverCard
+      v-if="hoveredDevice"
+      :device="hoveredDevice"
+      :product-name="getProductName(hoveredDevice.product_code, { withCode: false })"
+      :driver-name="getDriverName(hoveredDevice.protocol_profile_code, { withCode: false })"
+      :parent-name="hoveredDevice.parent_code ? getParentDeviceName(hoveredDevice.parent_code) : ''"
+      :ai-configured="configuredDeviceCodes.has(hoveredDevice.code)"
+      :last-active-text="hoverLastActiveText"
+      :realtime-properties="hoverRealtimeProperties"
+      :realtime-loading="hoverRealtimeLoading"
+      :updated-at-text="hoverUpdatedAtText"
+    />
+  </LiquidGlassHoverCard>
 
   <Teleport to="body">
     <!-- 详情抽屉（§8.4：通用 DetailDrawer，与产品列表共用） -->
@@ -560,7 +588,7 @@
                   <label class="form-label">{{ $t('dev_parent') }} ({{ $t('optional') }})</label>
                   <select v-model="newDevice.parent_code" class="form-select">
                     <option value="">{{ $t('none') }}</option>
-                    <option v-for="d in devices.filter(d => (!d.parent_code || isChildOfCascade(d)) && d.code !== newDevice.code)" :key="d.code" :value="d.code">{{ d.name || d.code }}</option>
+                    <option v-for="d in parentCandidateOptions" :key="d.code" :value="d.code">{{ d.name || d.code }}</option>
                   </select>
                   <div class="form-text small text-muted">{{ $t('dev_parent_hint') }}</div>
                 </div>
@@ -1062,6 +1090,8 @@ import Sparkline from '../components/Sparkline.vue';
 import DetailDrawer from '../components/DetailDrawer.vue';
 import GlassGroup from '../components/liquid-glass/GlassGroup.vue';
 import LiquidGlassPopover from '../components/liquid-glass/LiquidGlassPopover.vue';
+import LiquidGlassHoverCard from '../components/liquid-glass/LiquidGlassHoverCard.vue';
+import DeviceHoverCard from '../components/device/DeviceHoverCard.vue';
 import { usePlugins } from '../plugins/registry.js';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 import { applyDriverDefaults } from '../utils/deviceDriverDefaults.js';
@@ -1098,6 +1128,7 @@ const { confirmDialog } = useConfirm();
 const { showToast } = useToast();
 
 const devices = ref([]);
+const parentDevices = ref([]);
 const configuredDeviceCodes = ref(new Set());
 const products = ref([]);
 const drivers = ref([]);
@@ -1125,6 +1156,272 @@ const drawerLoading = ref(false);
 const drawerUpdatedAt = ref(null);
 let drawerTimer = null;
 let drawerTrendTimer = null;
+
+// 行悬浮属性卡片状态（支持移入卡片查看/滚动）
+const HOVER_SHOW_DELAY = 260; // 停留阈值：避免扫过列表时卡片频闪
+const HOVER_SWITCH_GRACE = 220; // 移入卡片与行间切换宽限：为光标移入卡片留出充足窗口
+const hoveredDevice = ref(null);
+const hoverAnchor = ref({ x: 0, y: 0 });
+const hoverCardOpen = ref(false);
+const isCursorOverCard = ref(false);
+const hoverRealtimeProperties = ref([]);
+const hoverRealtimeLoading = ref(false);
+const hoverUpdatedAt = ref(null);
+const hoverRealtimeCache = new Map(); // key: device.code, val: { data, updatedAt, timestamp }
+let hoverShowTimer = null;
+let hoverHideTimer = null;
+let hoverDataFetchSeq = 0; // 防止并发请求竞争覆盖
+
+// 仅精确指针设备启用悬浮预览，触屏设备无 hover 语义
+const supportsHoverPreview = () => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
+  return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+};
+
+const clearHoverTimers = () => {
+  if (hoverShowTimer) {
+    clearTimeout(hoverShowTimer);
+    hoverShowTimer = null;
+  }
+  if (hoverHideTimer) {
+    clearTimeout(hoverHideTimer);
+    hoverHideTimer = null;
+  }
+};
+
+// 悬停在行内可交互控件上时不弹卡片，避免遮挡正在操作的目标
+const HOVER_SUPPRESS_SELECTOR = [
+  'button',
+  'input',
+  'select',
+  'textarea',
+  'a',
+  '.table-actions',
+  '.form-check',
+  '.lg-popover-root',
+  '.device-tag-chip__close',
+].join(',');
+
+/**
+ * 判断指针下的元素是否属于应抑制悬浮卡片的可交互元素
+ */
+const isInteractiveHoverTarget = (clientX, clientY) => {
+  if (typeof document === 'undefined' || typeof document.elementFromPoint !== 'function') return false;
+  const element = document.elementFromPoint(clientX, clientY);
+  return !!element?.closest?.(HOVER_SUPPRESS_SELECTOR);
+};
+
+const dismissHoverCard = () => {
+  clearHoverTimers();
+  isCursorOverCard.value = false;
+  hoverCardOpen.value = false;
+  hoveredDevice.value = null;
+  hoverRealtimeProperties.value = [];
+  hoverRealtimeLoading.value = false;
+  hoverUpdatedAt.value = null;
+};
+
+/** 组装设备实时属性 */
+const assembleHoverProperties = (tslProps, data) => {
+  const list = [];
+  const reportedKeys = new Set();
+  if (data && typeof data === 'object') {
+    Object.keys(data).forEach((k) => reportedKeys.add(k));
+  }
+
+  if (tslProps && tslProps.length > 0) {
+    tslProps.forEach((p) => {
+      const key = p.identifier;
+      const hasValue = data !== undefined && data !== null && key in data;
+      const val = hasValue ? data[key] : undefined;
+      list.push({
+        key,
+        name: p.name || key,
+        value: val,
+        unit: p.dataType?.specs?.unit || '',
+        type: p.dataType?.type || '',
+        hasValue,
+      });
+      reportedKeys.delete(key);
+    });
+  }
+
+  // 若存在非物模型定义但实际有上报的数据点
+  if (data && typeof data === 'object') {
+    reportedKeys.forEach((k) => {
+      if (k === 'ts' || k === '_type' || k === 'raw' || k === 'error') return;
+      list.push({
+        key: k,
+        name: k,
+        value: data[k],
+        unit: '',
+        type: typeof data[k],
+        hasValue: true,
+      });
+    });
+  }
+
+  // 排序：有数值的在前，再按 key
+  list.sort((a, b) => {
+    if (a.hasValue !== b.hasValue) return a.hasValue ? -1 : 1;
+    return a.key.localeCompare(b.key);
+  });
+
+  return list;
+};
+
+/** 获取悬停设备的实时数据与物模型 */
+const fetchHoverDeviceRealtimeData = async (device) => {
+  if (!device?.code) return;
+  const seq = ++hoverDataFetchSeq;
+  const code = device.code;
+
+  let tslProps = [];
+  const product = products.value.find((p) => p.code === device.product_code);
+  if (product && product.config) {
+    try {
+      const cfg = JSON.parse(product.config);
+      tslProps = cfg.tsl?.properties || [];
+    } catch {
+      // silent
+    }
+  }
+
+  // 5秒内存缓存命中
+  const now = Date.now();
+  const cached = hoverRealtimeCache.get(code);
+  if (cached && now - cached.timestamp < 5000) {
+    if (hoveredDevice.value?.code === code || (!hoveredDevice.value && hoverShowTimer)) {
+      hoverRealtimeProperties.value = assembleHoverProperties(tslProps, cached.data);
+      hoverUpdatedAt.value = cached.updatedAt;
+      hoverRealtimeLoading.value = false;
+    }
+    return;
+  }
+
+  hoverRealtimeLoading.value = true;
+  try {
+    const res = await axios.get(`/api/devices/${code}/data`);
+    if (seq !== hoverDataFetchSeq) return;
+    if (res.data.code === 0) {
+      const data = res.data.data || {};
+      const updatedAt = new Date();
+      hoverRealtimeCache.set(code, { data, updatedAt, timestamp: Date.now() });
+      if (hoveredDevice.value?.code === code || (!hoveredDevice.value && hoverShowTimer)) {
+        hoverRealtimeProperties.value = assembleHoverProperties(tslProps, data);
+        hoverUpdatedAt.value = updatedAt;
+      }
+    }
+  } catch (e) {
+    if (seq === hoverDataFetchSeq && (hoveredDevice.value?.code === code || (!hoveredDevice.value && hoverShowTimer))) {
+      hoverRealtimeProperties.value = assembleHoverProperties(tslProps, null);
+    }
+  } finally {
+    if (seq === hoverDataFetchSeq && (hoveredDevice.value?.code === code || (!hoveredDevice.value && hoverShowTimer))) {
+      hoverRealtimeLoading.value = false;
+    }
+  }
+};
+
+/** 仅在所属产品字段之前的单元格悬浮触发卡片 */
+const handleTriggerCellHover = (device, event) => {
+  if (!supportsHoverPreview()) return;
+  if (drawerVisible.value || showCreateModal.value || showDiscoveryModal.value || showDeviceTagsModal.value) return;
+
+  if (hoverHideTimer) {
+    clearTimeout(hoverHideTimer);
+    hoverHideTimer = null;
+  }
+
+  // 若光标已在悬浮卡片内部进行浏览或滚动，不打断交互
+  if (isCursorOverCard.value) return;
+
+  const anchorX = event?.clientX ?? 0;
+  const anchorY = event?.clientY ?? 0;
+
+  if (isInteractiveHoverTarget(anchorX, anchorY)) {
+    dismissHoverCard();
+    return;
+  }
+
+  // 相同设备已在展示中（在允许触发的单元格间移动）：保持打开，无闪烁
+  if (hoverCardOpen.value && hoveredDevice.value?.code === device.code) {
+    return;
+  }
+
+  // 换设备时卡片已在展示中：平滑换目标并即时拉取数据
+  if (hoverCardOpen.value) {
+    hoveredDevice.value = device;
+    hoverAnchor.value = { x: anchorX, y: anchorY };
+    fetchHoverDeviceRealtimeData(device);
+    return;
+  }
+
+  // 预拉取实时数据（在 260ms 防抖期间并发拉取，卡片一出现即可直接展示数据）
+  fetchHoverDeviceRealtimeData(device);
+
+  if (hoverShowTimer) clearTimeout(hoverShowTimer);
+  hoverShowTimer = setTimeout(() => {
+    hoverShowTimer = null;
+    hoveredDevice.value = device;
+    hoverAnchor.value = { x: anchorX, y: anchorY };
+    hoverCardOpen.value = true;
+  }, HOVER_SHOW_DELAY);
+};
+
+const handleRowHoverLeave = () => {
+  if (hoverShowTimer) {
+    clearTimeout(hoverShowTimer);
+    hoverShowTimer = null;
+  }
+  if (hoverHideTimer) clearTimeout(hoverHideTimer);
+  // 延迟收起，为光标从单元格移入悬浮卡片留出充足的切换窗口
+  hoverHideTimer = setTimeout(() => {
+    hoverHideTimer = null;
+    if (!isCursorOverCard.value) {
+      dismissHoverCard();
+    }
+  }, HOVER_SWITCH_GRACE);
+};
+
+/** 鼠标移入卡片：取消延迟关闭计时器，保持卡片常驻交互 */
+const handleCardMouseEnter = () => {
+  isCursorOverCard.value = true;
+  if (hoverHideTimer) {
+    clearTimeout(hoverHideTimer);
+    hoverHideTimer = null;
+  }
+};
+
+/** 鼠标移出卡片：启动延迟关闭计时器，给移回单元格留出切换窗口 */
+const handleCardMouseLeave = () => {
+  isCursorOverCard.value = false;
+  if (hoverHideTimer) clearTimeout(hoverHideTimer);
+  hoverHideTimer = setTimeout(() => {
+    hoverHideTimer = null;
+    if (!isCursorOverCard.value) {
+      dismissHoverCard();
+    }
+  }, HOVER_SWITCH_GRACE);
+};
+
+/** 卡片内使用的紧凑时间（去掉秒），复用全局时间格式保证口径一致 */
+const hoverLastActiveText = computed(() => {
+  const raw = hoveredDevice.value?.last_active;
+  if (!raw) return '';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime()) || date.getFullYear() <= 1) return '';
+  return formatDateTime(raw).replace(/:\d{2}$/, '');
+});
+
+/** 数据新鲜度格式化文本 */
+const hoverUpdatedAtText = computed(() => {
+  if (!hoverUpdatedAt.value) return '';
+  const d = hoverUpdatedAt.value;
+  const pad = (n) => String(n).padStart(2, '0');
+  const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return t('dev_hover_updated_at', { time: timeStr });
+});
 
 // Computed property for rich drawer data
 const drawerDisplayList = computed(() => {
@@ -1180,7 +1477,12 @@ const removeFilter = (key) => {
   if (key === 'tag') filterTag.value = '';
 };
 
+let isClearing = false;
+let fetchDebounceTimer = null;
+
 const clearFilters = () => {
+  isClearing = true;
+  if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
   search.value = '';
   filterProduct.value = '';
   filterParent.value = '';
@@ -1188,6 +1490,11 @@ const clearFilters = () => {
   filterOnline.value = '';
   filterTag.value = '';
   deviceMetricFilters.value = [];
+  page.value = 1;
+  nextTick(() => {
+    isClearing = false;
+    fetchDevices();
+  });
 };
 const selectedTagIds = ref([]);
 const showDeviceTagsModal = ref(false);
@@ -1351,8 +1658,44 @@ const setupSSE = () => {
     debouncedSSEFetch();
   };
 
-  eventSource.addEventListener('device.list.changed', handleSSE);
-  eventSource.addEventListener('device.status.changed', handleSSE);
+  eventSource.addEventListener('device.list.changed', () => {
+    resetSSEHeartbeat();
+    fetchParentDevices();
+    debouncedSSEFetch();
+  });
+  eventSource.addEventListener('device.status.changed', (event) => {
+    resetSSEHeartbeat();
+    try {
+      const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      const targetCode = data?.Topic;
+      const isOnline = data?.Payload === 'online' || data?.Payload === true;
+      if (targetCode) {
+        const targetDevice = devices.value.find(d => d.code === targetCode);
+        if (targetDevice && targetDevice.online !== isOnline) {
+          targetDevice.online = isOnline;
+          if (isOnline && data.Timestamp) {
+            targetDevice.last_active = new Date(data.Timestamp).toISOString();
+          }
+        }
+        if (drawerDevice.value && drawerDevice.value.code === targetCode) {
+          drawerDevice.value.online = isOnline;
+        }
+        if (hoveredDevice.value && hoveredDevice.value.code === targetCode) {
+          hoveredDevice.value.online = isOnline;
+        }
+      }
+      // 若当前启用了在线/离线过滤，需刷新列表保持切片正确
+      const effectiveOnline = filterOnline.value !== ''
+        ? filterOnline.value
+        : (deviceMetricFilters.value.includes('online') ? 'true' : '');
+      if (effectiveOnline !== '') {
+        debouncedSSEFetch();
+      }
+    } catch (err) {
+      console.error('[SSE] Failed to parse device.status.changed', err);
+      debouncedSSEFetch();
+    }
+  });
   eventSource.addEventListener('property.reported', (event) => {
     resetSSEHeartbeat();
     try {
@@ -1395,6 +1738,7 @@ const setupSSE = () => {
     resetSSEHeartbeat();
     // 连接恢复后立即拉取最新状态
     fetchDevices(true);
+    fetchParentDevices();
   };
 };
 
@@ -1405,50 +1749,82 @@ const reconnectSSE = () => {
   }
   // 重连前先拉取一次最新数据
   fetchDevices(true);
+  fetchParentDevices();
   sseReconnectTimer = setTimeout(() => {
     setupSSE();
   }, 1000);
 };
 
-// 分页状态
+// 分页与统计状态（服务端分页）
 const page = ref(1);
 const pageSize = ref(10);
-const total = computed(() => filteredDevices.value.length);
-
-const paginatedDevices = computed(() => {
-  const start = (page.value - 1) * pageSize.value;
-  const end = start + pageSize.value;
-  return filteredDevices.value.slice(start, end);
+const total = ref(0);
+const stats = ref({
+  total: 0,
+  online: 0,
+  alarm: 0
 });
 
+// 服务端分页直接展示当前页数据，保留 filteredDevices 兼容性别名
+const paginatedDevices = computed(() => devices.value);
+const filteredDevices = computed(() => devices.value);
+
 const changePage = (p) => {
-    if (p < 1 || p > Math.ceil(total.value / pageSize.value)) return;
-    page.value = p;
+  if (p < 1 || (total.value > 0 && p > Math.ceil(total.value / pageSize.value))) return;
+  page.value = p;
+  fetchDevices();
 };
 
 const changePageSize = (size) => {
   pageSize.value = Number(size) || 10;
   page.value = 1;
+  fetchDevices();
 };
 
-// 过滤器变更时重置页码
-watch([search, filterProduct, filterParent, filterEnabled, filterOnline, filterTag], () => {
+const triggerQuery = (resetPage = true, delay = 0) => {
+  if (resetPage) {
     page.value = 1;
+  }
+  if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
+  if (delay > 0) {
+    fetchDebounceTimer = setTimeout(() => {
+      fetchDevices();
+    }, delay);
+  } else {
+    fetchDevices();
+  }
+};
+
+watch(search, () => {
+  if (isClearing) return;
+  triggerQuery(true, 300);
+});
+
+watch([filterProduct, filterParent, filterEnabled, filterOnline, filterTag, deviceMetricFilters], () => {
+  if (isClearing) return;
+  triggerQuery(true, 0);
+});
+
+const parentCandidateOptions = computed(() => {
+  return parentDevices.value.filter(d => (!d.parent_code || isChildOfCascade(d)) && d.code !== newDevice.value.code);
 });
 
 const uniqueParents = computed(() => {
   const parents = new Set();
-  devices.value.forEach(d => {
+  parentDevices.value.forEach(d => {
     if (d.parent_code) parents.add(d.parent_code);
   });
   return Array.from(parents).map(code => {
-      const p = devices.value.find(d => d.code === code);
-      return { code, name: p ? (p.name || code) : code };
+    const p = parentDevices.value.find(d => d.code === code);
+    return { code, name: p ? (p.name || code) : code };
   });
 });
 
 const deviceMap = computed(() => {
   const map = new Map();
+  parentDevices.value.forEach(d => {
+    if (d.code) map.set(d.code, d);
+  });
   devices.value.forEach(d => {
     if (d.code) map.set(d.code, d);
   });
@@ -1485,49 +1861,8 @@ const activeFilterChips = computed(() => {
   return chips;
 });
 
-const filteredDevices = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  return devices.value.filter(d => {
-    if (filterProduct.value && d.product_code !== filterProduct.value) return false;
-    if (filterParent.value) {
-        // Show parent itself OR its children
-        if (d.code !== filterParent.value && d.parent_code !== filterParent.value) return false;
-    }
-    if (filterEnabled.value !== '') {
-        const want = filterEnabled.value === 'true';
-        if (d.enabled !== want) return false;
-    }
-    if (filterOnline.value !== '') {
-        const want = filterOnline.value === 'true';
-        if (d.online !== want) return false;
-    }
-    if (deviceMetricFilters.value.includes('online') && !d.online) return false;
-    if (deviceMetricFilters.value.includes('alarm') && d.ai_anomaly !== true && d.ai_latched !== true) return false;
-    if (filterTag.value !== '') {
-        const wantTagId = Number(filterTag.value);
-        if (!d.tags || !d.tags.some(t => t.ID === wantTagId)) return false;
-    }
-    if (q) {
-      const ref = String(d.code || '').toLowerCase();
-      const name = String(d.name || '').toLowerCase();
-      if (!ref.includes(q) && !name.includes(q)) return false;
-    }
-    return true;
-  });
-});
-
-// KPI 统计行（§7.3 / §3.3）
-const stats = computed(() => {
-  const list = devices.value;
-  return {
-    total: list.length,
-    online: list.filter(d => d.online).length,
-    alarm: list.filter(d => d.ai_anomaly === true || d.ai_latched === true).length
-  };
-});
-
 const allSelected = computed(() => {
-  return filteredDevices.value.length > 0 && selectedDevices.value.length === filteredDevices.value.length;
+  return devices.value.length > 0 && selectedDevices.value.length === devices.value.length;
 });
 
 const toggleSelection = (code) => {
@@ -1598,15 +1933,18 @@ const playVideo = (device) => {
   }
 };
 
-const getProductName = (code) => {
+const getProductName = (code, { withCode = true } = {}) => {
   const p = products.value.find(prod => prod.code === code);
-  return p ? `${p.name} (${p.code})` : code;
+  if (!p) return code;
+  // 窄幅场景（悬浮卡片）不带编码后缀，避免单行截断丢失名称本身
+  return withCode ? `${p.name} (${p.code})` : p.name;
 };
 
-const getDriverName = (code) => {
+const getDriverName = (code, { withCode = true } = {}) => {
   if (!code) return '';
   const d = drivers.value.find(drv => drv.code === code);
-  return d ? formatNamedReference(d.name, d.code) : code;
+  if (!d) return code;
+  return withCode ? formatNamedReference(d.name, d.code) : d.name;
 };
 
 const batchDelete = async () => {
@@ -1631,6 +1969,7 @@ const batchDelete = async () => {
   }
   selectedDevices.value = [];
   fetchDevices();
+  fetchParentDevices();
   showToast('success', t('dev_deleted_success'));
 };
 
@@ -1879,6 +2218,7 @@ const batchDeviceList = ref([]);
 
 const openDrawer = async (device) => {
   if (!device) return;
+  dismissHoverCard(); // 抽屉为完整详情载体，避免与卡片同时呈现
   drawerDevice.value = { ...device };
   drawerData.value = {};
   drawerTrendData.value = {};
@@ -2618,6 +2958,7 @@ const unbindDeviceTag = async (device, tag) => {
 
 const openSingleAIModal = async (device) => {
   currentSingleAIDevice.value = device;
+  dismissHoverCard(); // 弹窗打开时收起悬浮卡片，避免层叠干扰
   singleAITSLMap.value = {};
   aiChartOption.value = {};
   aiLatestHealth.value = null;
@@ -2755,11 +3096,13 @@ const restartAIBaselineCalibration = async () => {
 
 
 onUnmounted(() => {
+  clearHoverTimers();
   if (drawerTimer) clearInterval(drawerTimer);
   if (drawerTrendTimer) clearInterval(drawerTrendTimer);
   if (aiChartTimer) clearInterval(aiChartTimer);
   if (aiConfigSaveTimer) clearTimeout(aiConfigSaveTimer);
-  window.removeEventListener('noyo-data-updated', fetchDevices);
+  window.removeEventListener('noyo-data-updated', handleDataUpdated);
+  if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
   if (sseHeartbeatTimer) clearTimeout(sseHeartbeatTimer);
   if (sseFetchDebounceTimer) clearTimeout(sseFetchDebounceTimer);
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer);
@@ -2779,12 +3122,70 @@ const currentMappingPollingGroups = ref([]);
 const currentMappingProtocol = ref('');
 const isParentCascade = ref(false);
 
+const fetchParentDevices = async () => {
+  try {
+    const res = await axios.get('/api/devices', { params: { page: 0, pageSize: 0, _t: Date.now() } });
+    if (res.data.code === 0) {
+      parentDevices.value = res.data.data || [];
+    }
+  } catch (e) {
+    console.error(e);
+  }
+};
+
 const fetchDevices = async (silent = false) => {
   if (!silent) loading.value = true;
   try {
-    const res = await axios.get('/api/devices', { params: { page: 0, _t: Date.now() } });
+    const params = {
+      page: page.value,
+      pageSize: pageSize.value,
+      _t: Date.now()
+    };
+    if (search.value.trim()) {
+      params.search = search.value.trim();
+    }
+    if (filterProduct.value) {
+      params.product_code = filterProduct.value;
+    }
+    if (filterParent.value) {
+      params.parent_code = filterParent.value;
+    }
+    if (filterEnabled.value !== '') {
+      params.enabled = filterEnabled.value;
+    }
+    const effectiveOnline = filterOnline.value !== ''
+      ? filterOnline.value
+      : (deviceMetricFilters.value.includes('online') ? 'true' : '');
+    if (effectiveOnline !== '') {
+      params.online = effectiveOnline;
+    }
+    if (deviceMetricFilters.value.includes('alarm')) {
+      params.alarm = 'true';
+    }
+    if (filterTag.value !== '') {
+      params.tag_id = filterTag.value;
+    }
+
+    const res = await axios.get('/api/devices', { params });
     if (res.data.code === 0) {
-      devices.value = res.data.data || [];
+      const data = res.data.data || [];
+      const totalCount = typeof res.data.total === 'number' ? res.data.total : data.length;
+
+      // 若当前页无数据且 total > 0 (例如在最后一页删除设备)，自动跳回最大有效页
+      if (data.length === 0 && totalCount > 0 && page.value > 1) {
+        page.value = Math.max(1, Math.ceil(totalCount / pageSize.value));
+        return fetchDevices(silent);
+      }
+
+      devices.value = data;
+      total.value = totalCount;
+      if (res.data.stats) {
+        stats.value = {
+          total: res.data.stats.total ?? 0,
+          online: res.data.stats.online ?? 0,
+          alarm: res.data.stats.alarm ?? 0
+        };
+      }
     }
   } catch (e) {
     console.error(e);
@@ -2854,8 +3255,8 @@ const getProtocol = (productCode) => {
 };
 
 const isChildOfCascade = (device) => {
-  if (!device.parent_code) return false;
-  const parent = devices.value.find(d => d.code === device.parent_code);
+  if (!device || !device.parent_code) return false;
+  const parent = parentDevices.value.find(d => d.code === device.parent_code) || devices.value.find(d => d.code === device.parent_code);
   if (!parent) return false;
   return getDeviceProtocol(parent) === 'cascade';
 };
@@ -2997,14 +3398,20 @@ const fetchConfiguredTasks = async () => {
   }
 };
 
+const handleDataUpdated = () => {
+  fetchDevices();
+  fetchParentDevices();
+};
+
 onMounted(() => {
   fetchDevices();
+  fetchParentDevices();
   fetchProducts();
   fetchDrivers();
   fetchPluginsInfo();
   fetchConfiguredTasks();
   fetchDeviceTags();
-  window.addEventListener('noyo-data-updated', fetchDevices);
+  window.addEventListener('noyo-data-updated', handleDataUpdated);
 
   // 建立SSE连接，支持心跳检测和自动重连
   setupSSE();
@@ -3175,6 +3582,7 @@ const saveDevice = async () => {
     if (res.data.code === 0) {
       showCreateModal.value = false;
       fetchDevices();
+      fetchParentDevices();
       showToast('success', t('dev_save_success'));
       newDevice.value = { code: '', name: '', product_code: '', protocol_profile_code: '', protocol_name: '', parent_code: '', enabled: true, config: {} };
       currentSchema.value = null;
@@ -3203,6 +3611,7 @@ const deleteDevice = async (device) => {
       if (drawerDevice.value?.code === device.code) closeDrawer();
       showToast('success', t('dev_deleted_success'));
       fetchDevices();
+      fetchParentDevices();
     } else {
       showToast('danger', res.data.message);
     }
@@ -3246,23 +3655,32 @@ const toggleDevice = async (device) => {
 };
 
 const openMappingModal = async (device) => {
-  currentMappingDevice.value = device;
+  let mappingDevice = device;
+  try {
+    const res = await axios.get(`/api/devices/${device.code}`);
+    if (res.data.code === 0 && res.data.data) {
+      mappingDevice = res.data.data;
+    }
+  } catch (e) {
+    console.warn('Failed to load latest device config for mapping', e);
+  }
+  currentMappingDevice.value = mappingDevice;
   
   // Parse Device Config
   try {
-    currentMappingDeviceConfig.value = device.config ? JSON.parse(device.config) : {};
+    currentMappingDeviceConfig.value = mappingDevice.config ? JSON.parse(mappingDevice.config) : {};
   } catch (e) {
     currentMappingDeviceConfig.value = {};
   }
 
   // Find Product and TSL
-  const product = products.value.find(p => p.code === device.product_code);
+  const product = products.value.find(p => p.code === mappingDevice.product_code);
   if (product) {
       // 子设备从父设备获取协议名称
-      let protocolName = device.protocol_name;
-        if (!protocolName && device.parent_code) {
+      let protocolName = mappingDevice.protocol_name;
+        if (!protocolName && mappingDevice.parent_code) {
             try {
-                const res = await axios.get(`/api/devices/${device.parent_code}`);
+                const res = await axios.get(`/api/devices/${mappingDevice.parent_code}`);
                 if (res.data.code === 0 && res.data.data) {
                     protocolName = res.data.data.protocol_name || '';
                 }
@@ -3295,9 +3713,9 @@ const openMappingModal = async (device) => {
   isParentCascade.value = false;
   // Fetch Parent Config for Polling Groups if parent_code exists
   currentMappingPollingGroups.value = [];
-  if (device.parent_code) {
+  if (mappingDevice.parent_code) {
       try {
-          const res = await axios.get(`/api/devices/${device.parent_code}`);
+          const res = await axios.get(`/api/devices/${mappingDevice.parent_code}`);
           if (res.data.code === 0 && res.data.data) {
                 const parentDev = res.data.data;
                 if (parentDev.protocol_name === 'cascade') {

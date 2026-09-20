@@ -831,6 +831,43 @@
   padding: 8px;
 }
 
+/*
+ * 悬浮信息卡片（Hover Card）
+ * 只读浮层：鼠标事件完全穿透，绝不与宿主行的 hover 生命周期互相打断。
+ * 层级低于模态遮罩与 popover —— 一旦有弹窗/弹层打开，卡片自动被覆盖，不会抢占焦点。
+ */
+.lg-hover-card {
+  position: fixed !important;
+  z-index: calc(var(--noyo-layer-modal-backdrop) - 1);
+  /* 固定宽度：信息架构一致，避免不同设备因取值长短导致卡片宽窄跳动 */
+  width: min(348px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+.lg-hover-card--interactive {
+  pointer-events: auto !important;
+}
+
+.lg-hover-card--interactive::before {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  z-index: -1;
+  pointer-events: auto;
+}
+
+.lg-hover-card-enter-active,
+.lg-hover-card-leave-active {
+  transition: opacity var(--noyo-duration-fast) var(--noyo-ease-standard),
+    transform var(--noyo-duration-fast) var(--noyo-ease-standard);
+}
+
+.lg-hover-card-enter-from,
+.lg-hover-card-leave-to {
+  opacity: 0;
+  transform: scale(0.97);
+}
+
 .noyo-liquid-popover-open .noyo-glass-group:not(.noyo-glass-group--floating) {
   --noyo-glass-energy: 0 !important;
   --noyo-edge-energy: 0 !important;
@@ -921,7 +958,9 @@
   .lg-panel-enter-active,
   .lg-panel-leave-active,
   .lg-popover-enter-active,
-  .lg-popover-leave-active {
+  .lg-popover-leave-active,
+  .lg-hover-card-enter-active,
+  .lg-hover-card-leave-active {
     transition: none;
   }
 

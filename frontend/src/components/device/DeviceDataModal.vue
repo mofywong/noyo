@@ -3,12 +3,12 @@
     <!-- Data Modal -->
     <div v-if="visible" class="modal fade show d-block" style="background: rgba(0,0,0,0.5)">
       <div class="modal-dialog modal-xl">
-        <div class="modal-content" style="height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-content device-data-modal__content">
           <div class="modal-header">
             <h5 class="modal-title">{{ $t('dev_data_title') }} - {{ formatNamedReference(currentDataDevice?.name, currentDataDevice?.code) }}</h5>
             <button type="button" class="btn-close" @click="closeModal"></button>
           </div>
-          <div class="modal-body d-flex flex-column">
+          <div class="modal-body d-flex flex-column device-data-modal__body">
             <!-- Tabs -->
             <ul class="nav nav-tabs mb-3">
               <li class="nav-item">
@@ -23,11 +23,12 @@
             </ul>
 
             <!-- Realtime Tab -->
-            <div v-if="activeTab === 'realtime'" class="flex-grow-1">
+            <div v-if="activeTab === 'realtime'" class="flex-grow-1 device-data-modal__realtime">
               <div v-if="displayDataList.length === 0" class="text-center text-muted py-3">
                 {{ $t('tsl_no_data') }}
               </div>
-              <table v-else class="table table-hover align-middle">
+              <div v-else class="table-responsive">
+              <table class="table table-hover align-middle">
                 <thead>
                   <tr>
                     <th style="width: 20%">{{ $t('tsl_name') }}</th>
@@ -59,6 +60,7 @@
                   </tr>
                 </tbody>
               </table>
+              </div>
             </div>
 
             <!-- History Tab -->
@@ -1032,6 +1034,22 @@ watch(() => historyQuery.value.type, () => {
 .device-data-chart-mask {
   background: var(--bg-surface);
   opacity: 0.85;
+}
+.device-data-modal__content {
+  height: min(90vh, calc(100vh - 2rem));
+  display: flex;
+  flex-direction: column;
+}
+.device-data-modal__body {
+  min-height: 0;
+  overflow: hidden;
+}
+.device-data-modal__body > .flex-grow-1 {
+  min-height: 0;
+}
+.device-data-modal__realtime {
+  min-height: 0;
+  overflow: auto;
 }
 .device-service-accordion-body {
   background: var(--bg-surface);

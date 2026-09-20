@@ -98,7 +98,7 @@
                   <span class="badge text-bg-light border">{{ driver.project_name || '-' }}</span>
                 </td>
                 <td class="d-none d-lg-table-cell">
-                  <span class="dash-pill" :class="driver.protocol_name === 'script' ? 'dash-pill--success' : 'dash-pill--primary'">
+                  <span class="dash-pill" :class="driver.protocol_name?.toLowerCase() === 'script' ? 'dash-pill--success' : 'dash-pill--primary'">
                     <span class="dash-pill-dot"></span>
                     {{ getPluginTitle(driver.protocol_name) }}
                   </span>
@@ -177,6 +177,9 @@
                 <select v-model="currentDriver.protocol_name" class="form-select" :disabled="isEditing || isSystemDriver(currentDriver)" @change="fetchSchema(currentDriver.protocol_name)">
                   <option value="">{{ $t('driver_select_protocol_plugin', '请选择协议插件') }}</option>
                   <option v-for="p in protocols" :key="p.name" :value="p.name">{{ getPluginTitle(p.name) }}</option>
+                  <option v-if="currentDriver.protocol_name && !protocols.some(p => p.name?.toLowerCase() === currentDriver.protocol_name?.toLowerCase())" :value="currentDriver.protocol_name">
+                    {{ getPluginTitle(currentDriver.protocol_name) }}
+                  </option>
                 </select>
               </div>
               <div class="mb-3">
@@ -406,19 +409,37 @@ const loadDrivers = async () => {
 const loadProtocols = async () => {
   try {
     const res = await axios.get('/api/plugins', {
-      params: { category: 'protocol' }
+      params: { type: 'protocol' }
     });
-    protocols.value = (res.data.data || []).filter(p => p.status === 'running' && p.category === 'protocol');
+    const list = res.data?.data || res.data || [];
+    protocols.value = list.filter(p => p.category === 'protocol' && !p.isUnauthorized);
   } catch (err) {
     console.error('Failed to load protocols', err);
   }
 };
 
 const getPluginTitle = (name) => {
-  const p = protocols.value.find(p => p.name === name);
-  if (!p) return name;
+  if (!name) return '';
+  const p = protocols.value.find(p => p.name === name || p.name?.toLowerCase() === name?.toLowerCase());
+  if (!p) {
+    const lower = name.toLowerCase();
+    if (lower === 'modbus' || lower === 'modbus_tcp' || lower === 'modbus_rtu') {
+      return locale.value === 'zh' ? 'Modbus 协议' : 'Modbus Protocol';
+    }
+    if (lower === 'bacnet' || lower === 'bacnet_ip') {
+      return locale.value === 'zh' ? 'BACnet 协议' : 'BACnet Protocol';
+    }
+    if (lower === 'script' || lower === 'lua') {
+      return locale.value === 'zh' ? '脚本驱动' : 'Script Driver';
+    }
+    if (lower === 'gb28181' || lower === 'video') {
+      return locale.value === 'zh' ? 'GB28181 视频协议' : 'GB28181 Protocol';
+    }
+    return name;
+  }
   if (p.title) {
-    return p.title[locale.value] || p.title['en'] || name;
+    if (typeof p.title === 'string') return p.title;
+    return p.title[locale.value] || p.title['zh'] || p.title['en'] || name;
   }
   return name;
 };

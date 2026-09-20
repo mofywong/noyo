@@ -27,6 +27,10 @@
       </div>
     </div>
 
+    <!-- Arbitration queue. Renders nothing while the two sides agree, so a
+         healthy deployment looks exactly as it did before. -->
+    <SyncConflictPanel />
+
     <div v-if="loading" class="d-flex justify-content-center py-5">
       <div class="spinner-border text-primary" role="status"></div>
     </div>
@@ -316,6 +320,7 @@ import Settings from './Settings.vue';
 import { useToast } from '../composables/useToast';
 import { gatewayDateTime, gatewayText } from '../utils/gatewayLocale';
 import CompactListMetrics from '../components/CompactListMetrics.vue';
+import SyncConflictPanel from '../components/cascade/SyncConflictPanel.vue';
 
 const { t, locale } = useI18n();
 const { showToast } = useToast();

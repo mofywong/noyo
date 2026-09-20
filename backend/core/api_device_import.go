@@ -15,7 +15,7 @@ import (
 
 // handleDownloadTemplate handles template download request
 func (s *Server) handleDownloadTemplate(r *ghttp.Request) {
-	protocolName := r.GetQuery("protocol").String()
+	protocolName := NormalizeProtocolName(r.GetQuery("protocol").String())
 	productCodesStr := r.GetQuery("product_codes").String()
 
 	// 1. Get Plugin
@@ -23,6 +23,18 @@ func (s *Server) handleDownloadTemplate(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Protocol is required"})
 		return
 	}
+	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
+	if scopeErr != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
+		return
+	}
+	canonicalName, err := s.EnsureProtocolPluginEnabled(protocolName, tenantID, projectID)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
+	protocolName = canonicalName
+
 	plugin := s.Manager.GetPlugin(protocolName)
 	if plugin == nil {
 		r.Response.WriteJson(g.Map{"code": 404, "message": fmt.Sprintf("Plugin %s not found", protocolName)})
@@ -31,15 +43,6 @@ func (s *Server) handleDownloadTemplate(r *ghttp.Request) {
 	protoPlugin, ok := plugin.(protocol.IProtocolPlugin)
 	if !ok {
 		r.Response.WriteJson(g.Map{"code": 400, "message": fmt.Sprintf("Plugin %s does not support device import", protocolName)})
-		return
-	}
-	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
-	if scopeErr != nil {
-		r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
-		return
-	}
-	if err := validateProtocolEnabledForProject(protocolName, tenantID, projectID); err != nil {
-		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 		return
 	}
 
@@ -125,13 +128,25 @@ func (s *Server) handleDownloadTemplate(r *ghttp.Request) {
 
 // handleImportDevices handles device import
 func (s *Server) handleImportDevices(r *ghttp.Request) {
-	protocolName := r.GetQuery("protocol").String()
+	protocolName := NormalizeProtocolName(r.GetQuery("protocol").String())
 
 	// 1. Get Plugin
 	if protocolName == "" {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Protocol is required"})
 		return
 	}
+	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
+	if scopeErr != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
+		return
+	}
+	canonicalName, err := s.EnsureProtocolPluginEnabled(protocolName, tenantID, projectID)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
+	protocolName = canonicalName
+
 	plugin := s.Manager.GetPlugin(protocolName)
 	if plugin == nil {
 		r.Response.WriteJson(g.Map{"code": 404, "message": fmt.Sprintf("Plugin %s not found", protocolName)})
@@ -140,15 +155,6 @@ func (s *Server) handleImportDevices(r *ghttp.Request) {
 	protoPlugin, ok := plugin.(protocol.IProtocolPlugin)
 	if !ok {
 		r.Response.WriteJson(g.Map{"code": 400, "message": fmt.Sprintf("Plugin %s does not support device import", protocolName)})
-		return
-	}
-	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
-	if scopeErr != nil {
-		r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
-		return
-	}
-	if err := validateProtocolEnabledForProject(protocolName, tenantID, projectID); err != nil {
-		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 		return
 	}
 

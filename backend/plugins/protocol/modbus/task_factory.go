@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	// "go.uber.org/zap"
+	"go.uber.org/zap"
 )
 
 // PollingGroupConfig defines a group of registers to read together
@@ -132,6 +132,38 @@ type ChildMeta struct {
 	OnlineRule   *OnlineRule // Parsed OnlineRule
 }
 
+// extractSlaveID safely retrieves a valid SlaveID (1-255) from extras map
+func extractSlaveID(extras map[string]interface{}, current uint8) uint8 {
+	if extras != nil {
+		for _, key := range []string{"slave_id", "slaveId"} {
+			if v, ok := extras[key]; ok && v != nil {
+				switch val := v.(type) {
+				case float64:
+					if val > 0 && val <= 255 {
+						return uint8(val)
+					}
+				case int:
+					if val > 0 && val <= 255 {
+						return uint8(val)
+					}
+				case int64:
+					if val > 0 && val <= 255 {
+						return uint8(val)
+					}
+				case string:
+					if i, err := strconv.Atoi(strings.TrimSpace(val)); err == nil && i > 0 && i <= 255 {
+						return uint8(i)
+					}
+				}
+			}
+		}
+	}
+	if current > 0 {
+		return current
+	}
+	return 1
+}
+
 // addDevice generates and starts polling tasks
 func (p *ModbusPlugin) addDevice(device types.DeviceMeta) error {
 	// 1. Strategy Check: If this is a SubDevice (has Parent), we don't create networking tasks for it.
@@ -174,6 +206,8 @@ func (p *ModbusPlugin) addDevice(device types.DeviceMeta) error {
 		devConfig.MaxAddressGap = 20
 	}
 
+	devConfig.SlaveID = extractSlaveID(device.Extras, devConfig.SlaveID)
+
 	// Validate Gateway Config
 	if devConfig.IP == "" {
 		// If it's a standalone device without IP (e.g. just created), skip
@@ -190,6 +224,9 @@ func (p *ModbusPlugin) addDevice(device types.DeviceMeta) error {
 			cb, _ := json.Marshal(childMeta.Extras)
 			json.Unmarshal(cb, &cConfig)
 		}
+		if cConfig.SlaveID <= 0 {
+			cConfig.SlaveID = int(extractSlaveID(childMeta.Extras, 0))
+		}
 
 		parsedPoints := parsePoints(cConfig.Points)
 
@@ -205,11 +242,12 @@ func (p *ModbusPlugin) addDevice(device types.DeviceMeta) error {
 	// Include Gateway itself
 	{
 		var selfConfig ChildDeviceConfig
+		selfConfig.SlaveID = int(devConfig.SlaveID)
 		if pointsData, ok := device.Extras["points"]; ok {
 			selfConfig.Points = pointsData
 		}
-		// Also parse events/rules from root
-		// ... (mapping logic)
+		selfConfig.OnlineRule = devConfig.OnlineRule
+		selfConfig.Events = devConfig.Events
 
 		parsedPoints := parsePoints(selfConfig.Points)
 		if len(parsedPoints) > 0 {
@@ -223,7 +261,37 @@ func (p *ModbusPlugin) addDevice(device types.DeviceMeta) error {
 		}
 	}
 
-	// 4. Auto Collection Mode
+	// 4. Resolve Collection Mode
+	//
+	// A config may omit collection_mode entirely (devices written by the AI
+	// assistant or by an integration that never declared it). Falling straight
+	// through to the manual branch used to be silently fatal: with no
+	// polling_groups declared, zero polling tasks were started, nothing was
+	// ever collected and the device stayed offline until someone opened the
+	// Protocol Mapping screen and re-saved it in "点位直连" mode.
+	//
+	// Point shape is the authority here. When points exist and none of them
+	// references a polling group, the manual branch can serve no point at all,
+	// so "auto" is the only mode that can produce traffic. The inference is
+	// deliberately narrow: an explicitly declared mode, or any group reference
+	// from any point (own or sub-device), leaves the config untouched.
+	if devConfig.CollectionMode == "" && len(devConfig.PollingGroups) == 0 {
+		pointCount := 0
+		referencesGroup := false
+		for i := range childrenMetas {
+			for _, point := range childrenMetas[i].ParsedPoints {
+				pointCount++
+				if point.PollingGroup != "" {
+					referencesGroup = true
+				}
+			}
+		}
+		if pointCount > 0 && !referencesGroup {
+			devConfig.CollectionMode = "auto"
+		}
+	}
+
+	// 5. Auto Collection Mode
 	if devConfig.CollectionMode == "auto" || devConfig.CollectionMode == "AutoReport" {
 		autoGroups, err := p.generateAutoGroupsAndAssign(&childrenMetas, devConfig.MaxGroupLength, devConfig.MaxAddressGap)
 		if err != nil {
@@ -237,6 +305,12 @@ func (p *ModbusPlugin) addDevice(device types.DeviceMeta) error {
 		for _, group := range devConfig.PollingGroups {
 			if !group.Enable {
 				continue
+			}
+			if group.SlaveID == 0 {
+				group.SlaveID = devConfig.SlaveID
+			}
+			if group.SlaveID == 0 {
+				group.SlaveID = 1
 			}
 			if int(group.Length) > devConfig.MaxGroupLength {
 				// Split Logic
@@ -266,7 +340,7 @@ func (p *ModbusPlugin) addDevice(device types.DeviceMeta) error {
 		devConfig.PollingGroups = optimizedGroups
 	}
 
-	// 5. Start Tasks
+	// 6. Start Tasks
 	for _, group := range devConfig.PollingGroups {
 		if !group.Enable {
 			continue
@@ -782,34 +856,10 @@ func (p *ModbusPlugin) dispatchData(data []byte, children []ChildMeta, group Pol
 			}
 		}
 
-		// 3. Apply Debounce (Universal for all strategies)
-		// For Online Debounce: We override it to 1 (Immediate Online) as per user request.
-		// For Offline Debounce: We use the configured value (default 2).
-		if rawStatus {
-			state.ConsecutiveFailure = 0
-			state.ConsecutiveSuccess++
-			threshold := 1
-			// Hardcoded to 1 as requested: "Online Debounce not needed"
-			if state.ConsecutiveSuccess >= threshold {
-				state.CurrentStatus = true
-			}
-		} else {
-			state.ConsecutiveSuccess = 0
-			state.ConsecutiveFailure++
-			threshold := 2 // Default offline debounce
-			if child.OnlineRule != nil && child.OnlineRule.OfflineDebounce > 0 {
-				threshold = child.OnlineRule.OfflineDebounce
-			}
-			if state.ConsecutiveFailure >= threshold {
-				state.CurrentStatus = false
-			}
-		}
-
-		// Apply Heartbeat (Only if currently Online and Heartbeat enabled)
-		// Deprecated: Heartbeat logic is now integrated into 'value_change' strategy.
-		// The old 'EnableValueCheck' logic is removed to avoid conflict.
-
-		onlineStates[child.Meta.DeviceCode] = state.CurrentStatus
+		// 3. Evaluate Online Status
+		// Record instantaneous evaluation for this polling cycle;
+		// debounce and multi-group race suppression are handled centrally by reportDeviceSuccess/reportDeviceFailure
+		onlineStates[child.Meta.DeviceCode] = rawStatus
 
 		// 4. Evaluate Events
 		p.evaluateEvents(child)
@@ -823,13 +873,6 @@ func (p *ModbusPlugin) runPollingLoop(device types.DeviceMeta, devConfig DeviceC
 	ticker := time.NewTicker(time.Duration(group.Interval) * time.Millisecond)
 	defer ticker.Stop()
 
-	// Initial run? Maybe configurable. For now, strictly follow ticker.
-	// Or run once immediately?
-	// Ticker waits for first tick. original code had Start() which ran immediately?
-	// gotask usually runs immediately.
-	// Let's run once immediately in a goroutine to avoid blocking start?
-	// Or just wait. Ticker behavior is fine.
-
 	for {
 		select {
 		case <-stopChan:
@@ -838,45 +881,19 @@ func (p *ModbusPlugin) runPollingLoop(device types.DeviceMeta, devConfig DeviceC
 			// A. Execute Modbus Read
 			data, err := p.readRegisters(devConfig, group)
 			if err != nil {
-				// Gateway Offline Logic
-				statusMeta := types.DeviceMeta{DeviceCode: device.DeviceCode}
-				p.Ctx.ReportStatus(statusMeta, "offline")
+				// Report failure with debounce & recent-success suppression
+				p.reportDeviceFailure(device.DeviceCode, devConfig.OnlineRule, err.Error())
 
-				// Mark sub-devices offline
+				// Mark sub-devices failure
 				for _, child := range childrenMetas {
-					state := p.getOrCreateDeviceState(child.Meta.DeviceCode)
-					state.ConsecutiveSuccess = 0
-					state.ConsecutiveFailure++
-
-					threshold := 2
-					if child.OnlineRule != nil && child.OnlineRule.OfflineDebounce > 0 {
-						threshold = child.OnlineRule.OfflineDebounce
-					}
-
-					if state.ConsecutiveFailure >= threshold {
-						state.CurrentStatus = false
-						childStatusMeta := types.DeviceMeta{DeviceCode: child.Meta.DeviceCode}
-						p.Ctx.ReportStatus(childStatusMeta, "offline")
+					if child.Meta.DeviceCode != device.DeviceCode {
+						p.reportDeviceFailure(child.Meta.DeviceCode, child.OnlineRule, err.Error())
 					}
 				}
-				// p.Logger.Warn("Modbus Read Error", zap.String("device", device.DeviceCode), zap.Error(err))
+				if p.Logger != nil {
+					p.Logger.Warn("Modbus Read Error", zap.String("device", device.DeviceCode), zap.String("group", group.Name), zap.Error(err))
+				}
 				continue
-			}
-
-			// Gateway Online (Default Strategy)
-			gatewayHasPoints := false
-			if _, ok := device.Extras["points"]; ok {
-				gatewayHasPoints = true
-			}
-
-			useDefaultStrategy := true
-			if devConfig.OnlineRule != nil && devConfig.OnlineRule.Strategy != "" && devConfig.OnlineRule.Strategy != "communication" {
-				useDefaultStrategy = false
-			}
-
-			if useDefaultStrategy && !gatewayHasPoints {
-				statusMeta := types.DeviceMeta{DeviceCode: device.DeviceCode}
-				p.Ctx.ReportStatus(statusMeta, "online")
 			}
 
 			// B. Dispatch Data
@@ -899,7 +916,9 @@ func (p *ModbusPlugin) runPollingLoop(device types.DeviceMeta, devConfig DeviceC
 
 				if len(values) > 0 {
 					if err := p.reportData(meta, values); err != nil {
-						// p.Logger.Error("Failed to report data", zap.String("device", deviceCode), zap.Error(err))
+						if p.Logger != nil {
+							p.Logger.Error("Failed to report data", zap.String("device", deviceCode), zap.Error(err))
+						}
 					}
 				}
 			}
@@ -925,46 +944,30 @@ func (p *ModbusPlugin) runPollingLoop(device types.DeviceMeta, devConfig DeviceC
 				deviceCode := child.Meta.DeviceCode
 				onlineRule := child.OnlineRule
 
-				shouldReportStatus := false
-				finalStatus := false
-
-				if onlineRule == nil || onlineRule.Strategy == "" || onlineRule.Strategy == "communication" {
-					shouldReportStatus = true
-					finalStatus = true
-				} else if onlineRule.Strategy == "custom_point" || onlineRule.Strategy == "value_change" {
+				isOnline := true
+				if onlineRule != nil && (onlineRule.Strategy == "custom_point" || onlineRule.Strategy == "value_change") {
 					if status, ok := onlineStates[deviceCode]; ok {
-						shouldReportStatus = true
-						finalStatus = status
+						isOnline = status
 					}
 				}
 
-				if shouldReportStatus {
-					statusStr := "offline"
-					if finalStatus {
-						statusStr = "online"
-					}
-
-					// Mismatch check removed as we don't have access to DeviceManager state easily
-					// We rely on ReportStatus to handle deduplication upstream if needed
-					// But we still track local state for change detection
-
-					state := p.getOrCreateDeviceState(deviceCode)
-					statusChanged := state.CurrentStatus != finalStatus
-					state.CurrentStatus = finalStatus
-
-					shouldReport := statusChanged || time.Since(state.LastReportTime) > 30*time.Second
-
-					if shouldReport {
-						if statusChanged {
-							// p.Logger.Info("Device Status Changed", zap.String("device", deviceCode), zap.String("status", statusStr))
-						}
-
-						reportMeta := types.DeviceMeta{DeviceCode: deviceCode}
-						if err := p.Ctx.ReportStatus(reportMeta, statusStr); err == nil {
-							state.LastReportTime = time.Now()
-						}
-					}
+				if isOnline {
+					p.reportDeviceSuccess(deviceCode, onlineRule)
+				} else {
+					p.reportDeviceFailure(deviceCode, onlineRule, "online rule check failed")
 				}
+			}
+
+			// Pure gateway (without own points in childrenMetas) reported directly on communication success
+			hasGatewayChild := false
+			for _, child := range childrenMetas {
+				if child.Meta.DeviceCode == device.DeviceCode {
+					hasGatewayChild = true
+					break
+				}
+			}
+			if !hasGatewayChild {
+				p.reportDeviceSuccess(device.DeviceCode, devConfig.OnlineRule)
 			}
 		}
 	}
@@ -972,11 +975,6 @@ func (p *ModbusPlugin) runPollingLoop(device types.DeviceMeta, devConfig DeviceC
 
 func (p *ModbusPlugin) readRegisters(cfg DeviceConfig, group PollingGroupConfig) ([]byte, error) {
 	address := net.JoinHostPort(cfg.IP, strconv.Itoa(cfg.Port))
-	conn, err := net.DialTimeout("tcp", address, time.Duration(cfg.TimeoutMS)*time.Millisecond)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
 
 	// Use the SlaveID defined in the Polling Group (Target Slave), fallback to Device Config
 	targetSlaveID := group.SlaveID
@@ -987,10 +985,20 @@ func (p *ModbusPlugin) readRegisters(cfg DeviceConfig, group PollingGroupConfig)
 		targetSlaveID = 1 // Default default
 	}
 
-	if cfg.ProtocolType == "Modbus-RTU over TCP" || cfg.ProtocolType == "RTU_OVER_TCP" {
-		return p.readRegistersRTU(conn, targetSlaveID, group, cfg.TimeoutMS)
+	var data []byte
+	err := p.ExecuteTransaction(address, cfg.TimeoutMS, func(conn net.Conn) error {
+		var txErr error
+		if cfg.ProtocolType == "Modbus-RTU over TCP" || cfg.ProtocolType == "RTU_OVER_TCP" {
+			data, txErr = p.readRegistersRTU(conn, targetSlaveID, group, cfg.TimeoutMS)
+		} else {
+			data, txErr = p.readRegistersTCP(conn, targetSlaveID, group, cfg.TimeoutMS)
+		}
+		return txErr
+	})
+	if err != nil {
+		return nil, err
 	}
-	return p.readRegistersTCP(conn, targetSlaveID, group, cfg.TimeoutMS)
+	return data, nil
 }
 
 func (p *ModbusPlugin) readRegistersTCP(conn net.Conn, slaveID uint8, group PollingGroupConfig, timeout int) ([]byte, error) {
@@ -1080,11 +1088,6 @@ func (p *ModbusPlugin) readRegistersRTU(conn net.Conn, slaveID uint8, group Poll
 
 func (p *ModbusPlugin) writeSingleItem(cfg DeviceConfig, slaveID uint8, functionCode uint8, address uint16, valUint16 uint16) error {
 	addressStr := net.JoinHostPort(cfg.IP, strconv.Itoa(cfg.Port))
-	conn, err := net.DialTimeout("tcp", addressStr, time.Duration(cfg.TimeoutMS)*time.Millisecond)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 
 	// Use target SlaveID (usually from Device Config or direct argument)
 	targetSlaveID := slaveID
@@ -1095,10 +1098,81 @@ func (p *ModbusPlugin) writeSingleItem(cfg DeviceConfig, slaveID uint8, function
 		targetSlaveID = 1
 	}
 
-	if cfg.ProtocolType == "Modbus-RTU over TCP" || cfg.ProtocolType == "RTU_OVER_TCP" {
-		return p.writeSingleItemRTU(conn, targetSlaveID, functionCode, address, valUint16, cfg.TimeoutMS)
+	return p.ExecuteTransaction(addressStr, cfg.TimeoutMS, func(conn net.Conn) error {
+		if cfg.ProtocolType == "Modbus-RTU over TCP" || cfg.ProtocolType == "RTU_OVER_TCP" {
+			return p.writeSingleItemRTU(conn, targetSlaveID, functionCode, address, valUint16, cfg.TimeoutMS)
+		}
+		return p.writeSingleItemTCP(conn, targetSlaveID, functionCode, address, valUint16, cfg.TimeoutMS)
+	})
+}
+
+// reportDeviceSuccess updates runtime state on successful communication or online rule match.
+// Transitions device to online immediately and periodically reports heartbeats.
+func (p *ModbusPlugin) reportDeviceSuccess(deviceCode string, rule *OnlineRule) {
+	state := p.getOrCreateDeviceState(deviceCode)
+	state.mu.Lock()
+	now := time.Now()
+	state.LastSuccessTime = now
+	state.ConsecutiveFailure = 0
+	state.ConsecutiveSuccess++
+
+	statusChanged := !state.CurrentStatus
+	state.CurrentStatus = true
+
+	shouldReport := statusChanged || now.Sub(state.LastReportTime) > 30*time.Second
+	if shouldReport {
+		state.LastReportTime = now
 	}
-	return p.writeSingleItemTCP(conn, targetSlaveID, functionCode, address, valUint16, cfg.TimeoutMS)
+	state.mu.Unlock()
+
+	if shouldReport {
+		if statusChanged && p.Logger != nil {
+			p.Logger.Info("Modbus device came online", zap.String("device", deviceCode))
+		}
+		_ = p.Ctx.ReportStatus(types.DeviceMeta{DeviceCode: deviceCode}, "online")
+	}
+}
+
+// reportDeviceFailure records a communication or rule failure with debounce.
+// If any other poll for this device succeeded within the last 3 seconds, the failure is suppressed
+// to prevent ping-pong flapping caused by multi-group race conditions.
+func (p *ModbusPlugin) reportDeviceFailure(deviceCode string, rule *OnlineRule, reason string) {
+	state := p.getOrCreateDeviceState(deviceCode)
+	state.mu.Lock()
+	now := time.Now()
+	// If communication succeeded recently (within 3 seconds), suppress false offline flapping
+	if !state.LastSuccessTime.IsZero() && now.Sub(state.LastSuccessTime) < 3*time.Second {
+		state.mu.Unlock()
+		return
+	}
+
+	state.ConsecutiveSuccess = 0
+	state.ConsecutiveFailure++
+
+	threshold := 3
+	if rule != nil && rule.OfflineDebounce > 0 {
+		threshold = rule.OfflineDebounce
+	}
+
+	shouldReportOffline := false
+	if state.ConsecutiveFailure >= threshold && state.CurrentStatus {
+		state.CurrentStatus = false
+		state.LastReportTime = now
+		shouldReportOffline = true
+	}
+	failures := state.ConsecutiveFailure
+	state.mu.Unlock()
+
+	if shouldReportOffline {
+		if p.Logger != nil {
+			p.Logger.Warn("Modbus device went offline",
+				zap.String("device", deviceCode),
+				zap.Int("consecutive_failures", failures),
+				zap.String("reason", reason),
+			)
+		}
+		_ = p.Ctx.ReportStatus(types.DeviceMeta{DeviceCode: deviceCode}, "offline")
+	}
 }
 
 // Helper

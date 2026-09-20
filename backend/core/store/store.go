@@ -93,6 +93,10 @@ func InitDB(dsn string) error {
 
 	// AutoMigrate models
 	err = DB.AutoMigrate(
+		&SyncChange{},
+		&AppliedChange{},
+		&SyncCursor{},
+		&SyncNodeIdentity{},
 		&User{},
 		&Tenant{},
 		&Project{},

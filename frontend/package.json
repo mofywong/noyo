@@ -18,6 +18,7 @@
     "test:brand-config": "node scripts/brand-config.test.mjs",
     "test:plugin-icon-branding": "node scripts/plugin-icon-branding.test.mjs",
     "test:dashboard-card-layout": "node scripts/dashboard-card-layout.test.mjs",
+    "test:device-data-mapping": "node scripts/device-data-and-mapping-modal.test.mjs",
     "test:device-list-compact-layout": "node scripts/device-list-compact-layout.test.mjs",
     "test:compact-list-metric-filters": "node scripts/compact-list-metric-filters.test.mjs",
     "test:compact-list-pages": "node scripts/compact-list-page-policy.test.mjs",

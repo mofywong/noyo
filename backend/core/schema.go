@@ -208,6 +208,12 @@ func singleProjectRuntimePluginScope() (uint, uint, bool) {
 	return state.TenantID, state.ProjectID, true
 }
 
+// SingleProjectRuntimePluginScope resolves the single project runtime scope if enabled.
+func SingleProjectRuntimePluginScope() (uint, uint, bool) {
+	return singleProjectRuntimePluginScope()
+}
+
+
 func isSingleProjectRuntimePluginScope(tenantID, projectID uint) bool {
 	runtimeTenantID, runtimeProjectID, ok := singleProjectRuntimePluginScope()
 	return ok && runtimeTenantID == tenantID && runtimeProjectID == projectID

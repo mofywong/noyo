@@ -81,6 +81,19 @@ func (dr *DeviceRegistry) GetDevice(code string) (*store.Device, bool) {
 	return d, ok
 }
 
+// GetDeviceName returns the name of a device by code, or empty string if not found
+func (dr *DeviceRegistry) GetDeviceName(code string) string {
+	if code == "" {
+		return ""
+	}
+	dr.mu.RLock()
+	defer dr.mu.RUnlock()
+	if d, ok := dr.devices[code]; ok && d != nil {
+		return d.Name
+	}
+	return ""
+}
+
 // GetAllDevices returns all devices
 func (dr *DeviceRegistry) GetAllDevices() []*store.Device {
 	dr.mu.RLock()

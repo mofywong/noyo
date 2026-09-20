@@ -135,6 +135,7 @@ func NewServer() (*Server, error) {
 	s.RuleEngine = NewRuleEngine(s)
 	go s.AlarmCenter.RunAutoCloseLoop()
 
+	SetDefaultServer(s)
 	return s, nil
 }
 
@@ -475,7 +476,21 @@ func (s *Server) handleGetPlugin(r *ghttp.Request) {
 }
 
 func (s *Server) handleGetPluginSchemas(r *ghttp.Request) {
-	name := r.Get("name").String()
+	name := NormalizeProtocolName(r.Get("name").String())
+	if authCtx := requestAuthContext(r); authCtx != nil && authCtx.TenantID > 0 {
+		tenantID, projectID, scopeErr := currentTenantProjectScope(r)
+		if scopeErr != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
+			return
+		}
+		canonical, err := s.EnsureProtocolPluginEnabled(name, tenantID, projectID)
+		if err != nil {
+			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+			return
+		}
+		name = canonical
+	}
+
 	plugin := s.Manager.GetPlugin(name)
 	if plugin == nil {
 		r.Response.WriteJson(g.Map{"code": 404, "message": "Plugin not found"})
@@ -487,17 +502,6 @@ func (s *Server) handleGetPluginSchemas(r *ghttp.Request) {
 	if !ok {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Plugin is not a protocol plugin"})
 		return
-	}
-	if authCtx := requestAuthContext(r); authCtx != nil && authCtx.TenantID > 0 {
-		tenantID, projectID, scopeErr := currentTenantProjectScope(r)
-		if scopeErr != nil {
-			r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})
-			return
-		}
-		if err := validateProtocolEnabledForProject(name, tenantID, projectID); err != nil {
-			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
-			return
-		}
 	}
 
 	// Get Schemas

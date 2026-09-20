@@ -14,11 +14,13 @@
           aria-labelledby="noyo-confirm-title"
           tabindex="-1"
         >
-          <div class="noyo-confirm-icon" :class="iconClass">
-            <i class="bi" :class="iconName"></i>
+          <div class="noyo-confirm-body">
+            <div class="noyo-confirm-icon" :class="iconClass">
+              <i class="bi" :class="iconName"></i>
+            </div>
+            <h5 id="noyo-confirm-title" class="noyo-confirm-title">{{ confirmState.title }}</h5>
+            <p class="noyo-confirm-message">{{ confirmState.message }}</p>
           </div>
-          <h5 id="noyo-confirm-title" class="noyo-confirm-title">{{ confirmState.title }}</h5>
-          <p class="noyo-confirm-message">{{ confirmState.message }}</p>
           <div class="noyo-confirm-actions">
             <LiquidGlassButton variant="outline-secondary" @click="handleCancel">
               {{ confirmState.cancelText || $t('common_cancel', '取消 Cancel') }}
@@ -92,6 +94,10 @@ watch(
 
 .noyo-confirm {
   width: min(480px, 100%);
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--bg-elevated);
   border-radius: var(--radius-modal);
   box-shadow: var(--shadow-floating);
@@ -142,8 +148,17 @@ watch(
 
 .noyo-confirm-actions {
   display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 12px;
+}
+
+.noyo-confirm-body {
+  min-height: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
 }
 
 .noyo-confirm-actions .btn {

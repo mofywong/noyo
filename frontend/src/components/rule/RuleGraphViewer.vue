@@ -1,56 +1,107 @@
 <template>
   <div class="rule-graph-viewer" :class="{ 'rg-editing': isEditing }" v-if="rule || editableRule" ref="graphViewerRef">
     <!-- 顶部工具栏 -->
-    <div class="rg-toolbar text-end mb-3 d-flex justify-content-end gap-2">
-      <LiquidGlassButton v-if="!isEditing" variant="primary" size="sm" icon="bi bi-pencil" @click="startEditing">
-        {{ $t('rule_edit', '编辑规则') }}
-      </LiquidGlassButton>
-      <LiquidGlassButton v-if="isEditing" variant="secondary" size="sm" @click="cancelEditing">
-        {{ $t('tsl_cancel', '取消') }}
-      </LiquidGlassButton>
-      <LiquidGlassButton v-if="isEditing" variant="success" size="sm" :loading="savingEditing" :disabled="savingEditing" icon="bi bi-save" @click="saveEditing">
-        {{ $t('save', '保存') }}
-      </LiquidGlassButton>
-      <LiquidGlassButton v-if="!isEditing" variant="outline-info" size="sm" icon="bi bi-image" @click="exportToImage">
-        {{ $t('export_image', '导出图片') }}
-      </LiquidGlassButton>
-      <LiquidGlassButton variant="outline-danger" size="sm" icon="bi bi-file-pdf" @click="exportToPdf">
-        {{ $t('export_pdf', '导出PDF') }}
-      </LiquidGlassButton>
+    <div class="rg-toolbar d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2" data-html2canvas-ignore="true">
+      <!-- 左侧：工作区边栏显隐快捷开关 -->
+      <div class="d-flex align-items-center gap-2" v-if="isEditing">
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1 rg-dock-top-btn"
+          :class="{ active: !paletteCollapsed }"
+          :title="paletteCollapsed ? $t('rule_expand_palette') : $t('rule_collapse_palette')"
+          @click="paletteCollapsed = !paletteCollapsed"
+        >
+          <i :class="['bi', paletteCollapsed ? 'bi-layout-sidebar' : 'bi-layout-sidebar-reverse']"></i>
+          <span class="d-none d-sm-inline">{{ $t('rule_components') }}</span>
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1 rg-dock-top-btn"
+          :class="{ active: !inspectorCollapsed }"
+          :title="inspectorCollapsed ? $t('rule_expand_props') : $t('rule_collapse_props')"
+          @click="inspectorCollapsed = !inspectorCollapsed"
+        >
+          <i :class="['bi', inspectorCollapsed ? 'bi-layout-sidebar-inset-reverse' : 'bi-layout-sidebar-inset']"></i>
+          <span class="d-none d-sm-inline">{{ $t('rule_graph_inspector') }}</span>
+        </button>
+      </div>
+      <div v-else></div>
+
+      <!-- 右侧：编辑与导出动作按钮 -->
+      <div class="d-flex align-items-center gap-2 ms-auto">
+        <LiquidGlassButton v-if="!isEditing" variant="primary" size="sm" icon="bi bi-pencil" @click="startEditing">
+          {{ $t('rule_edit', '编辑规则') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton v-if="isEditing" variant="secondary" size="sm" @click="cancelEditing">
+          {{ $t('tsl_cancel', '取消') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton v-if="isEditing" variant="success" size="sm" :loading="savingEditing" :disabled="savingEditing" icon="bi bi-save" @click="saveEditing">
+          {{ $t('save', '保存') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton v-if="!isEditing" variant="outline-info" size="sm" icon="bi bi-image" @click="exportToImage">
+          {{ $t('export_image', '导出图片') }}
+        </LiquidGlassButton>
+        <LiquidGlassButton variant="outline-danger" size="sm" icon="bi bi-file-pdf" @click="exportToPdf">
+          {{ $t('export_pdf', '导出PDF') }}
+        </LiquidGlassButton>
+      </div>
     </div>
     <div v-if="saveMessage" class="alert py-2" :class="saveMessageType === 'success' ? 'alert-success' : 'alert-danger'">
       {{ saveMessage }}
     </div>
 
-    <!-- 规则概览面板 (非编辑时显示) -->
-    <div class="rg-summary" v-if="!isEditing">
-      <div class="rg-summary__item">
-        <div class="rg-summary__icon rg-summary__icon--primary"><i class="bi bi-diagram-3"></i></div>
-        <div class="rg-summary__text">
-          <span class="rg-summary__label">{{ $t('rule_name') }}</span>
-          <strong>{{ rule.name }}</strong>
-        </div>
+    <!-- 规则概览面板 (非编辑时显示，支持收起/展开) -->
+    <div class="rg-summary-section mb-2" v-if="!isEditing">
+      <div class="d-flex align-items-center justify-content-between mb-1">
+        <span class="small text-muted fw-semibold d-flex align-items-center gap-1 cursor-pointer" @click="summaryCollapsed = !summaryCollapsed">
+          <i :class="['bi', summaryCollapsed ? 'bi-chevron-right' : 'bi-chevron-down']"></i>
+          {{ $t('rule_name') }}: <strong>{{ rule.name }}</strong>
+        </span>
+        <button type="button" class="btn btn-sm btn-link text-decoration-none text-muted p-0" @click="summaryCollapsed = !summaryCollapsed">
+          <span class="small">{{ summaryCollapsed ? $t('rule_expand_summary', '展开概览') : $t('rule_collapse_summary', '收起概览') }}</span>
+          <i :class="['bi ms-1', summaryCollapsed ? 'bi-eye' : 'bi-eye-slash']"></i>
+        </button>
       </div>
-      <div class="rg-summary__item">
-        <div class="rg-summary__icon rg-summary__icon--scope"><i class="bi bi-hdd-rack"></i></div>
-        <div class="rg-summary__text">
-          <span class="rg-summary__label">{{ $t('rule_scope') }}</span>
-          <strong>{{ rule.scope === 'gateway' ? $t('rule_scope_gateway') : $t('rule_scope_platform') }}</strong>
+      <div class="rg-summary" v-show="!summaryCollapsed">
+        <div class="rg-summary__item">
+          <div class="rg-summary__icon rg-summary__icon--primary"><i class="bi bi-diagram-3"></i></div>
+          <div class="rg-summary__text">
+            <span class="rg-summary__label">{{ $t('rule_name') }}</span>
+            <strong>{{ rule.name }}</strong>
+          </div>
         </div>
-      </div>
-      <div class="rg-summary__item">
-        <div class="rg-summary__icon rg-summary__icon--status"><i class="bi bi-activity"></i></div>
-        <div class="rg-summary__text">
-          <span class="rg-summary__label">{{ $t('status') }}</span>
-          <span class="rg-status" :class="`rg-status--${rule.status}`">{{ statusLabel(rule.status) }}</span>
+        <div class="rg-summary__item">
+          <div class="rg-summary__icon rg-summary__icon--scope"><i class="bi bi-hdd-rack"></i></div>
+          <div class="rg-summary__text">
+            <span class="rg-summary__label">{{ $t('rule_scope') }}</span>
+            <strong>{{ rule.scope === 'gateway' ? $t('rule_scope_gateway') : $t('rule_scope_platform') }}</strong>
+          </div>
+        </div>
+        <div class="rg-summary__item">
+          <div class="rg-summary__icon rg-summary__icon--status"><i class="bi bi-activity"></i></div>
+          <div class="rg-summary__text">
+            <span class="rg-summary__label">{{ $t('status') }}</span>
+            <span class="rg-status" :class="`rg-status--${rule.status}`">{{ statusLabel(rule.status) }}</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="rg-workspace d-flex align-items-stretch">
-      <!-- 左侧组件库 -->
-      <div v-if="isEditing" class="rg-palette border-end p-3" style="width: 250px; background: var(--rg-surface); overflow-y: auto; position: sticky; top: 1rem; max-height: calc(100vh - 4rem); align-self: flex-start;">
-        <h6 class="mb-3"><i class="bi bi-puzzle"></i> {{ $t('rule_components', '组件库') }}</h6>
+    <div class="rg-workspace d-flex align-items-stretch position-relative">
+      <!-- 左侧组件库 (可折叠) -->
+      <div v-if="isEditing" class="rg-palette-container" :class="{ 'rg-palette-container--collapsed': paletteCollapsed }">
+        <div v-show="!paletteCollapsed" class="rg-palette border-end p-3 h-100">
+          <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2">
+            <h6 class="mb-0 small text-uppercase fw-bold text-muted"><i class="bi bi-puzzle me-1"></i> {{ $t('rule_components', '组件库') }}</h6>
+            <button
+              type="button"
+              class="btn btn-sm btn-link text-muted p-0 text-decoration-none"
+              :title="$t('rule_collapse_palette', '收起组件库')"
+              @click="paletteCollapsed = true"
+            >
+              <i class="bi bi-chevron-bar-left fs-5"></i>
+            </button>
+          </div>
         <div class="rg-palette-section mb-3">
           <div class="text-muted small mb-2">{{ $t('rule_triggers', '触发条件') }}</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'property_change' }, 'trigger')"><i class="bi bi-graph-up-arrow text-primary"></i> {{ $t('rule_trigger_property', '属性变更触发') }}</div>
@@ -79,10 +130,37 @@
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'parallel' }, 'action_group')"><i class="bi bi-cpu text-success"></i> {{ $t('rule_action_parallel_group', '并行执行组') }}</div>
           <div class="rg-palette-item border rounded p-2 mb-2 cursor-pointer shadow-sm" draggable="true" @dragstart="onDragStart($event, { type: 'action_group', mode: 'sequence' }, 'action_group')"><i class="bi bi-list-ol text-success"></i> {{ $t('rule_action_sequence_group', '串行执行组') }}</div>
         </div>
+        </div>
+        <!-- 折叠时的小把手 -->
+        <button
+          v-if="paletteCollapsed"
+          type="button"
+          class="rg-dock-toggle rg-dock-toggle--left"
+          :title="$t('rule_expand_palette', '展开组件库')"
+          @click="paletteCollapsed = false"
+        >
+          <i class="bi bi-chevron-bar-right"></i>
+          <span class="rg-dock-toggle__text">{{ $t('rule_components', '组件库') }}</span>
+        </button>
       </div>
-      <!-- 流程图画布 -->
-      <div class="rg-canvas flex-grow-1" @click="selectedNode = null">
+      <!-- 流程图画布视口容器 -->
+      <div class="rg-canvas-wrapper flex-grow-1 position-relative">
+        <div
+          class="rg-canvas"
+          ref="canvasContainerRef"
+          @click="selectedNode = null"
+          @wheel.ctrl.prevent="handleWheelZoom"
+        >
         <div class="rg-canvas__scan"></div>
+
+        <div
+          class="rg-canvas__content"
+          ref="canvasContentRef"
+          :style="{
+            transform: `scale(${zoomLevel})`,
+            transformOrigin: '50% 0'
+          }"
+        >
 
         <!-- === 生效时间 === -->
         <section class="rg-section rg-section--time" v-if="effectiveNodes.length">
@@ -175,13 +253,66 @@
             </template>
           </div>
         </section>
+        </div>
+        </div>
+
+        <!-- 浮动缩放控制条 (右下角常驻视口) -->
+        <div class="rg-floating-controls" data-html2canvas-ignore="true" @click.stop>
+          <button
+            type="button"
+            class="rg-zoom-btn"
+            :title="$t('rule_zoom_in', '放大')"
+            :disabled="zoomLevel >= 1.5"
+            @click="zoomIn"
+          >
+            <i class="bi bi-zoom-in"></i>
+          </button>
+          <button
+            type="button"
+            class="rg-zoom-btn rg-zoom-btn--reset"
+            :title="$t('rule_zoom_reset', '重置缩放 (100%)')"
+            @click="zoomReset"
+          >
+            {{ Math.round(zoomLevel * 100) }}%
+          </button>
+          <button
+            type="button"
+            class="rg-zoom-btn"
+            :title="$t('rule_zoom_out', '缩小')"
+            :disabled="zoomLevel <= 0.5"
+            @click="zoomOut"
+          >
+            <i class="bi bi-zoom-out"></i>
+          </button>
+          <div class="rg-zoom-divider"></div>
+          <button
+            type="button"
+            class="rg-zoom-btn rg-zoom-btn--fit"
+            :title="$t('rule_fit_view', '自适应视野')"
+            @click="fitView"
+          >
+            <i class="bi bi-arrows-angle-contract"></i>
+            <span class="d-none d-sm-inline ms-1">{{ $t('rule_fit_view', '自适应') }}</span>
+          </button>
+        </div>
       </div>
       
-      <!-- 右侧属性面板 -->
-      <div v-if="isEditing" class="rg-properties border-start p-3" style="width: 320px; background: var(--rg-surface); overflow-y: auto; position: sticky; top: 1rem; max-height: calc(100vh - 4rem); align-self: flex-start;" @click.stop>
-        <!-- 基础信息面板 (无选中节点时) -->
-        <div v-if="!selectedNode">
-          <h6 class="mb-3"><i class="bi bi-info-circle"></i> {{ $t('rule_basic_info', '规则基础信息') }}</h6>
+      <!-- 右侧属性面板 (可折叠) -->
+      <div v-if="isEditing" class="rg-properties-container" :class="{ 'rg-properties-container--collapsed': inspectorCollapsed }">
+        <div v-show="!inspectorCollapsed" class="rg-properties border-start p-3 h-100" @click.stop>
+          <!-- 基础信息面板 (无选中节点时) -->
+          <div v-if="!selectedNode">
+            <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2">
+              <h6 class="mb-0 small text-uppercase fw-bold text-muted"><i class="bi bi-info-circle me-1"></i> {{ $t('rule_basic_info', '规则基础信息') }}</h6>
+              <button
+                type="button"
+                class="btn btn-sm btn-link text-muted p-0 text-decoration-none"
+                :title="$t('rule_collapse_props', '收起属性栏')"
+                @click="inspectorCollapsed = true"
+              >
+                <i class="bi bi-chevron-bar-right fs-5"></i>
+              </button>
+            </div>
           <div class="mb-3">
             <label class="form-label">规则名称</label>
             <VarInputWrapper v-model="editableRule.name" />
@@ -541,6 +672,18 @@
           </template>
 
         </div>
+        </div>
+        <!-- 折叠时的小把手 -->
+        <button
+          v-if="inspectorCollapsed"
+          type="button"
+          class="rg-dock-toggle rg-dock-toggle--right"
+          :title="$t('rule_expand_props', '展开属性栏')"
+          @click="inspectorCollapsed = false"
+        >
+          <i class="bi bi-chevron-bar-left"></i>
+          <span class="rg-dock-toggle__text">{{ selectedNode ? $t('properties', '属性') : $t('rule_basic_info', '信息') }}</span>
+        </button>
       </div>
     </div>
   </div>
@@ -949,12 +1092,55 @@ export default {
     const selectedNode = ref(null)
     const referenceNodeId = ref(null)
     const graphViewerRef = ref(null)
+    const canvasContainerRef = ref(null)
+    const canvasContentRef = ref(null)
     const dragOverGroup = ref(null)
     const savingEditing = ref(false)
     const saveMessage = ref('')
     const saveMessageType = ref('success')
     const workOrderTemplates = ref([])
     const workOrderTemplateDetails = ref({})
+
+    const paletteCollapsed = ref(false)
+    const inspectorCollapsed = ref(false)
+    const summaryCollapsed = ref(false)
+    const zoomLevel = ref(1)
+
+    function zoomIn() {
+      zoomLevel.value = Math.min(1.5, Math.round((zoomLevel.value + 0.1) * 10) / 10)
+    }
+
+    function zoomOut() {
+      zoomLevel.value = Math.max(0.5, Math.round((zoomLevel.value - 0.1) * 10) / 10)
+    }
+
+    function zoomReset() {
+      zoomLevel.value = 1
+    }
+
+    function handleWheelZoom(e) {
+      if (e.deltaY < 0) {
+        zoomIn()
+      } else {
+        zoomOut()
+      }
+    }
+
+    function fitView() {
+      if (!canvasContainerRef.value || !canvasContentRef.value) return
+      const containerHeight = canvasContainerRef.value.clientHeight - 80
+      const contentHeight = canvasContentRef.value.scrollHeight
+      const containerWidth = canvasContainerRef.value.clientWidth - 40
+      const contentWidth = canvasContentRef.value.scrollWidth
+
+      if (contentHeight > 0 && containerHeight > 0) {
+        const scaleH = containerHeight / contentHeight
+        const scaleW = containerWidth / contentWidth
+        const scale = Math.min(scaleH, scaleW, 1)
+        zoomLevel.value = Math.max(0.5, Math.min(1.0, Math.round(scale * 20) / 20))
+        canvasContainerRef.value.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+    }
 
     const collapsed = reactive({
       time: false,
@@ -964,25 +1150,6 @@ export default {
     })
 
     const toggleSection = (sec) => { collapsed[sec] = !collapsed[sec] }
-
-    watch(isEditing, (val) => {
-      const dialog = document.querySelector('.rule-graph-dialog')
-      if (dialog) {
-        if (val) {
-          dialog.style.maxWidth = '1750px'
-          dialog.style.transition = 'max-width 0.3s ease'
-        } else {
-          dialog.style.maxWidth = ''
-        }
-      }
-    })
-
-    onUnmounted(() => {
-      const dialog = document.querySelector('.rule-graph-dialog')
-      if (dialog) {
-        dialog.style.maxWidth = ''
-      }
-    })
 
     const nodeIdentity = (node) => node?._id || node?.id || null
     const stopDeletePointerEvent = (e) => {
@@ -1589,6 +1756,9 @@ export default {
         if (node && typeof node === 'object' && kind) node._graphKind = kind
         ensureCronNode(node)
         selectedNode.value = node
+        if (node) {
+          inspectorCollapsed.value = false
+        }
       },
       deleteNode,
       dragGroupForNode,
@@ -1940,11 +2110,12 @@ export default {
       triggerNodes, conditionTree, hasConditions,
       effectiveNodes, actionNodes, statusLabel, getDeviceProperties, getDeviceEvents, getDeviceServices,
       computedServiceParams, computedStartTime, computedEndTime, computedEffectiveWeekdays, computedEffectiveMonthDays, computedEffectiveMonths,
-      typeLabel, syncSelectedCron, graphViewerRef, exportToImage, exportToPdf, selectedNodeTypeOptions, changeSelectedNodeType, canDeleteSelectedNode, deleteSelectedNode,
+      typeLabel, syncSelectedCron, graphViewerRef, canvasContainerRef, canvasContentRef, exportToImage, exportToPdf, selectedNodeTypeOptions, changeSelectedNodeType, canDeleteSelectedNode, deleteSelectedNode,
       isEditing, editableRule, startEditing, saveEditing, cancelEditing, selectedNode, onDragStart,
       onDropTrigger, onDropConditionRoot, onDropActionRoot,
       collapsed, toggleSection, savingEditing, saveMessage, saveMessageType, workOrderTemplates, workOrderTemplateDetails,
-      selectedWorkOrderTemplateDetail, handleWorkOrderTemplateChange, validateWorkOrderActionsForSave
+      selectedWorkOrderTemplateDetail, handleWorkOrderTemplateChange, validateWorkOrderActionsForSave,
+      paletteCollapsed, inspectorCollapsed, summaryCollapsed, zoomLevel, zoomIn, zoomOut, zoomReset, handleWheelZoom, fitView
     }
   }
 }
@@ -1982,9 +2153,13 @@ export default {
 
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  gap: 0.5rem;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   position: relative;
+  overflow: hidden;
 }
 
 :root[data-bs-theme="dark"] .rule-graph-viewer,
@@ -2095,18 +2270,35 @@ export default {
   box-shadow: 0 0 0 2px rgba(13, 202, 240, 0.14) !important;
 }
 
+.rg-canvas-wrapper {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .rg-canvas {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 2.5rem 2rem;
+  padding: 2.5rem 2rem 5.5rem 2rem;
   background-color: var(--rg-bg);
   background-image: radial-gradient(var(--rg-dot-color) 1px, transparent 1px);
   background-size: 18px 18px;
   border: 1px solid var(--rg-border);
-  border-radius: 1rem;
-  overflow: hidden;
+  border-radius: 0.85rem;
+  overflow: auto;
+  scroll-behavior: smooth;
 }
 .rg-canvas__scan {
   position: absolute;
@@ -2114,6 +2306,7 @@ export default {
   background: linear-gradient(90deg, transparent, var(--rg-trigger), transparent);
   animation: rg-scan 5s linear infinite;
   opacity: 0.4;
+  pointer-events: none;
 }
 @keyframes rg-scan {
   0% { transform: translateY(0); opacity: 0; }
@@ -2127,7 +2320,7 @@ export default {
   flex-direction: column;
   align-items: center;
   width: 100%;
-  max-width: 860px;
+  max-width: min(1400px, 96%);
   position: relative;
   z-index: 2;
 }
@@ -2184,7 +2377,7 @@ export default {
   box-shadow: 0 3px 12px var(--rg-shadow);
   transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
   position: relative;
-  max-width: 480px;
+  max-width: min(560px, 92%);
   width: 100%;
 }
 .rg-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px var(--rg-shadow-hover); }
@@ -2259,7 +2452,7 @@ export default {
 [data-bs-theme="dark"] .rg-logic-diamond--and { background: rgba(96, 165, 250, 0.12); border-color: rgba(96, 165, 250, 0.35); color: #60a5fa; }
 
 .rg-triggers { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.75rem; width: 100%; }
-.rg-triggers .rg-card { flex: 0 1 auto; max-width: 380px; min-width: 240px; }
+.rg-triggers .rg-card { flex: 0 1 auto; max-width: 420px; min-width: 240px; }
 
 .rg-conditions { width: 100%; display: flex; justify-content: center; }
 
@@ -2303,7 +2496,7 @@ export default {
 .rg-time-cards .rg-card { max-width: 340px; }
 
 .rg-actions { display: flex; flex-direction: column; align-items: center; gap: 0; width: 100%; }
-.rg-actions > .rg-card { max-width: 480px; }
+.rg-actions > .rg-card { max-width: min(560px, 92%); }
 
 .rg-step-connector { display: flex; flex-direction: column; align-items: center; height: 2rem; position: relative; }
 .rg-step-connector__line { width: 2px; height: 100%; background: var(--rg-connector-color); }
@@ -2322,10 +2515,10 @@ export default {
 
 .rg-parallel-fork, .rg-parallel-join { display: flex; flex-direction: column; align-items: center; width: 100%; }
 .rg-parallel-fork__stem, .rg-parallel-join__stem { width: 2px; height: 12px; background: var(--rg-connector-color); }
-.rg-parallel-fork__rail, .rg-parallel-join__rail { width: 80%; max-width: 600px; height: 2px; background: var(--rg-connector-color); }
+.rg-parallel-fork__rail, .rg-parallel-join__rail { width: 85%; max-width: 1000px; height: 2px; background: var(--rg-connector-color); }
 
 .rg-parallel-branches { display: flex; justify-content: center; gap: 0.75rem; width: 100%; flex-wrap: wrap; padding: 0.25rem 0; }
-.rg-parallel-branch { flex: 1; min-width: 200px; max-width: 320px; display: flex; flex-direction: column; align-items: center; }
+.rg-parallel-branch { flex: 1; min-width: 220px; max-width: 420px; display: flex; flex-direction: column; align-items: center; }
 .rg-parallel-branch__line { width: 2px; height: 14px; background: var(--rg-connector-color); }
 .rg-parallel-branch .rg-card { max-width: 100%; }
 
@@ -2346,7 +2539,31 @@ export default {
   .rg-summary { flex-direction: column; }
   .rg-summary__item { min-width: auto; }
 }
-.rg-toolbar { position: absolute; top: -45px; right: 0; z-index: 10; }
+.rg-toolbar {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+  z-index: 10;
+}
+
+.rg-summary-section {
+  flex-shrink: 0;
+}
+
+.rg-workspace {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  position: relative;
+  border-radius: 0.75rem;
+}
 
 .rg-drag-over { outline: 2px dashed var(--rg-trigger) !important; outline-offset: 2px; background-color: rgba(139, 92, 246, 0.05); }
 .rg-node-selected { outline: 2px solid #0d6efd !important; outline-offset: -2px; box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important; }
@@ -2360,4 +2577,163 @@ export default {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
+
+/* 侧边栏弹性折叠与展开 */
+.rg-palette-container,
+.rg-properties-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+}
+
+.rg-palette-container {
+  width: 250px;
+}
+.rg-palette-container--collapsed {
+  width: 38px;
+}
+
+.rg-palette {
+  width: 250px;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--rg-surface);
+}
+
+.rg-properties-container {
+  width: 320px;
+}
+.rg-properties-container--collapsed {
+  width: 38px;
+}
+
+.rg-properties {
+  width: 320px;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--rg-surface);
+}
+
+.rg-dock-toggle {
+  width: 100%;
+  height: 100%;
+  background: var(--rg-surface);
+  border: none;
+  color: var(--rg-text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 16px;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rg-dock-toggle--left {
+  border-right: 1px solid var(--rg-border);
+}
+.rg-dock-toggle--right {
+  border-left: 1px solid var(--rg-border);
+}
+
+.rg-dock-toggle:hover {
+  background: var(--rg-surface-solid);
+  color: var(--color-brand, #3b82f6);
+}
+
+.rg-dock-toggle__text {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.15em;
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.rg-dock-top-btn {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.45rem;
+}
+.rg-dock-top-btn.active {
+  background-color: var(--color-brand, #3b82f6);
+  color: #ffffff;
+  border-color: var(--color-brand, #3b82f6);
+}
+
+/* 画布缩放内容容器与右下角浮动控制条 */
+.rg-canvas__content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rg-floating-controls {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  background: var(--rg-surface);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--rg-border);
+  border-radius: 2rem;
+  box-shadow: 0 4px 18px var(--rg-shadow);
+  z-index: 25;
+}
+
+.rg-zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  border-radius: 1rem;
+  color: var(--rg-text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rg-zoom-btn:hover:not(:disabled) {
+  background: var(--rg-surface-solid);
+  color: var(--color-brand, #3b82f6);
+}
+
+.rg-zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.rg-zoom-btn--reset {
+  min-width: 48px;
+  font-family: monospace;
+}
+
+.rg-zoom-btn--fit {
+  font-size: 0.75rem;
+  color: var(--color-brand, #3b82f6);
+}
+
+.rg-zoom-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--rg-border);
+  margin: 0 2px;
+}
+
 </style>

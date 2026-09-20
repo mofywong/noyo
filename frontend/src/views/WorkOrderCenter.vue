@@ -36,15 +36,6 @@
       </div>
     </div>
 
-    <div v-if="errorMessage" class="alert alert-danger alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-4 shadow" style="z-index: 1060; min-width: 300px;" role="alert">
-      <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ errorMessage }}
-      <button type="button" class="btn-close" @click="errorMessage = ''"></button>
-    </div>
-    <div v-if="successMessage" class="alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-4 shadow" style="z-index: 1060; min-width: 300px;" role="alert">
-      <i class="bi bi-check-circle-fill me-2"></i>{{ successMessage }}
-      <button type="button" class="btn-close" @click="successMessage = ''"></button>
-    </div>
-
     <ul class="nav nav-tabs mb-3" role="tablist">
       <li class="nav-item">
         <button class="nav-link" :class="{ active: activeTab === 'orders' }" @click="switchTab('orders')">
@@ -192,9 +183,17 @@
     </section>
     <!-- 工单详情抽屉与全局弹窗 (Teleport to body 避免被侧边栏与顶部栏遮挡) -->
     <Teleport to="body">
+      <div v-if="errorMessage" class="work-order-feedback alert alert-danger alert-dismissible fade show shadow" role="alert" aria-live="assertive">
+        <i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>{{ errorMessage }}
+        <button type="button" class="btn-close" :aria-label="tx('close')" @click="errorMessage = ''"></button>
+      </div>
+      <div v-if="successMessage" class="work-order-feedback alert alert-success alert-dismissible fade show shadow" role="status" aria-live="polite">
+        <i class="bi bi-check-circle-fill me-2" aria-hidden="true"></i>{{ successMessage }}
+        <button type="button" class="btn-close" :aria-label="tx('close')" @click="successMessage = ''"></button>
+      </div>
       <!-- 工单详情抽屉 (Top Level) -->
-      <div v-if="selectedOrder" class="offcanvas-backdrop fade show" @click="closeOrderDetail"></div>
-      <aside v-if="selectedOrder" ref="orderDetailDialog" class="work-order-drawer shadow-lg" aria-modal="true" role="dialog" tabindex="-1" aria-labelledby="work-order-detail-title" @keydown.esc.stop="closeOrderDetail">
+      <div v-if="showOrderDetail && selectedOrder" class="offcanvas-backdrop fade show" @click="closeOrderDetail"></div>
+      <aside v-if="showOrderDetail && selectedOrder" ref="orderDetailDialog" class="work-order-drawer shadow-lg" aria-modal="true" role="dialog" tabindex="-1" aria-labelledby="work-order-detail-title" @keydown.esc.stop="closeOrderDetail">
         <div class="work-order-drawer__head">
           <div>
             <h2 id="work-order-detail-title" class="h5 mb-2 fw-bold text-body">{{ selectedOrder.work_order.title }}</h2>
@@ -213,41 +212,42 @@
           <div v-if="selectedOrder.work_order.assignee_user_id" class="small text-body-secondary mb-4"><i class="bi bi-person-check me-1"></i>{{ tx('claimedBy') }}{{ assigneeLabel(selectedOrder.work_order.assignee_user_id) }}</div>
 
           <!-- 告警来源工单专属证据卡片 -->
-          <div v-if="selectedOrder.work_order?.source_type === 'alarm' && (alarmSourceDetails.length || alarmSnapshotUrl)" class="mb-4 bg-body-tertiary rounded p-3 border work-order-alarm-section">
+          <section v-if="selectedOrder.work_order?.source_type === 'alarm' && (alarmSourceDetails.length || alarmSnapshotUrl || alarmSourceID)" class="mb-4 work-order-alarm-section" :aria-label="tx('alarmEvidence')">
             <div class="d-flex align-items-center justify-content-between mb-3">
               <div class="fw-bold small text-secondary"><i class="bi bi-shield-exclamation me-1"></i>{{ tx('alarmEvidence') }}</div>
               <span class="badge bg-danger-subtle text-danger-emphasis">{{ tx('sourceAlarm') }}</span>
             </div>
             
-            <div v-if="alarmSnapshotUrl" class="mb-3 text-center">
+            <figure v-if="alarmSnapshotUrl" class="work-order-alarm-section__snapshot mb-3">
               <a :href="alarmSnapshotUrl" target="_blank" rel="noopener noreferrer" class="d-inline-block">
                 <img :src="alarmSnapshotUrl" :alt="tx('alarmEvidence')" class="img-fluid rounded border shadow-sm" style="max-height: 180px; object-fit: contain; background: var(--bs-body-bg);">
               </a>
-            </div>
+            </figure>
 
-            <dl class="row small mb-0 g-2">
-              <template v-for="detail in alarmSourceDetails" :key="detail.id">
-                <dt class="col-sm-4 text-muted fw-normal">{{ detail.label }}</dt>
-                <dd class="col-sm-8 text-break fw-medium mb-0">{{ detail.value }}</dd>
-              </template>
-            </dl>
-          </div>
+            <div v-if="alarmSourceDetails.length" class="work-order-detail-grid work-order-alarm-section__details">
+              <article v-for="detail in alarmSourceDetails" :key="detail.id" class="work-order-detail-field">
+                <div class="work-order-detail-field__label">{{ detail.label }}</div>
+                <div class="work-order-detail-field__value">{{ detail.value }}</div>
+              </article>
+            </div>
+            <AlarmVideoEvidence v-if="alarmSourceID" :alarm-id="alarmSourceID" :recording-id="alarmRecordingID" :language="currentLang" />
+          </section>
 
           <!-- 表单内容 -->
-          <div v-if="selectedOrder.form_definition?.fields?.length" class="mb-4 bg-body-tertiary rounded p-3 work-order-form-section">
+          <section v-if="selectedOrder.form_definition?.fields?.length" class="mb-4 work-order-form-section" :aria-label="tx('formContent')">
             <div class="fw-bold small mb-3 text-secondary"><i class="bi bi-card-text me-1"></i>{{ tx('formContent') }}</div>
-            <dl class="row small mb-0 g-2">
-              <template v-for="field in selectedOrder.form_definition.fields || []" :key="field.key">
-                <dt class="col-sm-4 text-muted fw-normal">{{ workOrderFormFieldLabel(field) }}</dt>
-                <dd class="col-sm-8 text-break fw-medium mb-0">
+            <div class="work-order-detail-grid">
+              <article v-for="field in selectedOrder.form_definition.fields || []" :key="field.key" class="work-order-detail-field">
+                <div class="work-order-detail-field__label">{{ workOrderFormFieldLabel(field) }}</div>
+                <div class="work-order-detail-field__value">
                   <div v-if="field.type === 'images' && imageFormValues(selectedOrder.form_data[field.key]).length" class="work-order-detail-images">
-                    <a v-for="(imageUrl, imageIndex) in imageFormValues(selectedOrder.form_data[field.key])" :key="`${imageUrl}-${imageIndex}`" :href="imageUrl" target="_blank" rel="noopener noreferrer"><img :src="imageUrl" :alt="`${field.label} ${imageIndex + 1}`"></a>
+                    <a v-for="(imageUrl, imageIndex) in imageFormValues(selectedOrder.form_data[field.key])" :key="`${imageUrl}-${imageIndex}`" :href="imageUrl" target="_blank" rel="noopener noreferrer"><img :src="imageUrl" :alt="`${workOrderFormFieldLabel(field)} ${imageIndex + 1}`"></a>
                   </div>
                   <span v-else>{{ displayFormValue(selectedOrder.form_data[field.key], field) }}</span>
-                </dd>
-              </template>
-            </dl>
-          </div>
+                </div>
+              </article>
+            </div>
+          </section>
 
           <section v-if="historicalGuidance" class="mb-4 work-order-history-guidance rounded p-3" aria-labelledby="work-order-history-guidance-title">
             <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
@@ -542,6 +542,7 @@ import WorkOrderAuditTimeline from '../components/work-order/WorkOrderAuditTimel
 import WorkOrderFormDesigner from '../components/work-order/WorkOrderFormDesigner.vue'
 import WorkOrderFormFields from '../components/work-order/WorkOrderFormFields.vue'
 import WorkOrderWorkflowEditor from '../components/work-order/WorkOrderWorkflowEditor.vue'
+import AlarmVideoEvidence from '../components/AlarmVideoEvidence.vue'
 import ListPagination from '../components/ListPagination.vue'
 import { loadAllWorkOrderParticipants, workOrderApi, workOrderApiErrorMessage } from '../utils/workOrderApi.js'
 import { workOrderRelationFiltersForLocale, workOrderNodeLabel } from '../utils/workOrderUi.js'
@@ -601,7 +602,8 @@ Object.assign(workOrderCopy.zh, {
   attachmentHint: '支持图片（JPG, PNG, GIF等）和文档（PDF, Word, Excel, PPT, ZIP, TXT等），单文件最大 25MB',
   uploadFailed: '附件上传失败',
   fileTooLarge: '文件超出大小限制（最大 25MB）',
-  invalidFileType: '不支持的文件格式'
+  invalidFileType: '不支持的文件格式',
+  unavailableDevice: '设备不可用'
 })
 Object.assign(workOrderCopy.en, {
   myOrdersTab: 'My Tasks',
@@ -643,7 +645,8 @@ Object.assign(workOrderCopy.en, {
   attachmentHint: 'Supports images (JPG, PNG, GIF, etc.) and documents (PDF, Word, Excel, PPT, ZIP, TXT, etc.), max 25MB per file.',
   uploadFailed: 'Failed to upload attachment',
   fileTooLarge: 'File exceeds size limit (max 25MB)',
-  invalidFileType: 'Unsupported file type'
+  invalidFileType: 'Unsupported file type',
+  unavailableDevice: 'Device unavailable'
 })
 const workOrderPaginationCopy = {
   zh: { itemsPerPage: '每页显示', pagination: '工单列表分页', previous: '上一页', next: '下一页', goToPage: '前往第 {page} 页' },
@@ -741,6 +744,7 @@ const ccForm = ref({ userIDs: [], comment: '' })
 const ccSearchKeyword = ref('')
 const showTransferModal = ref(false)
 const transferForm = ref({ taskPublicID: '', targetUserID: '', comment: '' })
+const showOrderDetail = ref(false)
 const showProcessModal = ref(false)
 const selectedProcessActionID = ref('')
 const processOpinion = ref('')
@@ -852,6 +856,15 @@ const alarmSnapshotUrl = computed(() => {
   const params = snapshot.params && typeof snapshot.params === 'object' ? snapshot.params : {}
   return snapshot.snapshot_url || snapshot.image_url || snapshot.snapshot || params.snapshot_url || params.image_url || params.snapshot_base64 || ''
 })
+const alarmSourceID = computed(() => {
+  if (selectedOrder.value?.work_order?.source_type !== 'alarm') return ''
+  const snapshot = selectedOrder.value?.source_snapshot || {}
+  return String(selectedOrder.value?.work_order?.source_id || sourceSnapshotValue(snapshot, 'alarm_id') || sourceSnapshotValue(snapshot, 'alarm_public_id') || '').trim()
+})
+const alarmRecordingID = computed(() => {
+  const snapshot = selectedOrder.value?.source_snapshot || {}
+  return String(sourceSnapshotValue(snapshot, 'recording_id') || sourceSnapshotValue(snapshot, 'video_recording_id') || '').trim()
+})
 const historicalGuidance = computed(() => normalizeWorkOrderHistoricalGuidance(selectedOrder.value))
 const templateDetailWorkflow = computed(() => templateDetail.value ? normalizeGraphWorkflow(templateDetail.value.has_workflow_draft ? templateDetail.value.workflow_draft_definition : templateDetail.value.workflow_definition) : defaultGraphWorkflow())
 const hasPendingApproval = computed(() => approvalTasks.value.some(task => task.status === 'pending' && String(task.approver_user_id) === String(currentUserId.value)))
@@ -947,7 +960,7 @@ function workOrderEventParameters(event) {
   }
   return []
 }
-function workOrderDeviceName(code) { return String(workOrderDeviceByCode.value.get(String(code || '').trim())?.name || code || '-').trim() || '-' }
+function workOrderDeviceName(code) { return String(workOrderDeviceByCode.value.get(String(code || '').trim())?.name || '').trim() }
 function workOrderProductCode(snapshot) { return String(sourceSnapshotValue(snapshot, 'product_code') || workOrderDeviceByCode.value.get(String(sourceSnapshotValue(snapshot, 'device_code') || '').trim())?.product_code || '').trim() }
 function workOrderEventDefinition(snapshot) {
   const eventID = String(sourceSnapshotValue(snapshot, 'event_id') || '').trim()
@@ -955,26 +968,39 @@ function workOrderEventDefinition(snapshot) {
   return (workOrderProductModel(product).events || []).find(event => workOrderEventID(event) === eventID)
 }
 function workOrderEventName(snapshot) {
-  const eventID = String(sourceSnapshotValue(snapshot, 'event_id') || '').trim()
   const definition = workOrderEventDefinition(snapshot)
-  return String(sourceSnapshotValue(snapshot, 'event_name') || definition?.name || eventID || '-').trim() || '-'
+  return String(sourceSnapshotValue(snapshot, 'event_name') || definition?.name || '').trim()
 }
-function formatWorkOrderSourceValue(value) { return value && typeof value === 'object' ? JSON.stringify(value) : String(value ?? '-') }
+function sourceParameterLabel(definition, id) {
+  if (definition?.name || definition?.label) return String(definition.name || definition.label).trim()
+  return ({ severity: tx('severity'), level: tx('severity'), message: tx('description'), description: tx('description'), occurred_at: tx('columnCreatedAt') })[id] || ''
+}
+function formatWorkOrderSourceValue(value, definition = {}) {
+  const optionLabel = item => {
+    const option = Array.isArray(definition?.options) ? definition.options.find(candidate => String(candidate?.value ?? candidate?.key ?? candidate) === String(item)) : null
+    return option ? String(option.label || option.name || option.value || '') : String(item ?? '')
+  }
+  if (Array.isArray(value)) return value.map(optionLabel).filter(Boolean).join(currentLang.value === 'en' ? ', ' : '、') || '-'
+  if (value && typeof value === 'object') return Object.values(value).map(optionLabel).filter(Boolean).join(currentLang.value === 'en' ? ', ' : '、') || '-'
+  return optionLabel(value) || '-'
+}
 function alarmWorkOrderDetails(detail) {
   if (detail?.work_order?.source_type !== 'alarm') return []
   const snapshot = detail?.source_snapshot || {}
   const deviceCode = String(sourceSnapshotValue(snapshot, 'device_code') || '').trim()
   const eventID = String(sourceSnapshotValue(snapshot, 'event_id') || '').trim()
   const values = []
-  if (deviceCode) values.push({ id: 'device', label: tx('alarmDevice'), value: workOrderDeviceName(deviceCode) })
-  if (eventID) values.push({ id: 'event', label: tx('alarmEvent'), value: workOrderEventName(snapshot) })
+  const deviceName = workOrderDeviceName(deviceCode)
+  const eventName = workOrderEventName(snapshot)
+  if (deviceName) values.push({ id: 'device', label: tx('alarmDevice'), value: deviceName })
+  if (eventName) values.push({ id: 'event', label: tx('alarmEvent'), value: eventName })
   const parameters = snapshot?.params && typeof snapshot.params === 'object' && !Array.isArray(snapshot.params) ? snapshot.params : snapshot
   const definitions = new Map(workOrderEventParameters(workOrderEventDefinition(snapshot)).map(parameter => [workOrderEventParameterID(parameter), parameter]))
   for (const [id, value] of Object.entries(parameters || {})) {
     if (String(id).startsWith('_') || ['device_code', 'device_name', 'product_code', 'product_name', 'event_id', 'event_name'].includes(id)) continue
     const definition = definitions.get(String(id))
-    const label = `${String(definition?.name || id).trim() || id}${currentLang.value === 'en' ? ` (${id})` : `（${id}）`}`
-    values.push({ id, label, value: formatWorkOrderSourceValue(value) })
+    const label = sourceParameterLabel(definition, String(id))
+    if (label) values.push({ id, label, value: formatWorkOrderSourceValue(value, definition) })
   }
   return values
 }
@@ -984,8 +1010,10 @@ function workOrderSummary(detail) {
   const snapshot = detail?.source_snapshot || {}
   const deviceCode = String(sourceSnapshotValue(snapshot, 'device_code') || '').trim()
   const eventID = String(sourceSnapshotValue(snapshot, 'event_id') || '').trim()
-  if (!deviceCode && !eventID) return summary
-  return txf('autoCreatedFromAlarm', { device: deviceCode ? workOrderDeviceName(deviceCode) : '-', event: eventID ? workOrderEventName(snapshot) : '-' })
+  const deviceName = workOrderDeviceName(deviceCode)
+  const eventName = workOrderEventName(snapshot)
+  if (!deviceName && !eventName) return summary
+  return txf('autoCreatedFromAlarm', { device: deviceName || '-', event: eventName || '-' })
 }
 
 async function loadWorkOrderEntityCatalog() {
@@ -1177,13 +1205,14 @@ function applyRouteOrderFilters() {
   }
 }
 
-async function selectOrder(id) {
+async function selectOrder(id, { openDrawer = true } = {}) {
   if (!selectedOrder.value) detailReturnFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
   loading.value = true
   try {
     const [detailResponse, eventResponse, approvalResponse, taskResponse] = await workOrderApi.detail(id)
     if (detailResponse.data.code !== 0) throw new Error(detailResponse.data.message)
     selectedOrder.value = detailResponse.data.data
+    showOrderDetail.value = openDrawer
     orderEvents.value = eventResponse.data.code === 0 ? eventResponse.data.data || [] : []
     approvalTasks.value = approvalResponse.data.code === 0 ? approvalResponse.data.data || [] : []
     workOrderTasks.value = taskResponse.data.code === 0 ? taskResponse.data.data || [] : []
@@ -1196,6 +1225,12 @@ async function selectOrder(id) {
 }
 
 function closeOrderDetail() {
+  showOrderDetail.value = false
+  if (showProcessModal.value || showCCModal.value || showTransferModal.value) return
+  clearOrderDetail()
+}
+
+function clearOrderDetail() {
   selectedOrder.value = null
   orderEvents.value = []
   approvalTasks.value = []
@@ -1347,6 +1382,7 @@ function closeProcessModal() {
   processOpinion.value = ''
   processAttachments.value = []
   processAttachmentError.value = ''
+  if (!showOrderDetail.value) clearOrderDetail()
 }
 
 function isImageAttachment(att) {
@@ -1461,13 +1497,14 @@ async function submitProcessAction() {
 
 async function executeOrderAction(url, payload, message) {
   const orderID = workOrderId(selectedOrder.value?.work_order)
+  const keepDrawerOpen = showOrderDetail.value
   actionLoading.value = true
   try {
     const response = await axios.post(url, payload)
     if (response.data.code !== 0) throw new Error(response.data.message)
     successMessage.value = message
     await refreshOrders()
-    await selectOrder(orderID)
+    await selectOrder(orderID, { openDrawer: keepDrawerOpen })
     return true
   } catch (error) {
     if (String(error?.response?.data?.error_code || '').toUpperCase() === 'VERSION_CONFLICT' && selectedOrder.value) {
@@ -1768,6 +1805,8 @@ function statusClass(value) { return ({ open: 'text-bg-primary', in_progress: 't
 function formatTime(value) { return formatDateTime(value) }
 function displayFormValue(value, field = {}) {
   if (field.type === 'user') return value ? (assigneeNames.value.get(String(value)) || tx('unavailableUser')) : '-'
+  if (field.type === 'device') return workOrderDeviceName(value) || tx('unavailableDevice')
+  if (['select', 'multi_select'].includes(field.type)) return formatWorkOrderSourceValue(value, field)
   if (field.key === 'severity') return severityFormValueLabel(value)
   if (field.key === 'fault_type') return faultTypeFormValueLabel(value)
   return Array.isArray(value) ? value.join(currentLang.value === 'en' ? ', ' : '、') : value === true ? tx('yes') : value === false ? tx('no') : value ?? '-'
@@ -1946,6 +1985,45 @@ watch(() => route.query.template, async () => {
   box-shadow: 0 0 0 1px var(--wo-selected-accent);
 }
 .work-order-process-modal .modal-content { background: var(--bs-body-bg); color: var(--bs-body-color); }
+.work-order-feedback {
+  position: fixed;
+  z-index: 1080;
+  top: 1.5rem;
+  left: 50%;
+  width: min(30rem, calc(100vw - 3rem));
+  margin: 0;
+  transform: translateX(-50%);
+}
+.work-order-alarm-section,
+.work-order-form-section {
+  padding: 1rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius-lg);
+  background: var(--bs-tertiary-bg);
+}
+.work-order-alarm-section__snapshot { margin-inline: 0; }
+.work-order-alarm-section__snapshot a { display: block; overflow: hidden; border-radius: var(--bs-border-radius); }
+.work-order-alarm-section__snapshot img { display: block; width: 100%; }
+.work-order-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: .75rem;
+}
+.work-order-detail-field {
+  min-width: 0;
+  padding: .75rem;
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-body-bg);
+}
+.work-order-detail-field__label {
+  margin-bottom: .25rem;
+  color: var(--bs-secondary-color);
+  font-size: .75rem;
+  line-height: 1.4;
+}
+.work-order-detail-field__value { overflow-wrap: anywhere; color: var(--bs-body-color); font-size: .875rem; font-weight: 600; line-height: 1.5; }
+.work-order-alarm-section :deep(.alarm-video-evidence) { margin: 1rem 0 0; background: var(--bs-body-bg); }
 .work-order-drawer {
   position: fixed;
   z-index: 1051;

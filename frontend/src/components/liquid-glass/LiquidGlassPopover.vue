@@ -202,6 +202,21 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.lg-popover {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+
+.lg-popover :deep(> .noyo-glass-group__content) {
+  min-height: 0;
+  height: auto;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+
 .lg-popover-root {
   position: relative;
   display: inline-flex;

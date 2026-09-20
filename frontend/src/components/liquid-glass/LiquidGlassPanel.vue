@@ -77,7 +77,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
+.lg-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+
+.lg-panel :deep(> .noyo-glass-group__content) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: auto;
+}
+
 .lg-panel__header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -98,16 +113,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .lg-panel__surface {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   margin: 0 8px 8px;
 }
 
 .lg-panel__body {
+  min-height: 0;
   max-height: min(60vh, 480px);
   overflow-y: auto;
 }
 
 .lg-panel__footer {
   display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   padding-top: 16px;

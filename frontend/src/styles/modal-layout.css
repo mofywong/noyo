@@ -1,0 +1,65 @@
+/* Shared by community pages and mounted Pro plugins. Keep actions outside the
+   scrolling body, including dialogs whose sections are wrapped in a form. */
+.modal {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.modal .modal-dialog {
+  /* Preserve Bootstrap's sm/lg/xl widths while bounding custom fixed widths. */
+  max-width: min(var(--bs-modal-width), calc(100% - 2 * var(--bs-modal-margin)));
+}
+
+.modal .modal-content {
+  min-width: 0;
+  min-height: 0;
+  /* This safety boundary also applies to page-specific fixed-height editors. */
+  max-height: calc(100vh - 2 * var(--bs-modal-margin)) !important;
+  max-height: calc(100dvh - 2 * var(--bs-modal-margin)) !important;
+  overflow: hidden;
+}
+
+.modal .modal-content > form:has(.modal-body) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modal .modal-body {
+  min-width: 0;
+  min-height: 0;
+  /* A page's overflow-hidden must not make overflowing fields unreachable.
+     Existing nested table/canvas scrollers can still manage their own space. */
+  overflow: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  overflow-wrap: anywhere;
+}
+
+.modal .modal-header,
+.modal .modal-footer {
+  flex-shrink: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.modal .modal-header > :not(.btn-close) {
+  min-width: 0;
+}
+
+.modal .modal-footer {
+  flex-wrap: wrap;
+}
+
+/* Bootstrap fullscreen dialogs deliberately have no outer margin. */
+.modal .modal-dialog.modal-fullscreen {
+  max-inline-size: 100%;
+}
+
+.modal .modal-fullscreen .modal-content {
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+}

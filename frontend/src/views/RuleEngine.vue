@@ -192,16 +192,27 @@
 
     <Teleport to="body">
       <div v-if="showGraph" class="modal fade show d-block rule-modal" tabindex="-1">
-        <div class="modal-dialog modal-xl rule-graph-dialog">
+        <div class="modal-dialog modal-xl rule-graph-dialog" :class="{ 'rule-graph-dialog--fullscreen': isGraphFullscreen }">
           <div class="modal-content border-0 shadow-lg">
             <div class="modal-header">
               <div>
                 <h5 class="modal-title">{{ graphRule?.code ? $t('rule_graph_view') : $t('rule_create') }} - {{ graphRule?.name || $t('rule_new_default_name') }}</h5>
                 <div class="small text-muted">{{ graphRule?.code ? $t('rule_graph_readonly') : $t('rule_graph_editing') }}</div>
               </div>
-              <button type="button" class="btn-close" @click="closeRuleGraph"></button>
+              <div class="d-flex align-items-center gap-2 ms-auto">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 rule-graph-fullscreen-btn"
+                  :title="isGraphFullscreen ? $t('rule_exit_fullscreen') : $t('rule_fullscreen')"
+                  @click="toggleGraphFullscreen"
+                >
+                  <i :class="['bi', isGraphFullscreen ? 'bi-fullscreen-exit' : 'bi-arrows-fullscreen']"></i>
+                  <span class="d-none d-sm-inline">{{ isGraphFullscreen ? $t('rule_exit_fullscreen') : $t('rule_fullscreen') }}</span>
+                </button>
+                <button type="button" class="btn-close" @click="closeRuleGraph"></button>
+              </div>
             </div>
-            <div class="modal-body bg-light">
+            <div class="modal-body" :class="{ 'p-2': isGraphFullscreen }">
               <RuleGraphViewer :rule="graphRule" :devices="devices" :groups="groups" @update-rule="handleGraphUpdate" />
             </div>
           </div>
@@ -285,7 +296,7 @@
 
 <script>
 import VarInputWrapper from '../components/rule/VarInputWrapper.vue'
-import { computed, defineComponent, h, onMounted, reactive, ref, watch, provide, inject } from 'vue'
+import { computed, defineComponent, h, onMounted, onUnmounted, reactive, ref, watch, provide, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '../composables/useToast'
 import axios from 'axios'
@@ -781,6 +792,7 @@ export default {
     const showEditor = ref(false)
     const showLogs = ref(false)
     const showGraph = ref(false)
+    const isGraphFullscreen = ref(false)
     const showGroupModal = ref(false)
     const editingCode = ref('')
     const logRule = ref(null)
@@ -1438,9 +1450,14 @@ export default {
       showGraph.value = true
     }
 
+    function toggleGraphFullscreen() {
+      isGraphFullscreen.value = !isGraphFullscreen.value
+    }
+
     function closeRuleGraph() {
       showGraph.value = false
       graphRule.value = null
+      isGraphFullscreen.value = false
     }
 
     function mapIds(arr) {
@@ -1610,11 +1627,26 @@ export default {
       if (showEditor.value) analyzeRule()
     })
 
-    onMounted(fetchAll)
+    function handleKeydown(e) {
+      if (e.key === 'Escape' && showGraph.value && isGraphFullscreen.value) {
+        isGraphFullscreen.value = false
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    onMounted(() => {
+      fetchAll()
+      window.addEventListener('keydown', handleKeydown)
+    })
+
+    onUnmounted(() => {
+      window.removeEventListener('keydown', handleKeydown)
+    })
 
     return {
       expandedSections,
-      rules, groups, devices, logs, loading, saving, search, statusFilter, groupFilter, aiRuleFilter, summaryMetricFilters, showEditor, showLogs, showGraph,
+      rules, groups, devices, logs, loading, saving, search, statusFilter, groupFilter, aiRuleFilter, summaryMetricFilters, showEditor, showLogs, showGraph, isGraphFullscreen, toggleGraphFullscreen,
       showGroupModal, editingCode, logRule, graphRule, groupForm, form, analysis, aiRuleCount, filteredRules, paginatedRules,
       page, pageSize, pageSizeOptions, handlePageChange, handlePageSizeChange, summaryCards, toggleSummaryMetric,
       validationMessage, executionPreview, weekdayOptions, effectiveMonthDaysText, effectiveMonthsText,
@@ -1674,7 +1706,87 @@ export default {
 }
 
 .rule-graph-dialog {
-  max-width: min(1240px, calc(100vw - 2rem));
+  width: calc(100vw - 32px);
+  max-width: 1920px;
+  height: calc(100vh - 32px);
+  height: calc(100dvh - 32px);
+  margin: 16px auto;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rule-graph-dialog .modal-content {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.rule-graph-dialog .modal-header {
+  flex-shrink: 0;
+  gap: 16px;
+}
+
+.rule-graph-dialog .modal-header > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rule-graph-dialog .modal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px;
+  overflow: hidden;
+  background: var(--bg-surface-secondary, var(--bg-page, #f8fafc));
+}
+
+[data-bs-theme="dark"] .rule-graph-dialog .modal-body {
+  background: var(--bg-surface-secondary, #0f172a);
+}
+
+.rule-graph-dialog--fullscreen {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+
+.rule-graph-dialog--fullscreen .modal-content {
+  border-radius: 0 !important;
+  height: 100%;
+}
+
+.rule-graph-dialog--fullscreen .modal-body {
+  padding: 10px !important;
+}
+
+.rule-graph-dialog .rule-graph-viewer {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rule-graph-fullscreen-btn {
+  font-size: 0.82rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.5rem;
+  border-color: var(--border-color);
+  color: var(--text-main);
+  background: var(--bg-surface);
+  transition: all 0.2s ease;
+}
+
+.rule-graph-fullscreen-btn:hover {
+  background: var(--hover-bg, rgba(255, 255, 255, 0.1));
+  border-color: var(--color-brand, #3b82f6);
+  color: var(--color-brand, #3b82f6);
 }
 
 .rule-graph-summary {

@@ -9,9 +9,39 @@ import (
 	"gorm.io/gorm"
 )
 
+// SyncMeta carries the cloud-edge synchronization state shared by every
+// propagated entity type. Embedding it keeps device and product semantics
+// identical without duplicating field definitions.
+type SyncMeta struct {
+	// Rev is the entity content version. It advances only when content changes
+	// and is the basis for conflict detection on the receiving side.
+	Rev int64 `gorm:"not null;default:1" json:"rev"`
+	// SyncState is the replication state surfaced to the UI.
+	SyncState string `gorm:"size:16;not null;default:synced" json:"sync_state"`
+	// ConflictPayload holds the peer's version while SyncState is "conflict".
+	// It is a JSON conflictRecord, never a partial write.
+	ConflictPayload string `json:"conflict_payload,omitempty"`
+	ConflictRev     int64  `gorm:"not null;default:0" json:"conflict_rev,omitempty"`
+	ConflictNode    string `gorm:"size:128" json:"conflict_node,omitempty"`
+	// Origin records which side created the entity. It is provenance for the UI
+	// only and never determines who may write the entity.
+	Origin string `gorm:"size:16" json:"origin,omitempty"`
+	// OwnerNode names the gateway this entity is routed to. Devices are stored
+	// flat (their parent code is empty relative to the gateway), so ownership
+	// cannot be derived from the hierarchy and has to be carried explicitly.
+	// An empty value means the entity is shared across the whole scope, which is
+	// how products behave.
+	OwnerNode string `gorm:"size:128;index" json:"owner_node,omitempty"`
+	// SyncWriter names the node that produced the most recent write. The change
+	// recorder uses it to avoid re-emitting a change for a write that the
+	// synchronization path itself performed.
+	SyncWriter string `gorm:"size:128" json:"sync_writer,omitempty"`
+}
+
 // Product represents a type of device (e.g., "Smart Meter Model X")
 type Product struct {
 	gorm.Model
+	SyncMeta
 	TenantID  uint   `gorm:"index;not null;default:0" json:"tenant_id"`
 	ProjectID uint   `gorm:"index;not null;default:0" json:"project_id"`
 	Code      string `gorm:"uniqueIndex;size:64;not null" json:"code"`
@@ -24,6 +54,7 @@ type Product struct {
 // Device represents a physical instance
 type Device struct {
 	gorm.Model
+	SyncMeta
 	TenantID            uint   `gorm:"index;not null;default:0" json:"tenant_id"`
 	ProjectID           uint   `gorm:"index;not null;default:0" json:"project_id"`
 	Code                string `gorm:"uniqueIndex;size:64;not null" json:"code"`
@@ -169,23 +200,65 @@ func GetDevice(code string) (*Device, error) {
 	return &d, nil
 }
 
-// ListDevices retrieves devices with pagination
-func ListDevices(page, pageSize int, tenantID, projectID uint, allowedProjectIDs ...[]uint) ([]Device, int64, error) {
+// DeviceQueryFilter defines multi-criteria filtering for devices
+type DeviceQueryFilter struct {
+	TenantID          uint
+	ProjectID         uint
+	AllowedProjectIDs []uint
+	Search            string   // Fuzzy search for code or name
+	ProductCode       string   // Exact match for product_code
+	ParentCode        string   // Filter by parent_code
+	Enabled           *bool    // Filter by enabled (true/false)
+	IncludeCodes      []string // If non-nil, WHERE code IN (?)
+	ExcludeCodes      []string // If non-nil, WHERE code NOT IN (?)
+	TagID             uint     // Filter by tag ID in device_tag_bindings
+}
+
+// ListDevicesWithFilter retrieves devices with multi-criteria filtering and optional pagination
+func ListDevicesWithFilter(page, pageSize int, filter DeviceQueryFilter) ([]Device, int64, error) {
 	var devices []Device
 	var total int64
 
 	db := DB.Model(&Device{})
-	if tenantID > 0 {
-		db = db.Where("tenant_id = ?", tenantID)
+	if filter.TenantID > 0 {
+		db = db.Where("tenant_id = ?", filter.TenantID)
 	}
-	if projectID > 0 {
-		db = db.Where("project_id = ?", projectID)
-	} else if len(allowedProjectIDs) > 0 {
-		ids := allowedProjectIDs[0]
-		if len(ids) == 0 {
+	if filter.ProjectID > 0 {
+		db = db.Where("project_id = ?", filter.ProjectID)
+	} else if len(filter.AllowedProjectIDs) > 0 {
+		db = db.Where("project_id IN ?", filter.AllowedProjectIDs)
+	}
+
+	if filter.ProductCode != "" {
+		db = db.Where("product_code = ?", filter.ProductCode)
+	}
+
+	if filter.ParentCode != "" {
+		db = db.Where("parent_code = ?", filter.ParentCode)
+	}
+
+	if filter.Enabled != nil {
+		db = db.Where("enabled = ?", *filter.Enabled)
+	}
+
+	if filter.Search != "" {
+		searchPattern := "%" + strings.TrimSpace(filter.Search) + "%"
+		db = db.Where("code LIKE ? OR name LIKE ?", searchPattern, searchPattern)
+	}
+
+	if filter.IncludeCodes != nil {
+		if len(filter.IncludeCodes) == 0 {
 			return []Device{}, 0, nil
 		}
-		db = db.Where("project_id IN ?", ids)
+		db = db.Where("code IN ?", filter.IncludeCodes)
+	}
+
+	if len(filter.ExcludeCodes) > 0 {
+		db = db.Where("code NOT IN ?", filter.ExcludeCodes)
+	}
+
+	if filter.TagID > 0 {
+		db = db.Where("code IN (SELECT device_code FROM device_tag_bindings WHERE tag_id = ?)", filter.TagID)
 	}
 
 	if err := db.Count(&total).Error; err != nil {
@@ -199,6 +272,44 @@ func ListDevices(page, pageSize int, tenantID, projectID uint, allowedProjectIDs
 
 	result := db.Order("created_at desc").Find(&devices)
 	return devices, total, result.Error
+}
+
+// ListDevices retrieves devices with pagination (backwards-compatible wrapper)
+func ListDevices(page, pageSize int, tenantID, projectID uint, allowedProjectIDs ...[]uint) ([]Device, int64, error) {
+	var projectIDs []uint
+	if len(allowedProjectIDs) > 0 {
+		projectIDs = allowedProjectIDs[0]
+		if len(projectIDs) == 0 && projectID == 0 {
+			return []Device{}, 0, nil
+		}
+	}
+	return ListDevicesWithFilter(page, pageSize, DeviceQueryFilter{
+		TenantID:          tenantID,
+		ProjectID:         projectID,
+		AllowedProjectIDs: projectIDs,
+	})
+}
+
+// CountDevices counts total devices matching tenant/project scope
+func CountDevices(tenantID, projectID uint, allowedProjectIDs ...[]uint) (int64, error) {
+	var total int64
+	db := DB.Model(&Device{})
+	if tenantID > 0 {
+		db = db.Where("tenant_id = ?", tenantID)
+	}
+	if projectID > 0 {
+		db = db.Where("project_id = ?", projectID)
+	} else if len(allowedProjectIDs) > 0 {
+		ids := allowedProjectIDs[0]
+		if ids != nil {
+			if len(ids) == 0 {
+				return 0, nil
+			}
+			db = db.Where("project_id IN ?", ids)
+		}
+	}
+	err := db.Count(&total).Error
+	return total, err
 }
 
 func ListDevicesByParent(parentCode string) ([]Device, error) {
@@ -226,17 +337,22 @@ func SaveDevice(d *Device) error {
 }
 
 func DeleteDevice(code string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	var deleted Device
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		var device Device
 		if err := tx.Where("code = ?", code).First(&device).Error; err != nil {
 			return err
 		}
+		// Snapshot before the rename below: GORM writes the new column value
+		// back into this struct, which would otherwise lose the original code
+		// that the deletion record has to carry.
+		deleted = device
 
 		if err := tx.Unscoped().Where("device_code = ?", code).Delete(&DeviceTagBinding{}).Error; err != nil {
 			return err
 		}
 
-		newCode := fmt.Sprintf("%s_del_%d", device.Code, time.Now().Unix())
+		newCode := fmt.Sprintf("%s_del_%d", code, time.Now().Unix())
 
 		// Rename code to release unique constraint
 		if err := tx.Model(&device).Update("code", newCode).Error; err != nil {
@@ -246,6 +362,13 @@ func DeleteDevice(code string) error {
 		// Soft delete
 		return tx.Delete(&device).Error
 	})
+	if err != nil {
+		return err
+	}
+	// Report the deletion after the row is committed. The rename above destroys
+	// the original code, so this cannot be derived from the statement itself.
+	notifyDeviceDeleted(&deleted)
+	return nil
 }
 
 // --- Protocol Profile Methods ---

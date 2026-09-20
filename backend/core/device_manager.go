@@ -346,6 +346,87 @@ func (dm *DeviceManager) GetOnlineDeviceCodes() []string {
 	return codes
 }
 
+// GetAlarmDeviceCodes returns codes of devices that currently have active AI anomalies or latched alarms
+func (dm *DeviceManager) GetAlarmDeviceCodes() []string {
+	var codes []string
+	dm.runtimes.Range(func(key, value interface{}) bool {
+		rt := value.(*DeviceRuntime)
+		rt.mu.RLock()
+		isOnline := rt.Status.Online
+		hasAlarm := false
+		if isOnline {
+			for k, v := range rt.Properties {
+				if len(k) > 11 && (k[len(k)-11:] == "_ai_latched" || k[len(k)-11:] == "_ai_anomaly") && v == true {
+					hasAlarm = true
+					break
+				}
+			}
+		}
+		rt.mu.RUnlock()
+		if hasAlarm {
+			codes = append(codes, key.(string))
+		}
+		return true
+	})
+	return codes
+}
+
+// CountDeviceStats computes online and alarm device counts for a given tenant/project scope in microsecond time
+func (dm *DeviceManager) CountDeviceStats(tenantID, projectID uint, allowedProjectIDs ...[]uint) (onlineCount int, alarmCount int) {
+	var allowedMap map[uint]bool
+	if len(allowedProjectIDs) > 0 && len(allowedProjectIDs[0]) > 0 {
+		allowedMap = make(map[uint]bool, len(allowedProjectIDs[0]))
+		for _, pid := range allowedProjectIDs[0] {
+			allowedMap[pid] = true
+		}
+	}
+
+	dm.runtimes.Range(func(key, value interface{}) bool {
+		code, ok := key.(string)
+		if !ok {
+			return true
+		}
+		if dm.Registry != nil {
+			dev, exists := dm.Registry.GetDevice(code)
+			if !exists || dev == nil {
+				return true
+			}
+			if tenantID > 0 && dev.TenantID != tenantID {
+				return true
+			}
+			if projectID > 0 && dev.ProjectID != projectID {
+				return true
+			}
+			if allowedMap != nil && !allowedMap[dev.ProjectID] {
+				return true
+			}
+		}
+
+		rt := value.(*DeviceRuntime)
+		rt.mu.RLock()
+		isOnline := rt.Status.Online
+		hasAlarm := false
+		if isOnline {
+			for k, v := range rt.Properties {
+				if len(k) > 11 && (k[len(k)-11:] == "_ai_latched" || k[len(k)-11:] == "_ai_anomaly") && v == true {
+					hasAlarm = true
+					break
+				}
+			}
+		}
+		rt.mu.RUnlock()
+
+		if isOnline {
+			onlineCount++
+		}
+		if hasAlarm {
+			alarmCount++
+		}
+		return true
+	})
+	return onlineCount, alarmCount
+}
+
 // GetLatestData returns the latest data for a device
 func (dm *DeviceManager) GetLatestData(deviceCode string) map[string]interface{} {
 	if v, ok := dm.runtimes.Load(deviceCode); ok {

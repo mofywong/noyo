@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"noyo/core/store"
+	"strings"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
@@ -67,7 +68,11 @@ func (s *Server) handleCreateProtocolProfile(r *ghttp.Request) {
 	var req struct {
 		Code         string      `json:"code" v:"required#Code is required"`
 		Name         string      `json:"name" v:"required#Name is required"`
-		ProtocolName string      `json:"protocol_name" v:"required#ProtocolName is required"`
+		ProtocolName string      `json:"protocol_name"`
+		Protocol     string      `json:"protocol"`
+		ProtocolType string      `json:"protocol_type"`
+		Plugin       string      `json:"plugin"`
+		DriverType   string      `json:"driver_type"`
 		ProductCode  string      `json:"product_code"`
 		Description  string      `json:"description"`
 		Config       interface{} `json:"config"`
@@ -81,6 +86,31 @@ func (s *Server) handleCreateProtocolProfile(r *ghttp.Request) {
 	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
 	if scopeErr != nil {
 		r.Response.WriteStatus(400, g.Map{"error": scopeErr.Error()})
+		r.ExitAll()
+	}
+
+	// Resolve protocol name from various aliases
+	protocolName := strings.TrimSpace(req.ProtocolName)
+	if protocolName == "" {
+		if req.Protocol != "" {
+			protocolName = strings.TrimSpace(req.Protocol)
+		} else if req.ProtocolType != "" {
+			protocolName = strings.TrimSpace(req.ProtocolType)
+		} else if req.Plugin != "" {
+			protocolName = strings.TrimSpace(req.Plugin)
+		} else if req.DriverType != "" {
+			protocolName = strings.TrimSpace(req.DriverType)
+		}
+	}
+
+	if protocolName == "" {
+		r.Response.WriteStatus(400, g.Map{"error": "ProtocolName is required"})
+		r.ExitAll()
+	}
+
+	canonicalProtocol, err := s.EnsureProtocolPluginEnabled(protocolName, tenantID, projectID)
+	if err != nil {
+		r.Response.WriteStatus(400, g.Map{"error": err.Error()})
 		r.ExitAll()
 	}
 
@@ -101,7 +131,7 @@ func (s *Server) handleCreateProtocolProfile(r *ghttp.Request) {
 		ProjectID:    projectID,
 		Code:         req.Code,
 		Name:         req.Name,
-		ProtocolName: req.ProtocolName,
+		ProtocolName: canonicalProtocol,
 		ProductCode:  req.ProductCode,
 		Description:  req.Description,
 		Config:       configStr,
@@ -147,10 +177,12 @@ func (s *Server) handleUpdateProtocolProfile(r *ghttp.Request) {
 	}
 
 	var req struct {
-		Name        string      `json:"name"`
-		ProductCode string      `json:"product_code"`
-		Description string      `json:"description"`
-		Config      interface{} `json:"config"`
+		Name         string      `json:"name"`
+		ProtocolName string      `json:"protocol_name"`
+		Protocol     string      `json:"protocol"`
+		ProductCode  string      `json:"product_code"`
+		Description  string      `json:"description"`
+		Config       interface{} `json:"config"`
 	}
 
 	if err := r.Parse(&req); err != nil {
@@ -160,6 +192,18 @@ func (s *Server) handleUpdateProtocolProfile(r *ghttp.Request) {
 
 	if req.Name != "" {
 		pp.Name = req.Name
+	}
+	pName := strings.TrimSpace(req.ProtocolName)
+	if pName == "" && req.Protocol != "" {
+		pName = strings.TrimSpace(req.Protocol)
+	}
+	if pName != "" {
+		canonical, err := s.EnsureProtocolPluginEnabled(pName, tenantID, projectID)
+		if err != nil {
+			r.Response.WriteStatus(400, g.Map{"error": err.Error()})
+			r.ExitAll()
+		}
+		pp.ProtocolName = canonical
 	}
 	if req.ProductCode != "" {
 		pp.ProductCode = req.ProductCode

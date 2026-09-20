@@ -256,8 +256,6 @@ func (s *Server) handleGetDevice(r *ghttp.Request) {
 }
 
 func (s *Server) handleListDevices(r *ghttp.Request) {
-	page, pageSize := normalizeListPage(r.Get("page", 1).Int(), r.Get("pageSize", 10).Int())
-
 	r.Response.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	r.Response.Header().Set("Pragma", "no-cache")
 	r.Response.Header().Set("Expires", "0")
@@ -266,47 +264,123 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 	projectID := r.GetCtxVar("project_id").Uint()
 
 	var projectIDs []uint
-	restrictProjects := false
+	var allowedArgs [][]uint
 	if authCtx := requestAuthContext(r); authCtx != nil {
 		if ids, restricted := authCtx.ProjectIDsForTenantQuery(); restricted && projectID == 0 {
 			projectIDs = ids
-			restrictProjects = true
+			allowedArgs = [][]uint{ids}
 		}
 	}
 
-	var devices []store.Device
-	var total int64
-	var err error
-	if restrictProjects {
-		devices, total, err = store.ListDevices(page, pageSize, tenantID, projectID, projectIDs)
+	rawPage := r.Get("page")
+	rawPageSize := r.Get("pageSize")
+
+	var page, pageSize int
+	// If neither page nor pageSize is provided, or either is explicitly <= 0, return unpaginated
+	if (rawPage == nil && rawPageSize == nil) || (rawPage != nil && rawPage.Int() <= 0) || (rawPageSize != nil && rawPageSize.Int() <= 0) {
+		page = 0
+		pageSize = 0
 	} else {
-		devices, total, err = store.ListDevices(page, pageSize, tenantID, projectID)
+		page = 1
+		if rawPage != nil && rawPage.Int() > 0 {
+			page = rawPage.Int()
+		}
+		pageSize = 10
+		if rawPageSize != nil && rawPageSize.Int() > 0 {
+			pageSize = rawPageSize.Int()
+			if pageSize > 1000 {
+				pageSize = 1000
+			}
+		}
 	}
+
+	search := r.Get("search").String()
+	if search == "" {
+		search = r.Get("q").String()
+	}
+
+	filter := store.DeviceQueryFilter{
+		TenantID:          tenantID,
+		ProjectID:         projectID,
+		AllowedProjectIDs: projectIDs,
+		Search:            search,
+		ProductCode:       r.Get("product_code").String(),
+		ParentCode:        r.Get("parent_code").String(),
+	}
+
+	if enabledParam := r.Get("enabled"); enabledParam != nil && enabledParam.String() != "" {
+		val := enabledParam.String()
+		if val == "true" {
+			tVal := true
+			filter.Enabled = &tVal
+		} else if val == "false" {
+			fVal := false
+			filter.Enabled = &fVal
+		}
+	}
+
+	if tagID := r.Get("tag_id").Uint(); tagID > 0 {
+		filter.TagID = tagID
+	}
+
+	// Status filtering (online / offline)
+	if onlineParam := r.Get("online"); onlineParam != nil && onlineParam.String() != "" && s.DeviceManager != nil {
+		onlineCodes := s.DeviceManager.GetOnlineDeviceCodes()
+		if onlineParam.String() == "true" {
+			filter.IncludeCodes = onlineCodes
+		} else if onlineParam.String() == "false" {
+			filter.ExcludeCodes = onlineCodes
+		}
+	}
+
+	// Alarm filtering
+	if alarmParam := r.Get("alarm"); alarmParam != nil && alarmParam.String() == "true" && s.DeviceManager != nil {
+		alarmCodes := s.DeviceManager.GetAlarmDeviceCodes()
+		filter.IncludeCodes = alarmCodes
+	}
+
+	devices, total, err := store.ListDevicesWithFilter(page, pageSize, filter)
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
-	//s.Logger.Info("ListDevices fetched from DB", zap.Int("count", len(devices)), zap.Uint("reqTenantID", tenantID), zap.Uint("reqProjectID", projectID))
 
 	if authCtx := requestAuthContext(r); authCtx != nil {
 		filtered := make([]store.Device, 0, len(devices))
 		scope := currentDeviceTagScope(r)
+		anyFiltered := false
 		for _, device := range devices {
 			allowed, err := canReadDeviceByTagPermission(authCtx, scope, device.Code)
 			canAccess := canAccessDevice(r, &device)
 			if err == nil && allowed && canAccess {
 				filtered = append(filtered, device)
 			} else {
+				anyFiltered = true
 				s.Logger.Info("Device filtered out", zap.String("code", device.Code), zap.Bool("allowed", allowed), zap.Bool("canAccess", canAccess), zap.Error(err))
 			}
 		}
 		devices = filtered
-		total = int64(len(filtered))
+		if page == 0 || anyFiltered {
+			if page == 0 {
+				total = int64(len(filtered))
+			}
+		}
+	}
+
+	// High-performance microsecond stats aggregation for the tenant/project
+	var onlineCount, alarmCount int
+	if s.DeviceManager != nil {
+		onlineCount, alarmCount = s.DeviceManager.CountDeviceStats(tenantID, projectID, allowedArgs...)
+	}
+	scopeTotal, err := store.CountDevices(tenantID, projectID, allowedArgs...)
+	if err != nil || (scopeTotal == 0 && total > 0 && filter.Search == "" && filter.ProductCode == "" && filter.ParentCode == "" && filter.Enabled == nil && filter.IncludeCodes == nil && filter.ExcludeCodes == nil && filter.TagID == 0) {
+		scopeTotal = total
 	}
 
 	// Enrich with status
 	type DeviceWithStatus struct {
 		store.Device
+		ParentName      string             `json:"parent_name"`
 		Status          string             `json:"status"` // "running", "stopped"
 		Online          bool               `json:"online"`
 		LastActive      time.Time          `json:"last_active"`
@@ -420,8 +494,17 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 			}
 		}
 
+		parentName := ""
+		if d.ParentCode != "" && s.DeviceManager != nil && s.DeviceManager.Registry != nil {
+			parentName = s.DeviceManager.Registry.GetDeviceName(d.ParentCode)
+			if parentName == "" {
+				parentName = d.ParentCode
+			}
+		}
+
 		result = append(result, DeviceWithStatus{
 			Device:          d,
+			ParentName:      parentName,
 			Status:          status,
 			Online:          online,
 			LastActive:      lastActive,
@@ -440,6 +523,11 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 		"total":    total,
 		"page":     page,
 		"pageSize": pageSize,
+		"stats": g.Map{
+			"total":  scopeTotal,
+			"online": onlineCount,
+			"alarm":  alarmCount,
+		},
 	})
 }
 
@@ -495,11 +583,20 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 
 	s.Manager.ApplyDeviceDefaults(&d)
 
+	// If protocol_name is empty but protocol_profile_code exists, inherit protocol from driver
+	if d.ProtocolName == "" && d.ProtocolProfileCode != "" {
+		if pp, err := store.GetProtocolProfile(d.ProtocolProfileCode); err == nil && pp != nil && pp.ProtocolName != "" {
+			d.ProtocolName = pp.ProtocolName
+		}
+	}
+
 	if d.ProtocolName != "" {
-		if err := validateProtocolEnabledForProject(d.ProtocolName, d.TenantID, d.ProjectID); err != nil {
+		canonicalName, err := s.EnsureProtocolPluginEnabled(d.ProtocolName, d.TenantID, d.ProjectID)
+		if err != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 			return
 		}
+		d.ProtocolName = canonicalName
 	}
 
 	var parentDevice *store.Device
@@ -601,11 +698,20 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 
 	s.Manager.ApplyDeviceDefaults(&d)
 
+	// If protocol_name is empty but protocol_profile_code exists, inherit protocol from driver
+	if d.ProtocolName == "" && d.ProtocolProfileCode != "" {
+		if pp, err := store.GetProtocolProfile(d.ProtocolProfileCode); err == nil && pp != nil && pp.ProtocolName != "" {
+			d.ProtocolName = pp.ProtocolName
+		}
+	}
+
 	if d.ProtocolName != "" {
-		if err := validateProtocolEnabledForProject(d.ProtocolName, d.TenantID, d.ProjectID); err != nil {
+		canonicalName, err := s.EnsureProtocolPluginEnabled(d.ProtocolName, d.TenantID, d.ProjectID)
+		if err != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 			return
 		}
+		d.ProtocolName = canonicalName
 	}
 
 	var parentDevice *store.Device
@@ -1248,6 +1354,13 @@ func (s *Server) handleGetDeviceConfigSchema(r *ghttp.Request) {
 		return
 	}
 
+	protocolName = NormalizeProtocolName(protocolName)
+	if tenantID, projectID, err := currentTenantProjectScope(r); err == nil {
+		if canonical, err := s.EnsureProtocolPluginEnabled(protocolName, tenantID, projectID); err == nil {
+			protocolName = canonical
+		}
+	}
+
 	plugin := s.Manager.GetPlugin(protocolName)
 	if plugin == nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Protocol plugin not found: " + protocolName})
@@ -1680,29 +1793,13 @@ func CurrentTenantProjectScope(r *ghttp.Request) (uint, uint, error) {
 }
 
 func validateProtocolEnabledForProject(protocolName string, tenantID, projectID uint) error {
-	if protocolName == "" {
-		return nil
-	}
-	if !isProtocolPluginMeta(protocolName) {
-		return fmt.Errorf("Protocol plugin is not available")
-	}
-	plugin, err := store.GetPluginForScope(protocolName, tenantID, projectID)
-	if err != nil {
-		return err
-	}
-	if plugin == nil || !plugin.Enabled {
-		return fmt.Errorf("Protocol plugin is not enabled for current project")
-	}
-	return nil
+	_, err := EnsureProtocolPluginEnabled(protocolName, tenantID, projectID)
+	return err
 }
 
 func isProtocolPluginMeta(protocolName string) bool {
-	for _, meta := range pluginMetas {
-		if meta.Name == protocolName && meta.Category == types.PluginCategoryProtocol {
-			return true
-		}
-	}
-	return false
+	_, found := FindProtocolPluginMeta(protocolName)
+	return found
 }
 
 func projectNameMap(tenantID uint) map[uint]string {
