@@ -57,7 +57,7 @@
                     type="checkbox"
                     role="switch"
                     :id="'field-'+field.name"
-                    :checked="formData[field.name]"
+                    :checked="fieldValue(field)"
                     @change="updateField(field.name, $event.target.checked)"
                   >
                 </div>
@@ -74,7 +74,7 @@
                   type="number"
                   class="form-control"
                   :id="'field-'+field.name"
-                  :value="formData[field.name]"
+                  :value="fieldValue(field)"
                   @input="updateField(field.name, numberValue($event.target.value))"
                 >
               </div>
@@ -89,7 +89,7 @@
                 <select
                   class="form-select"
                   :id="'field-'+field.name"
-                  :value="formData[field.name]"
+                  :value="fieldValue(field)"
                   @change="updateField(field.name, $event.target.value)"
                 >
                   <option v-for="opt in field.options" :key="opt.value" :value="opt.value">
@@ -108,7 +108,7 @@
                 <textarea
                   class="form-control"
                   :id="'field-'+field.name"
-                  :value="formData[field.name]"
+                  :value="fieldValue(field)"
                   rows="3"
                   @input="updateField(field.name, $event.target.value)"
                 ></textarea>
@@ -153,7 +153,7 @@
                   type="text"
                   class="form-control"
                   :id="'field-'+field.name"
-                  :value="formData[field.name]"
+                  :value="fieldValue(field)"
                   @input="updateField(field.name, $event.target.value)"
                 >
               </div>
@@ -218,6 +218,19 @@ const getLocalized = (obj) => {
   if (!obj) return '';
   if (typeof obj === 'string') return obj;
   return obj[props.locale] || obj.en || '';
+};
+
+// Resolve the value to render for a field.
+// A field is "empty" when it is undefined, null, or an empty string. In that case
+// fall back to the declared default supplied by the backend schema, so a plugin
+// that ships a documented default (e.g. BACnet port 47808) shows it pre-filled
+// instead of an empty input. Values the user actually stored always win.
+const isEmptyValue = (value) => value === undefined || value === null || value === '';
+
+const fieldValue = (field) => {
+  const current = props.formData?.[field?.name];
+  if (!isEmptyValue(current)) return current;
+  return isEmptyValue(field?.default) ? current : field.default;
 };
 
 const updateField = (name, value) => {

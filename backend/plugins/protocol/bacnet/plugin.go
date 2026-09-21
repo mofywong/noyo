@@ -23,6 +23,13 @@ const (
 	DefaultDriverCode = "bacnet_default_driver"
 	DefaultDriverName = "BACnet/IP默认驱动"
 	ProtocolName      = "BACnet"
+
+	// DefaultPort is the standard BACnet/IP port (0xBAC0). It is the declared
+	// default of Config.Port and the fallback used when nothing is configured.
+	DefaultPort = 47808
+
+	// DefaultInterface is the "auto-detect" sentinel for Config.Interface.
+	DefaultInterface = "0.0.0.0"
 )
 
 func (p *BacnetPlugin) EnsureDriverExists() error {
@@ -144,11 +151,11 @@ func (p *BacnetPlugin) Start() error {
 	portVal, _ := cfg["port"].(float64)
 	port := int(portVal)
 	if port == 0 {
-		port = 47808
+		port = DefaultPort
 	}
 
 	// Auto-detect IP if interface not specified or "0.0.0.0" (which doesn't work well for broadcast)
-	if interfaceName == "" || interfaceName == "0.0.0.0" {
+	if interfaceName == "" || interfaceName == DefaultInterface {
 		localIP, err := getOutboundIP()
 		if err != nil {
 			p.Logger.Warn("Failed to detect local IP, falling back to 0.0.0.0", zap.Error(err))
@@ -290,7 +297,7 @@ func (p *BacnetPlugin) GetConfigSchema() *core.PluginConfigSchema {
 	ifaces, _ := net.Interfaces()
 	options := []map[string]string{}
 	// Add 0.0.0.0 option
-	options = append(options, map[string]string{"label": "Auto / 0.0.0.0", "value": "0.0.0.0"})
+	options = append(options, map[string]string{"label": "Auto / 0.0.0.0", "value": DefaultInterface})
 
 	for _, i := range ifaces {
 		addrs, _ := i.Addrs()
@@ -308,21 +315,34 @@ func (p *BacnetPlugin) GetConfigSchema() *core.PluginConfigSchema {
 		options = append(options, map[string]string{"label": label, "value": i.Name})
 	}
 
+	interfaceValue := p.Config.Interface
+	if interfaceValue == "" {
+		interfaceValue = DefaultInterface
+	}
 	schema.Fields = append(schema.Fields, core.ConfigField{
 		Name:    "interface",
 		Type:    "select",
 		Title:   map[string]string{"en": "Network Interface", "zh": "网卡接口"},
 		Options: options,
-		Value:   p.Config.Interface,
+		Value:   interfaceValue,
+		Default: DefaultInterface,
 	})
 
 	// 3. Port Field
+	// Value falls back to the declared default so the form is pre-filled on a fresh
+	// install (p.Config.Port is seeded from the `default:"47808"` tag by the manager,
+	// but stays 0 if the plugin was never configured).
+	portValue := p.Config.Port
+	if portValue == 0 {
+		portValue = DefaultPort
+	}
 	schema.Fields = append(schema.Fields, core.ConfigField{
 		Name:        "port",
 		Type:        "int",
 		Title:       map[string]string{"en": "BACnet Port", "zh": "监听端口"},
 		Description: map[string]string{"en": "Default 47808 (BAC0)", "zh": "默认 47808 (BAC0)"},
-		Value:       p.Config.Port,
+		Value:       portValue,
+		Default:     DefaultPort,
 	})
 
 	return schema
@@ -491,13 +511,16 @@ func (p *BacnetPlugin) UpdateDevice(device types.DeviceMeta) error {
 
 // WriteProperty implements IProtocolPlugin
 func (p *BacnetPlugin) WriteProperty(device types.DeviceMeta, propName string, value interface{}) error {
+	var err error
+	device.Extras, err = normalizeDeviceConfig(device.Extras)
+	if err != nil { return err }
 	// Parse Device Config
 	extras := device.Extras
 	ip, _ := extras["ip"].(string)
 	portVal, _ := extras["port"].(float64)
 	port := int(portVal)
 	if port == 0 {
-		port = 47808
+		port = DefaultPort
 	}
 	deviceIDVal, _ := extras["device_id"].(float64)
 	deviceID := uint32(deviceIDVal)
@@ -633,6 +656,12 @@ func removeRequiredSchemaEntries(value interface{}) {
 }
 
 func (p *BacnetPlugin) addDevice(device types.DeviceMeta) {
+	var err error
+	device.Extras, err = normalizeDeviceConfig(device.Extras)
+	if err != nil {
+		p.Logger.Error("Invalid BACnet device configuration", zap.String("device", device.DeviceCode), zap.Error(err))
+		return
+	}
 	logDebugFile(fmt.Sprintf("addDevice Called: Code=%s Extras=%v", device.DeviceCode, device.Extras))
 	fmt.Fprintf(os.Stderr, ">>> [DEBUG-STDERR] addDevice Called: %s Extras: %v\n", device.DeviceCode, device.Extras)
 	// Parse Config
@@ -647,7 +676,7 @@ func (p *BacnetPlugin) addDevice(device types.DeviceMeta) {
 	portVal, _ := extras["port"].(float64)
 	port := int(portVal)
 	if port == 0 {
-		port = 47808
+		port = DefaultPort
 	}
 	deviceIDVal, _ := extras["device_id"].(float64)
 	deviceID := int(deviceIDVal)

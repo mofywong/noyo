@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/gogf/gf/v2/util/gconv"
+	"github.com/gogf/gf/v2/util/gutil"
 	"go.uber.org/zap"
 )
 
@@ -193,12 +194,27 @@ func (pm *PluginManager) mapConfigToStruct(pluginVal reflect.Value, cfgMap map[s
 		return
 	}
 
+	if configField.Kind() != reflect.Struct || !configField.CanAddr() {
+		return
+	}
+
+	// Seed declared `default:"..."` tags BEFORE applying persisted values.
+	// gconv.Struct does NOT honour the `default` tag, so without this step any
+	// field absent from the stored config stays at its Go zero value. That zero
+	// value is then handed to the config schema as the field's current value and
+	// rendered as an empty input in the UI, even though the plugin would silently
+	// fall back to the intended default at runtime.
+	// gutil.FillStructWithDefault only writes to fields that are still empty, so
+	// explicitly stored values (including a deliberate 0) are applied afterwards
+	// and always win.
+	if err := gutil.FillStructWithDefault(configField.Addr().Interface()); err != nil {
+		pm.Server.Logger.Warn("Failed to apply config struct defaults", zap.Error(err))
+	}
+
 	// Use gconv for robust mapping (supports json tags, types conversion, etc.)
-	if configField.Kind() == reflect.Struct && configField.CanAddr() {
-		// Pass pointer to the struct
-		if err := gconv.Struct(cfgMap, configField.Addr().Interface()); err != nil {
-			pm.Server.Logger.Error("Failed to map config to struct", zap.Error(err))
-		}
+	// Pass pointer to the struct
+	if err := gconv.Struct(cfgMap, configField.Addr().Interface()); err != nil {
+		pm.Server.Logger.Error("Failed to map config to struct", zap.Error(err))
 	}
 }
 

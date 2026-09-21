@@ -16,6 +16,7 @@ type ConfigField struct {
 	Title       map[string]string   `json:"title"`               // Display name in different languages
 	Description map[string]string   `json:"description"`         // Helper text in different languages
 	Value       interface{}         `json:"value"`               // Current value
+	Default     interface{}         `json:"default,omitempty"`   // Declared default (from `default:"..."` tag)
 	Options     []map[string]string `json:"options"`             // List of options for select type (value, label)
 	Source      string              `json:"source,omitempty"`    // "platform" or "local"
 	ReadOnly    bool                `json:"read_only,omitempty"` // true if read-only
@@ -175,16 +176,34 @@ func GetPluginConfigSchema(plugin IManagedPlugin) (result *PluginConfigSchema) {
 			desc["zh"] = d
 		}
 
+		// Declared default (supports both `default:"..."` and its short form `d:"..."`).
+		// Typed with the field's own Go type so the UI receives a number for numeric
+		// fields and a string for string fields, instead of a raw string.
+		var defaultValue interface{}
+		if raw := defaultTagValue(field); raw != "" {
+			defaultValue = gconv.ConvertWithRefer(raw, fieldVal)
+		}
+
 		schema.Fields = append(schema.Fields, ConfigField{
 			Name:        name,
 			Type:        typeName,
 			Title:       title,
 			Description: desc,
 			Value:       fieldVal.Interface(),
+			Default:     defaultValue,
 		})
 	}
 
 	return schema
+}
+
+// defaultTagValue reads the declared default from the `default` tag, falling back
+// to its documented short form `d`. It mirrors gtag.Default / gtag.DefaultShort.
+func defaultTagValue(field reflect.StructField) string {
+	if v := field.Tag.Get("default"); v != "" {
+		return v
+	}
+	return field.Tag.Get("d")
 }
 
 // UpdatePluginConfig updates the plugin's config from a map

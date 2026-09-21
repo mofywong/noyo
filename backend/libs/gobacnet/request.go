@@ -43,7 +43,7 @@ import (
 
 // ReadProperty reads a single property from a single object in the given device.
 func (c *Client) ReadProperty(dest bactype.Device, rp bactype.ReadPropertyData) (bactype.ReadPropertyData, error) {
-	fmt.Printf("[DEBUG-Gobacnet] ReadProperty starting!\n")
+	// fmt.Printf("[DEBUG-Gobacnet] ReadProperty starting!\n")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	id, err := c.tsm.ID(ctx)
@@ -87,7 +87,7 @@ func (c *Client) ReadProperty(dest bactype.Device, rp bactype.ReadPropertyData) 
 
 		var raw interface{}
 		raw, err = c.tsm.Receive(id, time.Duration(5)*time.Second)
-		fmt.Printf("[DEBUG-Gobacnet] raw type: %T, error: %v\n", raw, err)
+		// fmt.Printf("[DEBUG-Gobacnet] raw type: %T, error: %v\n", raw, err)
 		if err != nil {
 			continue
 		}
@@ -96,7 +96,7 @@ func (c *Client) ReadProperty(dest bactype.Device, rp bactype.ReadPropertyData) 
 			return out, err
 		case []byte:
 			b = v
-			fmt.Printf("[DEBUG-RAW] %x\n", b)
+			// fmt.Printf("[DEBUG-RAW] %x\n", b)
 		default:
 			return out, fmt.Errorf("received unknown datatype %T", raw)
 		}
@@ -110,7 +110,7 @@ func (c *Client) ReadProperty(dest bactype.Device, rp bactype.ReadPropertyData) 
 			err = decErr
 		}
 		if err != nil {
-			fmt.Printf("[DEBUG-Gobacnet] dec.ReadProperty returned error: %v\n", err)
+			// fmt.Printf("[DEBUG-Gobacnet] dec.ReadProperty returned error: %v\n", err)
 			continue
 		}
 		return out, err
