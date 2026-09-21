@@ -2,6 +2,7 @@ package cascade
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // initSync wires the platform into the synchronization machinery: the change
@@ -54,10 +56,33 @@ func (e *platformEngineImpl) applyInboundChange(ch store.SyncChange) string {
 	return applySyncChange(cloudSyncNodeID, syncApplyHooks{
 		afterApply: func(applied store.SyncChange, status string) {
 			if status == syncStatusApplied || status == syncStatusConflict {
+				e.refreshSyncedDevice(applied)
 				e.relayAppliedChange(applied)
 			}
 		},
 	}, e.logger, ch)
+}
+
+// Refresh from committed state, rather than the incoming payload: conflicts
+// retain the local record and topology normalization may change its parent.
+func (e *platformEngineImpl) refreshSyncedDevice(ch store.SyncChange) {
+	if ch.EntityType != store.SyncEntityDevice || e.ctx == nil {
+		return
+	}
+	server, ok := e.ctx.GetCoreServer().(*core.Server)
+	if !ok || server == nil || server.DeviceManager == nil || server.DeviceManager.Registry == nil {
+		return
+	}
+	device, err := store.GetDevice(ch.EntityCode)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		server.DeviceManager.Registry.RemoveDevice(ch.EntityCode)
+		return
+	}
+	if err != nil {
+		e.logger.Error("Failed to refresh synced device registry", zap.String("device", ch.EntityCode), zap.Error(err))
+		return
+	}
+	server.DeviceManager.Registry.UpdateDevice(device)
 }
 
 func (e *platformEngineImpl) syncPublish(peer syncPeerRef, msg *syncMessage) error {
