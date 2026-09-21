@@ -3,6 +3,14 @@ import { brandMessages } from './config/brand'
 
 const messages = {
     en: {
+        batch_delete: 'Delete selected',
+        batch_selected_count: '{count} selected',
+        batch_select_page: 'Select all eligible rows on this page',
+        batch_delete_title: 'Delete {count} selected items',
+        batch_delete_message: 'Delete the {count} selected items? This action cannot be undone.',
+        batch_delete_success: 'Deleted {count} items.',
+        batch_delete_partial: 'Deleted {count} items; {failed} failed. Failed items remain selected for retry.',
+        driver_delete_message: 'Delete driver {code}? This action cannot be undone.',
         all: 'All',
         selected: 'Selected',
         select_all: 'Select All',
@@ -1380,6 +1388,14 @@ dev_tags: 'Tags',
         rg_palette_actions: 'Actions'
     },
     zh: {
+        batch_delete: '批量删除',
+        batch_selected_count: '已选择 {count} 项',
+        batch_select_page: '全选当前页可操作项',
+        batch_delete_title: '删除选中的 {count} 项',
+        batch_delete_message: '确定删除选中的 {count} 项吗？此操作不可恢复。',
+        batch_delete_success: '已删除 {count} 项。',
+        batch_delete_partial: '已删除 {count} 项，{failed} 项失败。失败项仍保持选中，可重试。',
+        driver_delete_message: '确定删除驱动 {code} 吗？此操作不可恢复。',
         all: '全部',
         selected: '已选择',
         select_all: '全选',

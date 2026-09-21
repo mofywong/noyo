@@ -38,12 +38,17 @@
     </div>
 
     <!-- Table Glass Card（单屏填充 + 内部纵向滚动） -->
+    <ListBatchActions :count="selected.length" :busy="deleting || loading" permission="product:delete" @delete="batchDelete" @clear="clearSelection" class="mb-3" />
+
     <div class="card border-0 shadow-sm table-glass-card">
       <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
         <div class="table-responsive flex-grow-1">
           <table class="table table-hover align-middle mb-0 table-compact">
             <thead>
               <tr>
+                <th class="ps-4" v-permission="'product:delete'">
+                  <input type="checkbox" class="form-check-input" :checked="allSelected" :indeterminate="someSelected" :disabled="loading || deleting" @change="toggleAll" :aria-label="$t('batch_select_page')">
+                </th>
                 <th class="ps-4 d-none d-md-table-cell">{{ $t('driver_code', '驱动编码') }}</th>
                 <th>{{ $t('driver_name', '驱动名称') }}</th>
                 <th v-if="showProjectColumn" class="d-none d-lg-table-cell">{{ $t('project_name', '所属项目') }}</th>
@@ -55,6 +60,7 @@
             <tbody>
               <!-- 骨架屏（§8.7） -->
               <tr v-if="loading" v-for="n in 5" :key="'sk-' + n">
+                <td v-permission="'product:delete'"></td>
                 <td class="ps-4 d-none d-md-table-cell"><div class="skeleton" style="height: 16px; width: 120px;"></div></td>
                 <td><div class="skeleton" style="height: 16px; width: 160px;"></div></td>
                 <td v-if="showProjectColumn" class="d-none d-lg-table-cell"><div class="skeleton" style="height: 16px; width: 100px;"></div></td>
@@ -64,7 +70,7 @@
               </tr>
               <!-- 空状态：无驱动 -->
               <tr v-else-if="drivers.length === 0">
-                <td :colspan="showProjectColumn ? 6 : 5" class="p-0">
+                <td :colspan="showProjectColumn ? 7 : 6" class="p-0">
                   <div class="empty-state">
                     <i class="bi bi-cpu"></i>
                     <p>{{ $t('driver_no_data', '暂无驱动数据') }}</p>
@@ -76,7 +82,7 @@
               </tr>
               <!-- 空状态：搜索无结果 -->
               <tr v-else-if="filteredDrivers.length === 0">
-                <td :colspan="showProjectColumn ? 6 : 5" class="p-0">
+                <td :colspan="showProjectColumn ? 7 : 6" class="p-0">
                   <div class="empty-state">
                     <i class="bi bi-search"></i>
                     <p>{{ $t('prod_search_no_match', '未找到匹配结果') }}</p>
@@ -85,6 +91,9 @@
               </tr>
               <!-- 数据行 -->
               <tr v-for="driver in filteredDrivers" :key="driver.code" class="driver-row" @click="openEditModal(driver)">
+                <td class="ps-4" @click.stop v-permission="'product:delete'">
+                  <input type="checkbox" class="form-check-input" :checked="selected.includes(driver.code)" :disabled="deleting || loading || isSystemDriver(driver)" @change="toggleSelection(driver.code)" :aria-label="driver.name || driver.code">
+                </td>
                 <td class="ps-4 d-none d-md-table-cell font-mono small text-truncate" style="max-width: 200px;">
                   {{ formatNamedReference(driver.name, driver.code) }}
                 </td>
@@ -257,6 +266,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import axios from 'axios';
+import { useConfirm } from '../composables/useConfirm';
 import { useToast } from '../composables/useToast';
 import { useI18n } from 'vue-i18n';
 import ScriptProductConfig from '../components/script/ScriptProductConfig.vue';
@@ -265,10 +275,14 @@ import { isSingleProjectMode } from '../utils/systemMode.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
 import ListPagination from '../components/ListPagination.vue';
 import { formatDateTime } from '../utils/dateTime.js';
+import ListBatchActions from '../components/ListBatchActions.vue';
+import { useListSelection } from '../composables/useListSelection.js';
+import { useBatchDelete } from '../composables/useBatchDelete.js';
 import CompactListMetrics from '../components/CompactListMetrics.vue';
 
 const { t, locale } = useI18n();
 const { showToast } = useToast();
+const { confirmDialog } = useConfirm();
 const authStore = useAuthStore();
 
 const drivers = ref([]);
@@ -391,6 +405,12 @@ const showProjectColumn = computed(() => {
   return authStore.user?.role === 'tenant_admin' || authStore.user?.role === 'admin' || authStore.isGlobalAdmin;
 });
 
+const selectableRows = computed(() => filteredDrivers.value.filter(driver => !isSystemDriver(driver)));
+const { selected, allSelected, someSelected, clearSelection, toggleSelection, toggleAll } = useListSelection(selectableRows, [page, pageSize, search, metricFilters, filterProtocol]);
+const { deleting, batchDelete } = useBatchDelete({
+  selected, endpoint: '/api/protocol-profiles', refresh: () => loadDrivers(),
+});
+
 const loadDrivers = async () => {
   loading.value = true;
   try {
@@ -399,6 +419,10 @@ const loadDrivers = async () => {
     });
     drivers.value = res.data.data || [];
     total.value = res.data.total || 0;
+    if (!drivers.value.length && total.value > 0 && page.value > 1) {
+      page.value = Math.max(1, Math.ceil(total.value / pageSize.value));
+      return loadDrivers();
+    }
   } catch (err) {
     showToast(err.response?.data?.error || t('sys_error', 'System error'), 'danger');
   } finally {
@@ -544,7 +568,7 @@ const saveDriver = async () => {
 };
 
 const deleteDriver = async (code) => {
-  if (!confirm(t('confirm_delete', 'Are you sure you want to delete this?'))) {
+  if (!await confirmDialog({ title: t('common_delete'), message: t('driver_delete_message', { code }), variant: 'danger', confirmText: t('common_delete'), cancelText: t('common_cancel') })) {
     return;
   }
   try {

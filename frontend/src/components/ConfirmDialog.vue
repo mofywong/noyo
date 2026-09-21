@@ -9,6 +9,7 @@
       >
         <div
           class="noyo-confirm"
+          ref="dialogRef"
           role="alertdialog"
           aria-modal="true"
           aria-labelledby="noyo-confirm-title"
@@ -25,7 +26,7 @@
             <LiquidGlassButton variant="outline-secondary" @click="handleCancel">
               {{ confirmState.cancelText || $t('common_cancel', '取消 Cancel') }}
             </LiquidGlassButton>
-            <LiquidGlassButton :variant="confirmState.variant === 'neutral' ? 'primary' : 'danger'" @click="handleConfirm">
+            <LiquidGlassButton data-dialog-confirm :variant="confirmState.variant === 'neutral' ? 'primary' : 'danger'" @click="handleConfirm">
               {{ confirmState.confirmText || $t('common_confirm', '确认 Confirm') }}
             </LiquidGlassButton>
           </div>
@@ -40,7 +41,7 @@ import { computed, watch, nextTick, ref } from 'vue';
 import { useConfirm } from '../composables/useConfirm';
 
 const { confirmState, resolveConfirm } = useConfirm();
-const cancelRef = ref(null);
+const dialogRef = ref(null);
 
 const iconName = computed(() => {
   if (confirmState.value.icon) return confirmState.value.icon;
@@ -70,7 +71,7 @@ watch(
     if (visible) {
       await nextTick();
       document.activeElement?.blur?.();
-      cancelRef.value?.focus?.();
+      dialogRef.value?.focus?.();
     }
   }
 );

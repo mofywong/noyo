@@ -15,6 +15,10 @@ import { useAuthStore } from './stores/auth'
 import { translateApiResponseMessages } from './utils/apiMessages'
 import LiquidGlassButton from './components/liquid-glass/LiquidGlassButton.vue'
 import LiquidGlassCard from './components/liquid-glass/LiquidGlassCard.vue'
+import { installDialogKeyboard } from './utils/dialogKeyboard.js'
+
+const removeDialogKeyboard = installDialogKeyboard()
+if (import.meta.hot) import.meta.hot.dispose(removeDialogKeyboard)
 
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'

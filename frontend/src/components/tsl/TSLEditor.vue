@@ -17,7 +17,7 @@
         </button>
       </li>
       <li class="nav-item ms-auto">
-        <button class="btn btn-sm btn-outline-primary" @click="$emit('save')">
+        <button data-dialog-confirm class="btn btn-sm btn-outline-primary" @click="$emit('save')">
           <i class="bi bi-save me-1"></i> {{ $t('tsl_save') }}
         </button>
       </li>

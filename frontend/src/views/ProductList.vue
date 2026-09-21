@@ -43,12 +43,17 @@
       <CompactListMetrics v-model="metricFilters" :metrics="metricCards" class="list-toolbar-metrics" :aria-label="$t('prod_stat_total')" />
     </div>
 
+    <ListBatchActions :count="selected.length" :busy="deleting || loading" permission="product:delete" @delete="batchDelete" @clear="clearSelection" class="mb-3" />
+
     <div class="card border-0 shadow-sm table-glass-card">
       <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
         <div class="table-responsive flex-grow-1">
           <table class="table table-hover align-middle mb-0 table-compact">
             <thead>
               <tr>
+                <th class="ps-4" v-permission="'product:delete'">
+                  <input type="checkbox" class="form-check-input" :checked="allSelected" :indeterminate="someSelected" :disabled="loading || deleting" @change="toggleAll" :aria-label="$t('batch_select_page')">
+                </th>
                 <th class="ps-4 d-none d-md-table-cell">{{ $t('prod_code') }}</th>
                 <th>{{ $t('prod_name') }}</th>
                 <th v-if="showProjectColumn" class="d-none d-lg-table-cell">{{ $t('project_name') }}</th>
@@ -60,6 +65,7 @@
             <tbody>
               <!-- 骨架屏（§8.7） -->
               <tr v-if="loading" v-for="n in 5" :key="'sk-' + n">
+                <td v-permission="'product:delete'"></td>
                 <td class="ps-4 d-none d-md-table-cell"><div class="skeleton" style="height: 16px; width: 120px;"></div></td>
                 <td><div class="skeleton" style="height: 16px; width: 160px;"></div></td>
                 <td v-if="showProjectColumn" class="d-none d-lg-table-cell"><div class="skeleton" style="height: 16px; width: 100px;"></div></td>
@@ -97,6 +103,9 @@
                 </td>
               </tr>
               <tr v-for="product in filteredProducts" :key="product.code" class="device-row" @click="openProductDrawer(product)">
+                <td class="ps-4" @click.stop v-permission="'product:delete'">
+                  <input type="checkbox" class="form-check-input" :checked="selected.includes(product.code)" :disabled="deleting || loading" @change="toggleSelection(product.code)" :aria-label="product.name || product.code">
+                </td>
                 <td class="ps-4 d-none d-md-table-cell font-mono small text-truncate" style="max-width: 200px;" :title="product.code">{{ product.code }}</td>
                 <td class="fw-bold text-truncate" style="max-width: 200px;" :title="product.name">{{ product.name }}</td>
                 <td v-if="showProjectColumn" class="d-none d-lg-table-cell">
@@ -261,6 +270,9 @@ import { useConfirm } from '../composables/useConfirm';
 import { useToast } from '../composables/useToast';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 import { formatDateTime } from '../utils/dateTime.js';
+import ListBatchActions from '../components/ListBatchActions.vue';
+import { useListSelection } from '../composables/useListSelection.js';
+import { useBatchDelete } from '../composables/useBatchDelete.js';
 import CompactListMetrics from '../components/CompactListMetrics.vue';
 
 const { t } = useI18n();
@@ -377,6 +389,13 @@ const hasTSL = (product) => {
   }
 };
 
+const selectableRows = computed(() => filteredProducts.value);
+const { selected, allSelected, someSelected, clearSelection, toggleSelection, toggleAll } = useListSelection(selectableRows, [page, pageSize, search, metricFilters]);
+const { deleting, batchDelete } = useBatchDelete({
+  selected, endpoint: '/api/products', refresh: () => fetchProducts(),
+  onDeleted: codes => { if (codes.includes(drawerProduct.value?.code)) closeProductDrawer(); },
+});
+
 const fetchProducts = async () => {
   loading.value = true;
   try {
@@ -389,6 +408,10 @@ const fetchProducts = async () => {
     if (res.data.code === 0) {
       products.value = res.data.data || [];
       total.value = res.data.total || 0;
+      if (!products.value.length && total.value > 0 && page.value > 1) {
+        page.value = Math.max(1, Math.ceil(total.value / pageSize.value));
+        return fetchProducts();
+      }
     }
   } catch (e) {
     console.error(e);

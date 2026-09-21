@@ -140,23 +140,14 @@
       </div>
       <div class="device-list-secondary-actions list-toolbar-actions">
         <!-- 批量操作条（§8.3：选中后出现，不改变页面布局） -->
-        <div v-if="selectedDevices.length > 0" class="noyo-batch-bar">
-          <span class="fw-bold me-2 small">{{ selectedDevices.length }} {{ $t('selected') }}</span>
-          <div class="btn-group btn-group-sm">
-            <button class="btn btn-outline-success" @click="batchEnable" v-permission="'device:control'">
-              <i class="bi bi-check-circle me-1"></i>{{ $t('dev_enable') }}
-            </button>
-            <button class="btn btn-outline-secondary" @click="batchDisable" v-permission="'device:control'">
-              <i class="bi bi-x-circle me-1"></i>{{ $t('dev_disable') }}
-            </button>
-            <button class="btn btn-outline-danger" @click="batchDelete" v-permission="'device:delete'">
-              <i class="bi bi-trash me-1"></i>{{ $t('dev_delete') }}
-            </button>
-          </div>
-          <button class="btn btn-link text-muted p-0 ms-2" @click="selectedDevices = []" :aria-label="$t('common_close')">
-            <i class="bi bi-x-lg"></i>
+        <ListBatchActions v-if="selectedDevices.length > 0" :count="selectedDevices.length" :busy="deleting || loading" permission="device:delete" @delete="batchDelete" @clear="clearSelection">
+          <button class="btn btn-outline-success btn-sm" :disabled="deleting || loading" @click="batchEnable" v-permission="'device:control'">
+            <i class="bi bi-check-circle me-1"></i>{{ $t('dev_enable') }}
           </button>
-        </div>
+          <button class="btn btn-outline-secondary btn-sm" :disabled="deleting || loading" @click="batchDisable" v-permission="'device:control'">
+            <i class="bi bi-x-circle me-1"></i>{{ $t('dev_disable') }}
+          </button>
+        </ListBatchActions>
         <div v-else class="d-flex gap-2 align-items-center device-secondary-actions-inline">
           <LiquidGlassButton variant="outline-primary" size="sm" icon="bi bi-download" @click="downloadTemplate" v-permission="'device:create'">
             {{ $t('download_template') }}
@@ -180,7 +171,7 @@
             <thead>
               <tr>
                 <th class="ps-4" style="width: 36px">
-                  <input class="form-check-input" type="checkbox" :checked="allSelected" @change="toggleAll" :aria-label="$t('selected')">
+                  <input class="form-check-input" type="checkbox" :checked="allSelected" :indeterminate="someSelected" :disabled="loading || deleting" @change="toggleAll" :aria-label="$t('batch_select_page')">
                 </th>
                 <th>{{ $t('dev_code') }}</th>
                 <th>{{ $t('dev_name') }}</th>
@@ -239,7 +230,7 @@
               @mouseleave="handleRowHoverLeave"
             >
               <td class="ps-4" @click.stop @mouseenter="handleTriggerCellHover(device, $event)">
-                <input class="form-check-input" type="checkbox" :checked="selectedDevices.includes(device.code)" @change="toggleSelection(device.code)" :aria-label="device.name || device.code">
+                <input class="form-check-input" type="checkbox" :checked="selectedDevices.includes(device.code)" :disabled="loading || deleting" @change="toggleSelection(device.code)" :aria-label="device.name || device.code">
               </td>
               <td class="fw-bold text-primary text-truncate font-mono" style="max-width: 200px;" :title="device.code" @mouseenter="handleTriggerCellHover(device, $event)">{{ device.code }}</td>
               <td style="max-width: 180px;" @mouseenter="handleTriggerCellHover(device, $event)">
@@ -1098,6 +1089,9 @@ import { applyDriverDefaults } from '../utils/deviceDriverDefaults.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
 import { formatDateTime } from '../utils/dateTime.js';
 import { resolvePointNameFromProperty } from '../utils/propertyName.js';
+import ListBatchActions from '../components/ListBatchActions.vue';
+import { useListSelection } from '../composables/useListSelection.js';
+import { useBatchDelete } from '../composables/useBatchDelete.js';
 import { useConfirm } from '../composables/useConfirm';
 import { useToast } from '../composables/useToast';
 import { use } from 'echarts/core';
@@ -1145,7 +1139,7 @@ const newDevice = ref({ code: '', name: '', product_code: '', protocol_profile_c
 const isSubDeviceForm = computed(() => !isEditing.value && !!newDevice.value.parent_code);
 const currentSchema = ref(null);
 const isEditing = ref(false);
-const selectedDevices = ref([]);
+
 
 // 详情抽屉状态（§8.4：右侧 720px 抽屉，替代原 hover 浮层）
 const drawerVisible = ref(false);
@@ -1862,26 +1856,12 @@ const activeFilterChips = computed(() => {
   return chips;
 });
 
-const allSelected = computed(() => {
-  return devices.value.length > 0 && selectedDevices.value.length === devices.value.length;
+const { selected: selectedDevices, allSelected, someSelected, clearSelection, toggleSelection, toggleAll } = useListSelection(paginatedDevices, [page, pageSize, search, filterProduct, filterParent, filterEnabled, filterOnline, filterTag, deviceMetricFilters]);
+const { deleting, batchDelete } = useBatchDelete({
+  selected: selectedDevices, endpoint: '/api/devices',
+  refresh: async () => { await fetchDevices(); await fetchParentDevices(); },
+  onDeleted: codes => { if (codes.includes(drawerDevice.value?.code)) closeDrawer(); },
 });
-
-const toggleSelection = (code) => {
-  const idx = selectedDevices.value.indexOf(code);
-  if (idx === -1) {
-    selectedDevices.value.push(code);
-  } else {
-    selectedDevices.value.splice(idx, 1);
-  }
-};
-
-const toggleAll = () => {
-  if (allSelected.value) {
-    selectedDevices.value = [];
-  } else {
-    selectedDevices.value = filteredDevices.value.map(d => d.code);
-  }
-};
 
 const tagBadgeStyle = (tag) => {
   const color = tag?.color || chartToken('--color-brand');
@@ -1946,32 +1926,6 @@ const getDriverName = (code, { withCode = true } = {}) => {
   const d = drivers.value.find(drv => drv.code === code);
   if (!d) return code;
   return withCode ? formatNamedReference(d.name, d.code) : d.name;
-};
-
-const batchDelete = async () => {
-  const count = selectedDevices.value.length;
-  if (count === 0) return;
-  // 破坏性操作确认（§8.4 / §10.3）
-  const ok = await confirmDialog({
-    title: t('dev_batch_delete_title', { count }),
-    message: t('dev_batch_delete_message', { count }),
-    variant: 'danger',
-    confirmText: t('common_delete'),
-    cancelText: t('common_cancel')
-  });
-  if (!ok) return;
-  loading.value = true;
-  for (const code of selectedDevices.value) {
-    try {
-      await axios.delete(`/api/devices/${code}`);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  selectedDevices.value = [];
-  fetchDevices();
-  fetchParentDevices();
-  showToast('success', t('dev_deleted_success'));
 };
 
 const batchEnable = async () => {
