@@ -2017,8 +2017,10 @@ func (s *WorkOrderService) createWorkOrderTransferNotification(tx *gorm.DB, orde
 		WorkOrderTitle:    order.Title,
 		TaskKind:          WorkOrderTaskKindHandle,
 		Type:              WorkOrderNotificationTask,
-		Title:             "Work order transferred to you",
-		Content:           comment,
+		// Bilingual: the notification title is rendered by the client in the
+		// operator's selected language (see BilingualText).
+		Title:   BilingualText("工单已转派给你", "Work order transferred to you"),
+		Content: comment,
 		Status:            WorkOrderNotificationUnread,
 	}
 	if task != nil {
@@ -2092,7 +2094,7 @@ func (s *WorkOrderService) CCWorkOrder(scope WorkOrderScope, workOrderID uint, u
 				WorkOrderTitle:    order.Title,
 				Type:              "cc:" + uuid.NewString(),
 				TaskKind:          "cc",
-				Title:             "工单抄送",
+				Title:             BilingualText("工单抄送", "Work order copied to you"),
 				Content:           strings.TrimSpace(comment),
 				Status:            "unread",
 			}
@@ -3379,7 +3381,7 @@ func (s *WorkOrderService) activateGraphWorkOrderNode(tx *gorm.DB, order *store.
 			userIDs = append(userIDs, p.ID)
 		}
 		if len(userIDs) > 0 {
-			if err := s.appendWorkOrderEvent(tx, order, "cc", actorUserID, map[string]any{"user_ids": userIDs, "comment": "来自流程节点自动抄送"}); err != nil {
+			if err := s.appendWorkOrderEvent(tx, order, "cc", actorUserID, map[string]any{"user_ids": userIDs, "comment": BilingualText("来自流程节点自动抄送", "Automatically copied from a workflow node")}); err != nil {
 				return err
 			}
 			for _, userID := range userIDs {
@@ -3393,8 +3395,8 @@ func (s *WorkOrderService) activateGraphWorkOrderNode(tx *gorm.DB, order *store.
 					WorkOrderTitle:    order.Title,
 					Type:              "cc:" + uuid.NewString(),
 					TaskKind:          "cc",
-					Title:             "工单抄送",
-					Content:           "来自流程节点自动抄送",
+					Title:             BilingualText("工单抄送", "Work order copied to you"),
+					Content:           BilingualText("来自流程节点自动抄送", "Automatically copied from a workflow node"),
 					Status:            "unread",
 				}
 				if err := tx.Create(&notification).Error; err != nil {

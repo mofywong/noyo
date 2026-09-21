@@ -653,6 +653,10 @@ func (dm *DeviceManager) ReportDeviceEvent(meta DeviceMeta, eventId string, para
 }
 
 func (dm *DeviceManager) enrichAlarmEvent(meta DeviceMeta, eventID string, params map[string]interface{}) {
+	// Run before any early return: the title travels with the event itself (SSE
+	// subscribers, TSDB, work-order payloads), not only with the alarm instance.
+	dm.localizeAlarmPointName(meta, params)
+
 	if dm.Server == nil || dm.Server.AlarmInstances == nil {
 		return
 	}
@@ -741,6 +745,39 @@ func (dm *DeviceManager) enrichAlarmEvent(meta DeviceMeta, eventID string, param
 	}
 	params["_alarm_instance_id"] = instance.ID
 	params["_generation"] = instance.Generation
+}
+
+// localizeAlarmPointName replaces the monitored-point identifier embedded in an
+// alarm title with the point's configured name, so the stored title reads the
+// same in whichever language the console was opened in.
+//
+// Plugins identify the point they watch by its TSL identifier (e.g.
+// "AI_OUTPUT_CURRENT"); that identifier is transport data. Only the name is
+// user-facing, and it has to be resolved once, here, because the title is copied
+// into alarm instances, notifications and exported documents. See
+// core/property_name.go for the resolution ladder.
+func (dm *DeviceManager) localizeAlarmPointName(meta DeviceMeta, params map[string]interface{}) {
+	if params == nil {
+		return
+	}
+	identifier, _ := params["property"].(string)
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return
+	}
+	zh, en := ResolvePointDisplayName(meta.ProductCode, identifier)
+	if zh == "" && en == "" {
+		return
+	}
+	for _, key := range []string{"alarm_title", "title"} {
+		title, ok := params[key].(string)
+		if !ok || strings.TrimSpace(title) == "" {
+			continue
+		}
+		if localized := LocalizeAlarmPointCode(title, identifier, zh, en); localized != title {
+			params[key] = localized
+		}
+	}
 }
 
 func resolveAlarmEventMetadata(productCode, eventID string) (string, string, string) {

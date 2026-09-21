@@ -774,8 +774,9 @@ func (s *AlarmCenterService) autoCreateWorkOrder(ctx context.Context, scope work
 		Meta:         workorder.CommandMeta{IdempotencyKey: "alarm:" + instance.PublicID, CorrelationID: "alarm:" + instance.PublicID, CausationID: instance.PublicID},
 		TemplateCode: strconv.FormatUint(uint64(policy.WorkOrderTemplateID), 10),
 		Title:        firstNonBlank(instance.Title, instance.SourceRef, instance.AlarmFingerprint),
-		Summary:      "Automatically created from alarm " + instance.AlarmFingerprint,
-		Priority:     alarmWorkOrderPriority(instance.Severity), SourceType: WorkOrderSourceAlarm, SourceRef: instance.PublicID,
+		// Bilingual: the work-order list is rendered in the selected language.
+		Summary:  BilingualText("由告警自动创建："+instance.AlarmFingerprint, "Automatically created from alarm "+instance.AlarmFingerprint),
+		Priority: alarmWorkOrderPriority(instance.Severity), SourceType: WorkOrderSourceAlarm, SourceRef: instance.PublicID,
 		SourceSnapshot: evidence,
 		FormData:       alarmWorkOrderFormData(templateDetail.FormDefinition, evidence),
 	})
