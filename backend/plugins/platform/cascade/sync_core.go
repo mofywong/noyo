@@ -79,6 +79,11 @@ func applySyncChange(nodeID string, hooks syncApplyHooks, logger *zap.Logger, ch
 		}
 		return syncStatusSkipped
 	}
+	ch, err = normalizeDeviceTopology(nodeID, ch)
+	if err != nil {
+		logSyncIssue(logger, "invalid device topology payload", ch, err)
+		return syncStatusRejected
+	}
 
 	status := syncStatusApplied
 	err = store.SyncApplyingSession().Transaction(func(tx *gorm.DB) error {
@@ -106,6 +111,37 @@ func applySyncChange(nodeID string, hooks syncApplyHooks, logger *zap.Logger, ch
 		hooks.afterApply(ch, status)
 	}
 	return status
+}
+
+// Gateway roots are local connections on the edge and children of the gateway
+// on the platform. Normalize before comparison as well as persistence so a
+// round trip does not create a spurious revision conflict.
+func normalizeDeviceTopology(nodeID string, ch store.SyncChange) (store.SyncChange, error) {
+	if ch.EntityType != store.SyncEntityDevice || ch.Op == store.SyncOpDelete || ch.Payload == "" {
+		return ch, nil
+	}
+	var device store.Device
+	if err := json.Unmarshal([]byte(ch.Payload), &device); err != nil {
+		return ch, err
+	}
+	if nodeID == cloudSyncNodeID {
+		if device.Code != ch.OriginNode {
+			if device.OwnerNode == "" {
+				device.OwnerNode = ch.OriginNode
+			}
+			if device.ParentCode == "" {
+				device.ParentCode = device.OwnerNode
+			}
+		}
+	} else if device.ParentCode == nodeID {
+		device.ParentCode = ""
+	}
+	payload, err := json.Marshal(&device)
+	if err != nil {
+		return ch, err
+	}
+	ch.Payload = string(payload)
+	return ch, nil
 }
 
 func applyChangeTx(tx *gorm.DB, ch store.SyncChange) (string, error) {

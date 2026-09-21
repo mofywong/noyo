@@ -1155,7 +1155,9 @@ func (p *ModbusPlugin) reportDeviceFailure(deviceCode string, rule *OnlineRule, 
 	}
 
 	shouldReportOffline := false
-	if state.ConsecutiveFailure >= threshold && state.CurrentStatus {
+	// A fresh runtime state is locally offline but has not reported that status.
+	// Reconcile the external device status even if no poll has ever succeeded.
+	if state.ConsecutiveFailure >= threshold && (state.CurrentStatus || state.LastReportTime.IsZero()) {
 		state.CurrentStatus = false
 		state.LastReportTime = now
 		shouldReportOffline = true

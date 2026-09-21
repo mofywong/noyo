@@ -254,6 +254,14 @@ func (dr *DeviceRegistry) GetEffectiveProtocol(deviceCode string) (string, error
 	if !ok {
 		return "", fmt.Errorf("%w: device %s", types.ErrNotFound, deviceCode)
 	}
+	// The owner is available even when a subsystem has not arrived yet. Only
+	// treat it as remote when the owner is a registered cascade gateway; on the
+	// gateway itself devices must keep using their local protocol drivers.
+	if device.OwnerNode != "" && device.OwnerNode != device.Code {
+		if owner, exists := dr.devices[device.OwnerNode]; exists && owner.ProtocolName == "cascade" {
+			return "cascade", nil
+		}
+	}
 
 	// 检查是否属于级联网关下的子设备。如果是，必须优先使用 cascade，
 	// 即使子设备保留了本地接入时的协议名称（例如 gb28181）。

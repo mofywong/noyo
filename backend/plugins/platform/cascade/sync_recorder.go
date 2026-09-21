@@ -130,22 +130,23 @@ func (r *changeRecorder) recordDeviceUpsert(code string) {
 			return nil
 		}
 		newRev := stored.Rev + 1
-		snapshot := stored
-		snapshot.Rev = newRev
-		payload, err := buildDevicePayload(&snapshot)
-		if err != nil {
-			return err
-		}
 		updates := map[string]interface{}{
 			"rev":        newRev,
 			"sync_state": store.SyncStatePending,
 		}
 		if stored.Origin == "" {
 			updates["origin"] = r.origin
+			stored.Origin = r.origin
 		}
 		if stored.OwnerNode == "" && r.ownerNode != "" {
 			updates["owner_node"] = r.ownerNode
 			stored.OwnerNode = r.ownerNode
+		}
+		snapshot := stored
+		snapshot.Rev = newRev
+		payload, err := buildDevicePayload(&snapshot)
+		if err != nil {
+			return err
 		}
 		// Guard on the observed revision so two writers racing on the same
 		// entity cannot both record a change claiming the same new revision.
