@@ -857,7 +857,7 @@
                    <tbody>
                      <tr v-for="(evt, idx) in aiHistoryEvents" :key="idx">
                        <td>{{ formatDateTime(evt.ts) }}</td>
-                       <td>{{ evt.property }}</td>
+                       <td>{{ aiPointLabel(evt) }}</td>
                         <td>
                           <span :class="evt.health_score > 60 ? 'text-warning' : 'text-danger'" class="fw-bold">
                             {{ evt.health_score !== undefined ? evt.health_score.toFixed(1) : '-' }}
@@ -1097,6 +1097,7 @@ import { isSingleProjectMode } from '../utils/systemMode.js';
 import { applyDriverDefaults } from '../utils/deviceDriverDefaults.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
 import { formatDateTime } from '../utils/dateTime.js';
+import { resolvePointNameFromProperty } from '../utils/propertyName.js';
 import { useConfirm } from '../composables/useConfirm';
 import { useToast } from '../composables/useToast';
 import { use } from 'echarts/core';
@@ -2347,6 +2348,13 @@ const getSingleAINumericProperties = () => {
         }
     }
     return props;
+};
+
+// 监测点位标识符是传输数据，展示时统一换成产品 TSL 里配置的点位名称。
+const aiPointLabel = (evt) => {
+    const identifier = String(evt?.property || '').trim();
+    if (!identifier) return '-';
+    return resolvePointNameFromProperty(singleAITSLMap.value[identifier], identifier, locale.value);
 };
 
 const fetchDeviceAIConfig = async () => {

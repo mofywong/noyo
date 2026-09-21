@@ -10,6 +10,8 @@
     "prebuild": "npm run sync-pro",
     "build": "vite build",
     "preview": "vite preview",
+    "test:server-text": "node scripts/serverText.test.mjs",
+    "test:property-name": "node scripts/propertyName.test.mjs",
     "test:liquid-glass-policy": "node scripts/liquid-glass-policy.test.mjs",
     "test:liquid-glass-preference": "node scripts/liquid-glass-preference.test.mjs",
     "test:liquid-glass-browser": "node scripts/liquid-glass-browser.test.mjs",

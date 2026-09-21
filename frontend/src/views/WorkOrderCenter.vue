@@ -125,7 +125,7 @@
                 <tr v-else-if="orders.length === 0"><td colspan="7" class="text-center py-5 text-muted"><i class="bi bi-inbox fs-3 d-block mb-2"></i>{{ tx('noOrders') }}</td></tr>
                 <tr v-for="entry in orders" :key="workOrderId(entry.work_order)" role="button" tabindex="0" class="work-order-row" :class="{ 'work-order-row--selected': workOrderId(selectedOrder?.work_order) === workOrderId(entry.work_order) }" @click="selectOrder(workOrderId(entry.work_order))" @keydown.enter.prevent="selectOrder(workOrderId(entry.work_order))" @keydown.space.prevent="selectOrder(workOrderId(entry.work_order))">
                   <td class="work-order-main-cell">
-                    <div class="fw-semibold text-truncate" style="max-width: 320px;" :title="entry.work_order.title">{{ entry.work_order.title }}</div>
+                    <div class="fw-semibold text-truncate" style="max-width: 320px;" :title="serverText(entry.work_order.title)">{{ serverText(entry.work_order.title) }}</div>
                   </td>
                   <td :data-label="tx('columnSource')"><span class="badge border work-order-source-badge">{{ sourceLabel(entry.work_order.source_type) }}</span></td>
                   <td :data-label="tx('columnPriority')"><span class="badge" :class="priorityClass(entry.work_order.priority)">{{ priorityLabel(entry.work_order.priority) }}</span></td>
@@ -196,7 +196,7 @@
       <aside v-if="showOrderDetail && selectedOrder" ref="orderDetailDialog" class="work-order-drawer shadow-lg" aria-modal="true" role="dialog" tabindex="-1" aria-labelledby="work-order-detail-title" @keydown.esc.stop="closeOrderDetail">
         <div class="work-order-drawer__head">
           <div>
-            <h2 id="work-order-detail-title" class="h5 mb-2 fw-bold text-body">{{ selectedOrder.work_order.title }}</h2>
+            <h2 id="work-order-detail-title" class="h5 mb-2 fw-bold text-body">{{ serverText(selectedOrder.work_order.title) }}</h2>
             <div class="d-flex gap-2">
               <span class="badge" :class="statusClass(effectiveWorkOrderStatus(selectedOrder.work_order))">{{ statusLabel(effectiveWorkOrderStatus(selectedOrder.work_order)) }}</span>
               <span class="badge" :class="priorityClass(selectedOrder.work_order.priority)">{{ priorityLabel(selectedOrder.work_order.priority) }}</span>
@@ -548,6 +548,7 @@ import { loadAllWorkOrderParticipants, workOrderApi, workOrderApiErrorMessage } 
 import { workOrderRelationFiltersForLocale, workOrderNodeLabel } from '../utils/workOrderUi.js'
 import { formatDateTime } from '../utils/dateTime.js'
 import { normalizeWorkOrderHistoricalGuidance } from '../utils/workOrderHistoricalGuidance.js'
+import { resolveServerText } from '../utils/serverText.js'
 
 const authStore = useAuthStore()
 const { locale } = useI18n()
@@ -653,6 +654,8 @@ const workOrderPaginationCopy = {
   en: { itemsPerPage: 'Rows per page', pagination: 'Work-order list pagination', previous: 'Previous', next: 'Next', goToPage: 'Go to page {page}' }
 }
 const tx = key => workOrderPaginationCopy[currentLang.value]?.[key] || workOrderCopy[currentLang.value]?.[key] || workOrderCopy.zh[key] || key
+// 工单标题/摘要可能由后端生成（例如告警自动创建的工单），统一按当前语言渲染。
+const serverText = value => resolveServerText(value, currentLang.value)
 const txf = (key, values = {}) => Object.entries(values).reduce((message, [name, value]) => message.replaceAll(`{${name}}`, String(value)), tx(key))
 const relationFilters = computed(() => workOrderRelationFiltersForLocale(currentLang.value))
 const orderRelationFilters = computed(() => [
@@ -982,7 +985,7 @@ function formatWorkOrderSourceValue(value, definition = {}) {
   }
   if (Array.isArray(value)) return value.map(optionLabel).filter(Boolean).join(currentLang.value === 'en' ? ', ' : '、') || '-'
   if (value && typeof value === 'object') return Object.values(value).map(optionLabel).filter(Boolean).join(currentLang.value === 'en' ? ', ' : '、') || '-'
-  return optionLabel(value) || '-'
+  return resolveServerText(optionLabel(value), currentLang.value) || '-'
 }
 function alarmWorkOrderDetails(detail) {
   if (detail?.work_order?.source_type !== 'alarm') return []
@@ -1005,7 +1008,7 @@ function alarmWorkOrderDetails(detail) {
   return values
 }
 function workOrderSummary(detail) {
-  const summary = String(detail?.work_order?.summary || '').trim()
+  const summary = serverText(detail?.work_order?.summary).trim()
   if (detail?.work_order?.source_type !== 'alarm') return summary
   const snapshot = detail?.source_snapshot || {}
   const deviceCode = String(sourceSnapshotValue(snapshot, 'device_code') || '').trim()
@@ -1521,7 +1524,7 @@ async function executeOrderAction(url, payload, message) {
 
 
 function openEditOrder(order) {
-  editOrderData.value = { id: order.ID, title: order.title, summary: order.summary, priority: order.priority, version: order.version }
+  editOrderData.value = { id: order.ID, title: serverText(order.title), summary: serverText(order.summary), priority: order.priority, version: order.version }
   showEditOrderModal.value = true
 }
 

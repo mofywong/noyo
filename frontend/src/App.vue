@@ -140,6 +140,7 @@ import ToastContainer from './components/ToastContainer.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import { useToast } from './composables/useToast';
 import { gatewayActionText, gatewayText } from './utils/gatewayLocale';
+import { resolveServerText } from './utils/serverText';
 import { isSuccessfulDeviceWriteResponse } from './utils/aiBrainSuggestionReminder';
 import { buildHabitRuleCreatePayload, describeHabitRule, isHabitRuleSuggestion } from './utils/aiBrainHabitRule';
 import { usePlugins } from './plugins/registry';
@@ -429,9 +430,11 @@ const initWorkOrderNotificationSSE = () => {
         const [first] = shownWorkOrderNotificationIDs;
         if (first) shownWorkOrderNotificationIDs.delete(first);
       }
-      const title = notification.title || '工单任务提醒';
-      const content = notification.content || notification.work_order_title || '有新的工单任务需要处理';
-      showToast('warning', `${title}：${content}`);
+      // 通知标题/内容由后端生成（双语载荷或历史单语），按当前控制台语言渲染，
+      // 不再回落到固定的中文兜底文案。
+      const title = resolveServerText(notification.title, locale.value) || t('work_order_notification_default_title');
+      const content = resolveServerText(notification.content || notification.work_order_title, locale.value) || t('work_order_notification_default_content');
+      showToast('warning', `${title}${locale.value === 'en' ? ': ' : '：'}${content}`);
     } catch (error) {
       console.error('Failed to parse work-order notification event', error);
     }
