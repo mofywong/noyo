@@ -17,7 +17,7 @@ import (
 type rulePayload struct {
 	Name          string              `json:"name"`
 	Description   string              `json:"description"`
-	GroupID       *uint               `json:"group_id"`
+	GroupCode     *string             `json:"group_code"`
 	Triggers      []RuleTrigger       `json:"triggers"`
 	Conditions    *RuleConditionGroup `json:"conditions"`
 	Actions       []RuleAction        `json:"actions"`
@@ -63,8 +63,8 @@ func (s *Server) RegisterRuleRoutes(group *ghttp.RouterGroup) {
 
 	permissionGET(group, "/rule-groups", "rule:list", s.handleListRuleGroups)
 	permissionPOST(group, "/rule-groups", "rule_group:manage", s.handleCreateRuleGroup)
-	permissionPUT(group, "/rule-groups/:id", "rule_group:manage", s.handleUpdateRuleGroup)
-	permissionDELETE(group, "/rule-groups/:id", "rule_group:manage", s.handleDeleteRuleGroup)
+	permissionPUT(group, "/rule-groups/:code", "rule_group:manage", s.handleUpdateRuleGroup)
+	permissionDELETE(group, "/rule-groups/:code", "rule_group:manage", s.handleDeleteRuleGroup)
 }
 
 func (s *Server) handleListRules(r *ghttp.Request) {
@@ -146,6 +146,7 @@ func (s *Server) handleCreateRule(r *ghttp.Request) {
 		rule.Status = RuleStatusEnabled
 	}
 	if err := store.SaveRule(rule); err != nil {
+		if writeConfigMutationError(r, err) { return }
 		if sourceType != "" {
 			if existing, findErr := store.GetRuleBySource(tenantID, projectID, sourceType, sourceID); findErr == nil {
 				r.Response.WriteJson(g.Map{"code": 0, "data": existing})
@@ -195,6 +196,7 @@ func (s *Server) handleUpdateRule(r *ghttp.Request) {
 		rule.Status = RuleStatusDraft
 	}
 	if err := store.SaveRule(rule); err != nil {
+		if writeConfigMutationError(r, err) { return }
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -212,6 +214,7 @@ func (s *Server) handleDeleteRule(r *ghttp.Request) {
 		return
 	}
 	if err := store.DeleteRule(rule.Code); err != nil {
+		if writeConfigMutationError(r, err) { return }
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -233,6 +236,7 @@ func (s *Server) handleEnableRule(r *ghttp.Request) {
 	rule.EnabledBy = requestUserID(r)
 	s.applyRuleScope(rule)
 	if err := store.SaveRule(rule); err != nil {
+		if writeConfigMutationError(r, err) { return }
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -249,6 +253,7 @@ func (s *Server) handleDisableRule(r *ghttp.Request) {
 	rule.Status = RuleStatusDisabled
 	rule.SyncState = "disabled"
 	if err := store.SaveRule(rule); err != nil {
+		if writeConfigMutationError(r, err) { return }
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -353,12 +358,13 @@ func (s *Server) handleCreateRuleGroup(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": scopeErr.Error()})
 		return
 	}
-	group := &store.RuleGroup{TenantID: tenantID, ProjectID: projectID, Name: strings.TrimSpace(payload.Name), Description: payload.Description, SortOrder: payload.SortOrder}
+	group := &store.RuleGroup{Code: "group_" + strings.ReplaceAll(uuid.NewString(), "-", ""), TenantID: tenantID, ProjectID: projectID, Name: strings.TrimSpace(payload.Name), Description: payload.Description, SortOrder: payload.SortOrder}
 	if group.Name == "" {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "group name is required"})
 		return
 	}
 	if err := store.SaveRuleGroup(group); err != nil {
+		if writeConfigMutationError(r, err) { return }
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -370,14 +376,14 @@ func (s *Server) handleUpdateRuleGroup(r *ghttp.Request) {
 	if !ok {
 		return
 	}
-	id := r.Get("id").Uint()
+	code := r.Get("code").String()
 	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
 	if scopeErr != nil {
 		r.Response.WriteJson(g.Map{"code": 403, "message": scopeErr.Error()})
 		return
 	}
 	var group store.RuleGroup
-	if err := store.DB.Where("id = ? AND tenant_id = ? AND project_id = ?", id, tenantID, projectID).First(&group).Error; err != nil {
+	if err := store.DB.Where("code = ? AND tenant_id = ? AND project_id = ?", code, tenantID, projectID).First(&group).Error; err != nil {
 		writeRuleLookupError(r, err)
 		return
 	}
@@ -389,6 +395,7 @@ func (s *Server) handleUpdateRuleGroup(r *ghttp.Request) {
 		return
 	}
 	if err := store.SaveRuleGroup(&group); err != nil {
+		if writeConfigMutationError(r, err) { return }
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -396,14 +403,19 @@ func (s *Server) handleUpdateRuleGroup(r *ghttp.Request) {
 }
 
 func (s *Server) handleDeleteRuleGroup(r *ghttp.Request) {
-	id := r.Get("id").Uint()
+	code := r.Get("code").String()
 	tenantID, projectID, scopeErr := currentTenantProjectScope(r)
 	if scopeErr != nil {
 		r.Response.WriteJson(g.Map{"code": 403, "message": scopeErr.Error()})
 		return
 	}
+	var group store.RuleGroup
+	if err := store.DB.Where("code = ? AND tenant_id = ? AND project_id = ?", code, tenantID, projectID).First(&group).Error; err != nil {
+		writeRuleLookupError(r, err)
+		return
+	}
 	var count int64
-	if err := store.DB.Model(&store.Rule{}).Where("group_id = ? AND tenant_id = ? AND project_id = ?", id, tenantID, projectID).Count(&count).Error; err != nil {
+	if err := store.DB.Model(&store.Rule{}).Where("group_code = ? AND tenant_id = ? AND project_id = ?", code, tenantID, projectID).Count(&count).Error; err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -411,7 +423,8 @@ func (s *Server) handleDeleteRuleGroup(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "group is used by rules"})
 		return
 	}
-	if err := store.DeleteRuleGroup(id); err != nil {
+	if err := store.DeleteRuleGroup(code); err != nil {
+		if writeConfigMutationError(r, err) { return }
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -440,6 +453,13 @@ func (s *Server) buildRuleFromPayload(code string, payload rulePayload, tenantID
 	payload.Name = strings.TrimSpace(payload.Name)
 	if payload.Name == "" {
 		return nil, fmt.Errorf("rule name is required")
+	}
+	if payload.GroupCode != nil && *payload.GroupCode != "" {
+		var count int64
+		if err := store.DB.Model(&store.RuleGroup{}).Where("code = ? AND tenant_id = ? AND project_id = ?", *payload.GroupCode, tenantID, projectID).Count(&count).Error; err != nil {
+			return nil, err
+		}
+		if count == 0 { return nil, fmt.Errorf("rule group %s not found", *payload.GroupCode) }
 	}
 	def := RuleDefinition{Triggers: payload.Triggers, Conditions: payload.Conditions, Actions: payload.Actions, EffectiveTime: payload.EffectiveTime}
 	if err := ValidateRuleDefinition(def); err != nil {
@@ -476,7 +496,7 @@ func (s *Server) buildRuleFromPayload(code string, payload rulePayload, tenantID
 		Code:          code,
 		Name:          payload.Name,
 		Description:   payload.Description,
-		GroupID:       payload.GroupID,
+		GroupCode:     payload.GroupCode,
 		Priority:      payload.Priority,
 		Status:        RuleStatusDraft,
 		Triggers:      triggersJSON,
@@ -502,12 +522,21 @@ func (s *Server) buildRuleFromPayload(code string, payload rulePayload, tenantID
 }
 
 func (s *Server) applyRuleScope(rule *store.Rule) {
-	// There is no versioned gateway deployment or acknowledgement path yet.
-	// Keep rules locally executable so the API never advertises a gateway state
-	// that cannot complete or leaves execution ownership ambiguous.
-	rule.Scope = RuleScopePlatform
-	rule.GatewaySN = ""
-	rule.SyncState = "local"
+	if setup, err := store.LoadSetupState(); err == nil && setup.Initialized && NormalizeSetupMode(setup.Mode) == SetupModePlatformGateway {
+		rule.Scope = RuleScopeGateway
+		rule.SyncState = store.SyncStatePending
+		return
+	}
+	if s.RuleEngine != nil && s.RuleEngine.distributor != nil {
+		rule.Scope, rule.GatewaySN = s.RuleEngine.distributor.AnalyzeScope(rule)
+	} else {
+		rule.Scope, rule.GatewaySN = RuleScopePlatform, ""
+	}
+	if rule.Scope == RuleScopeGateway {
+		rule.SyncState = store.SyncStatePending
+	} else {
+		rule.SyncState = "local"
+	}
 }
 
 func (s *Server) validateRuleControlPermission(r *ghttp.Request, rule *store.Rule) error {

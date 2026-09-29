@@ -27,6 +27,10 @@ const (
 	remoteSystemMethodLogTail       = "log_tail"
 )
 
+func protectedRemoteConfigMutation(method string) bool {
+	return method == remotePluginMethodConfigSet || method == remotePluginMethodStatusSet || method == remoteSystemMethodConfigSet
+}
+
 type remotePluginConfigSetRequest struct {
 	Plugin      string                 `json:"plugin"`
 	BaseVersion int64                  `json:"base_version"`
@@ -38,8 +42,9 @@ type remotePluginConfigGetRequest struct {
 }
 
 type remotePluginStatusSetRequest struct {
-	Plugin  string `json:"plugin"`
-	Enabled bool   `json:"enabled"`
+	Plugin      string `json:"plugin"`
+	Enabled     bool   `json:"enabled"`
+	BaseVersion int64  `json:"base_version"`
 }
 
 type SyncMediaNetwork struct {
@@ -155,7 +160,7 @@ func setGatewayPluginConfig(coreServer *core.Server, req *remotePluginConfigSetR
 	if plugin == nil {
 		return nil, fmt.Errorf("plugin %s not found", req.Plugin)
 	}
-	if err := core.UpdatePluginConfig(plugin, req.Config); err != nil {
+	if err := core.UpdatePluginConfigAtVersion(plugin, req.Config, req.BaseVersion); err != nil {
 		return nil, err
 	}
 	if err := coreServer.Manager.ReloadPlugin(req.Plugin); err != nil {
@@ -167,8 +172,9 @@ func setGatewayPluginConfig(coreServer *core.Server, req *remotePluginConfigSetR
 func setGatewayPluginStatus(coreServer *core.Server, req *remotePluginStatusSetRequest) (*remotePluginSummary, error) {
 	cfg := map[string]interface{}{"enabled": req.Enabled}
 	return setGatewayPluginConfig(coreServer, &remotePluginConfigSetRequest{
-		Plugin: req.Plugin,
-		Config: cfg,
+		Plugin:      req.Plugin,
+		Config:      cfg,
+		BaseVersion: req.BaseVersion,
 	})
 }
 
@@ -215,12 +221,26 @@ func buildRemotePluginSummary(plugin core.IManagedPlugin) remotePluginSummary {
 }
 
 func getPluginConfigVersion(pluginName string) (int64, int64) {
-	model, err := store.GetPlugin(pluginName)
-	if err != nil || model == nil {
-		return 0, 0
+	version, updatedAt, _ := getPluginConfigVersionChecked(pluginName)
+	return version, updatedAt
+}
+
+func getPluginConfigVersionChecked(pluginName string) (int64, int64, error) {
+	var model *store.PluginModel
+	var err error
+	if tenantID, projectID, scoped := core.SingleProjectRuntimePluginScope(); scoped {
+		model, err = store.GetPluginForScope(pluginName, tenantID, projectID)
+	} else {
+		model, err = store.GetPlugin(pluginName)
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	if model == nil {
+		return 0, 0, nil
 	}
 	updatedAt := model.UpdatedAt.UnixMilli()
-	return updatedAt, updatedAt
+	return model.Revision, updatedAt, nil
 }
 
 func buildRemotePluginCommand(method, pluginName string, params map[string]interface{}) ([]byte, string, error) {

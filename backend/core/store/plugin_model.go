@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -16,6 +17,7 @@ type PluginModel struct {
 	ProjectID uint      `gorm:"index;not null;default:0;uniqueIndex:idx_plugin_scope" json:"project_id"`
 	Enabled   bool      `json:"enabled"`
 	Config    string    `json:"config"` // JSON string
+	Revision  int64     `gorm:"not null;default:0" json:"revision"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -169,28 +171,48 @@ func SavePlugin(name string, enabled bool, config interface{}) error {
 
 // SavePluginForScope saves or updates a plugin configuration for a tenant/project scope.
 func SavePluginForScope(name string, tenantID, projectID uint, enabled bool, config interface{}) error {
+	return savePluginForScope(DB, name, tenantID, projectID, enabled, config)
+}
+
+// SaveRemotePluginForScope persists an authenticated remote command without
+// recording it as a new local configuration edit.
+func SaveRemotePluginForScope(name string, tenantID, projectID uint, enabled bool, config interface{}) error {
+	return savePluginForScope(DB.Set(SyncApplyingKey, true), name, tenantID, projectID, enabled, config)
+}
+
+func savePluginForScope(db *gorm.DB, name string, tenantID, projectID uint, enabled bool, config interface{}) error {
 	configBytes, err := json.Marshal(config)
 	if err != nil {
 		return err
 	}
-
-	plugin, err := getPluginForExactScope(name, tenantID, projectID)
-	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+	// Plugin parameters have a single local copy and do not create sync intents.
+	return db.Transaction(func(tx *gorm.DB) error {
+		var plugin PluginModel
+		err := tx.Where("name = ? AND tenant_id = ? AND project_id = ?", name, tenantID, projectID).Take(&plugin).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			plugin = PluginModel{Name: name, TenantID: tenantID, ProjectID: projectID,
+				Enabled: enabled, Config: string(configBytes), Revision: 1}
+			if err := tx.Create(&plugin).Error; err != nil {
+				return err
+			}
+			return nil
+		}
+		if err != nil {
 			return err
 		}
-	}
-	if plugin == nil {
-		plugin = &PluginModel{
-			Name:      name,
-			TenantID:  tenantID,
-			ProjectID: projectID,
+		result := tx.Model(&PluginModel{}).Where("id = ? AND revision = ?", plugin.ID, plugin.Revision).
+			Updates(map[string]interface{}{
+				"enabled": enabled, "config": string(configBytes), "revision": plugin.Revision + 1,
+				"updated_at": time.Now(),
+			})
+		if result.Error != nil {
+			return result.Error
 		}
-	}
-
-	plugin.Enabled = enabled
-	plugin.Config = string(configBytes)
-	return DB.Save(plugin).Error
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("plugin %s changed concurrently", name)
+		}
+		return nil
+	})
 }
 
 // AnyScopedPluginEnabled returns true if any tenant project has enabled this plugin.

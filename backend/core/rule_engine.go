@@ -93,7 +93,7 @@ func newRuleCronScheduler() *cron.Cron {
 }
 
 func (re *RuleEngine) Start() error {
-	if err := re.LoadRules(); err != nil {
+	if err := re.loadRules(true); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -124,11 +124,51 @@ func (re *RuleEngine) Stop() {
 }
 
 func (re *RuleEngine) LoadRules() error {
+	return re.loadRules(false)
+}
+
+func (re *RuleEngine) loadRules(restoreActive bool) error {
 	re.loadMu.Lock()
 	defer re.loadMu.Unlock()
 	var rules []store.Rule
-	if err := store.DB.Where("enabled = ? AND status = ?", true, RuleStatusEnabled).Find(&rules).Error; err != nil {
+	query := store.DB.Where("enabled = ? AND status = ?", true, RuleStatusEnabled)
+	if setup, err := store.LoadSetupState(); err == nil && setup.Initialized {
+		switch NormalizeSetupMode(setup.Mode) {
+		case SetupModePlatformGateway:
+			query = query.Where("scope = ?", "gateway")
+		case SetupModeMultiTenantPlatform, SetupModeMultiProjectPlatform:
+			query = query.Where("scope <> ?", "gateway")
+		}
+	}
+	if err := query.Find(&rules).Error; err != nil {
 		return err
+	}
+	if restoreActive {
+		rows, err := store.LastActiveRuntimeConfigs()
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if row.EntityType != store.SyncEntityRule {
+				continue
+			}
+			filtered := rules[:0]
+			for _, rule := range rules {
+				if rule.Code != row.EntityCode {
+					filtered = append(filtered, rule)
+				}
+			}
+			rules = filtered
+			if row.ActivePayload != "" {
+				var rule store.Rule
+				if err := json.Unmarshal([]byte(row.ActivePayload), &rule); err != nil {
+					return fmt.Errorf("restore active rule %s: %w", row.EntityCode, err)
+				}
+				if rule.Enabled && rule.Status == RuleStatusEnabled {
+					rules = append(rules, rule)
+				}
+			}
+		}
 	}
 	next := &ruleSnapshot{byCode: make(map[string]*RuleRuntime, len(rules))}
 	nextCron := newRuleCronScheduler()

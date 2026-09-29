@@ -68,10 +68,10 @@ func deleteProjectCascade(tx *gorm.DB, project store.Project) error {
 	if err := tx.Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.Role{}).Error; err != nil {
 		return err
 	}
-	if err := tx.Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.Device{}).Error; err != nil {
+	if err := store.WithAutomaticConfigWrite(tx).Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.Device{}).Error; err != nil {
 		return err
 	}
-	if err := tx.Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.Product{}).Error; err != nil {
+	if err := store.WithAutomaticConfigWrite(tx).Unscoped().Where("tenant_id = ? AND project_id = ?", project.TenantID, project.ID).Delete(&store.Product{}).Error; err != nil {
 		return err
 	}
 	return tx.Unscoped().Delete(&store.Project{}, project.ID).Error
@@ -170,10 +170,10 @@ func deleteTenantCascade(tx *gorm.DB, tenantID uint) error {
 	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.User{}).Error; err != nil {
 		return err
 	}
-	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.Device{}).Error; err != nil {
+	if err := store.WithAutomaticConfigWrite(tx).Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.Device{}).Error; err != nil {
 		return err
 	}
-	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.Product{}).Error; err != nil {
+	if err := store.WithAutomaticConfigWrite(tx).Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.Product{}).Error; err != nil {
 		return err
 	}
 	if err := tx.Unscoped().Where("tenant_id = ?", tenantID).Delete(&store.Project{}).Error; err != nil {

@@ -1,4 +1,17 @@
+import { resolveServerText } from './serverText.js'
+
 const normalizeLocale = (locale) => (String(locale || 'en').toLowerCase().startsWith('zh') ? 'zh' : 'en')
+
+const configurationErrors = {
+  GATEWAY_READ_ONLY: {
+    zh: '网关未进入维护模式，不能新增、修改或删除产品、驱动和设备。请在网关顶部进入维护模式后重试。',
+    en: 'The gateway is not in maintenance mode. Products, drivers and devices cannot be created, edited or deleted. Enter maintenance mode at the top of the gateway console and retry.',
+  },
+  GATEWAY_MAINTENANCE: {
+    zh: '网关正在本地维护或恢复正常模式，暂不接受平台对产品、驱动和设备的新增、修改或删除。请等待网关恢复正常模式后重试。',
+    en: 'The gateway is in local maintenance or returning to normal mode. The platform cannot create, edit or delete its products, drivers and devices until normal mode returns.',
+  },
+}
 
 const exactMessages = {
   'read-only access to this device due to tag restrictions': {
@@ -377,8 +390,31 @@ export const translateApiMessage = (message, locale = 'en') => {
 
 export const translateApiResponseMessages = (payload, locale = 'en') => {
   if (!payload || typeof payload !== 'object') return payload
-  if (typeof payload.message === 'string') {
-    payload.message = translateApiMessage(payload.message, locale)
+  if (payload.message != null || payload.message_zh || payload.message_en || configurationErrors[payload.error_code]) {
+    payload.message = resolveApiErrorMessage(payload, locale)
+  }
+  if (typeof payload.error === 'string') {
+    payload.error = translateApiMessage(resolveServerText(payload.error, locale), locale)
   }
   return payload
+}
+
+// HTTP errors and business errors use different envelopes. Preserve both the
+// guard's cause and the console language instead of replacing 423 with a
+// generic save/delete failure in each page's catch block.
+export const resolveApiErrorMessage = (input, locale = 'en', fallback = '') => {
+  const payload = input?.response?.data ?? input?.data ?? input
+  const lang = normalizeLocale(locale)
+  if (typeof payload === 'string') return translateApiMessage(resolveServerText(payload, lang), lang) || fallback
+  if (!payload || typeof payload !== 'object') return fallback
+  const localized = resolveServerText({
+    zh: payload.message_zh || payload.error_zh,
+    en: payload.message_en || payload.error_en,
+  }, lang)
+  if (localized) {
+    const detail = payload.error_detail ? translateApiMessage(resolveServerText(payload.error_detail, lang), lang) : ''
+    return detail ? `${localized} ${detail}` : localized
+  }
+  if (configurationErrors[payload.error_code]) return configurationErrors[payload.error_code][lang]
+  return translateApiMessage(resolveServerText(payload.message || payload.error, lang), lang) || fallback
 }

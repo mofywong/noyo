@@ -28,8 +28,9 @@
     </div>
 
     <!-- Arbitration queue. Renders nothing while the two sides agree, so a
-         healthy deployment looks exactly as it did before. -->
-    <SyncConflictPanel />
+         healthy deployment looks exactly as it did before. The gateway list
+         resolves the peer node id to the name an operator recognises. -->
+    <SyncConflictPanel :gateways="gateways" />
 
     <div v-if="loading" class="d-flex justify-content-center py-5">
       <div class="spinner-border text-primary" role="status"></div>
@@ -52,10 +53,10 @@
           v-for="gw in sortedGateways"
           :key="gw.sn"
           class="card h-100 gateway-card plugin-card"
-          :class="{
-            'plugin-card-running gateway-card--online': gw.online,
-            'is-unavailable': !gw.online
-          }"
+          :class="[gatewayStateClass(maintenanceStates[gw.sn]?.mode, gw.online, gw.enabled), {
+            'plugin-card-running gateway-card--online': gatewayState(maintenanceStates[gw.sn]?.mode, gw.online, gw.enabled) === 'online',
+            'is-unavailable': !gw.online || !gw.enabled
+          }]"
         >
           <div class="card-body d-flex flex-column">
             <!-- 头部：左侧液态玻璃图标，右侧状态胶囊 -->
@@ -66,10 +67,10 @@
               <div class="d-flex flex-column align-items-end gap-1">
                 <span
                   class="dash-pill"
-                  :class="gw.online ? 'dash-pill--success' : 'dash-pill--neutral'"
+                  :class="gatewayStatusTone(gw)"
                 >
                   <span class="dash-pill-dot"></span>
-                  {{ gw.online ? $t('status_online') : $t('dev_offline') }}
+                  {{ gatewayStateLabel(maintenanceStates[gw.sn]?.mode, gw.online, gw.enabled, locale) }}
                 </span>
                 <span
                   class="dash-pill"
@@ -78,6 +79,10 @@
                 >
                   {{ gw.enabled ? gt('enabled') : gt('disabled') }}
                 </span>
+                <button v-if="gw.runtimeFailures > 0" type="button" class="dash-pill dash-pill--danger gateway-runtime-failure-action" :title="runtimeFailureHint" aria-live="polite" @click="openRuntimeFailures(gw)">
+                  <span class="dash-pill-dot" aria-hidden="true"></span>
+                  {{ runtimeFailureLabel(gw.runtimeFailures) }}
+                </button>
               </div>
             </div>
 
@@ -118,6 +123,17 @@
                 v-permission="'gateway:config'"
               >
                 {{ gt('enter') }}
+              </LiquidGlassButton>
+              <LiquidGlassButton
+                v-if="['normal', 'maintenance'].includes(maintenanceStates[gw.sn]?.mode)"
+                v-permission="'gateway:config'"
+                variant="secondary"
+                size="sm"
+                icon="bi bi-tools"
+                :disabled="!gw.online || maintenanceRequests[gw.sn]"
+                @click="requestMaintenance(gw, maintenanceStates[gw.sn]?.mode === 'maintenance' ? 'exit' : 'enter')"
+              >
+                {{ maintenanceStates[gw.sn]?.mode === 'maintenance' ? maintenanceCopy.exit : maintenanceCopy.enter }}
               </LiquidGlassButton>
               <span v-if="!gw.online" class="text-muted small">
                 {{ $t('dev_offline') }}
@@ -193,9 +209,9 @@
               </div>
             </div>
             <div class="gateway-workspace-meta">
-              <span class="gateway-status-pill" :class="selectedGateway.online ? 'is-online' : 'is-offline'">
+              <span class="gateway-status-pill" :class="gatewayStateClass(maintenanceStates[selectedGateway.sn]?.mode, selectedGateway.online, selectedGateway.enabled)">
                 <span class="gateway-status-dot"></span>
-                {{ selectedGateway.online ? $t('status_online') : $t('dev_offline') }}
+                {{ gatewayStateLabel(maintenanceStates[selectedGateway.sn]?.mode, selectedGateway.online, selectedGateway.enabled, locale) }}
               </span>
               <span class="gateway-enabled-pill" :class="selectedGateway.enabled ? 'is-enabled' : 'is-disabled'">
                 {{ selectedGateway.enabled ? gt('enabled') : gt('disabled') }}
@@ -305,6 +321,7 @@
         </div>
       </section>
     </Transition>
+    <GatewayRuntimeFailures :gateway="runtimeFailureGateway" @close="runtimeFailureGateway = null" @configure="openRuntimeConfiguration" />
   </div>
 </template>
 
@@ -318,14 +335,70 @@ import License from './License.vue';
 import Logs from './Logs.vue';
 import Settings from './Settings.vue';
 import { useToast } from '../composables/useToast';
+import { useConfirm } from '../composables/useConfirm';
 import { gatewayDateTime, gatewayText } from '../utils/gatewayLocale';
 import CompactListMetrics from '../components/CompactListMetrics.vue';
 import SyncConflictPanel from '../components/cascade/SyncConflictPanel.vue';
+import GatewayRuntimeFailures from '../components/cascade/GatewayRuntimeFailures.vue';
+import { gatewayState, gatewayStateClass, gatewayStateLabel } from '../utils/gatewayMaintenance.js';
 
 const { t, locale } = useI18n();
 const { showToast } = useToast();
+const { confirmDialog } = useConfirm();
 const loading = ref(false);
 const gateways = ref([]);
+const maintenanceStates = ref({});
+const runtimeFailureGateway = ref(null);
+const openRuntimeFailures = (gateway) => { runtimeFailureGateway.value = gateway; };
+const openRuntimeConfiguration = ({ gateway, entry }) => {
+  if (!gateway?.online || !['plugin_config', 'node_config'].includes(entry?.entity_type)) return;
+  const gatewayPrefix = `${gateway.sn}/`;
+  const pluginName = entry.entity_code?.startsWith(gatewayPrefix)
+    ? entry.entity_code.slice(gatewayPrefix.length)
+    : entry.entity_code;
+  if (entry.entity_type === 'plugin_config' && !pluginName) return;
+  runtimeFailureGateway.value = null;
+  openGateway(gateway);
+  if (entry.entity_type === 'node_config') openSystem();
+  else openPlugin(pluginName);
+};
+const maintenanceRequests = ref({});
+const maintenanceCopy = computed(() => String(locale.value).toLowerCase().startsWith('zh')
+  ? {
+      normal: '正常', maintenance: '本地维护中', reconciling: '正在交接', enter: '进入维护', exit: '退出维护',
+      title: '让网关进入维护模式',
+      message: '确认后，平台会请求这个网关进入维护模式。网关确认进入后，平台对它的产品、驱动和设备增删改会暂停。请在网关页面完成并保存这些改动；完成后点击「结束维护」，系统会把改动同步回平台。',
+      confirm: '发送维护请求', cancel: '暂不请求',
+      requested: '维护请求已发送，请等待网关确认进入。随后在网关页面完成并保存产品、驱动或设备的改动，完成后点击「结束维护」。',
+      failed: '发送维护请求失败',
+      exitTitle: '让网关退出维护模式',
+      exitMessage: '平台会请求网关结束本地维护。网关会先同步已保存的本地改动，完成交接后恢复正常模式，再处理平台待下发的产品、驱动和设备增删改请求。',
+      exitConfirm: '发送退出请求',
+      exitRequested: '退出请求已发送，正在等待网关同步本地改动并完成交接。',
+    }
+  : {
+      normal: 'Normal', maintenance: 'Local maintenance', reconciling: 'Reconciling', enter: 'Start maintenance', exit: 'Finish maintenance',
+      title: 'Start gateway maintenance',
+      message: 'The platform will ask this gateway to enter maintenance mode. Once confirmed, platform creation, editing and deletion of its products, drivers and devices will pause. Make and save these changes on the gateway page, then click “Finish maintenance” to sync them back to the platform.',
+      confirm: 'Send maintenance request', cancel: 'Not now',
+      requested: 'Request sent. Wait for the gateway to enter maintenance, then make and save your product, driver or device changes on the gateway page and click “Finish maintenance”.',
+      failed: 'Could not request maintenance',
+      exitTitle: 'Finish gateway maintenance',
+      exitMessage: 'The platform will ask the gateway to finish local maintenance. It will sync saved local changes and complete the handover before returning to normal mode and processing pending platform creation, editing and deletion of products, drivers and devices.',
+      exitConfirm: 'Send exit request',
+      exitRequested: 'Exit request sent. Waiting for the gateway to sync local changes and complete the handover.',
+    });
+const gatewayStatusTone = (gateway) => {
+  const state = gatewayState(maintenanceStates.value[gateway.sn]?.mode, gateway.online, gateway.enabled);
+  return ['maintenance', 'reconciling'].includes(state) ? 'dash-pill--warning'
+    : state === 'online' ? 'dash-pill--success' : 'dash-pill--neutral';
+};
+const runtimeFailureLabel = (count) => String(locale.value).toLowerCase().startsWith('zh')
+  ? `${count} 项配置未生效`
+  : `${count} configurations not active`;
+const runtimeFailureHint = computed(() => String(locale.value).toLowerCase().startsWith('zh')
+  ? '点击查看未生效的具体配置、失败原因和处理入口'
+  : 'View the affected configuration, error and available actions');
 const selectedGateway = ref(null);
 const selectedPluginName = ref('');
 const selectedWorkspaceView = ref('marketplace');
@@ -402,6 +475,9 @@ const fetchGateways = async (options = {}) => {
     if (res.data.code === 0) {
       const gatewayList = res.data.data || [];
       gateways.value = gatewayList;
+      maintenanceStates.value = Object.fromEntries(gatewayList
+        .filter((gateway) => gateway.maintenance)
+        .map((gateway) => [gateway.sn, gateway.maintenance]));
       if (selectedGateway.value) {
         const updatedGateway = gatewayList.find((gw) => gw.sn === selectedGateway.value.sn);
         if (updatedGateway) {
@@ -417,6 +493,32 @@ const fetchGateways = async (options = {}) => {
     gateways.value = [];
   } finally {
     if (!silent) loading.value = false;
+  }
+};
+
+const requestMaintenance = async (gateway, action = 'enter') => {
+  const expectedMode = action === 'exit' ? 'maintenance' : 'normal';
+  if (!['enter', 'exit'].includes(action) || !gateway?.online || maintenanceRequests.value[gateway.sn] || maintenanceStates.value[gateway.sn]?.mode !== expectedMode) return;
+  maintenanceRequests.value = { ...maintenanceRequests.value, [gateway.sn]: true };
+  try {
+    const confirmed = await confirmDialog({
+      title: action === 'exit' ? maintenanceCopy.value.exitTitle : maintenanceCopy.value.title,
+      message: action === 'exit' ? maintenanceCopy.value.exitMessage : maintenanceCopy.value.message,
+      confirmText: action === 'exit' ? maintenanceCopy.value.exitConfirm : maintenanceCopy.value.confirm,
+      cancelText: maintenanceCopy.value.cancel,
+      variant: 'neutral',
+      icon: 'bi-tools',
+    });
+    const currentGateway = gateways.value.find((item) => item.sn === gateway.sn);
+    if (!confirmed || !currentGateway?.online || maintenanceStates.value[gateway.sn]?.mode !== expectedMode) return;
+    const response = await axios.post(`/api/extension/cascade/gateways/${encodeURIComponent(gateway.sn)}/maintenance`, { action });
+    if (response.data?.code !== 0) throw new Error(response.data?.message || maintenanceCopy.value.failed);
+    showToast('success', action === 'exit' ? maintenanceCopy.value.exitRequested : maintenanceCopy.value.requested);
+    await fetchGateways({ silent: true });
+  } catch (error) {
+    showToast('danger', error.response?.data?.message || error.message || maintenanceCopy.value.failed);
+  } finally {
+    maintenanceRequests.value = { ...maintenanceRequests.value, [gateway.sn]: false };
   }
 };
 
@@ -733,6 +835,32 @@ onBeforeUnmount(teardownGatewayStatusStream);
   animation: gatewayOnlineBreath 2s ease-in-out infinite;
 }
 
+.gateway-card.plugin-card.gateway-state--maintenance,
+.gateway-card.plugin-card.gateway-state--reconciling {
+  animation: none;
+  border-color: color-mix(in srgb, var(--gateway-state-color) 48%, var(--border-color));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--gateway-state-color) 10%, var(--bg-surface)), var(--bg-surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--gateway-state-color) 12%, transparent), 0 0 24px color-mix(in srgb, var(--gateway-state-color) 16%, transparent), var(--shadow-card, var(--card-shadow));
+}
+
+.gateway-card.plugin-card.gateway-state--maintenance .plugin-icon,
+.gateway-card.plugin-card.gateway-state--reconciling .plugin-icon { color: var(--gateway-state-color); }
+.gateway-card.plugin-card:is(.gateway-state--offline, .gateway-state--disabled) .plugin-icon { color: var(--gateway-state-color); }
+.gateway-status-pill[class*="gateway-state--"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--noyo-radius-pill, 999px);
+  color: var(--gateway-state-color);
+  background: color-mix(in srgb, var(--gateway-state-color) 12%, var(--bg-surface));
+  border: 1px solid color-mix(in srgb, var(--gateway-state-color) 40%, var(--border-color));
+  white-space: nowrap;
+}
+.gateway-status-dot { width: 8px; height: 8px; border-radius: var(--noyo-radius-pill, 999px); background: currentColor; }
+.gateway-runtime-failure-action { cursor: pointer; }
+.gateway-runtime-failure-action:focus-visible { outline: 2px solid var(--color-danger); outline-offset: 2px; }
+
 @keyframes gatewayOnlineBreath {
   0%,
   100% {
@@ -1014,6 +1142,13 @@ onBeforeUnmount(teardownGatewayStatusStream);
 
 [data-bs-theme="dark"] .gateway-card.plugin-card:hover:not(.is-unavailable) {
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .gateway-card.plugin-card:is(.gateway-state--maintenance, .gateway-state--reconciling):hover:not(.is-unavailable) {
+    border-color: color-mix(in srgb, var(--gateway-state-color) 64%, var(--border-color));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--gateway-state-color) 16%, transparent), 0 16px 32px color-mix(in srgb, var(--gateway-state-color) 20%, transparent), var(--shadow-card, var(--card-shadow));
+  }
 }
 
 [data-bs-theme="dark"] .summary-icon-total {

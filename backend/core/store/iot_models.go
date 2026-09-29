@@ -42,10 +42,12 @@ type SyncMeta struct {
 type Product struct {
 	gorm.Model
 	SyncMeta
-	TenantID  uint   `gorm:"index;not null;default:0" json:"tenant_id"`
-	ProjectID uint   `gorm:"index;not null;default:0" json:"project_id"`
-	Code      string `gorm:"uniqueIndex;size:64;not null" json:"code"`
-	Name      string `gorm:"size:128;not null" json:"name"`
+	TenantID           uint   `gorm:"index;not null;default:0" json:"tenant_id"`
+	ProjectID          uint   `gorm:"index;not null;default:0" json:"project_id"`
+	Code               string `gorm:"uniqueIndex;size:64;not null" json:"code"`
+	Name               string `gorm:"size:128;not null" json:"name"`
+	SourceTemplateCode string `gorm:"size:64;index" json:"source_template_code,omitempty"`
+	SourceTemplateRev  int64  `gorm:"not null;default:0" json:"source_template_rev,omitempty"`
 	// Config stores TSL and display settings. Protocol config moved to ProtocolProfile.
 	// Stored as JSON string
 	Config string `json:"config"`
@@ -72,13 +74,16 @@ type Device struct {
 // ProtocolProfile represents a reusable protocol configuration template
 type ProtocolProfile struct {
 	gorm.Model
-	TenantID     uint   `gorm:"index;not null;default:0" json:"tenant_id"`
-	ProjectID    uint   `gorm:"index;not null;default:0" json:"project_id"`
-	Code         string `gorm:"uniqueIndex;size:64;not null" json:"code"`
-	Name         string `gorm:"size:128;not null" json:"name"`
-	ProtocolName string `gorm:"size:64;not null" json:"protocol_name"` // e.g. "Modbus", "BACnet"
-	ProductCode  string `gorm:"index" json:"product_code"`             // Optional: recommended for which product
-	Description  string `gorm:"size:255" json:"description"`
+	SyncMeta
+	SourceTemplateCode string `gorm:"size:64;index" json:"source_template_code,omitempty"`
+	SourceTemplateRev  int64  `gorm:"not null;default:0" json:"source_template_rev,omitempty"`
+	TenantID           uint   `gorm:"index;not null;default:0" json:"tenant_id"`
+	ProjectID          uint   `gorm:"index;not null;default:0" json:"project_id"`
+	Code               string `gorm:"uniqueIndex;size:64;not null" json:"code"`
+	Name               string `gorm:"size:128;not null" json:"name"`
+	ProtocolName       string `gorm:"size:64;not null" json:"protocol_name"` // e.g. "Modbus", "BACnet"
+	ProductCode        string `gorm:"index" json:"product_code"`             // Optional: recommended for which product
+	Description        string `gorm:"size:255" json:"description"`
 	// Config stores protocol-specific template configuration (e.g. Polling Groups, Point Mappings)
 	// Stored as JSON string
 	Config string `json:"config"`
@@ -180,15 +185,25 @@ func ListProducts(page, pageSize int, tenantID, projectID uint, allowedProjectID
 }
 
 func SaveProduct(p *Product) error {
+	return saveProduct(DB, p)
+}
+
+// SaveProductAutomatically is for protocol-owned product initialization.
+func SaveProductAutomatically(p *Product) error {
+	return saveProduct(DB.Set(automaticConfigWriteKey, true).Session(&gorm.Session{}), p)
+}
+
+func saveProduct(db *gorm.DB, p *Product) error {
 	var existing Product
-	err := DB.Unscoped().Where("code = ?", p.Code).First(&existing).Error
+	err := db.Unscoped().Where("code = ?", p.Code).First(&existing).Error
 	if err == nil {
 		p.ID = existing.ID
+		p.SyncMeta = existing.SyncMeta
 		p.CreatedAt = existing.CreatedAt // Preserve original CreatedAt
 		p.DeletedAt = gorm.DeletedAt{}   // Restore if it was soft-deleted
-		return DB.Unscoped().Save(p).Error
+		return db.Unscoped().Save(p).Error
 	}
-	return DB.Create(p).Error
+	return db.Create(p).Error
 }
 
 func GetDevice(code string) (*Device, error) {
@@ -292,8 +307,16 @@ func ListDevices(page, pageSize int, tenantID, projectID uint, allowedProjectIDs
 
 // CountDevices counts total devices matching tenant/project scope
 func CountDevices(tenantID, projectID uint, allowedProjectIDs ...[]uint) (int64, error) {
+	return CountDevicesExcludingCode(tenantID, projectID, "", allowedProjectIDs...)
+}
+
+// CountDevicesExcludingCode keeps gateway console totals aligned with its list.
+func CountDevicesExcludingCode(tenantID, projectID uint, excludedCode string, allowedProjectIDs ...[]uint) (int64, error) {
 	var total int64
 	db := DB.Model(&Device{})
+	if excludedCode != "" {
+		db = db.Where("code <> ?", excludedCode)
+	}
 	if tenantID > 0 {
 		db = db.Where("tenant_id = ?", tenantID)
 	}
@@ -324,20 +347,38 @@ func ListDevicesByProduct(productCode string) ([]Device, error) {
 	return devices, result.Error
 }
 
+func ListDevicesByProtocolProfile(profileCode string) ([]Device, error) {
+	var devices []Device
+	result := DB.Where("protocol_profile_code = ?", profileCode).Find(&devices)
+	return devices, result.Error
+}
+
 func SaveDevice(d *Device) error {
+	return saveDevice(DB, d)
+}
+
+// SaveDeviceAutomatically is for protocol discovery, registration and repair.
+// Its maintenance exemption is limited to this write and does not suppress sync.
+func SaveDeviceAutomatically(d *Device) error {
+	return saveDevice(DB.Set(automaticConfigWriteKey, true).Session(&gorm.Session{}), d)
+}
+
+func saveDevice(db *gorm.DB, d *Device) error {
 	var existing Device
-	err := DB.Unscoped().Where("code = ?", d.Code).First(&existing).Error
+	err := db.Unscoped().Where("code = ?", d.Code).First(&existing).Error
 	if err == nil {
 		d.ID = existing.ID
+		d.SyncMeta = existing.SyncMeta
 		d.CreatedAt = existing.CreatedAt // Preserve original CreatedAt
 		d.DeletedAt = gorm.DeletedAt{}   // Restore if it was soft-deleted
-		return DB.Unscoped().Save(d).Error
+		return db.Unscoped().Save(d).Error
 	}
-	return DB.Create(d).Error
+	return db.Create(d).Error
 }
 
 func DeleteDevice(code string) error {
 	var deleted Device
+	var change *SyncChange
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var device Device
 		if err := tx.Where("code = ?", code).First(&device).Error; err != nil {
@@ -347,12 +388,20 @@ func DeleteDevice(code string) error {
 		// back into this struct, which would otherwise lose the original code
 		// that the deletion record has to carry.
 		deleted = device
+		var recordErr error
+		change, recordErr = recordDeviceDeletedTx(tx, &deleted)
+		if recordErr != nil {
+			return recordErr
+		}
+		if deferred, err := DeferredConfigDelete(tx, change); err != nil || deferred {
+			return err
+		}
 
 		if err := tx.Unscoped().Where("device_code = ?", code).Delete(&DeviceTagBinding{}).Error; err != nil {
 			return err
 		}
 
-		newCode := fmt.Sprintf("%s_del_%d", code, time.Now().Unix())
+		newCode := fmt.Sprintf("%s_del_%d", code, time.Now().UnixNano())
 
 		// Rename code to release unique constraint
 		if err := tx.Model(&device).Update("code", newCode).Error; err != nil {
@@ -360,14 +409,17 @@ func DeleteDevice(code string) error {
 		}
 
 		// Soft delete
-		return tx.Delete(&device).Error
+		if err := tx.Delete(&device).Error; err != nil {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return err
 	}
 	// Report the deletion after the row is committed. The rename above destroys
 	// the original code, so this cannot be derived from the statement itself.
-	notifyDeviceDeleted(&deleted)
+	notifyCommittedChange(change)
 	return nil
 }
 
@@ -425,32 +477,68 @@ func ListProtocolProfiles(page, pageSize int, tenantID, projectID uint, allowedP
 }
 
 func SaveProtocolProfile(pp *ProtocolProfile) error {
+	return saveProtocolProfile(DB, pp)
+}
+
+// SaveProtocolProfileAutomatically is for protocol-owned driver initialization.
+func SaveProtocolProfileAutomatically(pp *ProtocolProfile) error {
+	return saveProtocolProfile(DB.Set(automaticConfigWriteKey, true).Session(&gorm.Session{}), pp)
+}
+
+func saveProtocolProfile(db *gorm.DB, pp *ProtocolProfile) error {
 	var existing ProtocolProfile
-	err := DB.Unscoped().Where("code = ?", pp.Code).First(&existing).Error
+	err := db.Unscoped().Where("code = ?", pp.Code).First(&existing).Error
 	if err == nil {
 		pp.ID = existing.ID
+		pp.SyncMeta = existing.SyncMeta
+		pp.SourceTemplateCode = existing.SourceTemplateCode
+		pp.SourceTemplateRev = existing.SourceTemplateRev
 		pp.CreatedAt = existing.CreatedAt
 		pp.DeletedAt = gorm.DeletedAt{}
-		return DB.Unscoped().Save(pp).Error
+		return db.Unscoped().Save(pp).Error
 	}
-	return DB.Create(pp).Error
+	return db.Create(pp).Error
 }
 
 func DeleteProtocolProfile(code string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	var change *SyncChange
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		var pp ProtocolProfile
 		if err := tx.Where("code = ?", code).First(&pp).Error; err != nil {
 			return err
 		}
+		var bindings int64
+		if err := tx.Model(&Device{}).Where("protocol_profile_code = ?", code).Count(&bindings).Error; err != nil {
+			return err
+		}
+		if bindings > 0 {
+			return ErrConfigResourceInUse
+		}
 
-		newCode := fmt.Sprintf("%s_del_%d", pp.Code, time.Now().Unix())
+		deleted := pp
+		var recordErr error
+		change, recordErr = recordDriverDeletedTx(tx, &deleted)
+		if recordErr != nil {
+			return recordErr
+		}
+		if deferred, err := DeferredConfigDelete(tx, change); err != nil || deferred {
+			return err
+		}
+		newCode := fmt.Sprintf("%s_del_%d", pp.Code, time.Now().UnixNano())
 
 		if err := tx.Model(&pp).Update("code", newCode).Error; err != nil {
 			return err
 		}
 
-		return tx.Delete(&pp).Error
+		if err := tx.Delete(&pp).Error; err != nil {
+			return err
+		}
+		return nil
 	})
+	if err == nil {
+		notifyCommittedChange(change)
+	}
+	return err
 }
 
 func ListDeviceTags(scope AccessScope) ([]DeviceTagWithCount, error) {

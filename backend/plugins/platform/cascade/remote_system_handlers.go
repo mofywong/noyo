@@ -100,7 +100,13 @@ func (p *CascadePlugin) writeRemoteSystemCommandResponse(r *ghttp.Request, gwSn,
 	if !ok {
 		return
 	}
-	data, err := engine.SendRemotePluginCommand(gwSn, method, "", params)
+	var data interface{}
+	var err error
+	if method == remoteSystemMethodConfigSet {
+		data, err = engine.queueRemoteSystemConfig(gwSn, params)
+	} else {
+		data, err = engine.SendRemotePluginCommand(gwSn, method, "", params)
+	}
 	if err != nil {
 		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
 		return

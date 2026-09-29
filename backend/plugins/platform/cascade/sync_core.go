@@ -32,6 +32,24 @@ type syncApplyHooks struct {
 	// the change as skipped, which still acknowledges it: a change that can
 	// never apply must not block the peer's cursor.
 	beforeApply func(ch store.SyncChange) bool
+	// authorizeApply validates the sender's resource scope in the replay
+	// transaction. Invalid changes are consumed as skipped; database errors are
+	// retried rather than silently losing a legitimate change.
+	authorizeApply func(tx *gorm.DB, ch store.SyncChange) (bool, error)
+	// deferApply temporarily rejects the change without consuming its cursor.
+	// It runs in the same transaction as replay and the idempotency marker.
+	deferApply    func(tx *gorm.DB, ch store.SyncChange) (bool, error)
+	localNode     string
+	localInstance string
+	preferRemote  bool
+	// beforeMutationTx captures receiver state after authorization, before any
+	// lifecycle reconciliation or business-row mutation.
+	beforeMutationTx func(tx *gorm.DB, change *store.SyncChange) error
+	// afterApplyTx records dependent changes in the same transaction as the
+	// replay. It must not publish until after applySyncChange commits.
+	afterApplyTx func(tx *gorm.DB, applied store.SyncChange, status string) error
+	// Dependencies become visible to the runtime before the referencing resource.
+	afterDependencies func(committed []store.SyncChange)
 	// afterApply runs once per change that was not skipped. The platform uses
 	// it to relay shared entities to the other gateways in scope; on the
 	// gateway there is nothing to relay.
@@ -64,6 +82,14 @@ func applySyncChange(nodeID string, hooks syncApplyHooks, logger *zap.Logger, ch
 		return syncStatusRejected
 	}
 	if applied {
+		status, err := store.GetAppliedChangeStatus(changeID)
+		if err != nil {
+			logSyncIssue(logger, "failed to read applied change outcome", ch, err)
+			return syncStatusRejected
+		}
+		if status != "" {
+			return status
+		}
 		return syncStatusSkipped
 	}
 	if hooks.beforeApply != nil && !hooks.beforeApply(ch) {
@@ -71,22 +97,72 @@ func applySyncChange(nodeID string, hooks syncApplyHooks, logger *zap.Logger, ch
 		// peer's cursor moving; leaving it unmarked would make the same rejected
 		// change arrive again on every handshake.
 		if err := store.SyncApplyingSession().Transaction(func(tx *gorm.DB) error {
-			_, err := store.MarkChangeAppliedTx(tx, changeID)
-			return err
+			if _, err := store.MarkChangeAppliedTx(tx, changeID); err != nil {
+				return err
+			}
+			return store.SetAppliedChangeStatusTx(tx, changeID, syncStatusSkipped)
 		}); err != nil {
 			logSyncIssue(logger, "failed to consume a rejected change", ch, err)
 			return syncStatusRejected
 		}
 		return syncStatusSkipped
 	}
-	ch, err = normalizeDeviceTopology(nodeID, ch)
-	if err != nil {
-		logSyncIssue(logger, "invalid device topology payload", ch, err)
-		return syncStatusRejected
-	}
-
 	status := syncStatusApplied
+	var committedDependencies []store.SyncChange
 	err = store.SyncApplyingSession().Transaction(func(tx *gorm.DB) error {
+		// Keep the replay context on a clean baseline so hooks and entity
+		// queries cannot leak their model or WHERE clauses into later queries.
+		tx = tx.Set(syncLocalNodeKey, hooks.localNode).Set(syncLocalInstanceKey, hooks.localInstance).
+			Set(syncPreferRemoteKey, hooks.preferRemote).Session(&gorm.Session{})
+		if hooks.deferApply != nil {
+			deferred, err := hooks.deferApply(tx, ch)
+			if err != nil {
+				return err
+			}
+			if deferred {
+				status = syncStatusRejected
+				return nil
+			}
+		}
+		if hooks.authorizeApply != nil {
+			allowed, err := hooks.authorizeApply(tx, ch)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				status = syncStatusSkipped
+				if _, err := store.MarkChangeAppliedTx(tx, changeID); err != nil {
+					return err
+				}
+				return store.SetAppliedChangeStatusTx(tx, changeID, status)
+			}
+		}
+		if err := validateSyncRequest(ch); err != nil {
+			return err
+		}
+		ch, err = normalizeDeviceTopology(nodeID, ch)
+		if err != nil {
+			return err
+		}
+		currentLifecycle, err := store.CheckRemoteResourceLifecycleTx(tx, ch)
+		if err != nil {
+			return err
+		}
+		if !currentLifecycle {
+			status = syncStatusSkipped
+			if _, err := store.MarkChangeAppliedTx(tx, changeID); err != nil {
+				return err
+			}
+			return store.SetAppliedChangeStatusTx(tx, changeID, status)
+		}
+		lineage, err := resolveIntentPredecessorTx(tx, &ch)
+		if err != nil {
+			return err
+		}
+		dependencies, err := validateConfigDependenciesTx(tx, ch)
+		if err != nil {
+			return err
+		}
 		fresh, err := store.MarkChangeAppliedTx(tx, changeID)
 		if err != nil {
 			return err
@@ -95,18 +171,70 @@ func applySyncChange(nodeID string, hooks syncApplyHooks, logger *zap.Logger, ch
 			status = syncStatusSkipped
 			return nil
 		}
-		resolved, err := applyChangeTx(tx, ch)
+		if hooks.beforeMutationTx != nil {
+			if err := hooks.beforeMutationTx(tx, &ch); err != nil {
+				return err
+			}
+		}
+		handled, resolved, err := resolveNewerPlatformLifecycleTx(tx, ch)
+		if err != nil {
+			return err
+		}
+		if !handled {
+			resolved, err = applyChangeTx(tx, ch)
+		}
 		if err != nil {
 			return err
 		}
 		status = resolved
-		return nil
+		if status == syncStatusApplied {
+			if err := store.AcceptRemoteResourceLifecycleTx(tx, ch); err != nil {
+				return err
+			}
+			for _, dependency := range dependencies {
+				outcome, err := applyChangeTx(tx, dependency)
+				if err != nil {
+					return err
+				}
+				if outcome != syncStatusApplied {
+					return invalidSync("DEPENDENCY_CHANGED", "configuration dependency %s %s changed during apply", dependency.EntityType, dependency.EntityCode)
+				}
+				if err := store.AcceptRemoteResourceLifecycleTx(tx, dependency); err != nil {
+					return err
+				}
+				commit, err := commitDependencyTx(tx, dependency, hooks)
+				if err != nil {
+					return err
+				}
+				committedDependencies = append(committedDependencies, commit)
+			}
+		}
+		if hooks.afterApplyTx != nil && status != syncStatusSkipped {
+			if err := hooks.afterApplyTx(tx, ch, status); err != nil {
+				return err
+			}
+		}
+		if err := recordIntentResultTx(tx, ch, lineage, status); err != nil {
+			return err
+		}
+		return store.SetAppliedChangeStatusTx(tx, changeID, status)
 	})
 	if err != nil {
 		logSyncIssue(logger, "failed to apply sync change", ch, err)
+		var failure *syncValidationError
+		if errors.As(err, &failure) {
+			failedStatus, ledgerErr := recordSyncBusinessFailure(ch, failure)
+			if ledgerErr == nil {
+				return failedStatus
+			}
+			logSyncIssue(logger, "failed to persist sync failure", ch, ledgerErr)
+		}
 		return syncStatusRejected
 	}
 
+	if len(committedDependencies) > 0 && hooks.afterDependencies != nil {
+		hooks.afterDependencies(committedDependencies)
+	}
 	if status != syncStatusSkipped && hooks.afterApply != nil {
 		hooks.afterApply(ch, status)
 	}
@@ -146,18 +274,41 @@ func normalizeDeviceTopology(nodeID string, ch store.SyncChange) (store.SyncChan
 
 func applyChangeTx(tx *gorm.DB, ch store.SyncChange) (string, error) {
 	switch ch.EntityType {
+	case store.SyncEntityPluginConfig, store.SyncEntityNodeConfig:
+		return applyProtectedConfigChangeTx(tx, ch)
 	case store.SyncEntityDevice:
 		return applyDeviceChangeTx(tx, ch)
 	case store.SyncEntityProduct:
 		return applyProductChangeTx(tx, ch)
+	case store.SyncEntityDriver:
+		return applyDriverChangeTx(tx, ch)
+	case store.SyncEntityRule:
+		return applyRuleChangeTx(tx, ch)
+	case store.SyncEntityRuleGroup:
+		return applyRuleGroupChangeTx(tx, ch)
 	default:
 		return syncStatusRejected, fmt.Errorf("unsupported sync entity type %q", ch.EntityType)
 	}
 }
 
+// syncReplaySession clears query clauses without losing the replay context.
+// GORM's NewDB mode discards Statement.Settings on the next operation, which
+// otherwise makes site commits look like local edits and loses reconciliation
+// identity and authority. Clone the clean baseline for each subsequent query.
+func syncReplaySession(tx *gorm.DB) *gorm.DB {
+	query := tx.Session(&gorm.Session{NewDB: true})
+	for _, key := range []string{store.SyncApplyingKey, syncLocalNodeKey, syncLocalInstanceKey, syncPreferRemoteKey} {
+		if value, ok := tx.Get(key); ok {
+			query = query.Set(key, value)
+		}
+	}
+	return query.Session(&gorm.Session{})
+}
+
 // --- Devices ---
 
 func applyDeviceChangeTx(tx *gorm.DB, ch store.SyncChange) (string, error) {
+	tx = syncReplaySession(tx)
 	var existing store.Device
 	lookupErr := tx.Unscoped().Where("code = ?", ch.EntityCode).First(&existing).Error
 	missing := errors.Is(lookupErr, gorm.ErrRecordNotFound)
@@ -193,7 +344,10 @@ func applyDeviceChangeTx(tx *gorm.DB, ch store.SyncChange) (string, error) {
 	}
 
 	if ch.BaseRev != existing.Rev {
-		return recordDeviceConflictTx(tx, &existing, ch, &incoming)
+		if preferRemoteChange(tx) {
+			return syncStatusApplied, overwriteDeviceTx(tx, &existing, ch, &incoming)
+		}
+		return reconcileStaleDeviceTx(tx, ch, &existing)
 	}
 
 	return syncStatusApplied, overwriteDeviceTx(tx, &existing, ch, &incoming)
@@ -206,7 +360,14 @@ func applyDeviceDeleteTx(tx *gorm.DB, ch store.SyncChange, existing *store.Devic
 	// A peer deletion is authoritative as a deletion event, but a local edit
 	// made concurrently is preserved as a conflict rather than discarded.
 	if ch.BaseRev > 0 && existing.Rev > ch.BaseRev {
-		return recordDeviceConflictTx(tx, existing, ch, nil)
+		if preferRemoteChange(tx) {
+			return syncStatusApplied, deleteDeviceTx(tx, ch.EntityCode)
+		}
+		payload, err := buildDevicePayload(existing)
+		if err != nil {
+			return syncStatusRejected, err
+		}
+		return syncStatusConflict, appendGatewayCanonicalTx(tx, ch, payload, existing.Rev, existing.Rev)
 	}
 	return syncStatusApplied, deleteDeviceTx(tx, ch.EntityCode)
 }
@@ -280,6 +441,7 @@ func deleteDeviceTx(tx *gorm.DB, code string) error {
 // --- Products ---
 
 func applyProductChangeTx(tx *gorm.DB, ch store.SyncChange) (string, error) {
+	tx = syncReplaySession(tx)
 	var existing store.Product
 	lookupErr := tx.Unscoped().Where("code = ?", ch.EntityCode).First(&existing).Error
 	missing := errors.Is(lookupErr, gorm.ErrRecordNotFound)
@@ -288,9 +450,28 @@ func applyProductChangeTx(tx *gorm.DB, ch store.SyncChange) (string, error) {
 	}
 
 	if ch.Op == store.SyncOpDelete {
-		// Products are never deleted in this codebase; a peer deletion is
-		// acknowledged so it cannot stall the stream, and recorded for review.
-		return syncStatusApplied, nil
+		if missing || existing.DeletedAt.Valid {
+			return syncStatusApplied, nil
+		}
+		if ch.BaseRev > 0 && existing.Rev > ch.BaseRev {
+			if preferRemoteChange(tx) {
+				newCode := fmt.Sprintf("%s_del_%d", existing.Code, time.Now().UnixNano())
+				if err := tx.Model(&existing).Update("code", newCode).Error; err != nil {
+					return syncStatusRejected, err
+				}
+				return syncStatusApplied, tx.Delete(&existing).Error
+			}
+			payload, err := buildProductPayload(&existing)
+			if err != nil {
+				return syncStatusRejected, err
+			}
+			return syncStatusConflict, appendGatewayCanonicalTx(tx, ch, payload, existing.Rev, existing.Rev)
+		}
+		newCode := fmt.Sprintf("%s_del_%d", existing.Code, time.Now().UnixNano())
+		if err := tx.Model(&existing).Update("code", newCode).Error; err != nil {
+			return syncStatusRejected, err
+		}
+		return syncStatusApplied, tx.Delete(&existing).Error
 	}
 
 	if ch.Payload == "" {
@@ -322,22 +503,18 @@ func applyProductChangeTx(tx *gorm.DB, ch store.SyncChange) (string, error) {
 	}
 
 	if ch.BaseRev != existing.Rev {
-		encoded, err := encodeConflictRecord(ch, &incoming)
-		if err != nil {
-			return syncStatusRejected, err
+		if preferRemoteChange(tx) {
+			incoming.ID = existing.ID
+			incoming.CreatedAt = existing.CreatedAt
+			incoming.UpdatedAt = time.Now()
+			incoming.DeletedAt = gorm.DeletedAt{}
+			clearConflictState(&incoming.SyncMeta)
+			incoming.Rev = ch.NewRev
+			incoming.SyncState = store.SyncStateSynced
+			incoming.SyncWriter = ch.OriginNode
+			return syncStatusApplied, tx.Unscoped().Save(&incoming).Error
 		}
-		updates := map[string]interface{}{
-			"sync_state":       store.SyncStateConflict,
-			"conflict_payload": encoded,
-			"conflict_rev":     ch.NewRev,
-			"conflict_node":    ch.OriginNode,
-			"sync_writer":      ch.OriginNode,
-		}
-		if err := tx.Unscoped().Model(&store.Product{}).
-			Where("code = ?", existing.Code).Updates(updates).Error; err != nil {
-			return syncStatusRejected, err
-		}
-		return syncStatusConflict, nil
+		return reconcileStaleProductTx(tx, ch, &existing)
 	}
 
 	incoming.ID = existing.ID

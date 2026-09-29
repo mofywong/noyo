@@ -323,9 +323,9 @@
           </div>
           <div class="mb-3">
             <label class="form-label">{{ $t('rule_group') }}</label>
-            <select class="form-select form-select-sm" v-model="editableRule.group_id">
+            <select class="form-select form-select-sm" v-model="editableRule.group_code">
               <option :value="null">{{ $t('rule_no_group') }}</option>
-              <option v-for="group in groups" :key="group.id || group.ID" :value="group.id || group.ID">{{ group.name }}</option>
+              <option v-for="group in groups" :key="group.code" :value="group.code">{{ group.name }}</option>
             </select>
           </div>
           <div class="mb-3">
@@ -1401,7 +1401,7 @@ export default {
       cloned.actions = safeParse(cloned.actions, [])
       cloned.effective_time = safeParse(cloned.effective_time, { mode: 'always', windows: [] })
       if (!cloned.effective_time) cloned.effective_time = { mode: 'always', windows: [] }
-      cloned.group_id = cloned.group_id || cloned.GroupID || null
+      cloned.group_code = cloned.group_code || null
       cloned.priority = cloned.priority || 50
       cloned.throttle_sec = cloned.throttle_sec || cloned.throttleSec || 60
       cloned.max_per_hour = cloned.max_per_hour || 60
@@ -2110,7 +2110,7 @@ export default {
       triggerNodes, conditionTree, hasConditions,
       effectiveNodes, actionNodes, statusLabel, getDeviceProperties, getDeviceEvents, getDeviceServices,
       computedServiceParams, computedStartTime, computedEndTime, computedEffectiveWeekdays, computedEffectiveMonthDays, computedEffectiveMonths,
-      typeLabel, syncSelectedCron, graphViewerRef, canvasContainerRef, canvasContentRef, exportToImage, exportToPdf, selectedNodeTypeOptions, changeSelectedNodeType, canDeleteSelectedNode, deleteSelectedNode,
+      typeLabel, formatNamedReference, syncSelectedCron, graphViewerRef, canvasContainerRef, canvasContentRef, exportToImage, exportToPdf, selectedNodeTypeOptions, changeSelectedNodeType, canDeleteSelectedNode, deleteSelectedNode,
       isEditing, editableRule, startEditing, saveEditing, cancelEditing, selectedNode, onDragStart,
       onDropTrigger, onDropConditionRoot, onDropActionRoot,
       collapsed, toggleSection, savingEditing, saveMessage, saveMessageType, workOrderTemplates, workOrderTemplateDetails,

@@ -58,6 +58,10 @@ func (ts *TaskScheduler) Shutdown() {
 func (ts *TaskScheduler) StartDeviceTasks(deviceCode string, defs []TaskDefinition) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+	return ts.startDeviceTasksLocked(deviceCode, defs)
+}
+
+func (ts *TaskScheduler) startDeviceTasksLocked(deviceCode string, defs []TaskDefinition) error {
 
 	if _, exists := ts.deviceEntries[deviceCode]; exists {
 		return fmt.Errorf("device %s tasks already running", deviceCode)
@@ -118,6 +122,25 @@ func (ts *TaskScheduler) StartDeviceTasks(deviceCode string, defs []TaskDefiniti
 
 	ts.deviceEntries[deviceCode] = entryIDs
 	ts.Logger.Info("Started tasks for device", zap.String("code", deviceCode), zap.Int("count", len(defs)))
+	return nil
+}
+
+// ReplaceDeviceTasks installs every new entry before removing the old entries.
+// Invalid schedules therefore leave the running task set untouched.
+func (ts *TaskScheduler) ReplaceDeviceTasks(deviceCode string, defs []TaskDefinition) error {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	old, existed := ts.deviceEntries[deviceCode]
+	delete(ts.deviceEntries, deviceCode)
+	if err := ts.startDeviceTasksLocked(deviceCode, defs); err != nil {
+		if existed {
+			ts.deviceEntries[deviceCode] = old
+		}
+		return err
+	}
+	for _, id := range old {
+		ts.cron.Remove(id)
+	}
 	return nil
 }
 

@@ -22,6 +22,10 @@
  * - A plain string → the legacy table is consulted, otherwise it is returned
  *   verbatim. Operator-authored text (rule names, work-order titles typed by a
  *   person, product/point names) must always pass through untouched.
+ *
+ * `localizeServerPayload` below extends the same rule to structured values that
+ * carry a bilingual copy per field (configuration snapshots). See its comment
+ * for the collapse rules.
  */
 
 const isObjectPayload = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -62,7 +66,93 @@ export const isBilingualPayload = (value) => {
  * a historical row in either direction. Keep the list narrow: it must never
  * rewrite text an operator typed.
  */
+const configurationEntityName = (kind, locale) => ({
+  device: ['设备', 'device'], product: ['产品', 'product'], driver: ['驱动', 'driver'],
+  rule: ['规则', 'rule'], rule_group: ['规则组', 'rule group'],
+  plugin_config: ['插件配置', 'plugin configuration'], node_config: ['网关配置', 'gateway configuration'],
+}[kind]?.[locale === 'zh' ? 0 : 1] || kind)
+
 const LEGACY_RULES = [
+  {
+    pattern: /^unsupported configuration (type|operation) (.+)$/i,
+    zh: (match) => `不支持的配置${match[1].toLowerCase() === 'type' ? '类型' : '操作'}：${match[2]}。请刷新资源配置后重新提交。`,
+    en: (match) => `Unsupported configuration ${match[1]}: ${match[2]}. Refresh the resource configuration and submit it again.`,
+  },
+  {
+    pattern: /^invalid configuration payload for (\S+) (.+)$/i,
+    zh: (match) => `${configurationEntityName(match[1], 'zh')} ${match[2]} 的配置内容无效。请检查配置后重新提交。`,
+    en: (match) => `The configuration for ${configurationEntityName(match[1], 'en')} ${match[2]} is invalid. Check it and submit it again.`,
+  },
+  {
+    pattern: /^configuration code mismatch for (\S+) (.+)$/i,
+    zh: (match) => `${configurationEntityName(match[1], 'zh')} ${match[2]} 的配置编码与变更目标不一致。请刷新配置后重新提交。`,
+    en: (match) => `The configuration code for ${configurationEntityName(match[1], 'en')} ${match[2]} does not match the change target. Refresh the configuration and submit it again.`,
+  },
+  {
+    pattern: /^configuration dependency (\S+) (.+) was not found$/i,
+    zh: (match) => `缺少依赖${configurationEntityName(match[1], 'zh')} ${match[2]}。请先同步或恢复该资源，再重新提交配置。`,
+    en: (match) => `Required ${configurationEntityName(match[1], 'en')} ${match[2]} was not found. Sync or restore it before submitting the configuration again.`,
+  },
+  {
+    pattern: /^(unsupported|duplicate|invalid|unreferenced) configuration dependency (.+)$/i,
+    zh: (match) => `${({ unsupported: '不支持的', duplicate: '重复的', invalid: '无效的', unreferenced: '未被引用的' })[match[1].toLowerCase()]}配置依赖：${match[2]}。请检查依赖配置后重新提交。`,
+    en: (match) => `${match[1][0].toUpperCase()}${match[1].slice(1)} configuration dependency: ${match[2]}. Check the dependencies and submit the configuration again.`,
+  },
+  {
+    pattern: /^configuration dependency (\S+) (.+) belongs to another scope or gateway$/i,
+    zh: (match) => `依赖${configurationEntityName(match[1], 'zh')} ${match[2]} 属于其他租户、项目或网关。请选择当前范围内的资源后重新提交。`,
+    en: (match) => `Required ${configurationEntityName(match[1], 'en')} ${match[2]} belongs to another tenant, project or gateway. Select a resource in the current scope and submit again.`,
+  },
+  {
+    pattern: /^configuration dependency (\S+) (.+) was deleted or recreated$/i,
+    zh: (match) => `依赖${configurationEntityName(match[1], 'zh')} ${match[2]} 已被删除或重建。请刷新依赖配置后重新提交。`,
+    en: (match) => `Required ${configurationEntityName(match[1], 'en')} ${match[2]} was deleted or recreated. Refresh the dependencies and submit the configuration again.`,
+  },
+  {
+    pattern: /^configuration dependency (\S+) (.+) changed during apply$/i,
+    zh: (match) => `依赖${configurationEntityName(match[1], 'zh')} ${match[2]} 在应用过程中发生了变化。请刷新依赖配置后重新提交。`,
+    en: (match) => `Required ${configurationEntityName(match[1], 'en')} ${match[2]} changed while applying the configuration. Refresh the dependencies and submit again.`,
+  },
+  {
+    pattern: /^configuration dependency (\S+) (.+) has not reached the required revision$/i,
+    zh: (match) => `依赖${configurationEntityName(match[1], 'zh')} ${match[2]} 尚未同步到所需版本。请等待依赖同步完成后重试。`,
+    en: (match) => `Required ${configurationEntityName(match[1], 'en')} ${match[2]} has not reached the required revision. Wait for it to finish synchronizing and retry.`,
+  },
+  {
+    pattern: /^configuration driver (.+) is bound to another product$/i,
+    zh: (match) => `驱动 ${match[1]} 已关联其他产品。请选择与当前产品匹配的驱动后重新提交。`,
+    en: (match) => `Driver ${match[1]} is bound to another product. Select a driver matching the current product and submit again.`,
+  },
+  {
+    pattern: /^gateway configuration is read-only outside local maintenance$/i,
+    zh: () => '网关未进入维护模式，不能修改产品、驱动或设备。请在网关顶部进入维护模式后重试。',
+    en: () => 'The gateway is not in maintenance mode. Enter maintenance mode at the top of the gateway console before changing products, drivers or devices, then retry.',
+  },
+  {
+    pattern: /^gateway is in local maintenance; remote configuration edits are blocked(?::\s*(.+))?$/i,
+    zh: (match) => `${match[1] ? `网关 ${match[1]}` : '网关'}正在本地维护，暂不接受平台对产品、驱动和设备的新增、修改或删除。请等待网关恢复正常模式后重试。`,
+    en: (match) => `${match[1] ? `Gateway ${match[1]}` : 'The gateway'} is in local maintenance. The platform cannot create, edit or delete its products, drivers and devices until normal mode returns.`,
+  },
+  {
+    pattern: /^driver ([^:]+): record not found$/i,
+    zh: (match) => `网关未加载驱动 ${match[1]}。请先同步或恢复该驱动及关联产品，再重试应用设备配置。`,
+    en: (match) => `Driver ${match[1]} is not loaded on the gateway. Sync or restore the driver and its product, then retry applying the device configuration.`,
+  },
+  {
+    pattern: /^driver ([^:]+): (.+)$/i,
+    zh: (match) => `${match[1]}：${resolveServerText(match[2], 'zh')}`,
+    en: (match) => `${match[1]}: ${resolveServerText(match[2], 'en')}`,
+  },
+  {
+    pattern: /^直连设备必须绑定协议$/,
+    zh: () => '直连设备未绑定协议，请选择设备驱动或协议后重试。',
+    en: () => 'The directly connected device has no protocol. Select a device driver or protocol and retry.',
+  },
+  {
+    pattern: /^父设备没有绑定协议$/,
+    zh: () => '父设备未绑定协议，请先为父设备选择驱动或协议后重试。',
+    en: () => 'The parent device has no protocol. Select a driver or protocol for the parent device and retry.',
+  },
   {
     pattern: /^AI predictive maintenance recovered:\s*(.+)$/i,
     zh: (match) => `AI 预测维护异常已恢复：${match[1]}`,
@@ -153,4 +243,105 @@ export const resolveServerText = (value, locale, options = {}) => {
     if (rewritten) return rewritten
   }
   return text
+}
+
+// ---------------------------------------------------------------------------
+// Structured payloads (configuration snapshots)
+// ---------------------------------------------------------------------------
+
+const LOCALE_SUFFIX_PATTERN = /^(.*)_(zh|en)$/i
+
+const isBilingualObject = (value) => {
+  const keys = Object.keys(value)
+  return keys.length > 0 && keys.every((key) => key === 'zh' || key === 'en')
+}
+
+const parseEmbeddedJson = (text) => {
+  try {
+    return JSON.parse(text)
+  } catch (_) {
+    return undefined
+  }
+}
+
+const resolveEmbeddedString = (value, locale) => {
+  const text = value.trim()
+  if (!text || (text[0] !== '{' && text[0] !== '[')) return value
+  const parsed = parseEmbeddedJson(text)
+  if (parsed === null || typeof parsed !== 'object') return value
+  if (isBilingualObject(parsed)) return pickLocalizedSide(parsed, locale)
+  return localizeServerPayload(parsed, locale)
+}
+
+/**
+ * Recursively resolves a structured server payload for `locale`.
+ *
+ * Why this module exists here
+ * ---------------------------
+ * Configuration snapshots (device `config`, the product TSL, rule triggers and
+ * actions) store the *same field twice, once per language*: as a
+ * `{"zh":…,"en":…}` pair, as a `title` / `title_zh` sibling pair, or as a JSON
+ * string nested inside another JSON string. Printing the snapshot verbatim
+ * therefore renders both languages side by side — the panel reads as a
+ * mixed-language document in either console language.
+ *
+ * Collapse rules
+ * --------------
+ * - `{"zh":…,"en":…}` (object or embedded JSON string) → the active side.
+ * - `base` + `base_zh` (and/or `base_en`) → a single `base` holding the active
+ *   side. The unsuffixed key is the default-language copy, which is the
+ *   convention the platform uses for TSL `title_zh` / `description_zh`.
+ * - An embedded JSON object/array string is parsed so its nested pairs resolve
+ *   too; a string that is not JSON is left alone.
+ * - A lone `_zh` / `_en` key has no counterpart and is plain data, so it is
+ *   kept as-is. The same applies to values that exist in one language only
+ *   (an operator-authored device name, a Chinese point description): the
+ *   snapshot must keep showing what is actually stored instead of inventing a
+ *   translation.
+ *
+ * @param {unknown} value   Parsed payload (object, array or scalar).
+ * @param {string} locale   Active console locale (`zh` | `en` | any `en-*` tag).
+ * @returns {unknown}       A new value; the input is never mutated.
+ */
+export const localizeServerPayload = (value, locale) => {
+  if (Array.isArray(value)) return value.map((item) => localizeServerPayload(item, locale))
+  if (!isObjectPayload(value)) {
+    return typeof value === 'string' ? resolveEmbeddedString(value, locale) : value
+  }
+
+  const keys = Object.keys(value)
+  if (!keys.length) return value
+  if (isBilingualObject(value)) return pickLocalizedSide(value, locale)
+
+  // `base -> { zh: key, en: key }` for every field that has a suffixed sibling.
+  const pairs = new Map()
+  for (const key of keys) {
+    const match = key.match(LOCALE_SUFFIX_PATTERN)
+    if (!match) continue
+    const entry = pairs.get(match[1]) || {}
+    entry[match[2].toLowerCase()] = key
+    pairs.set(match[1], entry)
+  }
+
+  const resolved = {}
+  const collapsed = new Set()
+  for (const key of keys) {
+    const match = key.match(LOCALE_SUFFIX_PATTERN)
+    const base = match ? match[1] : key
+    const entry = match ? pairs.get(base) : undefined
+    const hasDefault = Object.prototype.hasOwnProperty.call(value, base)
+    const hasBothSides = Boolean(entry && entry.zh && entry.en)
+
+    if (entry && (hasDefault || hasBothSides)) {
+      if (collapsed.has(base)) continue
+      collapsed.add(base)
+      resolved[base] = pickLocalizedSide({
+        zh: value[entry.zh || base],
+        en: value[entry.en || base],
+      }, locale)
+      continue
+    }
+    resolved[key] = localizeServerPayload(value[key], locale)
+  }
+  return resolved
 }

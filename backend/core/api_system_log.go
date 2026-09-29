@@ -31,15 +31,18 @@ func (s *Server) handleUpdateLogConfig(r *ghttp.Request) {
 		return
 	}
 
-	// Update config in memory
-	s.Config.Log = req
-	SetLoggerLevel(req.Level)
-	store.SetDBLogLevel(req.Level)
+	next := *s.Config
+	next.Log = req
 
 	// Save to database
-	if err := store.SaveGlobalConfig(s.Config); err != nil {
+	if err := store.SaveGlobalConfig(&next); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to save config: " + err.Error()})
 		return
+	}
+	if store.LocalConfigGatewayCode() == "" || !store.HasProtectedConfigSink() {
+		*s.Config = next
+		SetLoggerLevel(req.Level)
+		store.SetDBLogLevel(req.Level)
 	}
 
 	// Note: We don't dynamically reload zap.Logger here because it's passed by value everywhere.

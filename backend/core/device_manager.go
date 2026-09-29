@@ -47,7 +47,9 @@ type DeviceManager struct {
 
 	// Runtime State (Thread-Safe Map)
 	// Key: DeviceCode, Value: *DeviceRuntime
-	runtimes sync.Map
+	runtimes        sync.Map
+	runtimePlans    sync.Map
+	runtimeConfigMu sync.Mutex
 
 	TSDB *tsdb.TSDBManager
 }
@@ -140,13 +142,23 @@ func (dm *DeviceManager) GetProduct(code string) (types.ProductMeta, bool) {
 
 // StartDevice starts a single device
 func (dm *DeviceManager) StartDevice(deviceCode string) error {
+	dm.runtimeConfigMu.Lock()
+	defer dm.runtimeConfigMu.Unlock()
 	// 1. Check if running
 	if dm.Scheduler.IsRunning(deviceCode) {
 		return fmt.Errorf("%w: device %s is already running", types.ErrBusy, deviceCode)
 	}
 
 	// 2. Load Meta
-	deviceMetaPtr, deviceModel, err := dm.GetDeviceMeta(deviceCode)
+	next := dm.Registry.cloneRuntime()
+	if err := next.refreshConfiguredProfiles(deviceCode); err != nil {
+		return err
+	}
+	deviceModel, ok := next.GetDevice(deviceCode)
+	if !ok {
+		return fmt.Errorf("%w: device %s", types.ErrNotFound, deviceCode)
+	}
+	deviceMetaPtr, err := next.GetDeviceMeta(deviceCode)
 	if err != nil {
 		return fmt.Errorf("%w: %v", types.ErrNotFound, err)
 	}
@@ -155,13 +167,13 @@ func (dm *DeviceManager) StartDevice(deviceCode string) error {
 	}
 	deviceMeta := *deviceMetaPtr
 
-	productMeta, err := dm.Registry.GetProductMeta(deviceModel.ProductCode)
+	productMeta, err := next.GetProductMeta(deviceModel.ProductCode)
 	if err != nil {
 		return fmt.Errorf("%w: %v", types.ErrNotFound, err)
 	}
 
 	// 3. Get Protocol Plugin (子设备从父设备获取协议)
-	effectiveProtocol, err := dm.Registry.GetEffectiveProtocol(deviceCode)
+	effectiveProtocol, err := next.GetEffectiveProtocol(deviceCode)
 	if err != nil {
 		return fmt.Errorf("failed to get effective protocol: %w", err)
 	}
@@ -210,17 +222,51 @@ func (dm *DeviceManager) StartDevice(deviceCode string) error {
 	dm.Server.Logger.Info("Starting tasks", zap.String("device", deviceCode), zap.Int("task_count", len(taskDefs)))
 
 	// 5. Schedule Tasks
-	return dm.Scheduler.StartDeviceTasks(deviceCode, taskDefs)
+	if err := dm.Scheduler.StartDeviceTasks(deviceCode, taskDefs); err != nil {
+		return err
+	}
+	dm.runtimePlans.Store(deviceCode, &deviceRuntimePlan{meta: deviceMeta, product: productMeta, plugin: plugin, defs: taskDefs})
+	dm.Registry.installRuntime(next)
+	return nil
 }
 
 // RestartDevice restarts a device
 func (dm *DeviceManager) RestartDevice(deviceCode string) error {
-	dm.StopDevice(deviceCode)
-	return dm.StartDevice(deviceCode)
+	dm.runtimeConfigMu.Lock()
+	defer dm.runtimeConfigMu.Unlock()
+	next := dm.Registry.cloneRuntime()
+	if err := next.refreshConfiguredProfiles(deviceCode); err != nil {
+		return err
+	}
+	plan, err := dm.prepareRuntimePlan(next, deviceCode)
+	if err != nil {
+		return &RuntimeActivationError{Cause: err, CompensationStatus: store.RuntimeCompensated}
+	}
+	var previous *deviceRuntimePlan
+	if old, ok := dm.runtimePlans.Load(deviceCode); ok {
+		previous = old.(*deviceRuntimePlan)
+	}
+	if err := dm.installRuntimePlan(deviceCode, previous, plan); err != nil {
+		restoreErr := dm.installRuntimePlan(deviceCode, plan, previous)
+		status := store.RuntimeCompensated
+		if restoreErr != nil {
+			status = store.RuntimeCompensationFailed
+		}
+		return &RuntimeActivationError{Cause: err, CompensationStatus: status, CompensationError: restoreErr}
+	}
+	dm.Registry.installRuntime(next)
+	if plan == nil {
+		dm.runtimePlans.Delete(deviceCode)
+	} else {
+		dm.runtimePlans.Store(deviceCode, plan)
+	}
+	return nil
 }
 
 // StopDevice stops a single device
 func (dm *DeviceManager) StopDevice(deviceCode string) error {
+	dm.runtimeConfigMu.Lock()
+	defer dm.runtimeConfigMu.Unlock()
 	// 1. Stop Tasks
 	if err := dm.Scheduler.StopDeviceTasks(deviceCode); err != nil {
 		return err
@@ -240,6 +286,7 @@ func (dm *DeviceManager) StopDevice(deviceCode string) error {
 	dm.ReportDeviceStatus(deviceCode, DeviceStatus{Online: false})
 
 	dm.Server.Logger.Info("Device stopped", zap.String("code", deviceCode))
+	dm.runtimePlans.Delete(deviceCode)
 	return nil
 }
 
@@ -373,6 +420,10 @@ func (dm *DeviceManager) GetAlarmDeviceCodes() []string {
 
 // CountDeviceStats computes online and alarm device counts for a given tenant/project scope in microsecond time
 func (dm *DeviceManager) CountDeviceStats(tenantID, projectID uint, allowedProjectIDs ...[]uint) (onlineCount int, alarmCount int) {
+	return dm.countDeviceStats(tenantID, projectID, "", allowedProjectIDs...)
+}
+
+func (dm *DeviceManager) countDeviceStats(tenantID, projectID uint, excludedCode string, allowedProjectIDs ...[]uint) (onlineCount int, alarmCount int) {
 	var allowedMap map[uint]bool
 	if len(allowedProjectIDs) > 0 && len(allowedProjectIDs[0]) > 0 {
 		allowedMap = make(map[uint]bool, len(allowedProjectIDs[0]))
@@ -383,7 +434,7 @@ func (dm *DeviceManager) CountDeviceStats(tenantID, projectID uint, allowedProje
 
 	dm.runtimes.Range(func(key, value interface{}) bool {
 		code, ok := key.(string)
-		if !ok {
+		if !ok || (excludedCode != "" && code == excludedCode) {
 			return true
 		}
 		if dm.Registry != nil {

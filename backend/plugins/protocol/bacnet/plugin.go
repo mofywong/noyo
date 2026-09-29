@@ -10,6 +10,7 @@ import (
 	"noyo/core/store"
 	"noyo/core/types"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,7 +57,7 @@ func (p *BacnetPlugin) EnsureDriverExists() error {
 			changed = true
 		}
 		if changed {
-			if err := store.SaveProtocolProfile(profile); err != nil {
+			if err := store.SaveProtocolProfileAutomatically(profile); err != nil {
 				if p.Logger != nil {
 					p.Logger.Error("Failed to update default BACnet driver", zap.Error(err))
 				}
@@ -66,7 +67,7 @@ func (p *BacnetPlugin) EnsureDriverExists() error {
 		return nil
 	}
 
-	if err := store.SaveProtocolProfile(expected); err != nil {
+	if err := store.SaveProtocolProfileAutomatically(expected); err != nil {
 		if p.Logger != nil {
 			p.Logger.Error("Failed to create default BACnet driver", zap.Error(err))
 		}
@@ -476,7 +477,9 @@ func (p *BacnetPlugin) BatchAddDevice(devices []types.DeviceMeta) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, dev := range devices {
-		p.addDevice(dev)
+		if err := p.addDevice(dev); err != nil {
+			return fmt.Errorf("load BACnet device %s: %w", dev.DeviceCode, err)
+		}
 	}
 	return nil
 }
@@ -505,15 +508,16 @@ func (p *BacnetPlugin) UpdateDevice(device types.DeviceMeta) error {
 	}
 
 	// Start new task
-	p.addDevice(device)
-	return nil
+	return p.addDevice(device)
 }
 
 // WriteProperty implements IProtocolPlugin
 func (p *BacnetPlugin) WriteProperty(device types.DeviceMeta, propName string, value interface{}) error {
 	var err error
 	device.Extras, err = normalizeDeviceConfig(device.Extras)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	// Parse Device Config
 	extras := device.Extras
 	ip, _ := extras["ip"].(string)
@@ -655,12 +659,12 @@ func removeRequiredSchemaEntries(value interface{}) {
 	}
 }
 
-func (p *BacnetPlugin) addDevice(device types.DeviceMeta) {
+func (p *BacnetPlugin) addDevice(device types.DeviceMeta) error {
 	var err error
 	device.Extras, err = normalizeDeviceConfig(device.Extras)
 	if err != nil {
 		p.Logger.Error("Invalid BACnet device configuration", zap.String("device", device.DeviceCode), zap.Error(err))
-		return
+		return fmt.Errorf("invalid BACnet device configuration: %w", err)
 	}
 	logDebugFile(fmt.Sprintf("addDevice Called: Code=%s Extras=%v", device.DeviceCode, device.Extras))
 	fmt.Fprintf(os.Stderr, ">>> [DEBUG-STDERR] addDevice Called: %s Extras: %v\n", device.DeviceCode, device.Extras)
@@ -688,13 +692,20 @@ func (p *BacnetPlugin) addDevice(device types.DeviceMeta) {
 		zap.Int("deviceID", deviceID),
 		zap.Any("extras", extras))
 
-	if ip == "" || ip == "0.0.0.0" || deviceID == 0 {
+	if ip == "" || ip == "0.0.0.0" || deviceID <= 0 || port < 1 || port > 65535 {
 		logDebugFile(fmt.Sprintf("Skipping Invalid Config: IP='%s' ID=%d", ip, deviceID))
 		p.Logger.Error("Skipping invalid BACnet device config (missing or invalid IP/ID)",
 			zap.String("device", device.DeviceCode),
 			zap.String("ip", ip),
 			zap.Int("deviceID", deviceID))
-		return
+		return fmt.Errorf("BACnet IP, port and device ID must be valid")
+	}
+	address, err := net.ResolveUDPAddr("udp", net.JoinHostPort(ip, strconv.Itoa(port)))
+	if err != nil {
+		return fmt.Errorf("invalid BACnet polling address: %w", err)
+	}
+	if address.IP.IsUnspecified() {
+		return fmt.Errorf("BACnet polling address cannot be unspecified")
 	}
 
 	// Create Polling Task
@@ -702,6 +713,7 @@ func (p *BacnetPlugin) addDevice(device types.DeviceMeta) {
 	p.tasks[device.DeviceCode] = stop
 
 	go p.pollingLoop(device, ip, port, uint32(deviceID), stop)
+	return nil
 }
 
 func (p *BacnetPlugin) pollingLoop(meta types.DeviceMeta, ip string, port int, deviceID uint32, stop <-chan struct{}) {

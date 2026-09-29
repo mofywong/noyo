@@ -25,6 +25,7 @@ var deviceContentColumns = map[string]bool{
 // productContentColumns is the product equivalent of deviceContentColumns.
 var productContentColumns = map[string]bool{
 	"tenant_id": true, "project_id": true, "code": true, "name": true, "config": true,
+	"source_template_code": true, "source_template_rev": true, "owner_node": true,
 }
 
 // changeRecorder turns local writes into change-log entries. It is driven by
@@ -32,7 +33,8 @@ var productContentColumns = map[string]bool{
 // timers) is covered without modifying each call site.
 type changeRecorder struct {
 	// nodeID is this node's identity and becomes OriginNode on every change.
-	nodeID string
+	nodeID          string
+	separateIntents bool
 	// instanceID identifies this node's change log and becomes OriginInstance.
 	instanceID string
 	// origin is the provenance stamped on entities that do not have one yet.
@@ -48,6 +50,7 @@ type changeRecorder struct {
 	// gateway always addresses the cloud.
 	routeDevice  func(d *store.Device) string
 	routeProduct func(p *store.Product) string
+	routeScope   func(tenantID, projectID uint) string
 }
 
 func newChangeRecorder(in changeRecorder) *changeRecorder {
@@ -57,6 +60,9 @@ func newChangeRecorder(in changeRecorder) *changeRecorder {
 	}
 	if rec.routeProduct == nil {
 		rec.routeProduct = func(*store.Product) string { return "" }
+	}
+	if rec.routeScope == nil {
+		rec.routeScope = func(uint, uint) string { return "" }
 	}
 	return &rec
 }
@@ -84,6 +90,12 @@ func (r *changeRecorder) suppressed(db *gorm.DB) bool {
 		return foreignWriter(dest.SyncWriter, r.nodeID)
 	case store.Product:
 		return foreignWriter(dest.SyncWriter, r.nodeID)
+	case *store.ProtocolProfile:
+		return foreignWriter(dest.SyncWriter, r.nodeID)
+	case *store.Rule:
+		return foreignWriter(dest.SyncWriter, r.nodeID)
+	case *store.RuleGroup:
+		return foreignWriter(dest.SyncWriter, r.nodeID)
 	}
 	return false
 }
@@ -98,7 +110,7 @@ func (r *changeRecorder) recordDeviceCreated(db *gorm.DB) {
 	if r.suppressed(db) {
 		return
 	}
-	r.recordDeviceUpsert(deviceCodeFrom(db))
+	r.recordDeviceUpsert(db, deviceCodeFrom(db), true)
 }
 
 func (r *changeRecorder) recordDeviceUpdated(db *gorm.DB) {
@@ -114,22 +126,31 @@ func (r *changeRecorder) recordDeviceUpdated(db *gorm.DB) {
 		// is reported separately through the store mutation sink.
 		return
 	}
-	r.recordDeviceUpsert(deviceCodeFrom(db))
+	r.recordDeviceUpsert(db, deviceCodeFrom(db), false)
 }
 
-func (r *changeRecorder) recordDeviceUpsert(code string) {
+func (r *changeRecorder) recordDeviceUpsert(db *gorm.DB, code string, created bool) {
 	if code == "" {
 		return
 	}
 	var recorded *store.SyncChange
-	err := store.SyncApplyingSession().Transaction(func(tx *gorm.DB) error {
+	tx := db.Session(&gorm.Session{NewDB: true})
+	err := func() error {
 		var stored store.Device
 		if err := tx.Where("code = ?", code).First(&stored).Error; err != nil {
 			// The row was removed in the same breath as the write; there is
 			// nothing to propagate as an upsert.
 			return nil
 		}
-		newRev := stored.Rev + 1
+		newRev, baseRev := stored.Rev+1, stored.Rev
+		if created {
+			newRev, baseRev = 1, 0
+		}
+		lifecycle, advancedRev, err := r.nextResourceVersionTx(tx, store.SyncEntityDevice, code, created, false, newRev)
+		if err != nil {
+			return err
+		}
+		newRev = advancedRev
 		updates := map[string]interface{}{
 			"rev":        newRev,
 			"sync_state": store.SyncStatePending,
@@ -142,6 +163,10 @@ func (r *changeRecorder) recordDeviceUpsert(code string) {
 			updates["owner_node"] = r.ownerNode
 			stored.OwnerNode = r.ownerNode
 		}
+		target := r.routeDevice(&stored)
+		if r.nodeID == cloudSyncNodeID && target == "" {
+			return fmt.Errorf("device %s has no unambiguous gateway code", code)
+		}
 		snapshot := stored
 		snapshot.Rev = newRev
 		payload, err := buildDevicePayload(&snapshot)
@@ -150,7 +175,8 @@ func (r *changeRecorder) recordDeviceUpsert(code string) {
 		}
 		// Guard on the observed revision so two writers racing on the same
 		// entity cannot both record a change claiming the same new revision.
-		res := tx.Model(&store.Device{}).Where("code = ? AND rev = ?", code, stored.Rev).Updates(updates)
+		res := tx.Model(&store.Device{}).Set(store.SyncApplyingKey, true).
+			Where("code = ? AND rev = ?", code, stored.Rev).Updates(updates)
 		if res.Error != nil {
 			return res.Error
 		}
@@ -158,56 +184,100 @@ func (r *changeRecorder) recordDeviceUpsert(code string) {
 			return nil
 		}
 		ch := &store.SyncChange{
-			EntityType:     store.SyncEntityDevice,
-			EntityCode:     code,
-			Op:             store.SyncOpUpsert,
-			BaseRev:        stored.Rev,
-			NewRev:         newRev,
-			Payload:        payload,
-			OriginNode:     r.nodeID,
-			OriginInstance: r.instanceID,
-			TargetNode:     r.routeDevice(&stored),
-			TenantID:       stored.TenantID,
-			ProjectID:      stored.ProjectID,
-			CreatedAt:      time.Now().UnixMilli(),
+			EntityType:       store.SyncEntityDevice,
+			EntityCode:       code,
+			Op:               store.SyncOpUpsert,
+			BaseRev:          baseRev,
+			NewRev:           newRev,
+			LifecycleVersion: lifecycle,
+			Payload:          payload,
+			BasePayload:      capturedSyncBase(db),
+			OriginNode:       r.nodeID,
+			OriginInstance:   r.instanceID,
+			TargetNode:       target,
+			TenantID:         stored.TenantID,
+			ProjectID:        stored.ProjectID,
+			CreatedAt:        time.Now().UnixMilli(),
+		}
+		if err := collectConfigDependenciesTx(tx, ch); err != nil {
+			return err
 		}
 		if _, err := store.AppendSyncChangeTx(tx, ch); err != nil {
 			return err
 		}
 		recorded = ch
 		return nil
-	})
-	r.finish(recorded, "device", code, err)
+	}()
+	r.finishTx(db, recorded, "device", code, err)
 }
 
-// DeviceDeleted implements store.SyncChangeSink. The row has already been
-// renamed and soft-deleted, so the revision is taken from the caller's snapshot
-// and used as the conflict precondition on the receiving side: a peer that
-// edited the device concurrently keeps its version and reports a conflict
-// instead of losing the edit.
-func (r *changeRecorder) DeviceDeleted(d *store.Device) {
+// DeviceDeletedTx appends the tombstone in the same transaction as the delete.
+func (r *changeRecorder) DeviceDeletedTx(tx *gorm.DB, d *store.Device) (*store.SyncChange, error) {
 	if d == nil || d.Code == "" {
-		return
+		return nil, nil
+	}
+	target := r.routeDevice(d)
+	if r.nodeID == cloudSyncNodeID && target == "" {
+		return nil, fmt.Errorf("device %s has no unambiguous gateway code", d.Code)
+	}
+	lifecycle, newRev, err := r.nextResourceVersionTx(tx, store.SyncEntityDevice, d.Code, false, true, d.Rev+1)
+	if err != nil {
+		return nil, err
 	}
 	ch := &store.SyncChange{
-		EntityType:     store.SyncEntityDevice,
-		EntityCode:     d.Code,
-		Op:             store.SyncOpDelete,
-		BaseRev:        d.Rev,
-		NewRev:         d.Rev + 1,
-		OriginNode:     r.nodeID,
-		OriginInstance: r.instanceID,
-		TargetNode:     r.routeDevice(d),
-		TenantID:       d.TenantID,
-		ProjectID:      d.ProjectID,
-		CreatedAt:      time.Now().UnixMilli(),
+		EntityType:       store.SyncEntityDevice,
+		EntityCode:       d.Code,
+		Op:               store.SyncOpDelete,
+		BaseRev:          d.Rev,
+		NewRev:           newRev,
+		LifecycleVersion: lifecycle,
+		OriginNode:       r.nodeID,
+		OriginInstance:   r.instanceID,
+		TargetNode:       target,
+		TenantID:         d.TenantID,
+		ProjectID:        d.ProjectID,
+		CreatedAt:        time.Now().UnixMilli(),
 	}
-	if _, err := store.AppendSyncChange(ch); err != nil {
-		r.logger.Error("Failed to record device deletion",
-			zap.String("code", d.Code), zap.Error(err))
-		return
+	_, err = store.AppendSyncChangeTx(tx, ch)
+	if err == nil {
+		err = r.stagePlatformDeleteTx(tx, ch, d)
 	}
-	r.dispatch(*ch)
+	if err == nil {
+		err = r.queueLocalRuntimeTx(tx, ch)
+	}
+	return ch, err
+}
+
+func (r *changeRecorder) ProductDeletedTx(tx *gorm.DB, p *store.Product) (*store.SyncChange, error) {
+	if p == nil || p.Code == "" {
+		return nil, nil
+	}
+	lifecycle, newRev, err := r.nextResourceVersionTx(tx, store.SyncEntityProduct, p.Code, false, true, p.Rev+1)
+	if err != nil {
+		return nil, err
+	}
+	ch := &store.SyncChange{
+		EntityType: store.SyncEntityProduct, EntityCode: p.Code,
+		Op: store.SyncOpDelete, BaseRev: p.Rev, NewRev: newRev, LifecycleVersion: lifecycle,
+		OriginNode: r.nodeID, OriginInstance: r.instanceID,
+		TargetNode: r.routeProduct(p), TenantID: p.TenantID, ProjectID: p.ProjectID,
+		CreatedAt: time.Now().UnixMilli(),
+	}
+	if r.nodeID == cloudSyncNodeID && p.OwnerNode == "" {
+		ch.AckTargets = r.routeScope(p.TenantID, p.ProjectID)
+	}
+	_, err = store.AppendSyncChangeTx(tx, ch)
+	if err == nil {
+		err = r.stagePlatformDeleteTx(tx, ch, p)
+	}
+	if err == nil {
+		err = r.queueLocalRuntimeTx(tx, ch)
+	}
+	return ch, err
+}
+
+func (r *changeRecorder) ChangeCommitted(ch store.SyncChange) {
+	r.dispatch(ch)
 }
 
 // --- Product recording ---
@@ -216,44 +286,71 @@ func (r *changeRecorder) recordProductCreated(db *gorm.DB) {
 	if r.suppressed(db) {
 		return
 	}
-	r.recordProductUpsert(productCodeFrom(db))
+	r.recordProductUpsert(db, productCodeFrom(db), true)
 }
 
 func (r *changeRecorder) recordProductUpdated(db *gorm.DB) {
 	if r.suppressed(db) {
 		return
 	}
+	if isCodeOnlyUpdate(db.Statement.Dest) {
+		return
+	}
 	if !contentChanged(db.Statement.Dest, productContentColumns) {
 		return
 	}
-	r.recordProductUpsert(productCodeFrom(db))
+	r.recordProductUpsert(db, productCodeFrom(db), false)
 }
 
-func (r *changeRecorder) recordProductUpsert(code string) {
+func (r *changeRecorder) recordProductUpsert(db *gorm.DB, code string, created bool) {
 	if code == "" {
 		return
 	}
 	var recorded *store.SyncChange
-	err := store.SyncApplyingSession().Transaction(func(tx *gorm.DB) error {
+	tx := db.Session(&gorm.Session{NewDB: true})
+	err := func() error {
 		var stored store.Product
 		if err := tx.Where("code = ?", code).First(&stored).Error; err != nil {
 			return nil
 		}
-		newRev := stored.Rev + 1
+		if created && r.ownerNode != "" && stored.OwnerNode == "" {
+			stored.OwnerNode = r.ownerNode
+			if err := tx.Model(&store.Product{}).Set(store.SyncApplyingKey, true).Where("code = ?", code).Update("owner_node", r.ownerNode).Error; err != nil {
+				return err
+			}
+		}
+		newRev, baseRev := stored.Rev+1, stored.Rev
+		if created {
+			newRev, baseRev = 1, 0
+		}
+		lifecycle, advancedRev, err := r.nextResourceVersionTx(tx, store.SyncEntityProduct, code, created, false, newRev)
+		if err != nil {
+			return err
+		}
+		newRev = advancedRev
 		snapshot := stored
 		snapshot.Rev = newRev
 		payload, err := buildProductPayload(&snapshot)
 		if err != nil {
 			return err
 		}
+		ackTargets := ""
+		syncState := store.SyncStatePending
+		if r.nodeID == cloudSyncNodeID && stored.OwnerNode == "" {
+			ackTargets = r.routeScope(stored.TenantID, stored.ProjectID)
+			if ackTargets == "" {
+				syncState = store.SyncStateSynced
+			}
+		}
 		updates := map[string]interface{}{
 			"rev":        newRev,
-			"sync_state": store.SyncStatePending,
+			"sync_state": syncState,
 		}
 		if stored.Origin == "" {
 			updates["origin"] = r.origin
 		}
-		res := tx.Model(&store.Product{}).Where("code = ? AND rev = ?", code, stored.Rev).Updates(updates)
+		res := tx.Model(&store.Product{}).Set(store.SyncApplyingKey, true).
+			Where("code = ? AND rev = ?", code, stored.Rev).Updates(updates)
 		if res.Error != nil {
 			return res.Error
 		}
@@ -261,26 +358,29 @@ func (r *changeRecorder) recordProductUpsert(code string) {
 			return nil
 		}
 		ch := &store.SyncChange{
-			EntityType:     store.SyncEntityProduct,
-			EntityCode:     code,
-			Op:             store.SyncOpUpsert,
-			BaseRev:        stored.Rev,
-			NewRev:         newRev,
-			Payload:        payload,
-			OriginNode:     r.nodeID,
-			OriginInstance: r.instanceID,
-			TargetNode:     r.routeProduct(&stored),
-			TenantID:       stored.TenantID,
-			ProjectID:      stored.ProjectID,
-			CreatedAt:      time.Now().UnixMilli(),
+			EntityType:       store.SyncEntityProduct,
+			EntityCode:       code,
+			Op:               store.SyncOpUpsert,
+			BaseRev:          baseRev,
+			NewRev:           newRev,
+			LifecycleVersion: lifecycle,
+			Payload:          payload,
+			BasePayload:      capturedSyncBase(db),
+			OriginNode:       r.nodeID,
+			OriginInstance:   r.instanceID,
+			TargetNode:       r.routeProduct(&stored),
+			TenantID:         stored.TenantID,
+			ProjectID:        stored.ProjectID,
+			CreatedAt:        time.Now().UnixMilli(),
 		}
+		ch.AckTargets = ackTargets
 		if _, err := store.AppendSyncChangeTx(tx, ch); err != nil {
 			return err
 		}
 		recorded = ch
 		return nil
-	})
-	r.finish(recorded, "product", code, err)
+	}()
+	r.finishTx(db, recorded, "product", code, err)
 }
 
 // --- Shared helpers ---
@@ -299,6 +399,48 @@ func (r *changeRecorder) finish(ch *store.SyncChange, kind, code string, err err
 		zap.String("code", code),
 		zap.String("change_id", ch.ChangeID()))
 	r.dispatch(*ch)
+}
+
+func (r *changeRecorder) finishTx(db *gorm.DB, ch *store.SyncChange, kind, code string, err error) {
+	if err == nil && ch != nil {
+		err = r.stagePlatformIntentTx(db, ch)
+	}
+	if err == nil {
+		err = r.queueLocalRuntimeTx(db, ch)
+	}
+	if err != nil {
+		// The outer business transaction must roll back with the failed outbox
+		// append. Logging alone would make a successful API write disappear from
+		// the sync stream after a crash.
+		db.AddError(err)
+		r.logger.Error("Failed to record local change", zap.String("entity_type", kind), zap.String("code", code), zap.Error(err))
+		return
+	}
+	if ch != nil && r.notify != nil {
+		// An explicit outer transaction may still roll back. Dispatch only after
+		// the change is visible on the committed database connection.
+		go r.dispatchWhenCommitted(store.DB, *ch)
+	}
+}
+
+// A local tombstone must supersede any retry of the previous upsert in the
+// same transaction. Otherwise snapshots report an obsolete desired revision.
+func (r *changeRecorder) queueLocalRuntimeTx(tx *gorm.DB, ch *store.SyncChange) error {
+	if ch == nil || r.nodeID == cloudSyncNodeID || !tx.Migrator().HasTable(&store.RuntimeApply{}) {
+		return nil
+	}
+	return store.QueueRuntimeApplyTx(tx, *ch)
+}
+
+func (r *changeRecorder) dispatchWhenCommitted(db *gorm.DB, ch store.SyncChange) {
+	for attempt := 0; attempt < 30; attempt++ {
+		var count int64
+		if err := db.Model(&store.SyncChange{}).Where("seq = ? AND origin_node = ?", ch.Seq, ch.OriginNode).Count(&count).Error; err == nil && count == 1 {
+			r.dispatch(ch)
+			return
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 func (r *changeRecorder) dispatch(ch store.SyncChange) {
@@ -396,21 +538,40 @@ func productCodeFrom(db *gorm.DB) string {
 // store.SyncChangeSink because the deletion path destroys the original code
 // before any callback can observe it.
 func registerChangeHooks(rec *changeRecorder) error {
+	store.SetProtectedConfigSink(rec)
+	bases := map[string]string{
+		"cascade:sync_device_base":     store.SyncEntityDevice,
+		"cascade:sync_product_base":    store.SyncEntityProduct,
+		"cascade:sync_driver_base":     store.SyncEntityDriver,
+		"cascade:sync_rule_base":       store.SyncEntityRule,
+		"cascade:sync_rule_group_base": store.SyncEntityRuleGroup,
+	}
+	for name, kind := range bases {
+		if err := store.DB.Callback().Update().Before("gorm:update").Register(name, rec.captureSyncBase(kind)); err != nil {
+			return fmt.Errorf("register %s hook: %w", name, err)
+		}
+	}
 	creates := map[string]func(*gorm.DB){
-		"cascade:sync_device_create":  rec.recordDeviceCreated,
-		"cascade:sync_product_create": rec.recordProductCreated,
+		"cascade:sync_device_create":     rec.recordDeviceCreated,
+		"cascade:sync_product_create":    rec.recordProductCreated,
+		"cascade:sync_driver_create":     rec.recordDriverCreated,
+		"cascade:sync_rule_create":       rec.recordRuleCreated,
+		"cascade:sync_rule_group_create": rec.recordRuleGroupCreated,
 	}
 	updates := map[string]func(*gorm.DB){
-		"cascade:sync_device_update":  rec.recordDeviceUpdated,
-		"cascade:sync_product_update": rec.recordProductUpdated,
+		"cascade:sync_device_update":     rec.recordDeviceUpdated,
+		"cascade:sync_product_update":    rec.recordProductUpdated,
+		"cascade:sync_driver_update":     rec.recordDriverUpdated,
+		"cascade:sync_rule_update":       rec.recordRuleUpdated,
+		"cascade:sync_rule_group_update": rec.recordRuleGroupUpdated,
 	}
 	for name, handler := range creates {
-		if err := store.DB.Callback().Create().After("gorm:commit_or_rollback_transaction").Register(name, handler); err != nil {
+		if err := store.DB.Callback().Create().After("gorm:create").Before("gorm:commit_or_rollback_transaction").Register(name, handler); err != nil {
 			return fmt.Errorf("register %s hook: %w", name, err)
 		}
 	}
 	for name, handler := range updates {
-		if err := store.DB.Callback().Update().After("gorm:commit_or_rollback_transaction").Register(name, handler); err != nil {
+		if err := store.DB.Callback().Update().After("gorm:update").Before("gorm:commit_or_rollback_transaction").Register(name, handler); err != nil {
 			return fmt.Errorf("register %s hook: %w", name, err)
 		}
 	}

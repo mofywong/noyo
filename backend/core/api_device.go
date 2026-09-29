@@ -138,12 +138,20 @@ func (s *Server) handleCreateProduct(r *ghttp.Request) {
 	}
 	p.TenantID = tenantID
 	p.ProjectID = projectID
+	// Ownership and revision are assigned by the sync recorder, never by a
+	// browser payload. A forged owner could route a shared product to one site.
+	p.SyncMeta = store.SyncMeta{}
+	p.SourceTemplateCode = ""
+	p.SourceTemplateRev = 0
 	if !canAccessProduct(r, &p) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
 
 	if err := store.SaveProduct(&p); err != nil {
+		if writeConfigMutationError(r, err) {
+			return
+		}
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -173,14 +181,50 @@ func (s *Server) handleUpdateProduct(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
-	if existing.TenantID == 0 {
+	if existing.TenantID == 0 && store.LocalConfigGatewayCode() == "" {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Cannot modify global product"})
 		return
 	}
 	p.TenantID = existing.TenantID
 	p.ProjectID = existing.ProjectID
+	if gatewayCode := store.LocalConfigGatewayCode(); gatewayCode != "" && existing.OwnerNode == "" {
+		if tenantID, projectID, err := currentTenantProjectScope(r); err == nil {
+			if p.TenantID == 0 {
+				p.TenantID = tenantID
+			}
+			if p.ProjectID == 0 {
+				p.ProjectID = projectID
+			}
+		}
+		instance, err := store.ForkGatewayProduct(code, gatewayCode, &p)
+		if err != nil {
+			if writeConfigMutationError(r, err) {
+				return
+			}
+			r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+			return
+		}
+		if saved, err := store.GetProduct(instance.Code); err == nil {
+			s.DeviceManager.Registry.UpdateProduct(saved)
+		}
+		if devices, err := store.ListDevicesByProduct(instance.Code); err == nil {
+			for i := range devices {
+				s.DeviceManager.Registry.UpdateDevice(&devices[i])
+				if devices[i].Enabled {
+					if err := s.DeviceManager.RestartDevice(devices[i].Code); err != nil {
+						s.Logger.Warn("Could not activate derived product on device", zap.String("device", devices[i].Code), zap.Error(err))
+					}
+				}
+			}
+		}
+		r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{"code": instance.Code, "source_template_code": code}, "message": "Gateway product instance updated"})
+		return
+	}
 
 	if err := store.UpdateProduct(&p); err != nil {
+		if writeConfigMutationError(r, err) {
+			return
+		}
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -233,6 +277,9 @@ func (s *Server) handleDeleteProduct(r *ghttp.Request) {
 		return
 	}
 	if err := store.DeleteProduct(code); err != nil {
+		if writeConfigMutationError(r, err) {
+			return
+		}
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -339,6 +386,13 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 		filter.IncludeCodes = alarmCodes
 	}
 
+	// The gateway identity remains available to Cascade, but is not an attached
+	// device on its own console. Exclude it before counting and pagination.
+	localGatewayCode := store.LocalConfigGatewayCode()
+	if localGatewayCode != "" {
+		filter.ExcludeCodes = append(filter.ExcludeCodes, localGatewayCode)
+	}
+
 	devices, total, err := store.ListDevicesWithFilter(page, pageSize, filter)
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
@@ -370,26 +424,34 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 	// High-performance microsecond stats aggregation for the tenant/project
 	var onlineCount, alarmCount int
 	if s.DeviceManager != nil {
-		onlineCount, alarmCount = s.DeviceManager.CountDeviceStats(tenantID, projectID, allowedArgs...)
+		onlineCount, alarmCount = s.DeviceManager.countDeviceStats(tenantID, projectID, localGatewayCode, allowedArgs...)
 	}
-	scopeTotal, err := store.CountDevices(tenantID, projectID, allowedArgs...)
+	scopeTotal, err := store.CountDevicesExcludingCode(tenantID, projectID, localGatewayCode, allowedArgs...)
 	if err != nil || (scopeTotal == 0 && total > 0 && filter.Search == "" && filter.ProductCode == "" && filter.ParentCode == "" && filter.Enabled == nil && filter.IncludeCodes == nil && filter.ExcludeCodes == nil && filter.TagID == 0) {
 		scopeTotal = total
+	}
+	parentGatewayModes, err := listDeviceParentGatewayModes(devices)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
+		return
 	}
 
 	// Enrich with status
 	type DeviceWithStatus struct {
 		store.Device
-		ParentName      string             `json:"parent_name"`
-		Status          string             `json:"status"` // "running", "stopped"
-		Online          bool               `json:"online"`
-		LastActive      time.Time          `json:"last_active"`
-		ProjectName     string             `json:"project_name"`
-		Tags            []store.DeviceTag  `json:"tags"`
-		AIHealthScore   *float64           `json:"ai_health_score,omitempty"`
-		AIHealthDetails map[string]float64 `json:"ai_health_details,omitempty"`
-		AILatched       bool               `json:"ai_latched,omitempty"`
-		AIHealthTrigger *float64           `json:"ai_health_trigger,omitempty"`
+		ParentName             string             `json:"parent_name"`
+		GatewayMaintenanceMode string             `json:"gateway_maintenance_mode,omitempty"`
+		GatewayOnline          *bool              `json:"gateway_online,omitempty"`
+		GatewayEnabled         *bool              `json:"gateway_enabled,omitempty"`
+		Status                 string             `json:"status"` // "running", "stopped"
+		Online                 bool               `json:"online"`
+		LastActive             time.Time          `json:"last_active"`
+		ProjectName            string             `json:"project_name"`
+		Tags                   []store.DeviceTag  `json:"tags"`
+		AIHealthScore          *float64           `json:"ai_health_score,omitempty"`
+		AIHealthDetails        map[string]float64 `json:"ai_health_details,omitempty"`
+		AILatched              bool               `json:"ai_latched,omitempty"`
+		AIHealthTrigger        *float64           `json:"ai_health_trigger,omitempty"`
 	}
 
 	result := make([]DeviceWithStatus, 0)
@@ -502,18 +564,29 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 			}
 		}
 
+		var gatewayOnline, gatewayEnabled *bool
+		if parent, ok := parentGatewayModes[d.ParentCode]; ok {
+			online := false
+			if parentStatus, exists := s.DeviceManager.GetStatus(d.ParentCode); exists {
+				online = parentStatus.Online
+			}
+			gatewayOnline, gatewayEnabled = &online, &parent.Enabled
+		}
 		result = append(result, DeviceWithStatus{
-			Device:          d,
-			ParentName:      parentName,
-			Status:          status,
-			Online:          online,
-			LastActive:      lastActive,
-			ProjectName:     projectNames[d.ProjectID],
-			Tags:            tagsByDevice[d.Code],
-			AIHealthScore:   healthScore,
-			AIHealthDetails: healthDetails,
-			AILatched:       isLatched,
-			AIHealthTrigger: healthTrigger,
+			Device:                 d,
+			ParentName:             parentName,
+			GatewayMaintenanceMode: parentGatewayModes[d.ParentCode].Mode,
+			GatewayOnline:          gatewayOnline,
+			GatewayEnabled:         gatewayEnabled,
+			Status:                 status,
+			Online:                 online,
+			LastActive:             lastActive,
+			ProjectName:            projectNames[d.ProjectID],
+			Tags:                   tagsByDevice[d.Code],
+			AIHealthScore:          healthScore,
+			AIHealthDetails:        healthDetails,
+			AILatched:              isLatched,
+			AIHealthTrigger:        healthTrigger,
 		})
 	}
 
@@ -529,6 +602,39 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 			"alarm":  alarmCount,
 		},
 	})
+}
+
+// listDeviceParentGatewayModes enriches one response page in a single query.
+// Ordinary parent devices never acquire a gateway badge from stale state rows.
+type parentGatewayState struct {
+	GatewayCode string
+	Mode        string
+	Enabled     bool
+}
+
+func listDeviceParentGatewayModes(devices []store.Device) (map[string]parentGatewayState, error) {
+	modes := make(map[string]parentGatewayState)
+	parents := make(map[string]bool)
+	parentCodes := make([]string, 0, len(devices))
+	for _, device := range devices {
+		if device.ParentCode != "" && !parents[device.ParentCode] {
+			parents[device.ParentCode] = true
+			parentCodes = append(parentCodes, device.ParentCode)
+		}
+	}
+	if len(parentCodes) == 0 {
+		return modes, nil
+	}
+	var states []parentGatewayState
+	err := store.DB.Model(&store.Device{}).
+		Select("devices.code AS gateway_code, devices.enabled, COALESCE(gateway_maintenances.mode, ?) AS mode", store.GatewayModeNormal).
+		Joins("LEFT JOIN gateway_maintenances ON gateway_maintenances.gateway_code = devices.code").
+		Where("devices.code IN ? AND devices.product_code = ?", parentCodes, "noyo-gw").
+		Scan(&states).Error
+	for _, state := range states {
+		modes[state.GatewayCode] = state
+	}
+	return modes, err
 }
 
 func validateDeviceProtocolBinding(device store.Device, parentDevice *store.Device) error {
@@ -565,6 +671,8 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 	}
 	d.TenantID = tenantID
 	d.ProjectID = projectID
+	// The local recorder owns routing metadata; clients may only edit content.
+	d.SyncMeta = store.SyncMeta{}
 	if !canAccessDevice(r, &d) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
@@ -624,6 +732,9 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 	}
 
 	if err := store.SaveDevice(&d); err != nil {
+		if writeConfigMutationError(r, err) {
+			return
+		}
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -799,17 +910,25 @@ func (s *Server) handleDeleteDevice(r *ghttp.Request) {
 		parentCode = device.ParentCode
 	}
 
-	// Stop if running
-	s.DeviceManager.StopDevice(code)
-
 	if err := store.DeleteDevice(code); err != nil {
+		if writeConfigMutationError(r, err) {
+			return
+		}
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
-
-	// Restart Parent if this was a sub-device
-	if parentCode != "" {
-		s.restartParent(parentCode)
+	// A platform delete can commit only an intent while retaining the gateway's
+	// confirmed device. Keep its runtime and online state until canonical deletion.
+	_, rowErr := store.GetDevice(code)
+	if rowErr != nil && rowErr != gorm.ErrRecordNotFound {
+		r.Response.WriteJson(g.Map{"code": 500, "message": rowErr.Error()})
+		return
+	}
+	if rowErr == gorm.ErrRecordNotFound {
+		s.DeviceManager.StopDevice(code)
+		if parentCode != "" {
+			s.restartParent(parentCode)
+		}
 	}
 
 	s.DeviceManager.EventBus.Publish(types.Event{
@@ -838,7 +957,10 @@ func (s *Server) handleStartDevice(r *ghttp.Request) {
 		return
 	}
 	device.Enabled = true
-	if err := store.SaveDevice(device); err != nil {
+	if err := store.SaveDeviceAutomatically(device); err != nil {
+		if writeConfigMutationError(r, err) {
+			return
+		}
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -881,7 +1003,10 @@ func (s *Server) handleStopDevice(r *ghttp.Request) {
 		return
 	}
 	device.Enabled = false
-	if err := store.SaveDevice(device); err != nil {
+	if err := store.SaveDeviceAutomatically(device); err != nil {
+		if writeConfigMutationError(r, err) {
+			return
+		}
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}
@@ -906,7 +1031,7 @@ func (s *Server) handleStopDevice(r *ghttp.Request) {
 	for _, child := range childDevices {
 		if child.ParentCode == code && child.Enabled {
 			child.Enabled = false
-			store.SaveDevice(&child)
+			store.SaveDeviceAutomatically(&child)
 			// Update Registry Cache
 			s.DeviceManager.Registry.UpdateDevice(&child)
 			s.DeviceManager.StopDevice(child.Code)

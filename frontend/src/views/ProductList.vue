@@ -45,6 +45,8 @@
 
     <ListBatchActions :count="selected.length" :busy="deleting || loading" permission="product:delete" @delete="batchDelete" @clear="clearSelection" class="mb-3" />
 
+    <ConfigurationStatusNotice :failed="configurationStatesUnavailable" :cached="hasConfigurationStates" @refresh="reloadConfigurationStates" />
+    <PendingConfigurationList entity-type="product" :intents="pendingConfigurationIntents" />
     <div class="card border-0 shadow-sm table-glass-card">
       <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
         <div class="table-responsive flex-grow-1">
@@ -107,7 +109,9 @@
                   <input type="checkbox" class="form-check-input" :checked="selected.includes(product.code)" :disabled="deleting || loading" @change="toggleSelection(product.code)" :aria-label="product.name || product.code">
                 </td>
                 <td class="ps-4 d-none d-md-table-cell font-mono small text-truncate" style="max-width: 200px;" :title="product.code">{{ product.code }}</td>
-                <td class="fw-bold text-truncate" style="max-width: 200px;" :title="product.name">{{ product.name }}</td>
+                <td class="fw-bold text-truncate" style="max-width: 200px;" :title="product.name">
+                  {{ product.name }} <ConfigSyncBadge :state="configurationStateFor(product)" :reason="configurationErrorFor(product)" />
+                </td>
                 <td v-if="showProjectColumn" class="d-none d-lg-table-cell">
                   <span class="badge text-bg-light border">{{ product.project_name || '-' }}</span>
                 </td>
@@ -204,6 +208,7 @@
           <i class="bi bi-dash-circle me-1"></i>{{ $t('prod_tsl_not_configured') }}
         </span>
       </template>
+      <ConfigurationStatePanel v-if="drawerVisible && drawerProduct?.code" entity-type="product" :entity-code="drawerProduct.code" :gateway-code="drawerProduct.gateway_code || ''" />
       <!-- 基本信息 -->
       <section class="noyo-drawer-section">
         <h6 class="noyo-drawer-section-title">{{ $t('drawer_basic_info') }}</h6>
@@ -274,12 +279,19 @@ import ListBatchActions from '../components/ListBatchActions.vue';
 import { useListSelection } from '../composables/useListSelection.js';
 import { useBatchDelete } from '../composables/useBatchDelete.js';
 import CompactListMetrics from '../components/CompactListMetrics.vue';
+import ConfigSyncBadge from '../components/cascade/ConfigSyncBadge.vue';
+import ConfigurationStatePanel from '../components/cascade/ConfigurationStatePanel.vue';
+import PendingConfigurationList from '../components/cascade/PendingConfigurationList.vue';
+import ConfigurationStatusNotice from '../components/cascade/ConfigurationStatusNotice.vue';
+import { useConfigurationStates } from '../composables/useConfigurationStates.js';
+import { resolveApiErrorMessage } from '../utils/apiMessages.js';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const { confirmDialog } = useConfirm();
 const { showToast } = useToast();
 
 const products = ref([]);
+const { configurationStateFor, configurationErrorFor, pendingConfigurationIntents, configurationStatesUnavailable, hasConfigurationStates, reloadConfigurationStates } = useConfigurationStates('product', products);
 const loading = ref(false);
 const showCreateModal = ref(false);
 const showTSLModal = ref(false);
@@ -397,6 +409,7 @@ const { deleting, batchDelete } = useBatchDelete({
 });
 
 const fetchProducts = async () => {
+  reloadConfigurationStates();
   loading.value = true;
   try {
     const res = await axios.get('/api/products', {
@@ -481,11 +494,11 @@ const saveProduct = async () => {
       showToast('success', t('prod_save_success'));
       fetchProducts();
     } else {
-      showToast('danger', res.data.message || t('common_save_fail'));
+      showToast('danger', resolveApiErrorMessage(res.data, locale.value, t('common_save_fail')));
     }
   } catch (e) {
     console.error(e);
-    showToast('danger', t('common_save_fail'));
+    showToast('danger', resolveApiErrorMessage(e, locale.value, t('common_save_fail')));
   }
 };
 
@@ -574,11 +587,11 @@ const saveTSL = async () => {
       showToast('success', t('prod_save_success'));
       fetchProducts(); // Refresh list
     } else {
-      showToast('danger', res.data.message || t('common_save_fail'));
+      showToast('danger', resolveApiErrorMessage(res.data, locale.value, t('common_save_fail')));
     }
   } catch (e) {
     console.error(e);
-    showToast('danger', t('common_save_fail'));
+    showToast('danger', resolveApiErrorMessage(e, locale.value, t('common_save_fail')));
   }
 };
 
@@ -599,11 +612,11 @@ const deleteProduct = async (code) => {
       showToast('success', t('prod_delete_success'));
       fetchProducts();
     } else {
-      showToast('danger', res.data.message || t('common_delete_fail'));
+      showToast('danger', resolveApiErrorMessage(res.data, locale.value, t('common_delete_fail')));
     }
   } catch (e) {
     console.error(e);
-    showToast('danger', t('common_delete_fail'));
+    showToast('danger', resolveApiErrorMessage(e, locale.value, t('common_delete_fail')));
   }
 };
 

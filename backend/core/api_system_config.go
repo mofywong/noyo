@@ -30,17 +30,20 @@ func (s *Server) handleUpdateSystemConfig(r *ghttp.Request) {
 
 	portChanged := req.Server.Port > 0 && s.Config.Server.Port != req.Server.Port
 
-	// Update config in memory
-	s.Config.Server = req.Server
-	s.Config.TSDB = req.TSDB
-	s.Config.Log = req.Log
-	SetLoggerLevel(req.Log.Level)
-	store.SetDBLogLevel(req.Log.Level)
+	next := *s.Config
+	next.Server = req.Server
+	next.TSDB = req.TSDB
+	next.Log = req.Log
 
 	// Save to database
-	if err := store.SaveGlobalConfig(s.Config); err != nil {
+	if err := store.SaveGlobalConfig(&next); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to save config: " + err.Error()})
 		return
+	}
+	if store.LocalConfigGatewayCode() == "" || !store.HasProtectedConfigSink() {
+		*s.Config = next
+		SetLoggerLevel(req.Log.Level)
+		store.SetDBLogLevel(req.Log.Level)
 	}
 
 	r.Response.WriteJson(g.Map{

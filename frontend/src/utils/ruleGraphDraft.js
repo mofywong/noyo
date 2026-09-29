@@ -162,7 +162,7 @@ export function buildRuleGraphDraft(rule = {}) {
       code: rule.code || '',
       name: rule.name || '',
       description: rule.description || '',
-      group_id: rule.group_id || rule.GroupID || null,
+      group_code: rule.group_code || null,
       priority: rule.priority || 50,
       throttle_sec: rule.throttle_sec || 60,
       max_per_hour: rule.max_per_hour || 60,
@@ -420,7 +420,7 @@ export function graphDraftToPayload(draft, enable = false) {
   const rootConditions = draft.conditionGroups[0]
   return {
     ...draft.meta,
-    group_id: draft.meta.group_id || null,
+    group_code: draft.meta.group_code || null,
     effective_time: draft.effectiveTime || defaultEffectiveTime(),
     triggers: draft.triggers.map(({ kind, ...trigger }) => trigger),
     conditions: hasConditionContent(rootConditions) ? conditionGroupToPayload(rootConditions) : null,

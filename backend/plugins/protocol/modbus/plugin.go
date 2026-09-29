@@ -8,12 +8,12 @@ import (
 	"io"
 	"log"
 	"math"
+	"net"
 	"noyo/core"
 	"noyo/core/protocol"
 	"noyo/core/store"
 	"noyo/core/types"
 	"noyo/plugins/protocol/modbus/codec"
-	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,7 +52,7 @@ func (p *ModbusPlugin) EnsureDriverExists() error {
 			changed = true
 		}
 		if changed {
-			if err := store.SaveProtocolProfile(profile); err != nil {
+			if err := store.SaveProtocolProfileAutomatically(profile); err != nil {
 				if p.Logger != nil {
 					p.Logger.Error("Failed to update default Modbus TCP driver", zap.Error(err))
 				}
@@ -62,7 +62,7 @@ func (p *ModbusPlugin) EnsureDriverExists() error {
 		return nil
 	}
 
-	if err := store.SaveProtocolProfile(expected); err != nil {
+	if err := store.SaveProtocolProfileAutomatically(expected); err != nil {
 		if p.Logger != nil {
 			p.Logger.Error("Failed to create default Modbus TCP driver", zap.Error(err))
 		}
@@ -122,7 +122,7 @@ type DeviceRuntimeState struct {
 
 func init() {
 	core.InstallPlugin[ModbusPlugin](core.PluginMeta{
-		Name:     "Modbus",
+		Name: "Modbus",
 		Title: map[string]string{
 			"en": "Modbus TCP Protocol",
 			"zh": "Modbus TCP 协议",
@@ -389,7 +389,9 @@ func (p *ModbusPlugin) ReportOnline(deviceCode string, online bool) {
 // BatchAddDevice implements IProtocolPlugin
 func (p *ModbusPlugin) BatchAddDevice(devices []types.DeviceMeta) error {
 	for _, dev := range devices {
-		p.addDevice(dev)
+		if err := p.addDevice(dev); err != nil {
+			return fmt.Errorf("load Modbus device %s: %w", dev.DeviceCode, err)
+		}
 	}
 	return nil
 }

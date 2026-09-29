@@ -136,8 +136,10 @@ func (s *Server) handleCreateProtocolProfile(r *ghttp.Request) {
 		Description:  req.Description,
 		Config:       configStr,
 	}
-
 	if err := store.SaveProtocolProfile(pp); err != nil {
+		if writeConfigMutationError(r, err) {
+			return
+		}
 		r.Response.WriteStatus(500, g.Map{"error": "Failed to save protocol profile: " + err.Error()})
 		r.ExitAll()
 	}
@@ -161,7 +163,7 @@ func (s *Server) handleUpdateProtocolProfile(r *ghttp.Request) {
 		r.ExitAll()
 	}
 
-	if isSystemProtocolProfile(pp) {
+	if isSystemProtocolProfile(pp) && (store.LocalConfigGatewayCode() == "" || pp.OwnerNode != "") {
 		r.Response.WriteStatus(400, g.Map{"error": "系统内置驱动由平台维护，禁止编辑 / System-managed drivers cannot be edited"})
 		r.ExitAll()
 	}
@@ -222,7 +224,37 @@ func (s *Server) handleUpdateProtocolProfile(r *ghttp.Request) {
 		}
 	}
 
+	if gatewayCode := store.LocalConfigGatewayCode(); gatewayCode != "" && pp.OwnerNode == "" {
+		if pp.TenantID == 0 {
+			pp.TenantID = tenantID
+		}
+		if pp.ProjectID == 0 {
+			pp.ProjectID = projectID
+		}
+		instance, err := store.ForkGatewayProtocolProfile(code, gatewayCode, pp)
+		if err != nil {
+			if writeConfigMutationError(r, err) {
+				return
+			}
+			r.Response.WriteStatus(500, g.Map{"error": err.Error()})
+			return
+		}
+		if devices, err := store.ListDevicesByProtocolProfile(instance.Code); err == nil {
+			for i := range devices {
+				s.DeviceManager.Registry.UpdateDevice(&devices[i])
+				if devices[i].Enabled {
+					_ = s.DeviceManager.RestartDevice(devices[i].Code)
+				}
+			}
+		}
+		r.Response.WriteJson(instance)
+		return
+	}
+
 	if err := store.SaveProtocolProfile(pp); err != nil {
+		if writeConfigMutationError(r, err) {
+			return
+		}
 		r.Response.WriteStatus(500, g.Map{"error": "Failed to update protocol profile: " + err.Error()})
 		r.ExitAll()
 	}
@@ -255,6 +287,9 @@ func (s *Server) handleDeleteProtocolProfile(r *ghttp.Request) {
 	}
 
 	if err := store.DeleteProtocolProfile(code); err != nil {
+		if writeConfigMutationError(r, err) {
+			return
+		}
 		r.Response.WriteStatus(500, g.Map{"error": "Failed to delete protocol profile: " + err.Error()})
 		r.ExitAll()
 	}

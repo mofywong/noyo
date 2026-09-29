@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"noyo/core/platform"
 	"noyo/core/protocol"
@@ -81,6 +82,10 @@ func (pm *PluginManager) IsAllowed(meta PluginMeta) bool {
 
 // createInstance creates and initializes a plugin instance
 func (pm *PluginManager) createInstance(meta PluginMeta) (interface{}, error) {
+	return pm.createInstanceWithStartupRecovery(meta, false)
+}
+
+func (pm *PluginManager) createInstanceWithStartupRecovery(meta PluginMeta, recoverActive bool) (interface{}, error) {
 	// 1. Create instance via reflection
 	instance := reflect.New(meta.Type).Interface()
 
@@ -88,7 +93,7 @@ func (pm *PluginManager) createInstance(meta PluginMeta) (interface{}, error) {
 
 	// A. Protocol Plugin
 	if p, ok := instance.(protocol.IProtocolPlugin); ok {
-		cfgData, err := pm.configurePlugin(p, instance, meta)
+		cfgData, err := pm.configurePluginWithStartupRecovery(p, instance, meta, recoverActive)
 		if err != nil {
 			return nil, err
 		}
@@ -101,7 +106,7 @@ func (pm *PluginManager) createInstance(meta PluginMeta) (interface{}, error) {
 
 	// B. Platform Plugin
 	if p, ok := instance.(platform.IPlatformPlugin); ok {
-		cfgData, err := pm.configurePlugin(p, instance, meta)
+		cfgData, err := pm.configurePluginWithStartupRecovery(p, instance, meta, recoverActive)
 		if err != nil {
 			return nil, err
 		}
@@ -122,10 +127,20 @@ type pluginConfigResult struct {
 }
 
 func (pm *PluginManager) loadPluginConfigData(meta PluginMeta) (*pluginConfigResult, error) {
+	return pm.loadPluginConfigDataWithStartupRecovery(meta, false)
+}
+
+func (pm *PluginManager) loadPluginConfigDataWithStartupRecovery(meta PluginMeta, recoverActive bool) (*pluginConfigResult, error) {
 	// Try to load from Database
 	model, err := loadRuntimePluginConfigModel(meta.Name)
 	if err != nil {
 		return nil, err
+	}
+	if recoverActive {
+		model, err = loadLastActivePluginConfigModel(meta.Name, model)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if model != nil {
@@ -149,6 +164,63 @@ func loadRuntimePluginConfigModel(name string) (*store.PluginModel, error) {
 	return store.GetPlugin(name)
 }
 
+// Recovery is used only during process initialization. ReloadPlugin must read
+// the committed desired model so a corrected configuration can still activate.
+func loadLastActivePluginConfigModel(name string, desired *store.PluginModel) (*store.PluginModel, error) {
+	tenantID, projectID, scoped := singleProjectRuntimePluginScope()
+	if !scoped {
+		return desired, nil
+	}
+	rows, err := store.LastActiveRuntimeConfigs()
+	if err != nil {
+		return nil, err
+	}
+	var restored *store.PluginModel
+	for _, row := range rows {
+		if row.EntityType != store.SyncEntityPluginConfig || !strings.HasSuffix(row.EntityCode, "/"+name) {
+			continue
+		}
+		if gateway := store.LocalConfigGatewayCode(); gateway != "" && row.EntityCode != store.ProtectedConfigCode(gateway, "plugin", name) {
+			continue
+		}
+		if row.ActivePayload == "" {
+			// A newly admitted plugin has no usable prior instance to start.
+			if restored != nil {
+				return nil, fmt.Errorf("ambiguous recovery configuration for plugin %s", name)
+			}
+			restored = &store.PluginModel{Name: name, TenantID: tenantID, ProjectID: projectID, Config: "{}"}
+			continue
+		}
+		var active store.ProtectedConfig
+		if err := json.Unmarshal([]byte(row.ActivePayload), &active); err != nil {
+			return nil, fmt.Errorf("decode active plugin %s: %w", name, err)
+		}
+		if err := active.Validate(); err != nil {
+			return nil, err
+		}
+		if active.Code != row.EntityCode || active.Kind != "plugin" || active.PluginName != name || active.TenantID != tenantID || active.ProjectID != projectID {
+			return nil, fmt.Errorf("active plugin %s does not match runtime resource and scope", name)
+		}
+		if restored != nil {
+			return nil, fmt.Errorf("ambiguous recovery configuration for plugin %s", name)
+		}
+		enabled, ok := active.Config["enabled"].(bool)
+		if !ok {
+			return nil, fmt.Errorf("active plugin %s has no enabled state", name)
+		}
+		delete(active.Config, "enabled")
+		encoded, err := json.Marshal(active.Config)
+		if err != nil {
+			return nil, err
+		}
+		restored = &store.PluginModel{Name: name, TenantID: tenantID, ProjectID: projectID, Enabled: enabled, Config: string(encoded), Revision: active.Revision}
+	}
+	if restored != nil {
+		return restored, nil
+	}
+	return desired, nil
+}
+
 // IConfigurablePlugin defines plugins that can be configured programmatically
 type IConfigurablePlugin interface {
 	SetMeta(meta *PluginMeta)
@@ -157,8 +229,12 @@ type IConfigurablePlugin interface {
 
 // configurePlugin handles common configuration logic (Meta, Enabled, Config)
 func (pm *PluginManager) configurePlugin(p interface{}, instance interface{}, meta PluginMeta) (map[string]interface{}, error) {
+	return pm.configurePluginWithStartupRecovery(p, instance, meta, false)
+}
+
+func (pm *PluginManager) configurePluginWithStartupRecovery(p interface{}, instance interface{}, meta PluginMeta, recoverActive bool) (map[string]interface{}, error) {
 	// 1. Load Config
-	configResult, err := pm.loadPluginConfigData(meta)
+	configResult, err := pm.loadPluginConfigDataWithStartupRecovery(meta, recoverActive)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +311,7 @@ func (pm *PluginManager) InitPlugins() error {
 	if hasLicenseAuth {
 		pm.Server.Logger.Info("Initializing license_auth plugin", zap.String("name", licenseAuthMeta.Name))
 		// We need to temporarily hold the lock just to add it to the map
-		instance, err := pm.createInstance(licenseAuthMeta)
+		instance, err := pm.createInstanceWithStartupRecovery(licenseAuthMeta, true)
 		if err != nil {
 			pm.Server.Logger.Error("Failed to create license_auth plugin instance", zap.Error(err))
 		} else {
@@ -272,7 +348,7 @@ func (pm *PluginManager) InitPlugins() error {
 
 		pm.Server.Logger.Info("Initializing plugin", zap.String("name", meta.Name))
 
-		instance, err := pm.createInstance(meta)
+		instance, err := pm.createInstanceWithStartupRecovery(meta, true)
 		if err != nil {
 			pm.Server.Logger.Error("Failed to create plugin instance", zap.String("name", meta.Name), zap.Error(err))
 			continue
@@ -428,13 +504,37 @@ func (pm *PluginManager) ReloadPlugin(name string) error {
 
 	// Stop old instance outside pm.mu lock
 	if err := oldInstance.Stop(); err != nil {
-		pm.Server.Logger.Error("Failed to stop plugin during reload", zap.String("plugin", name), zap.Error(err))
+		return &RuntimeActivationError{Cause: fmt.Errorf("stop plugin %s: %w", name, err), CompensationStatus: store.RuntimeCompensationFailed, CompensationError: err}
+	}
+	restoreOld := func(cause error, candidate IManagedPlugin) error {
+		var stopErr error
+		if candidate != nil {
+			stopErr = candidate.Stop()
+		}
+		var restoreErr error
+		if oldInstance.IsEnabled() {
+			restoreErr = oldInstance.Start()
+		}
+		pm.mu.Lock()
+		if p, ok := oldInstance.(protocol.IProtocolPlugin); ok {
+			pm.ProtocolPlugins[name] = p
+		}
+		if p, ok := oldInstance.(platform.IPlatformPlugin); ok {
+			pm.PlatformPlugins[name] = p
+		}
+		pm.mu.Unlock()
+		compensationErr := errors.Join(stopErr, restoreErr)
+		status := store.RuntimeCompensated
+		if compensationErr != nil {
+			status = store.RuntimeCompensationFailed
+		}
+		return &RuntimeActivationError{Cause: cause, CompensationStatus: status, CompensationError: compensationErr}
 	}
 
 	// Re-create using registered meta (which calls Init) outside pm.mu lock
 	newInstance, err := pm.createInstance(registeredMeta)
 	if err != nil {
-		return fmt.Errorf("failed to create new instance for plugin %s: %w", name, err)
+		return restoreOld(fmt.Errorf("failed to create new instance for plugin %s: %w", name, err), nil)
 	}
 
 	// Start new if enabled
@@ -444,7 +544,7 @@ func (pm *PluginManager) ReloadPlugin(name string) error {
 	} else if p, ok := newInstance.(platform.IPlatformPlugin); ok {
 		newManaged = p
 	} else {
-		return fmt.Errorf("reloaded plugin %s is not valid type", name)
+		return restoreOld(fmt.Errorf("reloaded plugin %s is not valid type", name), nil)
 	}
 
 	// Update instance map under write lock
@@ -459,7 +559,7 @@ func (pm *PluginManager) ReloadPlugin(name string) error {
 	// Start new instance outside pm.mu lock to prevent deadlocks when Start() accesses other plugins
 	if newManaged.IsEnabled() {
 		if err := newManaged.Start(); err != nil {
-			return fmt.Errorf("failed to start reloaded plugin %s: %w", name, err)
+			return restoreOld(fmt.Errorf("failed to start reloaded plugin %s: %w", name, err), newManaged)
 		}
 	} else {
 		pm.Server.Logger.Info("Plugin reloaded but disabled, skipping start", zap.String("name", name))

@@ -12,31 +12,45 @@ import (
 // Every message carries a "type" discriminator so a single topic pair per
 // direction is enough; adding a message kind never requires a new subscription.
 const (
-	syncMsgHello         = "hello"
-	syncMsgChanges       = "changes"
-	syncMsgAck           = "ack"
-	syncMsgCursorExpired = "cursor_expired"
+	syncMsgSnapshotRequest = "snapshot_request"
+	syncMsgSnapshotBegin   = "snapshot_begin"
+	syncMsgSnapshotChunk   = "snapshot_chunk"
+	syncMsgSnapshotEnd     = "snapshot_end"
+	syncMsgSnapshotAck     = "snapshot_ack"
+	syncMsgHello           = "hello"
+	syncMsgChanges         = "changes"
+	syncMsgAck             = "ack"
+	syncMsgCursorExpired   = "cursor_expired"
 	// syncMsgNodeConfig carries node-level settings that are not entities and
 	// therefore have no place in the change log. It replaced the media network
 	// block that used to ride along with the full configuration snapshot.
-	syncMsgNodeConfig = "node_config"
+	syncMsgNodeConfig             = "node_config"
+	syncMsgMaintenanceState       = "maintenance_state"
+	syncMsgMaintenanceRequest     = "maintenance_request"
+	syncMsgMaintenanceHandoverAck = "maintenance_handover_ack"
+	syncMsgRuntimeResult          = "runtime_result"
+	syncMsgRuntimeResultAck       = "runtime_result_ack"
 )
 
-// Per-change acknowledgement statuses. The sender advances its cursor on every
-// one of them: a change that will never apply (rejected) must not block the
-// stream, or the cursor would stall forever.
+// Per-change acknowledgement statuses. Rejected is retried after maintenance
+// ends or a transient error is repaired; it never advances the receive cursor.
 const (
 	syncStatusApplied  = "applied"
 	syncStatusSkipped  = "skipped"
 	syncStatusConflict = "conflict"
 	syncStatusRejected = "rejected"
+	// Failed is a durable business outcome. It consumes the transport record
+	// without applying configuration or blocking unrelated resources.
+	syncStatusFailed = "failed"
 )
 
 const (
 	// syncBatchLimit caps how many changes travel in one message.
 	syncBatchLimit = 200
 	// syncProtocolVersion is the protocol revision advertised during handshake.
-	syncProtocolVersion = 1
+	// Dependency envelopes and terminal failure ACKs require both peers to
+	// understand v3; a v2 peer must not silently accept an incomplete request.
+	syncProtocolVersion = store.SyncCursorProtocolVersion
 	// cloudSyncNodeID is the platform's identity, used as the cursor key on the
 	// gateway and as the origin node of platform-produced changes.
 	cloudSyncNodeID = "cloud"
@@ -46,9 +60,8 @@ const (
 	// acknowledge. Pushes run off the write path, so a slow broker delays
 	// propagation rather than the user's save.
 	syncPublishTimeout = 5 * time.Second
-	// syncTombstoneRetention is how long a deletion record is kept after every
-	// peer has acknowledged it. A peer offline longer than this cannot be caught
-	// up incrementally and is asked to restart instead.
+	// Kept for the dormant pruning helper. The scheduler does not invoke it
+	// until a full snapshot recovery protocol is available.
 	syncTombstoneRetention = 30 * 24 * time.Hour
 )
 
@@ -56,7 +69,14 @@ const (
 // shared across message kinds and left zero when unused, which keeps decoding
 // trivial on both sides.
 type syncMessage struct {
-	Type string `json:"type"`
+	Type          string          `json:"type"`
+	SessionToken  string          `json:"session_token,omitempty"`
+	HelloCode     string          `json:"hello_code,omitempty"`
+	SnapshotCode  string          `json:"snapshot_code,omitempty"`
+	Snapshot      *configSnapshot `json:"snapshot,omitempty"`
+	SnapshotHash  string          `json:"snapshot_hash,omitempty"`
+	SnapshotParts int             `json:"snapshot_parts,omitempty"`
+	SnapshotIndex int             `json:"snapshot_index,omitempty"`
 	// NodeID identifies the sender and keys the receiver's cursor row.
 	NodeID string `json:"node_id"`
 	// InstanceID identifies the sender's change log. A change here means the
@@ -87,12 +107,19 @@ type syncMessage struct {
 	Need   string `json:"need,omitempty"`
 
 	// Node-level settings.
-	MediaNetwork *SyncMediaNetwork `json:"media_network,omitempty"`
+	MediaNetwork      *SyncMediaNetwork         `json:"media_network,omitempty"`
+	Maintenance       *store.GatewayMaintenance `json:"maintenance,omitempty"`
+	MaintenanceAction string                    `json:"maintenance_action,omitempty"`
+	RuntimeResult     *store.RuntimeApply       `json:"runtime_result,omitempty"`
+	RuntimeChangeID   string                    `json:"runtime_change_id,omitempty"`
+	RuntimeAttempts   int                       `json:"runtime_attempts,omitempty"`
 }
 
 type syncAckResult struct {
-	ChangeID string `json:"change_id"`
-	Status   string `json:"status"`
+	ChangeID  string `json:"change_id"`
+	Status    string `json:"status"`
+	ErrorCode string `json:"error_code,omitempty"`
+	LastError string `json:"last_error,omitempty"`
 }
 
 // syncPeerRef identifies the remote side of a synchronization session.

@@ -29,6 +29,7 @@ type platformEngineImpl struct {
 	mediaSignalMu      sync.RWMutex
 	mediaSignalHandler func(platform.MediaSignal)
 	cancel             context.CancelFunc
+	pluginReconcileMu  sync.Mutex
 	// syncHub owns one synchronization session per gateway.
 	syncHub *syncHub
 	// recorder turns local writes into the propagation log.
@@ -100,6 +101,12 @@ func (e *platformEngineImpl) Start() error {
 	}
 
 	e.client = mqtt.NewClient(opts)
+	// The first OnConnect may run during Connect, so the sync session and
+	// mutation recorder must already exist when that callback sends hello.
+	if err := e.initSync(); err != nil {
+		videoCancel()
+		return fmt.Errorf("platform engine failed to initialize sync: %w", err)
+	}
 	if token := e.client.Connect(); token.Wait() && token.Error() != nil {
 		videoCancel()
 		return fmt.Errorf("platform engine failed to connect to mqtt broker: %w", token.Error())
@@ -110,16 +117,12 @@ func (e *platformEngineImpl) Start() error {
 	// Reset all cascade devices to offline on startup
 	e.resetAllCascadeDevicesOffline()
 
-	// Wire the bidirectional change stream. This must happen after the client is
-	// connected so that changes recorded during startup have a transport.
-	if err := e.initSync(); err != nil {
-		videoCancel()
-		return fmt.Errorf("platform engine failed to initialize sync: %w", err)
-	}
-	go startSyncMaintenance(videoCtx, e.logger, cloudSyncNodeID)
+	// Keep the full change and idempotency history until snapshot recovery is
+	// available; an offline gateway may reconnect after the retention window.
 
 	// Register DB Hooks for config changes
 	e.registerDBHooks()
+	go e.retryPendingPluginConfigLoop(videoCtx)
 	return nil
 }
 
@@ -133,7 +136,7 @@ func EnsureGatewayProduct(logger *zap.Logger) {
 		if p.Name != expectedName || p.Config != expectedConfig {
 			p.Name = expectedName
 			p.Config = expectedConfig
-			if err := store.SaveProduct(p); err != nil {
+			if err := store.SaveProductAutomatically(p); err != nil {
 				logger.Error("Failed to update default gateway product", zap.Error(err))
 			} else {
 				logger.Info("Updated default gateway product", zap.String("code", defaultGatewayProductCode))
@@ -149,7 +152,7 @@ func EnsureGatewayProduct(logger *zap.Logger) {
 		Name:   expectedName,
 		Config: expectedConfig,
 	}
-	if err := store.SaveProduct(newProd); err != nil {
+	if err := store.SaveProductAutomatically(newProd); err != nil {
 		logger.Error("Failed to create default gateway product", zap.Error(err))
 		return
 	}
@@ -185,14 +188,14 @@ func ensureGatewayDefaultProfile(logger *zap.Logger) {
 			changed = true
 		}
 		if changed {
-			if err := store.SaveProtocolProfile(profile); err != nil {
+			if err := store.SaveProtocolProfileAutomatically(profile); err != nil {
 				logger.Error("Failed to update default gateway driver", zap.Error(err))
 			}
 		}
 		return
 	}
 
-	if err := store.SaveProtocolProfile(expected); err != nil {
+	if err := store.SaveProtocolProfileAutomatically(expected); err != nil {
 		logger.Error("Failed to create default gateway driver", zap.Error(err))
 	}
 }
@@ -459,7 +462,7 @@ func (e *platformEngineImpl) findTopLevelGateway(db *gorm.DB, deviceCode string)
 		if err := db.Unscoped().Where("code = ?", d.ProductCode).First(&p).Error; err != nil {
 			db.Unscoped().Where("code LIKE ?", d.ProductCode+"_del_%").Order("deleted_at DESC").First(&p)
 		}
-		if p.Code != "" && p.Name == "cascade" {
+		if p.Code == defaultGatewayProductCode {
 			return d.Code
 		}
 
@@ -797,7 +800,7 @@ func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.
 			return
 		}
 		if applyGatewayDeviceDefaults(gwDevice) {
-			if err := store.SaveDevice(gwDevice); err != nil {
+			if err := store.SaveDeviceAutomatically(gwDevice); err != nil {
 				e.logger.Error("Failed to save pre-registered gateway defaults", zap.Error(err))
 			}
 		}
@@ -856,7 +859,7 @@ func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.
 
 		// Auto-register the gateway device as "pending" (Enabled = false)
 		newDev := newPendingGatewayDevice(gwSn, gwName, targetTenantID, targetProjectID)
-		if err := store.SaveDevice(newDev); err != nil {
+		if err := store.SaveDeviceAutomatically(newDev); err != nil {
 			e.logger.Error("Failed to auto-register gateway device", zap.Error(err))
 		}
 	} else {
@@ -870,7 +873,7 @@ func (e *platformEngineImpl) handleRegisterRequest(client mqtt.Client, msg mqtt.
 			needsSave = true
 		}
 		if needsSave {
-			store.SaveDevice(gwDevice)
+			store.SaveDeviceAutomatically(gwDevice)
 		}
 		if gwDevice.Enabled {
 			resp.Status = "success"

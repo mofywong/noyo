@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,8 +20,13 @@ const (
 
 // Entity types that participate in cloud-edge change propagation.
 const (
-	SyncEntityDevice  = "device"
-	SyncEntityProduct = "product"
+	SyncEntityPluginConfig = "plugin_config"
+	SyncEntityNodeConfig   = "node_config"
+	SyncEntityDevice       = "device"
+	SyncEntityProduct      = "product"
+	SyncEntityDriver       = "driver"
+	SyncEntityRule         = "rule"
+	SyncEntityRuleGroup    = "rule_group"
 )
 
 // Sync states exposed on propagated entities.
@@ -31,7 +37,7 @@ const (
 )
 
 // SyncCursorProtocolVersion is the wire protocol version understood by this build.
-const SyncCursorProtocolVersion = 1
+const SyncCursorProtocolVersion = 3
 
 // SyncApplyingKey marks a GORM session whose writes are replays of a peer's
 // change stream. The change recorder must ignore those writes: recording them
@@ -58,8 +64,21 @@ type SyncChange struct {
 	Op         string `gorm:"size:16;not null" json:"op"`
 	BaseRev    int64  `gorm:"not null;default:0" json:"base_rev"`
 	NewRev     int64  `gorm:"not null;default:0" json:"new_rev"`
-	Payload    string `json:"payload,omitempty"`
-	OriginNode string `gorm:"size:128;index;not null" json:"origin_node"`
+	// LifecycleVersion distinguishes a reused business code from its previous
+	// incarnation. It is version metadata, never a resource API identifier.
+	LifecycleVersion int64  `gorm:"not null;default:1" json:"lifecycle_version"`
+	Payload          string `json:"payload,omitempty"`
+	// BasePayload is the committed configuration seen when the editor saved.
+	// It lets the gateway merge independent field groups after an offline edit.
+	BasePayload string `json:"base_payload,omitempty"`
+	// Dependencies are the binding baselines captured in the same transaction
+	// as an intent. Receivers may seed missing definitions, never overwrite a
+	// site's existing definition from this attachment.
+	Dependencies []SyncDependency `gorm:"serializer:json;type:text" json:"dependencies,omitempty"`
+	// PredecessorCode links successive platform intents without inventing a
+	// committed revision. Receivers resolve it against their durable result.
+	PredecessorCode string `gorm:"size:160" json:"predecessor_code,omitempty"`
+	OriginNode      string `gorm:"size:128;index;not null" json:"origin_node"`
 	// OriginInstance identifies the producer's change log. It is what makes a
 	// change identity survive a rebuild of that log: sequence numbers restart at
 	// 1 after a database loss, but the instance identifier does not repeat.
@@ -68,10 +87,30 @@ type SyncChange struct {
 	// comma-separated list of gateway codes, or "cloud" for edge-originated
 	// changes. An empty value means "scope-wide" and is fanned out to every
 	// gateway inside the change's tenant/project.
-	TargetNode string `gorm:"size:512" json:"target_node,omitempty"`
-	TenantID   uint   `gorm:"index;not null;default:0" json:"tenant_id"`
-	ProjectID  uint   `gorm:"index;not null;default:0" json:"project_id"`
-	CreatedAt  int64  `gorm:"index;not null" json:"created_at"`
+	TargetNode string `gorm:"type:text" json:"target_node,omitempty"`
+	// AckTargets freezes the gateways present when a scope-wide edit was saved.
+	// Routing stays scope-wide so a later gateway can replay the retained log,
+	// while the original edit can be marked synced after its original peers ACK.
+	AckTargets string `gorm:"type:text" json:"-"`
+	// ExcludedNode prevents a site-originated shared edit relayed by the cloud
+	// from being echoed back to the site that already committed it.
+	ExcludedNode string `gorm:"size:128" json:"-"`
+	TenantID     uint   `gorm:"index;not null;default:0" json:"tenant_id"`
+	ProjectID    uint   `gorm:"index;not null;default:0" json:"project_id"`
+	CreatedAt    int64  `gorm:"index;not null" json:"created_at"`
+}
+
+type SyncDependency struct {
+	EntityType       string `json:"entity_type"`
+	EntityCode       string `json:"entity_code"`
+	Revision         int64  `json:"revision"`
+	LifecycleVersion int64  `json:"lifecycle_version"`
+	Payload          string `json:"payload"`
+}
+
+type SyncFailure struct {
+	ErrorCode string `json:"error_code,omitempty"`
+	LastError string `json:"last_error,omitempty"`
 }
 
 // ChangeID returns the globally unique identity of the change.
@@ -112,8 +151,34 @@ func FormatChangeID(originNode string, seq int64) string {
 // processed. It is what makes repeated delivery (network retries, overlapping
 // catch-up ranges) side effect free.
 type AppliedChange struct {
+	ChangeID         string `gorm:"primaryKey;size:160"`
+	Status           string `gorm:"size:16;default:applied"`
+	AppliedAt        int64  `gorm:"not null"`
+	EntityType       string `gorm:"size:32"`
+	EntityCode       string `gorm:"size:128"`
+	OriginInstance   string `gorm:"size:64"`
+	TenantID         uint
+	ProjectID        uint
+	LifecycleVersion int64
+	ResultRevision   int64
+	ResultPayload    string `gorm:"type:text"`
+	// IntentBase/Payload retain the platform-authored part of a successful
+	// chain, separately from unrelated site edits present in ResultPayload.
+	IntentBase    string `gorm:"type:text"`
+	IntentPayload string `gorm:"type:text"`
+	ErrorCode     string `gorm:"size:64"`
+	LastError     string `gorm:"size:1024"`
+}
+
+// SyncDeliveryResult records what one gateway actually did with an outbound
+// change. A cursor alone cannot distinguish an applied edit from a conflict.
+type SyncDeliveryResult struct {
 	ChangeID  string `gorm:"primaryKey;size:160"`
-	AppliedAt int64  `gorm:"not null"`
+	PeerCode  string `gorm:"primaryKey;size:128"`
+	Status    string `gorm:"size:16;not null"`
+	UpdatedAt int64  `gorm:"not null"`
+	ErrorCode string `gorm:"size:64"`
+	LastError string `gorm:"size:1024"`
 }
 
 // SyncCursor tracks, for a single peer, how far our own change stream has been
@@ -136,7 +201,7 @@ type SyncCursor struct {
 	// LastAppliedSeq is the highest peer Seq applied locally.
 	LastAppliedSeq  int64 `gorm:"not null;default:0"`
 	LastOnlineAt    int64 `gorm:"not null;default:0"`
-	ProtocolVersion int   `gorm:"not null;default:1"`
+	ProtocolVersion int   `gorm:"not null;default:3"`
 	UpdatedAt       int64 `gorm:"not null;default:0"`
 }
 
@@ -258,35 +323,163 @@ func ListSyncChangesRange(afterSeq, throughSeq int64) ([]SyncChange, error) {
 	return changes, err
 }
 
-// MarkChangesSettled clears the pending flag on entities whose change a peer has
-// acknowledged. An entity is only settled when its stored revision still equals
-// the acknowledged one, so a newer local write correctly stays pending.
-func MarkChangesSettled(afterSeq, throughSeq int64) error {
-	changes, err := ListSyncChangesRange(afterSeq, throughSeq)
-	if err != nil {
-		return err
+// ResetSyncPeerInstance invalidates confirmations from a peer whose database
+// was rebuilt. A previously synchronized row becomes pending until the new
+// instance acknowledges the replayed change; other peers' results remain.
+func ResetSyncPeerInstance(c *SyncCursor) error {
+	if c == nil || c.PeerID == "" {
+		return fmt.Errorf("sync peer cursor is required")
 	}
-	for i := range changes {
-		ch := changes[i]
-		if ch.Op != SyncOpUpsert {
-			continue
-		}
-		var model interface{}
-		switch ch.EntityType {
-		case SyncEntityDevice:
-			model = &Device{}
-		case SyncEntityProduct:
-			model = &Product{}
-		default:
-			continue
-		}
-		if err := DB.Model(model).
-			Where("code = ? AND rev = ? AND sync_state = ?", ch.EntityCode, ch.NewRev, SyncStatePending).
-			Update("sync_state", SyncStateSynced).Error; err != nil {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var results []SyncDeliveryResult
+		if err := tx.Where("peer_code = ?", c.PeerID).Find(&results).Error; err != nil {
 			return err
 		}
+		for _, result := range results {
+			if result.Status != "applied" {
+				continue
+			}
+			separator := strings.LastIndexByte(result.ChangeID, ':')
+			if separator < 0 {
+				continue
+			}
+			seq, err := strconv.ParseInt(result.ChangeID[separator+1:], 10, 64)
+			if err != nil || seq < 1 {
+				continue
+			}
+			var change SyncChange
+			if err := tx.Where("seq = ?", seq).Take(&change).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			} else if err != nil {
+				return err
+			}
+			if change.ChangeID() != result.ChangeID || change.Op != SyncOpUpsert {
+				continue
+			}
+			model, versionColumn := syncStateModel(change.EntityType)
+			if model == nil {
+				continue
+			}
+			if err := tx.Model(model).Where("code = ? AND "+versionColumn+" = ? AND sync_state = ?", change.EntityCode, change.NewRev, SyncStateSynced).
+				Update("sync_state", SyncStatePending).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("peer_code = ?", c.PeerID).Delete(&SyncDeliveryResult{}).Error; err != nil {
+			return err
+		}
+		if c.ProtocolVersion == 0 {
+			c.ProtocolVersion = SyncCursorProtocolVersion
+		}
+		c.UpdatedAt = time.Now().UnixMilli()
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "peer_id"}}, DoUpdates: clause.AssignmentColumns([]string{
+			"peer_kind", "peer_instance", "last_sent_seq", "last_acked_seq", "last_applied_seq", "last_online_at", "protocol_version", "updated_at",
+		})}).Create(c).Error
+	})
+}
+
+func syncStateModel(entityType string) (interface{}, string) {
+	switch entityType {
+	case SyncEntityDevice:
+		return &Device{}, "rev"
+	case SyncEntityProduct:
+		return &Product{}, "rev"
+	case SyncEntityDriver:
+		return &ProtocolProfile{}, "rev"
+	case SyncEntityRule:
+		return &Rule{}, "version"
+	case SyncEntityRuleGroup:
+		return &RuleGroup{}, "rev"
+	default:
+		return nil, ""
 	}
-	return nil
+}
+
+// ApplySyncAck commits the peer cursor and every per-change outcome together.
+// A conflict is not a successful delivery, and a fan-out edit is synced only
+// after all named peers report that they applied it.
+func ApplySyncAck(c *SyncCursor, afterSeq, throughSeq int64, results map[string]string, addressed func(*SyncChange) bool, failures ...map[string]SyncFailure) error {
+	if c == nil || c.PeerID == "" || throughSeq <= afterSeq {
+		return fmt.Errorf("invalid sync acknowledgement")
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var changes []SyncChange
+		if err := tx.Where("seq > ? AND seq <= ?", afterSeq, throughSeq).Order("seq asc").Find(&changes).Error; err != nil {
+			return err
+		}
+		for i := range changes {
+			ch := &changes[i]
+			if addressed != nil && !addressed(ch) {
+				continue
+			}
+			status, ok := results[ch.ChangeID()]
+			if !ok || (status != "applied" && status != "conflict" && status != "skipped" && status != "failed") {
+				return fmt.Errorf("missing or invalid acknowledgement for %s from %s", ch.ChangeID(), c.PeerID)
+			}
+			var failure SyncFailure
+			if len(failures) != 0 {
+				failure = failures[0][ch.ChangeID()]
+			}
+			if status != "failed" {
+				failure = SyncFailure{}
+			}
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "change_id"}, {Name: "peer_code"}},
+				DoUpdates: clause.AssignmentColumns([]string{"status", "updated_at", "error_code", "last_error"}),
+			}).Create(&SyncDeliveryResult{ChangeID: ch.ChangeID(), PeerCode: c.PeerID, Status: status, UpdatedAt: time.Now().UnixMilli(), ErrorCode: failure.ErrorCode, LastError: failure.LastError}).Error; err != nil {
+				return err
+			}
+			if err := UpdateConfigIntentAckTx(tx, *ch, c.PeerID, status, failure); err != nil {
+				return err
+			}
+			if ch.Op != SyncOpUpsert {
+				continue
+			}
+			if ch.EntityType == SyncEntityPluginConfig || ch.EntityType == SyncEntityNodeConfig {
+				if err := settleProtectedConfigAckTx(tx, *ch, status); err != nil {
+					return err
+				}
+				continue
+			}
+			model, versionColumn := syncStateModel(ch.EntityType)
+			if model == nil {
+				continue
+			}
+			if status == "conflict" {
+				if err := tx.Model(model).Where("code = ? AND "+versionColumn+" = ? AND sync_state = ?", ch.EntityCode, ch.NewRev, SyncStatePending).Update("sync_state", SyncStateConflict).Error; err != nil {
+					return err
+				}
+				continue
+			}
+			if status != "applied" {
+				continue
+			}
+			targets := ch.TargetNodes()
+			if ch.AckTargets != "" {
+				targets = (&SyncChange{TargetNode: ch.AckTargets}).TargetNodes()
+			}
+			if len(targets) == 0 {
+				continue // A scope-wide edit has no frozen peer set to settle against.
+			}
+			var applied int64
+			if err := tx.Model(&SyncDeliveryResult{}).Where("change_id = ? AND peer_code IN ? AND status = ?", ch.ChangeID(), targets, "applied").Count(&applied).Error; err != nil {
+				return err
+			}
+			if applied == int64(len(targets)) {
+				if err := tx.Model(model).Where("code = ? AND "+versionColumn+" = ? AND sync_state = ?", ch.EntityCode, ch.NewRev, SyncStatePending).Update("sync_state", SyncStateSynced).Error; err != nil {
+					return err
+				}
+			}
+		}
+		c.LastAckedSeq = throughSeq
+		if c.ProtocolVersion == 0 {
+			c.ProtocolVersion = SyncCursorProtocolVersion
+		}
+		c.UpdatedAt = time.Now().UnixMilli()
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "peer_id"}}, DoUpdates: clause.AssignmentColumns([]string{
+			"peer_kind", "peer_instance", "last_sent_seq", "last_acked_seq", "last_applied_seq", "last_online_at", "protocol_version", "updated_at",
+		})}).Create(c).Error
+	})
 }
 
 // MinSyncChangeSeq returns the lowest recorded sequence, or 0 when empty.
@@ -297,17 +490,6 @@ func MinSyncChangeSeq() (int64, error) {
 		return 0, err
 	}
 	return seq, nil
-}
-
-// PruneSyncChangesThrough removes tombstoned change records that every peer has
-// already acknowledged. Callers must verify acknowledgement before pruning;
-// removing a record a peer still needs forces a full bootstrap on that peer.
-func PruneSyncChangesThrough(seq int64) (int64, error) {
-	if seq <= 0 {
-		return 0, nil
-	}
-	res := DB.Where("seq <= ?", seq).Delete(&SyncChange{})
-	return res.RowsAffected, res.Error
 }
 
 // --- Idempotency ---
@@ -325,14 +507,28 @@ func IsChangeApplied(changeID string) (bool, error) {
 // reports false when the change had already been applied, which is the normal
 // outcome for a redundant delivery and must not be treated as an error.
 func MarkChangeAppliedTx(tx *gorm.DB, changeID string) (bool, error) {
-	res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&AppliedChange{
+	res := tx.Session(&gorm.Session{NewDB: true}).Clauses(clause.OnConflict{DoNothing: true}).Create(&AppliedChange{
 		ChangeID:  changeID,
+		Status:    "applied",
 		AppliedAt: time.Now().UnixMilli(),
 	})
 	if res.Error != nil {
 		return false, res.Error
 	}
 	return res.RowsAffected > 0, nil
+}
+
+func GetAppliedChangeStatus(changeID string) (string, error) {
+	var record AppliedChange
+	err := DB.Where("change_id = ?", changeID).First(&record).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil
+	}
+	return record.Status, err
+}
+
+func SetAppliedChangeStatusTx(tx *gorm.DB, changeID, status string) error {
+	return tx.Session(&gorm.Session{NewDB: true}).Model(&AppliedChange{}).Where("change_id = ?", changeID).Update("status", status).Error
 }
 
 // PruneAppliedChanges keeps the idempotency table bounded by dropping entries
@@ -409,7 +605,12 @@ func ResetSyncProgress() error {
 // installed these notifications are dropped, which keeps the store usable in
 // tests and in deployments that do not run the cascade plugin.
 type SyncChangeSink interface {
-	DeviceDeleted(d *Device)
+	DeviceDeletedTx(tx *gorm.DB, d *Device) (*SyncChange, error)
+	ProductDeletedTx(tx *gorm.DB, p *Product) (*SyncChange, error)
+	DriverDeletedTx(tx *gorm.DB, p *ProtocolProfile) (*SyncChange, error)
+	RuleDeletedTx(tx *gorm.DB, rule *Rule) (*SyncChange, error)
+	RuleGroupDeletedTx(tx *gorm.DB, group *RuleGroup) (*SyncChange, error)
+	ChangeCommitted(ch SyncChange)
 }
 
 var syncChangeSink SyncChangeSink
@@ -419,8 +620,43 @@ func SetSyncChangeSink(s SyncChangeSink) {
 	syncChangeSink = s
 }
 
-func notifyDeviceDeleted(d *Device) {
+func recordDeviceDeletedTx(tx *gorm.DB, d *Device) (*SyncChange, error) {
 	if sink := syncChangeSink; sink != nil {
-		sink.DeviceDeleted(d)
+		return sink.DeviceDeletedTx(tx, d)
+	}
+	return nil, nil
+}
+
+func recordProductDeletedTx(tx *gorm.DB, p *Product) (*SyncChange, error) {
+	if sink := syncChangeSink; sink != nil {
+		return sink.ProductDeletedTx(tx, p)
+	}
+	return nil, nil
+}
+
+func recordDriverDeletedTx(tx *gorm.DB, p *ProtocolProfile) (*SyncChange, error) {
+	if sink := syncChangeSink; sink != nil {
+		return sink.DriverDeletedTx(tx, p)
+	}
+	return nil, nil
+}
+
+func recordRuleDeletedTx(tx *gorm.DB, rule *Rule) (*SyncChange, error) {
+	if sink := syncChangeSink; sink != nil {
+		return sink.RuleDeletedTx(tx, rule)
+	}
+	return nil, nil
+}
+
+func recordRuleGroupDeletedTx(tx *gorm.DB, group *RuleGroup) (*SyncChange, error) {
+	if sink := syncChangeSink; sink != nil {
+		return sink.RuleGroupDeletedTx(tx, group)
+	}
+	return nil, nil
+}
+
+func notifyCommittedChange(ch *SyncChange) {
+	if sink := syncChangeSink; sink != nil && ch != nil {
+		sink.ChangeCommitted(*ch)
 	}
 }

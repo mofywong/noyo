@@ -164,6 +164,8 @@
     </div>
 
     <!-- 表格容器 -->
+    <ConfigurationStatusNotice :failed="configurationStatesUnavailable" :cached="hasConfigurationStates" @refresh="reloadConfigurationStates" />
+    <PendingConfigurationList entity-type="device" :intents="pendingConfigurationIntents" />
     <div class="card border-0 shadow-sm table-glass-card">
       <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
         <div class="table-responsive device-table-wrap flex-grow-1">
@@ -234,16 +236,27 @@
               </td>
               <td class="fw-bold text-primary text-truncate font-mono" style="max-width: 200px;" :title="device.code" @mouseenter="handleTriggerCellHover(device, $event)">{{ device.code }}</td>
               <td style="max-width: 180px;" @mouseenter="handleTriggerCellHover(device, $event)">
-                <div class="d-flex flex-column align-items-start gap-1">
-                  <span class="text-truncate w-100" :title="device.name">{{ device.name || '-' }}</span>
-                  <span
-                    v-if="device.parent_code"
-                    class="parent-device-badge text-truncate d-inline-flex align-items-center gap-1"
-                    :title="`${$t('dev_parent')}: ${device.parent_name || getParentDeviceName(device.parent_code)} (${device.parent_code})`"
+                <div class="device-identity">
+                  <div class="device-name-line">
+                    <span class="device-name-text text-truncate" :title="device.name">{{ device.name || '-' }}</span>
+                  </div>
+                  <div
+                    v-if="device.parent_code || configurationNeedsAttention(configurationStateFor(device))"
+                    class="device-meta-line"
+                    :class="{ 'device-meta-line--paired': device.parent_code && configurationNeedsAttention(configurationStateFor(device)) }"
                   >
-                    <i class="bi bi-diagram-2 flex-shrink-0"></i>
-                    <span class="text-truncate">{{ device.parent_name || getParentDeviceName(device.parent_code) }}</span>
-                  </span>
+                    <span
+                      v-if="device.parent_code"
+                      class="parent-device-badge d-inline-flex align-items-center"
+                      :class="gatewayStateClass(device.gateway_maintenance_mode, device.gateway_online, device.gateway_enabled)"
+                      :title="`${$t('dev_parent')}: ${device.parent_name || getParentDeviceName(device.parent_code)} (${device.parent_code}) ${gatewayStateLabel(device.gateway_maintenance_mode, device.gateway_online, device.gateway_enabled, locale)}`"
+                      tabindex="0"
+                    >
+                      <i class="bi bi-diagram-2 flex-shrink-0" aria-hidden="true"></i>
+                      <span class="text-truncate">{{ device.parent_name || getParentDeviceName(device.parent_code) }} {{ gatewayStateLabel(device.gateway_maintenance_mode, device.gateway_online, device.gateway_enabled, locale) }}</span>
+                    </span>
+                    <ConfigSyncBadge class="device-config-badge" compact :state="configurationStateFor(device)" :reason="configurationErrorFor(device)" />
+                  </div>
                 </div>
               </td>
               <td v-if="showProjectColumn" @mouseenter="handleTriggerCellHover(device, $event)">
@@ -440,6 +453,7 @@
           {{ drawerDevice?.online ? $t('dev_online') : $t('dev_offline') }}
         </span>
       </template>
+      <ConfigurationStatePanel v-if="drawerVisible && drawerDevice?.code" entity-type="device" :entity-code="drawerDevice.code" :gateway-code="drawerDevice.gateway_code || ''" @reedit="handleConfigurationReedit" />
       <!-- 基本信息 -->
       <section class="noyo-drawer-section">
         <h6 class="noyo-drawer-section-title">{{ $t('drawer_basic_info') }}</h6>
@@ -1083,6 +1097,15 @@ import GlassGroup from '../components/liquid-glass/GlassGroup.vue';
 import LiquidGlassPopover from '../components/liquid-glass/LiquidGlassPopover.vue';
 import LiquidGlassHoverCard from '../components/liquid-glass/LiquidGlassHoverCard.vue';
 import DeviceHoverCard from '../components/device/DeviceHoverCard.vue';
+import ConfigSyncBadge from '../components/cascade/ConfigSyncBadge.vue';
+import ConfigurationStatePanel from '../components/cascade/ConfigurationStatePanel.vue';
+import PendingConfigurationList from '../components/cascade/PendingConfigurationList.vue';
+import ConfigurationStatusNotice from '../components/cascade/ConfigurationStatusNotice.vue';
+import { useConfigurationStates } from '../composables/useConfigurationStates.js';
+import { configurationNeedsAttention } from '../utils/configurationState.js';
+import { gatewayStateClass, gatewayStateLabel, updateParentGatewayOnline } from '../utils/gatewayMaintenance.js';
+import { resolveApiErrorMessage } from '../utils/apiMessages.js';
+
 import { usePlugins } from '../plugins/registry.js';
 import { isSingleProjectMode } from '../utils/systemMode.js';
 import { applyDriverDefaults } from '../utils/deviceDriverDefaults.js';
@@ -1123,6 +1146,7 @@ const { confirmDialog } = useConfirm();
 const { showToast } = useToast();
 
 const devices = ref([]);
+const { configurationStateFor, configurationErrorFor, pendingConfigurationIntents, configurationStatesUnavailable, hasConfigurationStates, reloadConfigurationStates } = useConfigurationStates('device', devices);
 const parentDevices = ref([]);
 const configuredDeviceCodes = ref(new Set());
 const products = ref([]);
@@ -1665,6 +1689,7 @@ const setupSSE = () => {
       const targetCode = data?.Topic;
       const isOnline = data?.Payload === 'online' || data?.Payload === true;
       if (targetCode) {
+        updateParentGatewayOnline([...devices.value, drawerDevice.value, hoveredDevice.value], targetCode, isOnline);
         const targetDevice = devices.value.find(d => d.code === targetCode);
         if (targetDevice && targetDevice.online !== isOnline) {
           targetDevice.online = isOnline;
@@ -1928,29 +1953,29 @@ const getDriverName = (code, { withCode = true } = {}) => {
   return withCode ? formatNamedReference(d.name, d.code) : d.name;
 };
 
-const batchEnable = async () => {
+const batchSetDeviceEnabled = async (action) => {
   loading.value = true;
+  const failed = [];
+  const reasons = new Set();
   for (const code of selectedDevices.value) {
     try {
-      await axios.post(`/api/devices/${code}/start`);
-    } catch (e) { console.error(e); }
+      const res = await axios.post(`/api/devices/${code}/${action}`);
+      if (res.data.code !== 0) throw { response: res };
+    } catch (e) {
+      failed.push(code);
+      reasons.add(resolveApiErrorMessage(e, locale.value, t('dev_action_fail')));
+    }
   }
-  selectedDevices.value = [];
+  const succeeded = selectedDevices.value.length - failed.length;
+  selectedDevices.value = failed;
   fetchDevices();
-  showToast('success', t('dev_action_success'));
+  showToast(failed.length ? 'danger' : 'success', failed.length
+    ? [aiText(`批量操作：成功 ${succeeded} 台，失败 ${failed.length} 台。`, `Batch operation: ${succeeded} succeeded, ${failed.length} failed.`), ...reasons].join(' · ')
+    : t('dev_action_success'));
 };
 
-const batchDisable = async () => {
-  loading.value = true;
-  for (const code of selectedDevices.value) {
-    try {
-      await axios.post(`/api/devices/${code}/stop`);
-    } catch (e) { console.error(e); }
-  }
-  selectedDevices.value = [];
-  fetchDevices();
-  showToast('success', t('dev_action_success'));
-};
+const batchEnable = () => batchSetDeviceEnabled('start');
+const batchDisable = () => batchSetDeviceEnabled('stop');
 
 // Data Modal State
 const showDataModal = ref(false);
@@ -2228,6 +2253,15 @@ const closeDrawer = () => {
   drawerData.value = {};
   drawerTrendData.value = {};
   drawerTSLMap.value = {};
+};
+
+// Rebases a superseded platform edit onto the device's live value: the drawer
+// closes, then the edit form opens loaded from the current list row.
+const handleConfigurationReedit = ({ entityCode }) => {
+  const device = devices.value.find((item) => item.code === entityCode);
+  if (!device) return;
+  closeDrawer();
+  nextTick(() => openEditModal(device));
 };
 
 const fetchDrawerTrend = async (code) => {
@@ -2882,7 +2916,7 @@ const saveDeviceTags = async () => {
     }
   } catch (e) {
     console.error('Save device tags failed', e);
-    showToast('danger', t('common_save_fail'));
+    showToast('danger', resolveApiErrorMessage(e, locale.value, t('common_save_fail')));
   }
 };
 
@@ -3096,6 +3130,7 @@ const fetchParentDevices = async () => {
 };
 
 const fetchDevices = async (silent = false) => {
+  if (!silent) reloadConfigurationStates();
   if (!silent) loading.value = true;
   try {
     const params = {
@@ -3491,7 +3526,7 @@ const confirmImport = async () => {
       showToast('danger', t('import_fail') + ': ' + res.data.message);
     }
   } catch (e) {
-    showToast('danger', t('import_fail'));
+    showToast('danger', resolveApiErrorMessage(e, locale.value, t('import_fail')));
     console.error(e);
   }
 };
@@ -3553,7 +3588,7 @@ const saveDevice = async () => {
     }
   } catch (e) {
     console.error(e);
-    showToast('danger', t('common_save_fail'));
+    showToast('danger', resolveApiErrorMessage(e, locale.value, t('common_save_fail')));
   }
 };
 
@@ -3579,7 +3614,7 @@ const deleteDevice = async (device) => {
     }
   } catch (e) {
     console.error(e);
-    showToast('danger', t('common_delete_fail'));
+    showToast('danger', resolveApiErrorMessage(e, locale.value, t('common_delete_fail')));
   }
 };
 
@@ -3612,7 +3647,7 @@ const toggleDevice = async (device) => {
     }
   } catch (e) {
     console.error(e);
-    showToast('danger', t('dev_action_fail'));
+    showToast('danger', resolveApiErrorMessage(e, locale.value, t('dev_action_fail')));
   }
 };
 
@@ -3739,7 +3774,7 @@ const saveDeviceMapping = async () => {
     }
   } catch (e) {
     console.error(e);
-    showToast('danger', t('common_save_fail'));
+    showToast('danger', resolveApiErrorMessage(e, locale.value, t('common_save_fail')));
   }
 };
 
@@ -4008,13 +4043,54 @@ const saveBatchAITasks = async () => {
 }
 
 /* 父级设备紧凑关系徽标 */
+.device-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.device-name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.device-name-text { min-width: 0; width: 100%; }
+
+.device-meta-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.device-meta-line--paired { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.device-meta-line .parent-device-badge {
+  min-width: 0;
+  width: fit-content;
+  justify-self: start;
+  gap: 8px;
+}
+
+.device-meta-line .parent-device-badge .text-truncate { min-width: 0; }
+
+.parent-device-badge:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
 .parent-device-badge {
   font-size: 0.68rem;
   line-height: 1.2;
-  padding: 1px 6px;
+  padding: 4px 8px;
   border-radius: 4px;
-  background: var(--glass-tint, rgba(148, 163, 184, 0.1));
-  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.25));
+  background: var(--glass-tint);
+  border: 1px solid var(--border-color);
   color: var(--text-secondary);
   max-width: 100%;
   font-weight: 500;
@@ -4024,6 +4100,13 @@ const saveBatchAITasks = async () => {
 .parent-device-badge:hover {
   color: var(--color-brand);
   border-color: color-mix(in srgb, var(--color-brand) 40%, var(--border-color));
+}
+
+.parent-device-badge[class*="gateway-state--"] {
+  color: var(--gateway-state-color);
+  background: color-mix(in srgb, var(--gateway-state-color) 12%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--gateway-state-color) 40%, var(--border-color));
+  padding: 4px 8px;
 }
 
 .device-secondary-actions-menu {

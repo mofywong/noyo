@@ -222,22 +222,30 @@ func resolveDeviceConflict(item syncResolveRequestItem, nodeID, origin string, l
 	// between them would leave the conflict cleared but the peer unpersuaded.
 	var recorded *store.SyncChange
 	err = store.SyncApplyingSession().Transaction(func(tx *gorm.DB) error {
+		lifecycle, advancedRev, err := store.AdvanceLocalResourceLifecycleTx(tx, store.SyncEntityDevice, code, false, false, newRev)
+		if err != nil {
+			return err
+		}
+		if advancedRev != newRev {
+			return fmt.Errorf("device revision changed during conflict resolution")
+		}
 		if err := tx.Unscoped().Save(&decided).Error; err != nil {
 			return err
 		}
 		ch := &store.SyncChange{
-			EntityType:     store.SyncEntityDevice,
-			EntityCode:     code,
-			Op:             store.SyncOpUpsert,
-			BaseRev:        record.Rev,
-			NewRev:         newRev,
-			Payload:        payload,
-			OriginNode:     nodeID,
-			OriginInstance: instanceID,
-			TargetNode:     record.Node,
-			TenantID:       decided.TenantID,
-			ProjectID:      decided.ProjectID,
-			CreatedAt:      time.Now().UnixMilli(),
+			EntityType:       store.SyncEntityDevice,
+			EntityCode:       code,
+			Op:               store.SyncOpUpsert,
+			BaseRev:          record.Rev,
+			NewRev:           newRev,
+			LifecycleVersion: lifecycle,
+			Payload:          payload,
+			OriginNode:       nodeID,
+			OriginInstance:   instanceID,
+			TargetNode:       record.Node,
+			TenantID:         decided.TenantID,
+			ProjectID:        decided.ProjectID,
+			CreatedAt:        time.Now().UnixMilli(),
 		}
 		if _, err := store.AppendSyncChangeTx(tx, ch); err != nil {
 			return err
@@ -303,22 +311,30 @@ func resolveProductConflict(item syncResolveRequestItem, nodeID, origin string, 
 
 	var recorded *store.SyncChange
 	err = store.SyncApplyingSession().Transaction(func(tx *gorm.DB) error {
+		lifecycle, advancedRev, err := store.AdvanceLocalResourceLifecycleTx(tx, store.SyncEntityProduct, code, false, false, newRev)
+		if err != nil {
+			return err
+		}
+		if advancedRev != newRev {
+			return fmt.Errorf("product revision changed during conflict resolution")
+		}
 		if err := tx.Unscoped().Save(&decided).Error; err != nil {
 			return err
 		}
 		ch := &store.SyncChange{
-			EntityType:     store.SyncEntityProduct,
-			EntityCode:     code,
-			Op:             store.SyncOpUpsert,
-			BaseRev:        record.Rev,
-			NewRev:         newRev,
-			Payload:        payload,
-			OriginNode:     nodeID,
-			OriginInstance: instanceID,
-			TargetNode:     record.Node,
-			TenantID:       decided.TenantID,
-			ProjectID:      decided.ProjectID,
-			CreatedAt:      time.Now().UnixMilli(),
+			EntityType:       store.SyncEntityProduct,
+			EntityCode:       code,
+			Op:               store.SyncOpUpsert,
+			BaseRev:          record.Rev,
+			NewRev:           newRev,
+			LifecycleVersion: lifecycle,
+			Payload:          payload,
+			OriginNode:       nodeID,
+			OriginInstance:   instanceID,
+			TargetNode:       record.Node,
+			TenantID:         decided.TenantID,
+			ProjectID:        decided.ProjectID,
+			CreatedAt:        time.Now().UnixMilli(),
 		}
 		if _, err := store.AppendSyncChangeTx(tx, ch); err != nil {
 			return err

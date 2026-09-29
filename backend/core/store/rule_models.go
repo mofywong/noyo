@@ -3,13 +3,13 @@ package store
 import "gorm.io/gorm"
 
 type Rule struct {
-	ID          uint   `gorm:"primaryKey;autoIncrement" json:"id"`
+	ID          uint   `gorm:"primaryKey;autoIncrement" json:"-"`
 	TenantID    uint   `gorm:"index:idx_rule_tenant_project;uniqueIndex:idx_rule_source,priority:1" json:"tenant_id"`
 	ProjectID   uint   `gorm:"index:idx_rule_tenant_project;uniqueIndex:idx_rule_source,priority:2" json:"project_id"`
 	Code        string `gorm:"uniqueIndex;size:64;not null" json:"code"`
 	Name        string `gorm:"size:128;not null" json:"name"`
 	Description string `gorm:"size:512" json:"description"`
-	GroupID     *uint  `gorm:"index" json:"group_id"`
+	GroupCode   *string `gorm:"size:64;index" json:"group_code"`
 	Enabled     bool   `gorm:"default:false" json:"enabled"`
 	Priority    int    `gorm:"default:50" json:"priority"`
 	Status      string `gorm:"size:20;default:'draft'" json:"status"`
@@ -25,11 +25,15 @@ type Rule struct {
 	SilentEnd   string `gorm:"size:5" json:"silent_end"`
 	RetryCount  int    `gorm:"default:0" json:"retry_count"`
 
-	Scope     string `gorm:"size:20;default:'platform'" json:"scope"`
-	GatewaySN string `gorm:"size:64;index" json:"gateway_sn"`
-	Version   int64  `gorm:"default:1" json:"version"`
-	SyncState string `gorm:"size:20" json:"sync_state"`
-	SyncError string `gorm:"size:512" json:"sync_error"`
+	Scope           string `gorm:"size:20;default:'platform'" json:"scope"`
+	GatewaySN       string `gorm:"size:64;index" json:"gateway_sn"`
+	Version         int64  `gorm:"default:1" json:"version"`
+	SyncState       string `gorm:"size:20" json:"sync_state"`
+	SyncError       string `gorm:"size:512" json:"sync_error"`
+	SyncWriter      string `gorm:"size:128" json:"sync_writer,omitempty"`
+	ConflictPayload string `json:"conflict_payload,omitempty"`
+	ConflictRev     int64  `gorm:"not null;default:0" json:"conflict_rev,omitempty"`
+	ConflictNode    string `gorm:"size:128" json:"conflict_node,omitempty"`
 
 	LastTriggeredAt *int64  `json:"last_triggered_at"`
 	TriggerCount    int64   `gorm:"default:0" json:"trigger_count"`
@@ -43,7 +47,9 @@ type Rule struct {
 }
 
 type RuleGroup struct {
-	ID          uint   `gorm:"primaryKey;autoIncrement" json:"id"`
+	ID          uint   `gorm:"primaryKey;autoIncrement" json:"-"`
+	SyncMeta
+	Code        string `gorm:"uniqueIndex;size:64;not null" json:"code"`
 	TenantID    uint   `gorm:"index:idx_rule_group_scope" json:"tenant_id"`
 	ProjectID   uint   `gorm:"index:idx_rule_group_scope" json:"project_id"`
 	Name        string `gorm:"size:128;not null" json:"name"`
@@ -54,10 +60,10 @@ type RuleGroup struct {
 }
 
 type RuleExecLog struct {
-	ID          uint   `gorm:"primaryKey;autoIncrement" json:"id"`
+	ID          uint   `gorm:"primaryKey;autoIncrement" json:"-"`
 	TenantID    uint   `gorm:"index:idx_rel_tenant" json:"tenant_id"`
 	ProjectID   uint   `gorm:"index:idx_rel_project" json:"project_id"`
-	RuleID      uint   `gorm:"index:idx_rel_rule" json:"rule_id"`
+	RuleID      uint   `gorm:"index:idx_rel_rule" json:"-"`
 	RuleCode    string `gorm:"size:64;index" json:"rule_code"`
 	RuleName    string `gorm:"size:128" json:"rule_name"`
 	RuleVersion int64  `gorm:"index" json:"rule_version"`
@@ -87,9 +93,13 @@ func SaveRule(rule *Rule) error {
 		if err := DB.Where("code = ?", rule.Code).First(&existing).Error; err == nil {
 			rule.ID = existing.ID
 			rule.CreatedAt = existing.CreatedAt
-			if rule.Version <= existing.Version {
-				rule.Version = existing.Version + 1
-			}
+			rule.Version = existing.Version + 1
+			rule.SyncState = existing.SyncState
+			rule.SyncError = existing.SyncError
+			rule.SyncWriter = existing.SyncWriter
+			rule.ConflictPayload = existing.ConflictPayload
+			rule.ConflictRev = existing.ConflictRev
+			rule.ConflictNode = existing.ConflictNode
 			return DB.Save(rule).Error
 		} else if err != gorm.ErrRecordNotFound {
 			return err
@@ -135,12 +145,38 @@ func GetRuleBySource(tenantID, projectID uint, sourceType, sourceID string) (*Ru
 }
 
 func DeleteRule(code string) error {
-	return DB.Where("code = ?", code).Delete(&Rule{}).Error
+	var change *SyncChange
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var rule Rule
+		if err := tx.Where("code = ?", code).First(&rule).Error; err != nil {
+			return err
+		}
+		var recordErr error
+		change, recordErr = recordRuleDeletedTx(tx, &rule)
+		if recordErr != nil { return recordErr }
+		if deferred, err := DeferredConfigDelete(tx, change); err != nil || deferred { return err }
+		if err := tx.Delete(&rule).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err == nil {
+		notifyCommittedChange(change)
+	}
+	return err
 }
 
 func SaveRuleGroup(group *RuleGroup) error {
-	if group.ID > 0 {
-		return DB.Save(group).Error
+	if group.Code != "" {
+		var existing RuleGroup
+		if err := DB.Where("code = ?", group.Code).First(&existing).Error; err == nil {
+			group.ID = existing.ID
+			group.CreatedAt = existing.CreatedAt
+			group.SyncMeta = existing.SyncMeta
+			return DB.Save(group).Error
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
 	}
 	return DB.Create(group).Error
 }
@@ -158,8 +194,22 @@ func ListRuleGroups(tenantID, projectID uint) ([]RuleGroup, error) {
 	return groups, err
 }
 
-func DeleteRuleGroup(id uint) error {
-	return DB.Delete(&RuleGroup{}, id).Error
+func DeleteRuleGroup(code string) error {
+	var change *SyncChange
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var group RuleGroup
+		if err := tx.Where("code = ?", code).First(&group).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&group).Error; err != nil {
+			return err
+		}
+		var err error
+		change, err = recordRuleGroupDeletedTx(tx, &group)
+		return err
+	})
+	if err == nil { notifyCommittedChange(change) }
+	return err
 }
 
 func CreateRuleExecLog(log *RuleExecLog) error {

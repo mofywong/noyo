@@ -3,17 +3,21 @@ import axios from 'axios'
 import { useI18n } from 'vue-i18n'
 import { useConfirm } from './useConfirm.js'
 import { useToast } from './useToast.js'
+import { resolveApiErrorMessage } from '../utils/apiMessages.js'
 
-export async function deleteItems(codes, remove) {
+export async function deleteItems(codes, remove, onError = () => {}) {
   const succeeded = []
   const failed = []
   for (const code of codes) {
     try {
       const response = await remove(code)
-      if (response?.data?.code != null && response.data.code !== 0) throw new Error(response.data.message)
+      if (response?.data?.code != null && response.data.code !== 0) {
+        throw Object.assign(new Error(response.data.message), { response })
+      }
       succeeded.push(code)
-    } catch {
+    } catch (error) {
       failed.push(code)
+      onError(error, code)
     }
   }
   return { succeeded, failed }
@@ -21,7 +25,7 @@ export async function deleteItems(codes, remove) {
 
 export function useBatchDelete({ selected, endpoint, refresh, onDeleted = () => {} }) {
   const deleting = ref(false)
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { confirmDialog } = useConfirm()
   const { showToast } = useToast()
   const batchDelete = async () => {
@@ -37,12 +41,17 @@ export function useBatchDelete({ selected, endpoint, refresh, onDeleted = () => 
       if (!confirmed) return
       // A page/filter change while the confirmation was open invalidates it.
       if (codes.some(code => !selected.value.includes(code))) return
-      const { succeeded, failed } = await deleteItems(codes, code => axios.delete(`${endpoint}/${encodeURIComponent(code)}`))
+      const reasons = new Set()
+      const { succeeded, failed } = await deleteItems(codes, code => axios.delete(`${endpoint}/${encodeURIComponent(code)}`), error => {
+        const reason = resolveApiErrorMessage(error, locale.value)
+        if (reason) reasons.add(reason)
+      })
       selected.value = selected.value.filter(code => !succeeded.includes(code))
       onDeleted(succeeded)
-      showToast(failed.length ? 'danger' : 'success', t(failed.length ? 'batch_delete_partial' : 'batch_delete_success', {
+      const summary = t(failed.length ? 'batch_delete_partial' : 'batch_delete_success', {
         count: succeeded.length, failed: failed.length,
-      }))
+      })
+      showToast(failed.length ? 'danger' : 'success', [summary, ...reasons].join(' · '))
       await refresh()
     } finally {
       deleting.value = false

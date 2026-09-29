@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // DeviceRegistry manages device metadata and persistence
@@ -15,6 +16,7 @@ type DeviceRegistry struct {
 	mu            sync.RWMutex
 	devices       map[string]*store.Device
 	products      map[string]*store.Product
+	profiles      map[string]*store.ProtocolProfile
 	childrenIndex map[string][]string // Optimization: ParentDeviceCode -> []ChildDeviceCode
 	Logger        *zap.Logger
 }
@@ -65,6 +67,9 @@ func (dr *DeviceRegistry) Init() error {
 	dr.devices = newDevices
 	dr.childrenIndex = newChildrenIndex
 	dr.mu.Unlock()
+	if err := dr.restoreActiveRuntime(); err != nil {
+		return err
+	}
 
 	dr.Logger.Info("DeviceRegistry initialized",
 		zap.Int("devices", len(newDevices)),
@@ -78,7 +83,11 @@ func (dr *DeviceRegistry) GetDevice(code string) (*store.Device, bool) {
 	dr.mu.RLock()
 	defer dr.mu.RUnlock()
 	d, ok := dr.devices[code]
-	return d, ok
+	if !ok {
+		return nil, false
+	}
+	copy := *d
+	return &copy, true
 }
 
 // GetDeviceName returns the name of a device by code, or empty string if not found
@@ -100,7 +109,8 @@ func (dr *DeviceRegistry) GetAllDevices() []*store.Device {
 	defer dr.mu.RUnlock()
 	list := make([]*store.Device, 0, len(dr.devices))
 	for _, d := range dr.devices {
-		list = append(list, d)
+		copy := *d
+		list = append(list, &copy)
 	}
 	return list
 }
@@ -110,7 +120,11 @@ func (dr *DeviceRegistry) GetProduct(code string) (*store.Product, bool) {
 	dr.mu.RLock()
 	defer dr.mu.RUnlock()
 	p, ok := dr.products[code]
-	return p, ok
+	if !ok {
+		return nil, false
+	}
+	copy := *p
+	return &copy, true
 }
 
 // GetDeviceMeta constructs the DeviceMeta (including context) for a device
@@ -157,7 +171,7 @@ func (dr *DeviceRegistry) GetDeviceMeta(deviceCode string) (*types.DeviceMeta, e
 		Extras:      make(map[string]interface{}),
 	}
 	if devCopy.ProtocolProfileCode != "" {
-		if pp, err := store.GetProtocolProfile(devCopy.ProtocolProfileCode); err == nil && pp.Config != "" {
+		if pp, err := dr.runtimeProfile(devCopy.ProtocolProfileCode); err == nil && pp.Config != "" {
 			_ = json.Unmarshal([]byte(pp.Config), &deviceMeta.Extras)
 		}
 	}
@@ -180,7 +194,7 @@ func (dr *DeviceRegistry) GetDeviceMeta(deviceCode string) (*types.DeviceMeta, e
 			Extras:      make(map[string]interface{}),
 		}
 		if parentDevice.ProtocolProfileCode != "" {
-			if pp, err := store.GetProtocolProfile(parentDevice.ProtocolProfileCode); err == nil && pp.Config != "" {
+			if pp, err := dr.runtimeProfile(parentDevice.ProtocolProfileCode); err == nil && pp.Config != "" {
 				_ = json.Unmarshal([]byte(pp.Config), &parentMeta.Extras)
 			}
 		}
@@ -203,7 +217,7 @@ func (dr *DeviceRegistry) GetDeviceMeta(deviceCode string) (*types.DeviceMeta, e
 				Extras:      make(map[string]interface{}),
 			}
 			if sub.ProtocolProfileCode != "" {
-				if pp, err := store.GetProtocolProfile(sub.ProtocolProfileCode); err == nil && pp.Config != "" {
+				if pp, err := dr.runtimeProfile(sub.ProtocolProfileCode); err == nil && pp.Config != "" {
 					_ = json.Unmarshal([]byte(pp.Config), &subMeta.Extras)
 				}
 			}
@@ -233,9 +247,9 @@ func (dr *DeviceRegistry) GetProductMeta(productCode string) (types.ProductMeta,
 	}
 
 	meta := types.ProductMeta{
-		Name:         p.Name,
-		Code:         p.Code,
-		Config:       make(map[string]interface{}),
+		Name:   p.Name,
+		Code:   p.Code,
+		Config: make(map[string]interface{}),
 	}
 	if p.Config != "" {
 		_ = json.Unmarshal([]byte(p.Config), &meta.Config)
@@ -254,17 +268,17 @@ func (dr *DeviceRegistry) GetEffectiveProtocol(deviceCode string) (string, error
 	if !ok {
 		return "", fmt.Errorf("%w: device %s", types.ErrNotFound, deviceCode)
 	}
-	// The owner is available even when a subsystem has not arrived yet. Only
-	// treat it as remote when the owner is a registered cascade gateway; on the
-	// gateway itself devices must keep using their local protocol drivers.
-	if device.OwnerNode != "" && device.OwnerNode != device.Code {
+	// A registered cascade gateway is remote unless it is this node's own
+	// gateway identity. Locally owned devices must use their protocol drivers.
+	localGatewayCode := store.LocalConfigGatewayCode()
+	if device.OwnerNode != "" && device.OwnerNode != device.Code && device.OwnerNode != localGatewayCode {
 		if owner, exists := dr.devices[device.OwnerNode]; exists && owner.ProtocolName == "cascade" {
 			return "cascade", nil
 		}
 	}
 
-	// 检查是否属于级联网关下的子设备。如果是，必须优先使用 cascade，
-	// 即使子设备保留了本地接入时的协议名称（例如 gb28181）。
+	// Forward devices below a remote gateway through cascade, but stop at the
+	// local gateway boundary so local service calls reach the protocol plugin.
 	current := device
 	for current.ParentCode != "" {
 		parentDevice, ok := dr.devices[current.ParentCode]
@@ -272,7 +286,10 @@ func (dr *DeviceRegistry) GetEffectiveProtocol(deviceCode string) (string, error
 			break
 		}
 		if parentDevice.ProtocolName == "cascade" {
-			return "cascade", nil
+			if parentDevice.Code != localGatewayCode {
+				return "cascade", nil
+			}
+			break
 		}
 		current = parentDevice
 	}
@@ -310,10 +327,19 @@ func (dr *DeviceRegistry) SetDeviceEnabled(code string, enabled bool) error {
 	}
 
 	// Update DB
-	d.Enabled = enabled
-	if err := store.UpdateDevice(d); err != nil {
+	next := *d
+	next.Enabled = enabled
+	if err := store.UpdateDevice(&next); err != nil {
 		return err
 	}
+	if store.IsPlatformConfigProjectionEnabled() && d.OwnerNode != "" {
+		confirmed, err := store.GetDevice(code)
+		if err != nil {
+			return err
+		}
+		next = *confirmed
+	}
+	dr.devices[code] = &next
 
 	// Cache is already a pointer to the struct in map?
 	// In Init: dr.devices[d.Code] = &val (val is a copy of d)
@@ -326,6 +352,17 @@ func (dr *DeviceRegistry) SetDeviceEnabled(code string, enabled bool) error {
 
 // UpdateDevice updates a device in the registry and maintains the index
 func (dr *DeviceRegistry) UpdateDevice(device *store.Device) {
+	if store.IsPlatformConfigProjectionEnabled() && device.OwnerNode != "" {
+		confirmed, err := store.GetDevice(device.Code)
+		if err != nil {
+			return
+		}
+		device = confirmed
+	}
+	dr.updateRuntimeDevice(device)
+}
+
+func (dr *DeviceRegistry) updateRuntimeDevice(device *store.Device) {
 	dr.mu.Lock()
 	defer dr.mu.Unlock()
 
@@ -356,6 +393,13 @@ func (dr *DeviceRegistry) UpdateDevice(device *store.Device) {
 
 // UpdateProduct updates a product in the registry
 func (dr *DeviceRegistry) UpdateProduct(product *store.Product) {
+	if store.IsPlatformConfigProjectionEnabled() && product.OwnerNode != "" {
+		confirmed, err := store.GetProduct(product.Code)
+		if err != nil {
+			return
+		}
+		product = confirmed
+	}
 	dr.mu.Lock()
 	defer dr.mu.Unlock()
 
@@ -363,8 +407,36 @@ func (dr *DeviceRegistry) UpdateProduct(product *store.Product) {
 	dr.products[product.Code] = &val
 }
 
+func (dr *DeviceRegistry) RemoveProduct(code string) {
+	if store.IsPlatformConfigProjectionEnabled() {
+		if current, ok := dr.GetProduct(code); ok && current.OwnerNode != "" {
+			if _, err := store.GetProduct(code); err != gorm.ErrRecordNotFound {
+				return
+			}
+		}
+	}
+	dr.removeRuntimeProduct(code)
+}
+
+func (dr *DeviceRegistry) removeRuntimeProduct(code string) {
+	dr.mu.Lock()
+	defer dr.mu.Unlock()
+	delete(dr.products, code)
+}
+
 // RemoveDevice removes a device from registry
 func (dr *DeviceRegistry) RemoveDevice(code string) {
+	if store.IsPlatformConfigProjectionEnabled() {
+		if current, ok := dr.GetDevice(code); ok && current.OwnerNode != "" {
+			if _, err := store.GetDevice(code); err != gorm.ErrRecordNotFound {
+				return
+			}
+		}
+	}
+	dr.removeRuntimeDevice(code)
+}
+
+func (dr *DeviceRegistry) removeRuntimeDevice(code string) {
 	dr.mu.Lock()
 	defer dr.mu.Unlock()
 

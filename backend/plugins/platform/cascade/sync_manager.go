@@ -3,6 +3,7 @@ package cascade
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // syncSession drives synchronization with exactly one peer.
@@ -32,11 +34,27 @@ type syncSession struct {
 	// onHello runs after a peer handshake completes. The platform uses it to
 	// push node-level settings that the peer needs on every fresh connection.
 	onHello func()
+	// onProgress runs after a peer batch or receipt and its cursor are durably saved.
+	onProgress func()
 
-	mu          sync.Mutex
-	pushing     bool
-	pendingMore bool
-	helloSent   bool
+	mu sync.Mutex
+	// cursorMu serializes peer cursor changes with batch publication. MQTT can
+	// invoke callbacks concurrently even when changes belong to one stream.
+	cursorMu          sync.Mutex
+	pushing           bool
+	pendingMore       bool
+	helloSent         bool
+	helloCode         string
+	peerHelloCode     string
+	deliveryToken     string
+	snapshotBlocked   bool
+	snapshotSentCode  string
+	snapshotSentSeq   int64
+	snapshotPayload   *configSnapshot
+	buildSnapshot     func() (*configSnapshot, error)
+	installSnapshot   func(*gorm.DB, *configSnapshot) error
+	afterSnapshot     func(*configSnapshot)
+	installedSnapshot *configSnapshot
 }
 
 // resetForReconnect clears per-connection state. Both sides re-handshake after
@@ -45,6 +63,11 @@ type syncSession struct {
 func (s *syncSession) resetForReconnect() {
 	s.mu.Lock()
 	s.helloSent = false
+	s.helloCode = ""
+	s.deliveryToken = ""
+	s.snapshotPayload = nil
+	s.snapshotSentCode = ""
+	s.snapshotBlocked = s.buildSnapshot != nil || s.installSnapshot != nil
 	s.mu.Unlock()
 }
 
@@ -69,16 +92,30 @@ func (s *syncSession) sendHello() error {
 		return err
 	}
 	s.mu.Lock()
+	if s.installSnapshot != nil && s.helloCode == "" {
+		s.helloCode = snapshotCode()
+	}
+	if s.buildSnapshot != nil && s.deliveryToken == "" {
+		s.deliveryToken = snapshotCode()
+		s.snapshotBlocked = true
+	}
 	s.helloSent = true
 	s.mu.Unlock()
-	return s.publish(s.peer, &syncMessage{
+	err = s.emit(&syncMessage{
 		Type:            syncMsgHello,
 		NodeID:          s.nodeID,
 		InstanceID:      s.instanceID,
 		ProtocolVersion: syncProtocolVersion,
 		PeerLastApplied: cursor.LastAppliedSeq,
 		MyOldestSeq:     oldest,
+		HelloCode:       s.helloCode,
 	})
+	if err != nil {
+		s.mu.Lock()
+		s.helloSent = false
+		s.mu.Unlock()
+	}
+	return err
 }
 
 // announceHello sends a handshake only when this connection has not sent one.
@@ -86,22 +123,36 @@ func (s *syncSession) announceHello() error {
 	if !s.shouldAnnounce() {
 		return nil
 	}
-	return s.sendHello()
+	if err := s.sendHello(); err != nil {
+		s.mu.Lock()
+		s.helloSent = false
+		s.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
 func (s *syncSession) handle(msg *syncMessage) error {
 	if msg == nil || msg.Type == "" {
 		return nil
 	}
+	if msg.ProtocolVersion != syncProtocolVersion {
+		return fmt.Errorf("unsupported cascade sync protocol version %d", msg.ProtocolVersion)
+	}
+	if (msg.Type == syncMsgHello || msg.Type == syncMsgChanges) && msg.InstanceID == "" {
+		return fmt.Errorf("sync %s is missing sender instance", msg.Type)
+	}
 	if msg.NodeID != "" && msg.NodeID != s.peer.nodeID {
-		s.logger.Warn("Sync message peer mismatch; using the routing identity",
-			zap.String("expected", s.peer.nodeID),
-			zap.String("received", msg.NodeID),
-			zap.String("type", msg.Type))
+		return fmt.Errorf("sync message sender %q does not match routed peer %q", msg.NodeID, s.peer.nodeID)
 	}
 
+	if msg.Type != syncMsgHello && (s.buildSnapshot != nil || s.installSnapshot != nil) && (s.deliveryToken == "" || msg.SessionToken != s.deliveryToken) {
+		return fmt.Errorf("stale sync delivery session")
+	}
+	s.cursorMu.Lock()
 	cursor, err := store.GetSyncCursor(s.peer.nodeID)
 	if err != nil {
+		s.cursorMu.Unlock()
 		return err
 	}
 	if cursor.PeerKind == "" {
@@ -112,7 +163,12 @@ func (s *syncSession) handle(msg *syncMessage) error {
 	// A peer that rebuilt its database restarts its sequence numbers. The
 	// position recorded here then refers to a log that no longer exists, so the
 	// only safe reading is that the peer's stream has not been seen at all.
-	if msg.InstanceID != "" && cursor.PeerInstance != msg.InstanceID {
+	peerRebuilt := msg.Type == syncMsgHello && msg.InstanceID != "" && cursor.PeerInstance != msg.InstanceID
+	if msg.Type != syncMsgHello && msg.InstanceID != "" && cursor.PeerInstance != msg.InstanceID {
+		s.cursorMu.Unlock()
+		return fmt.Errorf("unannounced sync generation")
+	}
+	if peerRebuilt {
 		if cursor.PeerInstance != "" {
 			s.logger.Warn("Peer change log was rebuilt; restarting its stream from the beginning",
 				zap.String("peer", s.peer.nodeID),
@@ -122,28 +178,125 @@ func (s *syncSession) handle(msg *syncMessage) error {
 		}
 		cursor.PeerInstance = msg.InstanceID
 		cursor.LastAppliedSeq = 0
+		// The peer also lost its acknowledgement of our log. Retain and replay
+		// the complete local stream before treating any resource as synchronized.
+		cursor.LastAckedSeq = 0
+		cursor.LastSentSeq = 0
+		if err := store.ResetSyncPeerInstance(cursor); err != nil {
+			s.cursorMu.Unlock()
+			return err
+		}
+		// The rebuilt peer has no record of our generation even when our MQTT
+		// connection stayed online. Re-arm one reply before any recovery traffic.
+		s.mu.Lock()
+		s.helloSent = false
+		s.mu.Unlock()
 	}
 
+	var handleErr error
+	pushAfter := msg.Type == syncMsgHello
+	ackAdvanced := false
 	switch msg.Type {
 	case syncMsgHello:
-		return s.handleHello(cursor, msg)
+		recoverProjection := s.installSnapshot != nil && (peerRebuilt || s.deliveryToken != msg.SessionToken)
+		if s.installSnapshot != nil {
+			s.deliveryToken = msg.SessionToken
+			if recoverProjection {
+				s.snapshotBlocked = true
+			}
+		}
+		if s.buildSnapshot != nil && msg.SessionToken == "" {
+			// A platform-only reconnect must invalidate the old delivery token
+			// before any queued write can run. A duplicate challenge reuses its
+			// token, including after recovery, rather than starting another cycle.
+			s.mu.Lock()
+			fresh := msg.HelloCode != "" && msg.HelloCode != s.peerHelloCode
+			if fresh || (msg.HelloCode == "" && !s.snapshotBlocked) {
+				s.deliveryToken = snapshotCode()
+				s.snapshotBlocked = true
+				s.snapshotPayload = nil
+				s.snapshotSentCode = ""
+				s.snapshotSentSeq = 0
+			}
+			s.peerHelloCode = msg.HelloCode
+			s.helloSent = false
+			s.mu.Unlock()
+		} else if s.buildSnapshot != nil && msg.HelloCode != "" {
+			s.peerHelloCode = msg.HelloCode
+		}
+		handleErr = s.handleHello(cursor, msg)
+		// A new connection always validates the authoritative projection. This
+		// also detects backup rollback with an unchanged persisted instance ID.
+		if handleErr == nil && recoverProjection {
+			handleErr = s.requestSnapshot(cursor)
+		}
 	case syncMsgChanges:
-		return s.handleChanges(cursor, msg)
+		handleErr = s.handleChanges(cursor, msg)
 	case syncMsgAck:
-		return s.handleAck(cursor, msg)
+		previousAck := cursor.LastAckedSeq
+		handleErr = s.handleAck(cursor, msg)
+		ackAdvanced = handleErr == nil && cursor.LastAckedSeq > previousAck
+		pushAfter = ackAdvanced
+		for _, result := range msg.Results {
+			if result.Status == syncStatusRejected {
+				pushAfter = false
+				break
+			}
+		}
+	case syncMsgSnapshotRequest:
+		handleErr = s.sendSnapshot(msg)
+	case syncMsgSnapshotBegin, syncMsgSnapshotChunk, syncMsgSnapshotEnd:
+		handleErr = s.receiveSnapshot(cursor, msg)
+		pushAfter = handleErr == nil && msg.Type == syncMsgSnapshotEnd
+	case syncMsgSnapshotAck:
+		if s.buildSnapshot == nil || msg.SnapshotCode != s.snapshotSentCode || msg.AppliedThrough != s.snapshotSentSeq {
+			handleErr = fmt.Errorf("invalid snapshot receipt")
+		} else if !s.snapshotBlocked {
+			// A delayed receipt cannot move an already advancing cursor back.
+			pushAfter = false
+		} else {
+			previousAck := cursor.LastAckedSeq
+			cursor.LastAckedSeq = msg.AppliedThrough
+			cursor.LastSentSeq = max(cursor.LastSentSeq, msg.AppliedThrough)
+			handleErr = store.SaveSyncCursor(cursor)
+			if handleErr == nil {
+				s.snapshotBlocked = false
+				ackAdvanced = cursor.LastAckedSeq > previousAck
+			}
+			pushAfter = handleErr == nil
+		}
 	case syncMsgCursorExpired:
-		return s.handleCursorExpired(cursor, msg)
-	default:
-		return nil
+		handleErr = s.handleCursorExpired(cursor, msg)
 	}
+	s.cursorMu.Unlock()
+	if handleErr != nil {
+		return handleErr
+	}
+	// Run receipt notifications after releasing cursorMu: completing a
+	// maintenance handover can read or re-drive this same session.
+	if ackAdvanced && s.onProgress != nil {
+		s.onProgress()
+	}
+	if msg.Type == syncMsgSnapshotEnd && s.installedSnapshot != nil {
+		snapshot := s.installedSnapshot
+		s.installedSnapshot = nil
+		if s.afterSnapshot != nil {
+			s.afterSnapshot(snapshot)
+		}
+	}
+	if msg.Type == syncMsgHello && s.onHello != nil {
+		s.onHello()
+	}
+	if pushAfter && !s.snapshotBlocked {
+		return s.pushPending()
+	}
+	return nil
 }
 
 func (s *syncSession) handleHello(cursor *store.SyncCursor, msg *syncMessage) error {
-	// The peer tells us how far it has consumed our stream, which is exactly our
-	// acknowledgement position.
-	if msg.PeerLastApplied > cursor.LastAckedSeq {
-		cursor.LastAckedSeq = msg.PeerLastApplied
-	}
+	// A hello carries only a position, not the individual apply outcomes. Replay
+	// from our last acknowledged position so a lost ACK cannot turn a conflict
+	// into a false success; the peer's idempotency record returns its outcome.
 	if err := store.SaveSyncCursor(cursor); err != nil {
 		return err
 	}
@@ -152,19 +305,54 @@ func (s *syncSession) handleHello(cursor *store.SyncCursor, msg *syncMessage) er
 	if err := s.announceHello(); err != nil {
 		return err
 	}
-	if s.onHello != nil {
-		s.onHello()
-	}
-	return s.pushPending()
+	return nil
 }
 
 func (s *syncSession) handleChanges(cursor *store.SyncCursor, msg *syncMessage) error {
+	if s.snapshotBlocked {
+		return fmt.Errorf("snapshot recovery barrier is active")
+	}
+	if msg.InstanceID == "" {
+		return fmt.Errorf("sync changes are missing sender instance")
+	}
 	results := make([]syncAckResult, 0, len(msg.Changes))
-	highest := cursor.LastAppliedSeq
+	previousApplied := cursor.LastAppliedSeq
+	highest := previousApplied
 	for i := range msg.Changes {
 		ch := msg.Changes[i]
+		if ch.LifecycleVersion < 1 {
+			return fmt.Errorf("sync change %s is missing its code lifecycle version", ch.ChangeID())
+		}
+		if ch.OriginNode != s.peer.nodeID || ch.OriginInstance != msg.InstanceID {
+			return fmt.Errorf("sync change %s has a sender identity different from %s", ch.ChangeID(), s.peer.nodeID)
+		}
+		if ch.Seq <= highest {
+			status, err := store.GetAppliedChangeStatus(ch.ChangeID())
+			if err != nil {
+				return err
+			}
+			if status == "" {
+				status = syncStatusSkipped
+			}
+			result, err := syncResultForChange(ch.ChangeID(), status)
+			if err != nil {
+				return err
+			}
+			results = append(results, result)
+			continue
+		}
 		status := s.apply(ch)
-		results = append(results, syncAckResult{ChangeID: ch.ChangeID(), Status: status})
+		result, err := syncResultForChange(ch.ChangeID(), status)
+		if err != nil {
+			return err
+		}
+		results = append(results, result)
+		// A rejected change was not durably accepted. Advancing past it would
+		// permanently discard a maintenance-blocked write (or a failed DB write)
+		// on the next reconnect. Keep the cursor at the last committed change.
+		if status == syncStatusRejected {
+			break
+		}
 		if ch.Seq > highest {
 			highest = ch.Seq
 		}
@@ -173,44 +361,76 @@ func (s *syncSession) handleChanges(cursor *store.SyncCursor, msg *syncMessage) 
 	if err := store.SaveSyncCursor(cursor); err != nil {
 		return err
 	}
-	return s.publish(s.peer, &syncMessage{
-		Type:           syncMsgAck,
-		NodeID:         s.nodeID,
-		BatchID:        msg.BatchID,
-		AppliedThrough: highest,
-		Results:        results,
+	// A rejection or replay has made no delivery progress. Waking the
+	// maintenance coordinator would announce NORMAL and make the platform
+	// immediately resend the same pending change, creating a retry loop.
+	if highest > previousApplied && s.onProgress != nil {
+		s.onProgress()
+	}
+	return s.emit(&syncMessage{
+		Type:            syncMsgAck,
+		NodeID:          s.nodeID,
+		ProtocolVersion: syncProtocolVersion,
+		BatchID:         msg.BatchID,
+		AppliedThrough:  highest,
+		Results:         results,
 	})
 }
 
 func (s *syncSession) handleAck(cursor *store.SyncCursor, msg *syncMessage) error {
+	for _, result := range msg.Results {
+		if result.Status == syncStatusRejected {
+			s.logger.Warn("Peer rejected sync change; delivery remains pending",
+				zap.String("peer", s.peer.nodeID), zap.String("change_id", result.ChangeID),
+				zap.Int64("applied_through", msg.AppliedThrough))
+		}
+	}
 	if msg.AppliedThrough <= cursor.LastAckedSeq {
 		return nil
 	}
+	if msg.AppliedThrough > cursor.LastSentSeq {
+		return nil
+	}
 	previous := cursor.LastAckedSeq
-	cursor.LastAckedSeq = msg.AppliedThrough
-	if err := store.SaveSyncCursor(cursor); err != nil {
+	results := make(map[string]string, len(msg.Results))
+	failures := make(map[string]store.SyncFailure)
+	for _, result := range msg.Results {
+		results[result.ChangeID] = result.Status
+		if result.Status == syncStatusFailed {
+			failures[result.ChangeID] = store.SyncFailure{ErrorCode: result.ErrorCode, LastError: result.LastError}
+		}
+	}
+	if err := store.ApplySyncAck(cursor, previous, msg.AppliedThrough, results, s.addressed, failures); err != nil {
 		return err
 	}
-	if err := store.MarkChangesSettled(previous, msg.AppliedThrough); err != nil {
-		s.logger.Warn("Failed to clear pending sync state for acknowledged changes", zap.Error(err))
+	return nil
+}
+
+func syncResultForChange(changeID, status string) (syncAckResult, error) {
+	result := syncAckResult{ChangeID: changeID, Status: status}
+	if status != syncStatusFailed {
+		return result, nil
 	}
-	// Keep draining: the peer may have acknowledged only a partial batch.
-	return s.pushPending()
+	var applied store.AppliedChange
+	if err := store.DB.Session(&gorm.Session{NewDB: true}).Where("change_id = ?", changeID).Take(&applied).Error; err != nil {
+		return result, err
+	}
+	result.ErrorCode, result.LastError = applied.ErrorCode, applied.LastError
+	return result, nil
 }
 
 func (s *syncSession) handleCursorExpired(cursor *store.SyncCursor, msg *syncMessage) error {
-	// Our position in the peer's stream refers to history the peer no longer
-	// holds, so incremental catch-up is impossible; the only correct recovery is
-	// to re-consume its stream from the beginning.
-	s.logger.Warn("Peer pruned changes past our position; restarting from the start of its stream",
-		zap.String("peer", s.peer.nodeID),
-		zap.Int64("discarded_position", cursor.LastAppliedSeq),
-		zap.String("reason", msg.Reason))
-	cursor.LastAppliedSeq = 0
-	if err := store.SaveSyncCursor(cursor); err != nil {
-		return err
+	if s.installSnapshot != nil {
+		return s.requestSnapshot(cursor)
 	}
-	return s.sendHello()
+	// Resetting to zero would let a later batch silently skip the unavailable
+	// prefix and claim convergence. Retain the last verified position until a
+	// complete snapshot recovery can replace that prefix atomically.
+	s.logger.Error("Peer pruned changes past our position; snapshot recovery is required",
+		zap.String("peer", s.peer.nodeID),
+		zap.Int64("last_verified_position", cursor.LastAppliedSeq),
+		zap.String("reason", msg.Reason))
+	return fmt.Errorf("sync gap with %s after sequence %d requires snapshot recovery: %s", s.peer.nodeID, cursor.LastAppliedSeq, msg.Reason)
 }
 
 // pushPending delivers every change addressed to this peer that it has not yet
@@ -258,16 +478,37 @@ func (s *syncSession) pushPending() error {
 }
 
 func (s *syncSession) drain() error {
+	s.cursorMu.Lock()
+	defer s.cursorMu.Unlock()
 	cursor, err := store.GetSyncCursor(s.peer.nodeID)
 	if err != nil {
 		return err
+	}
+	if s.snapshotBlocked {
+		if s.installSnapshot != nil && s.deliveryToken != "" {
+			return s.retrySnapshot(cursor)
+		}
+		if s.buildSnapshot != nil && s.snapshotPayload != nil {
+			return s.sendSnapshot(&syncMessage{SnapshotCode: s.snapshotSentCode})
+		}
+		if s.buildSnapshot != nil {
+			// The platform's snapshot request can be lost after the hello. A new
+			// delivery token re-arms its recovery request while fencing delayed
+			// messages from the unfinished exchange. Keep the barrier in place.
+			s.mu.Lock()
+			s.deliveryToken = snapshotCode()
+			s.helloSent = false
+			s.mu.Unlock()
+			return s.announceHello()
+		}
+		return nil
 	}
 
 	oldest, err := store.MinSyncChangeSeq()
 	if err != nil {
 		return err
 	}
-	if cursor.LastAckedSeq > 0 && oldest > 0 && cursor.LastAckedSeq+1 < oldest {
+	if oldest > 1 && cursor.LastAckedSeq+1 < oldest {
 		return s.reportCursorExpired(cursor)
 	}
 
@@ -302,7 +543,13 @@ func (s *syncSession) drain() error {
 			continue
 		}
 
-		err = s.publish(s.peer, &syncMessage{
+		// Persist the upper bound before publication: a fast peer can reply while
+		// Publish is still returning, and that ACK must pass the sent-position check.
+		cursor.LastSentSeq = after
+		if err := store.SaveSyncCursor(cursor); err != nil {
+			return err
+		}
+		err = s.emit(&syncMessage{
 			Type:            syncMsgChanges,
 			NodeID:          s.nodeID,
 			InstanceID:      s.instanceID,
@@ -311,36 +558,27 @@ func (s *syncSession) drain() error {
 			HasMore:         !lastPage,
 			Changes:         batch,
 		})
-		if err != nil {
-			// Leave the cursor untouched so the batch is retried after the next
-			// handshake instead of being skipped.
-			return err
-		}
-		cursor.LastSentSeq = after
-		if err := store.SaveSyncCursor(cursor); err != nil {
-			return err
-		}
-		if lastPage {
-			return nil
-		}
+		// Send one addressed batch at a time. A later page must not overtake an
+		// earlier one while MQTT callbacks run concurrently; its ACK drives the
+		// next drain. A failed send is retried from LastAckedSeq on reconnect.
+		return err
 	}
 }
 
 func (s *syncSession) reportCursorExpired(cursor *store.SyncCursor) error {
-	s.logger.Warn("Cannot satisfy peer position incrementally; requesting a restart",
+	s.logger.Error("Cannot satisfy peer position incrementally; snapshot recovery is required",
 		zap.String("peer", s.peer.nodeID),
 		zap.Int64("peer_position", cursor.LastAckedSeq))
-	cursor.LastSentSeq = 0
-	cursor.LastAckedSeq = 0
-	if err := store.SaveSyncCursor(cursor); err != nil {
+	if err := s.emit(&syncMessage{
+		Type:            syncMsgCursorExpired,
+		NodeID:          s.nodeID,
+		ProtocolVersion: syncProtocolVersion,
+		Reason:          "oldest_available",
+		Need:            "snapshot",
+	}); err != nil {
 		return err
 	}
-	return s.publish(s.peer, &syncMessage{
-		Type:   syncMsgCursorExpired,
-		NodeID: s.nodeID,
-		Reason: "oldest_available",
-		Need:   "restart",
-	})
+	return fmt.Errorf("sync gap with %s after sequence %d requires snapshot recovery", s.peer.nodeID, cursor.LastAckedSeq)
 }
 
 // syncHub owns the sessions belonging to one engine.
@@ -356,7 +594,13 @@ type syncHub struct {
 	onHello func(peer syncPeerRef)
 	// onNodeConfig consumes incoming node-level settings. They are transport
 	// concerns rather than entities, so they never enter the change log.
-	onNodeConfig func(msg *syncMessage)
+	onNodeConfig    func(msg *syncMessage)
+	onMaintenance   func(peer syncPeerRef, msg *syncMessage)
+	onRuntime       func(peer syncPeerRef, msg *syncMessage)
+	onProgress      func(peer syncPeerRef)
+	buildSnapshot   func() (*configSnapshot, error)
+	installSnapshot func(*gorm.DB, *configSnapshot) error
+	afterSnapshot   func(*configSnapshot)
 
 	mu       sync.Mutex
 	sessions map[string]*syncSession
@@ -387,12 +631,15 @@ func (h *syncHub) session(peer syncPeerRef) *syncSession {
 		return s
 	}
 	s := &syncSession{
-		nodeID:     h.nodeID,
-		instanceID: h.instanceID,
-		peer:       peer,
-		logger:     h.logger,
-		publish:    h.publish,
-		apply:      h.apply,
+		nodeID:          h.nodeID,
+		instanceID:      h.instanceID,
+		peer:            peer,
+		logger:          h.logger,
+		publish:         h.publish,
+		apply:           h.apply,
+		buildSnapshot:   h.buildSnapshot,
+		installSnapshot: h.installSnapshot,
+		afterSnapshot:   h.afterSnapshot,
 	}
 	s.addressed = func(ch *store.SyncChange) bool {
 		if h.peers == nil {
@@ -410,6 +657,11 @@ func (h *syncHub) session(peer syncPeerRef) *syncSession {
 			h.onHello(peer)
 		}
 	}
+	s.onProgress = func() {
+		if h.onProgress != nil {
+			h.onProgress(peer)
+		}
+	}
 	h.sessions[peer.nodeID] = s
 	return s
 }
@@ -422,8 +674,39 @@ func (h *syncHub) handleInbound(peer syncPeerRef, payload []byte) {
 			zap.String("peer", peer.nodeID), zap.Error(err))
 		return
 	}
-	if msg.NodeID == "" {
-		msg.NodeID = peer.nodeID
+	if peer.nodeID == "" || msg.NodeID != peer.nodeID || msg.ProtocolVersion != syncProtocolVersion {
+		h.logger.Warn("Discarding sync message with invalid sender or protocol",
+			zap.String("peer", peer.nodeID), zap.String("sender", msg.NodeID),
+			zap.Int("protocol_version", msg.ProtocolVersion))
+		return
+	}
+	if msg.Type != syncMsgHello && (h.buildSnapshot != nil || h.installSnapshot != nil) {
+		session := h.session(peer)
+		cursor, err := store.GetSyncCursor(peer.nodeID)
+		// These drops used to be silent, which is what made a maintenance
+		// handover look like it had stalled with no evidence in any log. Every
+		// reason is reported, and the reason names the field that was wrong.
+		if err != nil {
+			h.logger.Warn("Discarding sync message: cursor unavailable",
+				zap.String("peer", peer.nodeID), zap.String("type", msg.Type), zap.Error(err))
+			return
+		}
+		if session.deliveryToken == "" {
+			h.logger.Warn("Discarding sync message: handshake has not completed on this connection",
+				zap.String("peer", peer.nodeID), zap.String("type", msg.Type))
+			return
+		}
+		if session.deliveryToken != msg.SessionToken {
+			h.logger.Warn("Discarding sync message: stale session token",
+				zap.String("peer", peer.nodeID), zap.String("type", msg.Type))
+			return
+		}
+		if cursor.PeerInstance != msg.InstanceID {
+			h.logger.Warn("Discarding sync message: sender generation is not the announced one",
+				zap.String("peer", peer.nodeID), zap.String("type", msg.Type),
+				zap.String("instance_id", msg.InstanceID), zap.String("announced", cursor.PeerInstance))
+			return
+		}
 	}
 	// Node-level settings carry no cursor semantics and are consumed directly.
 	if msg.Type == syncMsgNodeConfig {
@@ -432,14 +715,17 @@ func (h *syncHub) handleInbound(peer syncPeerRef, payload []byte) {
 		}
 		return
 	}
-	// A message always names its sender, so adopt the advertised identity: on
-	// the platform it must agree with the MQTT routing code, on the gateway it is
-	// always the cloud.
-	if peer.nodeID == "" {
-		peer.nodeID = msg.NodeID
-		if peer.kind == "" {
-			peer.kind = "peer"
+	if msg.Type == syncMsgMaintenanceState || msg.Type == syncMsgMaintenanceRequest || msg.Type == syncMsgMaintenanceHandoverAck {
+		if h.onMaintenance != nil {
+			h.onMaintenance(peer, msg)
 		}
+		return
+	}
+	if msg.Type == syncMsgRuntimeResult || msg.Type == syncMsgRuntimeResultAck {
+		if h.onRuntime != nil {
+			h.onRuntime(peer, msg)
+		}
+		return
 	}
 	if err := h.session(peer).handle(msg); err != nil {
 		h.logger.Warn("Sync session handling failed",
@@ -459,11 +745,14 @@ func (h *syncHub) onConnected() {
 
 	for _, s := range sessions {
 		s.resetForReconnect()
+		if err := s.announceHello(); err != nil {
+			h.logger.Warn("Failed to re-announce sync session", zap.String("peer", s.peer.nodeID), zap.Error(err))
+		}
 	}
 	if h.fallback.nodeID == "" {
 		return
 	}
-	if err := h.session(h.fallback).sendHello(); err != nil {
+	if err := h.session(h.fallback).announceHello(); err != nil {
 		h.logger.Warn("Failed to announce sync position after reconnect",
 			zap.String("peer", h.fallback.nodeID), zap.Error(err))
 	}

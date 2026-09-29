@@ -196,11 +196,7 @@ func (p *CascadePlugin) IsGatewayDevice(gwSn string) bool {
 	if err != nil || dev == nil {
 		return false
 	}
-	product, err := store.GetProduct(dev.ProductCode)
-	if err != nil || product == nil {
-		return false
-	}
-	return product.Name == "cascade"
+	return dev.ProductCode == defaultGatewayProductCode
 }
 
 // SendCommandToGateway implements IGatewayRouter
@@ -436,6 +432,10 @@ func (p *CascadePlugin) Init(ctx platform.Context) error {
 
 	// Register HTTP routes
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/status", p.handleGetStatus)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/maintenance", p.handleLocalMaintenance)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/maintenance", p.handleGatewayMaintenance)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/runtime-results", p.handleGatewayRuntimeResults)
+	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/configuration/resources", p.handleConfigurationStates)
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/stream", p.handleStream)
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/sync/conflicts", p.handleSyncConflicts)
 	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/sync/conflicts/resolve", p.handleSyncConflictResolve)
@@ -597,23 +597,52 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 	}
 
 	type gatewayItem struct {
-		SN           string `json:"sn"`
-		SerialNumber string `json:"serialNumber"`
-		Name         string `json:"name"`
-		ProjectID    uint   `json:"projectId"`
-		ProjectName  string `json:"projectName"`
-		ProductCode  string `json:"productCode"`
-		Enabled      bool   `json:"enabled"`
-		Status       string `json:"status"`
-		Online       bool   `json:"online"`
-		OnlineAt     int64  `json:"onlineAt"`
-		UpdatedAt    int64  `json:"updatedAt"`
+		SN              string                    `json:"sn"`
+		SerialNumber    string                    `json:"serialNumber"`
+		Name            string                    `json:"name"`
+		ProjectID       uint                      `json:"projectId"`
+		ProjectName     string                    `json:"projectName"`
+		ProductCode     string                    `json:"productCode"`
+		Enabled         bool                      `json:"enabled"`
+		Status          string                    `json:"status"`
+		Online          bool                      `json:"online"`
+		OnlineAt        int64                     `json:"onlineAt"`
+		UpdatedAt       int64                     `json:"updatedAt"`
+		RuntimeFailures int64                     `json:"runtimeFailures"`
+		Maintenance     *store.GatewayMaintenance `json:"maintenance"`
+	}
+	var runtimeCounts []struct {
+		GatewayCode string
+		Count       int64
+	}
+	if err := currentGatewayRuntimeFailures(store.DB).
+		Select("gateway_code, COUNT(*) AS count").
+		Group("gateway_code").Scan(&runtimeCounts).Error; err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
+		return
+	}
+	runtimeFailures := make(map[string]int64, len(runtimeCounts))
+	for _, item := range runtimeCounts {
+		runtimeFailures[item.GatewayCode] = item.Count
+	}
+	var maintenanceRows []store.GatewayMaintenance
+	if err := store.DB.Find(&maintenanceRows).Error; err != nil {
+		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
+		return
+	}
+	maintenanceStates := make(map[string]*store.GatewayMaintenance, len(maintenanceRows))
+	for i := range maintenanceRows {
+		maintenanceStates[maintenanceRows[i].GatewayCode] = &maintenanceRows[i]
 	}
 
 	items := make([]gatewayItem, 0)
 	for _, dev := range devices {
 		if dev.ProductCode != defaultGatewayProductCode {
 			continue
+		}
+		maintenance := maintenanceStates[dev.Code]
+		if maintenance == nil {
+			maintenance = &store.GatewayMaintenance{GatewayCode: dev.Code, Mode: store.GatewayModeNormal}
 		}
 
 		statusStr := types.DeviceStatusOffline
@@ -630,17 +659,19 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 		}
 
 		items = append(items, gatewayItem{
-			SN:           dev.Code,
-			SerialNumber: gatewaySerialNumber(&dev),
-			Name:         dev.Name,
-			ProjectID:    dev.ProjectID,
-			ProjectName:  projectNames[dev.ProjectID],
-			ProductCode:  dev.ProductCode,
-			Enabled:      dev.Enabled,
-			Status:       statusStr,
-			Online:       online,
-			OnlineAt:     onlineAt,
-			UpdatedAt:    dev.UpdatedAt.UnixMilli(),
+			SN:              dev.Code,
+			SerialNumber:    gatewaySerialNumber(&dev),
+			Name:            dev.Name,
+			ProjectID:       dev.ProjectID,
+			ProjectName:     projectNames[dev.ProjectID],
+			ProductCode:     dev.ProductCode,
+			RuntimeFailures: runtimeFailures[dev.Code],
+			Maintenance:     maintenance,
+			Enabled:         dev.Enabled,
+			Status:          statusStr,
+			Online:          online,
+			OnlineAt:        onlineAt,
+			UpdatedAt:       dev.UpdatedAt.UnixMilli(),
 		})
 	}
 
@@ -896,25 +927,13 @@ func (p *CascadePlugin) handleGatewayPluginConfig(r *ghttp.Request) {
 		return
 	}
 	if item, found := gatewayPluginStateCache.Get(gwSn, pluginName); found && item.SyncState == remotePluginSyncPending {
-		if _, conflict := gatewayPluginStateCache.MarkConflictIfGatewayChanged(gwSn, pluginName, summary.ConfigVersion); conflict {
-			if conflictItem, ok := gatewayPluginStateCache.Get(gwSn, pluginName); ok {
-				cachedConflict := summaryFromCacheItem(conflictItem)
-				r.Response.WriteJson(map[string]interface{}{"code": 0, "data": cachedConflict})
-				return
-			}
-		}
-		if item.DesiredConfig != nil {
-			applied, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodConfigSet, pluginName, map[string]interface{}{
-				"config":       item.DesiredConfig,
-				"base_version": item.BaseVersion,
-			})
-			if err == nil {
-				if appliedSummary, decodeErr := decodeRemotePluginSummary(applied); decodeErr == nil {
-					synced := gatewayPluginStateCache.MarkSynced(gwSn, *appliedSummary, time.Now())
-					r.Response.WriteJson(map[string]interface{}{"code": 0, "data": synced})
-					return
-				}
-			}
+		// The reconciler compares fields against the saved base, handles a lost
+		// response, and serializes retries. A plain version mismatch is not by
+		// itself a conflict.
+		engine.reconcilePendingPluginConfig(gwSn)
+		if latest, ok := gatewayPluginStateCache.Get(gwSn, pluginName); ok && latest.SyncState != remotePluginSyncPending {
+			r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(latest)})
+			return
 		}
 	}
 	gatewayPluginStateCache.SaveSnapshot(gwSn, *summary, time.Now())
@@ -928,47 +947,23 @@ func (p *CascadePlugin) handleGatewayPluginConfigSave(r *ghttp.Request) {
 		return
 	}
 	pluginName := p.getRouteParam(r, "pluginName")
-	var config map[string]interface{}
-	if err := json.Unmarshal(r.GetBody(), &config); err != nil {
+	var fields map[string]interface{}
+	if err := json.Unmarshal(r.GetBody(), &fields); err != nil || fields == nil {
 		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "Invalid JSON"})
 		return
 	}
 	gwSn := p.getRouteParam(r, "gwSn")
-	baseVersion := extractRemoteBaseVersion(config)
-	enabled := desiredEnabledForConfig(gwSn, pluginName, config)
-	engine, ok := p.remotePluginEngine(r, gwSn)
-	if !ok {
+	baseVersion := extractRemoteBaseVersion(fields)
+	if _, ok := p.remotePluginEngine(r, gwSn); !ok {
 		return
 	}
-	if r.Get("resolve").String() != "override" && baseVersion > 0 {
-		if live, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodConfigGet, pluginName, nil); err == nil {
-			if liveSummary, decodeErr := decodeRemotePluginSummary(live); decodeErr == nil && liveSummary.ConfigVersion > baseVersion {
-				item, _ := gatewayPluginStateCache.SaveDesired(gwSn, pluginName, config, enabled, baseVersion, time.Now())
-				gatewayPluginStateCache.MarkConflictIfGatewayChanged(gwSn, pluginName, liveSummary.ConfigVersion)
-				if conflictItem, found := gatewayPluginStateCache.Get(gwSn, pluginName); found {
-					item = conflictItem
-				}
-				r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item)})
-				return
-			}
-		}
-	}
-	data, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodConfigSet, pluginName, map[string]interface{}{
-		"config":       config,
-		"base_version": baseVersion,
-	})
+	item, err := gatewayPluginStateCache.SaveDesired(gwSn, pluginName, fields, desiredEnabledForConfig(gwSn, pluginName, fields), baseVersion, time.Now())
 	if err != nil {
-		item, _ := gatewayPluginStateCache.SaveDesired(gwSn, pluginName, config, enabled, baseVersion, time.Now())
-		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item), "message": err.Error()})
+		r.Response.WriteStatus(503, map[string]interface{}{"code": 503, "message": err.Error()})
 		return
 	}
-	summary, err := decodeRemotePluginSummary(data)
-	if err != nil {
-		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": data})
-		return
-	}
-	synced := gatewayPluginStateCache.MarkSynced(gwSn, *summary, time.Now())
-	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": synced})
+	store.NotifyProtectedConfigCommitted(store.ProtectedConfigCode(gwSn, "plugin", pluginName))
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item)})
 }
 
 func (p *CascadePlugin) handleGatewayPluginStatusSave(r *ghttp.Request) {
@@ -986,41 +981,16 @@ func (p *CascadePlugin) handleGatewayPluginStatusSave(r *ghttp.Request) {
 		return
 	}
 	gwSn := p.getRouteParam(r, "gwSn")
-	baseVersion := body.BaseVersion
-	config := map[string]interface{}{"enabled": body.Enabled}
-	engine, ok := p.remotePluginEngine(r, gwSn)
-	if !ok {
+	if _, ok := p.remotePluginEngine(r, gwSn); !ok {
 		return
 	}
-	if baseVersion > 0 {
-		if live, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodConfigGet, pluginName, nil); err == nil {
-			if liveSummary, decodeErr := decodeRemotePluginSummary(live); decodeErr == nil && liveSummary.ConfigVersion > baseVersion {
-				item, _ := gatewayPluginStateCache.SaveDesired(gwSn, pluginName, config, body.Enabled, baseVersion, time.Now())
-				gatewayPluginStateCache.MarkConflictIfGatewayChanged(gwSn, pluginName, liveSummary.ConfigVersion)
-				if conflictItem, found := gatewayPluginStateCache.Get(gwSn, pluginName); found {
-					item = conflictItem
-				}
-				r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item)})
-				return
-			}
-		}
-	}
-	data, err := engine.SendRemotePluginCommand(gwSn, remotePluginMethodStatusSet, pluginName, map[string]interface{}{
-		"enabled":      body.Enabled,
-		"base_version": baseVersion,
-	})
+	item, err := gatewayPluginStateCache.SaveDesired(gwSn, pluginName, map[string]interface{}{"enabled": body.Enabled}, body.Enabled, body.BaseVersion, time.Now())
 	if err != nil {
-		item, _ := gatewayPluginStateCache.SaveDesired(gwSn, pluginName, config, body.Enabled, baseVersion, time.Now())
-		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item), "message": err.Error()})
+		r.Response.WriteStatus(503, map[string]interface{}{"code": 503, "message": err.Error()})
 		return
 	}
-	summary, err := decodeRemotePluginSummary(data)
-	if err != nil {
-		r.Response.WriteJson(map[string]interface{}{"code": 0, "data": data})
-		return
-	}
-	synced := gatewayPluginStateCache.MarkSynced(gwSn, *summary, time.Now())
-	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": synced})
+	store.NotifyProtectedConfigCommitted(store.ProtectedConfigCode(gwSn, "plugin", pluginName))
+	r.Response.WriteJson(map[string]interface{}{"code": 0, "data": summaryFromCacheItem(item)})
 }
 
 func (p *CascadePlugin) writeRemotePluginCommandResponse(r *ghttp.Request, method, pluginName string, params map[string]interface{}) {

@@ -889,6 +889,7 @@ func savePluginConfigInTx(tx *gorm.DB, name string, tenantID, projectID uint, en
 	}
 	plugin.Enabled = enabled
 	plugin.Config = string(data)
+	plugin.Revision++
 	return tx.Save(&plugin).Error
 }
 

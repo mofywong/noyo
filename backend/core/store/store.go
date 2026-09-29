@@ -91,12 +91,23 @@ func InitDB(dsn string) error {
 		return fmt.Errorf("failed to migrate plugin scope schema: %w", err)
 	}
 
+	migrateAppliedChangesSchema()
+
 	// AutoMigrate models
 	err = DB.AutoMigrate(
 		&SyncChange{},
+		&ConfigProjection{},
+		&ConfigIntent{},
+		&SyncSnapshotStage{},
+		&ResourceLifecycle{},
 		&AppliedChange{},
+		&SyncDeliveryResult{},
+		&RuntimeApply{},
+		&GatewayRuntimeState{},
+		&SyncBootstrap{},
 		&SyncCursor{},
 		&SyncNodeIdentity{},
+		&GatewayMaintenance{},
 		&User{},
 		&Tenant{},
 		&Project{},
@@ -168,6 +179,18 @@ func InitDB(dsn string) error {
 	CleanExpiredBlacklist()
 
 	return nil
+}
+
+func migrateAppliedChangesSchema() {
+	if DB == nil {
+		return
+	}
+	_ = DB.Exec("DROP TABLE IF EXISTS `applied_changes__temp`").Error
+	if DB.Migrator().HasTable("applied_changes") {
+		if DB.Migrator().HasColumn("applied_changes", "status") {
+			_ = DB.Exec("UPDATE `applied_changes` SET `status` = 'applied' WHERE `status` IS NULL OR `status` = ''").Error
+		}
+	}
 }
 
 func purgeLegacyPositionPermissions() error {
@@ -719,17 +742,33 @@ func UpdateProduct(p *Product) error {
 	}
 	p.ID = existing.ID
 	p.CreatedAt = existing.CreatedAt
+	p.SyncMeta = existing.SyncMeta
+	p.SourceTemplateCode = existing.SourceTemplateCode
+	p.SourceTemplateRev = existing.SourceTemplateRev
 	return DB.Save(p).Error
 }
 
 func DeleteProduct(code string) error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	var change *SyncChange
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		var product Product
 		if err := tx.Where("code = ?", code).First(&product).Error; err != nil {
 			return err
 		}
+		var bindings int64
+		if err := tx.Model(&Device{}).Where("product_code = ?", code).Count(&bindings).Error; err != nil {
+			return err
+		}
+		if bindings > 0 {
+			return ErrConfigResourceInUse
+		}
 
-		newCode := fmt.Sprintf("%s_del_%d", product.Code, time.Now().Unix())
+		deleted := product
+		var recordErr error
+		change, recordErr = recordProductDeletedTx(tx, &deleted)
+		if recordErr != nil { return recordErr }
+		if deferred, err := DeferredConfigDelete(tx, change); err != nil || deferred { return err }
+		newCode := fmt.Sprintf("%s_del_%d", product.Code, time.Now().UnixNano())
 
 		// Rename code to release unique constraint
 		if err := tx.Model(&product).Update("code", newCode).Error; err != nil {
@@ -737,8 +776,15 @@ func DeleteProduct(code string) error {
 		}
 
 		// Soft delete
-		return tx.Delete(&product).Error
+		if err := tx.Delete(&product).Error; err != nil {
+			return err
+		}
+		return nil
 	})
+	if err == nil {
+		notifyCommittedChange(change)
+	}
+	return err
 }
 
 // --- Device CRUD Helper ---
@@ -751,6 +797,7 @@ func UpdateDevice(d *Device) error {
 	}
 	d.ID = existing.ID
 	d.CreatedAt = existing.CreatedAt
+	d.SyncMeta = existing.SyncMeta
 	return DB.Save(d).Error
 }
 

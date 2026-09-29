@@ -53,7 +53,7 @@
       <select class="form-select form-select-sm list-toolbar-filters" v-model="groupFilter" style="max-width: 180px;">
         <option value="">{{ $t('rule_all_groups') }}</option>
         <option value="__none__">{{ $t('rule_no_group') }}</option>
-        <option v-for="group in groups" :key="group.id || group.ID" :value="String(group.id || group.ID)">
+        <option v-for="group in groups" :key="group.code" :value="group.code">
           {{ group.name }}
         </option>
       </select>
@@ -85,6 +85,7 @@
     </div>
 
     <!-- Table Glass Card -->
+    <PendingConfigurationList entity-type="rule" :intents="pendingConfigurationIntents" />
     <div class="card border-0 shadow-sm table-glass-card">
       <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
         <div class="table-responsive flex-grow-1">
@@ -121,13 +122,14 @@
               </tr>
               <tr v-for="rule in paginatedRules" :key="rule.code">
                 <td>
-                  <div class="fw-semibold">{{ rule.name }}</div>
+                  <button type="button" class="rule-name-link fw-semibold text-start" @click="configurationRule = rule">{{ rule.name }}</button>
+                  <ConfigSyncBadge :state="configurationStateFor(rule)" />
                   <div class="small text-muted text-truncate rule-desc">{{ rule.description || rule.code }}</div>
                   <span v-if="ruleHasAiAction(rule)" class="badge bg-info-subtle text-info-emphasis mt-1 me-1">
                     <i class="bi bi-stars me-1"></i>{{ $t('rule_ai_badge') }}
                   </span>
-                  <span v-if="groupName(rule.group_id)" class="badge bg-secondary-subtle text-secondary-emphasis mt-1">
-                    {{ groupName(rule.group_id) }}
+                  <span v-if="groupName(rule.group_code)" class="badge bg-secondary-subtle text-secondary-emphasis mt-1">
+                    {{ groupName(rule.group_code) }}
                   </span>
                 </td>
                 <td>
@@ -191,6 +193,9 @@
     </div>
 
     <Teleport to="body">
+      <DetailDrawer :visible="!!configurationRule" :title="configurationRule?.name || configurationRule?.code || ''" @close="configurationRule = null">
+        <ConfigurationStatePanel v-if="configurationRule?.code" entity-type="rule" :entity-code="configurationRule.code" :gateway-code="configurationRule.gateway_code || ''" @reedit="handleConfigurationReedit" />
+      </DetailDrawer>
       <div v-if="showGraph" class="modal fade show d-block rule-modal" tabindex="-1">
         <div class="modal-dialog modal-xl rule-graph-dialog" :class="{ 'rule-graph-dialog--fullscreen': isGraphFullscreen }">
           <div class="modal-content border-0 shadow-lg">
@@ -279,7 +284,7 @@
                 </button>
               </div>
               <div class="list-group">
-                <div v-for="group in groups" :key="group.id || group.ID" class="list-group-item d-flex justify-content-between align-items-center">
+                <div v-for="group in groups" :key="group.code" class="list-group-item d-flex justify-content-between align-items-center">
                   <span>{{ group.name }}</span>
                   <button class="btn btn-sm btn-outline-danger" @click="deleteGroup(group)">
                     <i class="bi bi-trash"></i>
@@ -296,7 +301,7 @@
 
 <script>
 import VarInputWrapper from '../components/rule/VarInputWrapper.vue'
-import { computed, defineComponent, h, onMounted, onUnmounted, reactive, ref, watch, provide, inject } from 'vue'
+import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, reactive, ref, watch, provide, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '../composables/useToast'
 import axios from 'axios'
@@ -304,6 +309,11 @@ import RuleGraphViewer from '@/components/rule/RuleGraphViewer.vue'
 import ListPagination from '@/components/ListPagination.vue'
 import { formatDateTime } from '../utils/dateTime.js'
 import CompactListMetrics from '../components/CompactListMetrics.vue'
+import DetailDrawer from '../components/DetailDrawer.vue'
+import ConfigSyncBadge from '../components/cascade/ConfigSyncBadge.vue'
+import ConfigurationStatePanel from '../components/cascade/ConfigurationStatePanel.vue'
+import PendingConfigurationList from '../components/cascade/PendingConfigurationList.vue'
+import { useConfigurationStates } from '../composables/useConfigurationStates.js'
 
 function uid(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`
@@ -771,8 +781,10 @@ const ActionEditor = defineComponent({
 
 export default {
   name: 'RuleEngine',
-  components: { ActionEditor, RuleConditionGroupEditor, RuleGraphViewer, VarInputWrapper, ListPagination, CompactListMetrics },
+  components: { ActionEditor, RuleConditionGroupEditor, RuleGraphViewer, VarInputWrapper, ListPagination, CompactListMetrics, DetailDrawer, ConfigSyncBadge, ConfigurationStatePanel, PendingConfigurationList },
   setup() {
+    const configurationRule = ref(null)
+    const { configurationStateFor, pendingConfigurationIntents, reloadConfigurationStates } = useConfigurationStates('rule')
     const { t } = useI18n()
     const { showToast } = useToast()
     const rules = ref([])
@@ -845,7 +857,7 @@ export default {
       return {
         name: '',
         description: '',
-        group_id: null,
+        group_code: null,
         priority: 50,
         throttle_sec: 60,
         max_per_hour: 60,
@@ -862,7 +874,7 @@ export default {
         code: '',
         name: t('rule_new_default_name'),
         description: '',
-        group_id: null,
+        group_code: null,
         priority: 50,
         throttle_sec: 60,
         max_per_hour: 60,
@@ -902,6 +914,7 @@ export default {
     }
 
     async function fetchAll() {
+      reloadConfigurationStates()
       loading.value = true
       try {
         const [ruleRes, groupRes, deviceRes] = await Promise.all([
@@ -921,7 +934,7 @@ export default {
       return {
         ...rule,
         id: rule.id || rule.ID,
-        group_id: rule.group_id || rule.GroupID || null,
+        group_code: rule.group_code || null,
         trigger_count: rule.trigger_count || 0,
         last_triggered_at: rule.last_triggered_at || null,
         enabled: !!rule.enabled
@@ -934,8 +947,8 @@ export default {
       const q = search.value.toLowerCase()
       if (q && !`${rule.name} ${rule.description} ${rule.code}`.toLowerCase().includes(q)) return false
       if (statusFilter.value && rule.status !== statusFilter.value) return false
-      if (groupFilter.value === '__none__' && rule.group_id) return false
-      if (groupFilter.value && groupFilter.value !== '__none__' && String(rule.group_id) !== groupFilter.value) return false
+      if (groupFilter.value === '__none__' && rule.group_code) return false
+      if (groupFilter.value && groupFilter.value !== '__none__' && rule.group_code !== groupFilter.value) return false
       if (aiRuleFilter.value && !ruleHasAiAction(rule)) return false
       if (summaryMetricFilters.value.includes('enabled') && !rule.enabled) return false
       if (summaryMetricFilters.value.includes('ai') && !ruleHasAiAction(rule)) return false
@@ -1013,9 +1026,9 @@ export default {
     const showsEffectiveWeekdays = computed(() => form.effective_time.mode === 'weekly' || form.effective_time.mode === 'custom')
     const showsEffectiveMonthDays = computed(() => form.effective_time.mode === 'custom')
     const showsEffectiveMonths = computed(() => form.effective_time.mode === 'custom')
-    function groupName(id) {
-      if (!id) return ''
-      const group = groups.value.find(g => String(g.id || g.ID) === String(id))
+    function groupName(code) {
+      if (!code) return ''
+      const group = groups.value.find(g => g.code === code)
       return group?.name || ''
     }
 
@@ -1266,7 +1279,7 @@ export default {
         assignForm({
           name: rule.name,
           description: rule.description,
-          group_id: rule.group_id || null,
+          group_code: rule.group_code || null,
           priority: rule.priority || 50,
           throttle_sec: rule.throttle_sec || 60,
           max_per_hour: rule.max_per_hour || 60,
@@ -1285,6 +1298,15 @@ export default {
 
     function closeEditor() {
       showEditor.value = false
+    }
+
+    // Rebases a superseded platform edit onto the rule's live value: the status
+    // drawer closes, then the editor opens loaded from the current list row.
+    function handleConfigurationReedit({ entityCode }) {
+      const rule = rules.value.find((item) => item.code === entityCode)
+      if (!rule) return
+      configurationRule.value = null
+      nextTick(() => openEditor(rule))
     }
 
     function addTrigger() {
@@ -1361,7 +1383,7 @@ export default {
       return {
         name: form.name,
         description: form.description,
-        group_id: form.group_id || null,
+        group_code: form.group_code || null,
         priority: form.priority,
         throttle_sec: form.throttle_sec,
         max_per_hour: form.max_per_hour,
@@ -1476,7 +1498,7 @@ export default {
         const payload = {
           name: updatedRule.name,
           description: updatedRule.description,
-          group_id: updatedRule.group_id || null,
+          group_code: updatedRule.group_code || null,
           priority: updatedRule.priority || 0,
           throttle_sec: updatedRule.throttle_sec || updatedRule.throttleSec || 0,
           max_per_hour: updatedRule.max_per_hour || 0,
@@ -1559,7 +1581,7 @@ export default {
 
     async function deleteGroup(group) {
       if (!confirm(t('confirm_delete_rule_group', { name: group.name }))) return
-      await axios.delete(`/api/rule-groups/${group.id || group.ID}`)
+      await axios.delete(`/api/rule-groups/${encodeURIComponent(group.code)}`)
       const res = await axios.get('/api/rule-groups')
       groups.value = res.data.data || []
     }
@@ -1645,6 +1667,7 @@ export default {
     })
 
     return {
+      configurationRule, configurationStateFor, pendingConfigurationIntents,
       expandedSections,
       rules, groups, devices, logs, loading, saving, search, statusFilter, groupFilter, aiRuleFilter, summaryMetricFilters, showEditor, showLogs, showGraph, isGraphFullscreen, toggleGraphFullscreen,
       showGroupModal, editingCode, logRule, graphRule, groupForm, form, analysis, aiRuleCount, filteredRules, paginatedRules,
@@ -1653,7 +1676,7 @@ export default {
       showsEffectiveWeekdays, showsEffectiveMonthDays, showsEffectiveMonths,
       actionLabels, conditionLabels, fetchAll, groupName, statusBadge, statusLabel,
       syncStateLabel, describeTriggers, describeActions, ruleHasAiAction, localizedRuleError, formatTime, deviceLabel, optionLabel, optionKey, propertiesFor,
-      eventsFor, openNewRuleGraph, openEditor, closeEditor, addTrigger, removeTrigger, addCondition, removeCondition, addAction,
+      eventsFor, openNewRuleGraph, openEditor, closeEditor, handleConfigurationReedit, addTrigger, removeTrigger, addCondition, removeCondition, addAction,
       addSequenceGroup, addParallelGroup, addEffectiveWindow, removeEffectiveWindow, applyEffectiveModeDefaults,
       parseNumberList, syncCronExpression,
       removeAction, addSubAction, removeSubAction, saveRule, toggleRule, deleteRule,
@@ -1664,6 +1687,24 @@ export default {
 </script>
 
 <style>
+.rule-engine-page .rule-name-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-main);
+  font: inherit;
+  cursor: pointer;
+}
+
+.rule-engine-page .rule-name-link:hover {
+  text-decoration: underline;
+}
+
+.rule-engine-page .rule-name-link:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 4px;
+}
+
 .rule-engine-page .list-toolbar-actions {
   padding-right: 8px;
   padding-bottom: 2px;
@@ -2210,4 +2251,3 @@ export default {
   }
 }
 </style>
-

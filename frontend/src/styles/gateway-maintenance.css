@@ -1,0 +1,17 @@
+/* Semantic colors have separate light and dark values in style.css. */
+.gateway-state--maintenance {
+  --gateway-state-color: var(--color-warning);
+}
+
+.gateway-state--reconciling {
+  --gateway-state-color: var(--color-warning);
+}
+
+.gateway-state--online {
+  --gateway-state-color: var(--color-success);
+}
+
+.gateway-state--offline,
+.gateway-state--disabled {
+  --gateway-state-color: var(--text-secondary);
+}

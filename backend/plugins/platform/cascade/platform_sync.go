@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"noyo/core"
 	"noyo/core/store"
+	"noyo/core/types"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"go.uber.org/zap"
@@ -19,6 +21,13 @@ import (
 // recorder that turns local writes into a propagation log, the mutation sink
 // that reports deletions, and the hub that owns one session per gateway.
 func (e *platformEngineImpl) initSync() error {
+	store.EnablePlatformConfigProjection(true)
+	if err := store.RegisterConfigWriteGuard("platform", ""); err != nil {
+		return fmt.Errorf("register platform configuration guard: %w", err)
+	}
+	if err := gatewayPluginStateCache.RestoreFromStore(store.DB); err != nil {
+		return fmt.Errorf("restore pending gateway plugin configurations: %w", err)
+	}
 	instanceID, err := store.NodeInstanceID(cloudSyncNodeID)
 	if err != nil {
 		return fmt.Errorf("resolve platform change-log instance: %w", err)
@@ -33,34 +42,189 @@ func (e *platformEngineImpl) initSync() error {
 		e.applyInboundChange,
 	)
 	e.syncHub = hub
-	hub.onHello = e.publishNodeConfig
+	hub.installSnapshot = e.installGatewaySnapshot
+	hub.afterSnapshot = func(snapshot *configSnapshot) {
+		if e.ctx == nil {
+			return
+		}
+		server, ok := e.ctx.GetCoreServer().(*core.Server)
+		if !ok || server == nil {
+			return
+		}
+		if server.DeviceManager != nil && server.DeviceManager.Registry != nil {
+			if err := server.DeviceManager.Registry.Reload(); err != nil {
+				e.logger.Error("Failed to refresh authoritative snapshot registry", zap.Error(err))
+			}
+		}
+		if server.RuleEngine != nil {
+			if err := server.RuleEngine.LoadRules(); err != nil {
+				e.logger.Error("Failed to refresh authoritative snapshot rules", zap.Error(err))
+			}
+		}
+	}
+	hub.onHello = func(peer syncPeerRef) {
+		e.publishNodeConfig(peer)
+		go e.reconcilePendingPluginConfig(peer.gatewayCode)
+	}
+	hub.onMaintenance = e.handleMaintenance
+	hub.onRuntime = e.handleGatewayRuntimeResult
+	hub.onProgress = e.tryAcknowledgeHandover
 
 	rec := newChangeRecorder(changeRecorder{
-		nodeID:       cloudSyncNodeID,
-		instanceID:   instanceID,
-		origin:       cloudSyncNodeID,
-		logger:       e.logger,
-		notify:       hub.notifyChange,
-		routeDevice:  e.routeDevice,
-		routeProduct: e.routeProduct,
+		nodeID:          cloudSyncNodeID,
+		separateIntents: true,
+		instanceID:      instanceID,
+		origin:          cloudSyncNodeID,
+		logger:          e.logger,
+		notify:          hub.notifyChange,
+		routeDevice:     e.routeDevice,
+		routeProduct:    e.routeProduct,
+		routeScope: func(tenantID, projectID uint) string {
+			return strings.Join(e.gatewaysInScope(tenantID, projectID), ",")
+		},
 	})
 	e.recorder = rec
 	if err := registerChangeHooks(rec); err != nil {
 		return err
 	}
 	store.SetSyncChangeSink(rec)
+	store.SetProtectedConfigSink(rec)
+	if err := bootstrapExistingResources(cloudSyncNodeID, instanceID); err != nil {
+		return fmt.Errorf("bootstrap platform configuration log: %w", err)
+	}
 	return nil
 }
 
+func (e *platformEngineImpl) handleGatewayRuntimeResult(peer syncPeerRef, msg *syncMessage) {
+	if msg.Type != syncMsgRuntimeResult || peer.gatewayCode == "" || msg.RuntimeResult == nil || msg.InstanceID == "" {
+		return
+	}
+	result := msg.RuntimeResult
+	if (result.Status != store.RuntimeApplyActive && result.Status != store.RuntimeApplyFailed) || result.Attempts < 1 {
+		return
+	}
+	cursor, err := store.GetSyncCursor(peer.nodeID)
+	if err != nil || cursor.PeerInstance != msg.InstanceID {
+		return
+	}
+	separator := strings.LastIndexByte(result.ChangeID, ':')
+	if separator < 1 {
+		return
+	}
+	seq, err := strconv.ParseInt(result.ChangeID[separator+1:], 10, 64)
+	if err != nil || seq < 1 {
+		return
+	}
+	producer := result.ChangeID[:separator]
+	authorized := false
+	if producer == e.instanceID {
+		var change store.SyncChange
+		if err := store.DB.Where("seq = ? AND origin_instance = ?", seq, e.instanceID).Take(&change).Error; err != nil {
+			return
+		}
+		if change.OriginNode != cloudSyncNodeID || change.ChangeID() != result.ChangeID || change.EntityType != result.EntityType || change.EntityCode != result.EntityCode || change.LifecycleVersion != result.LifecycleVersion {
+			return
+		}
+		addressed := false
+		for _, target := range e.syncDestinationsForChange(&change) {
+			if target.nodeID == peer.nodeID {
+				addressed = true
+				break
+			}
+		}
+		if !addressed {
+			return
+		}
+		authorized = change.NewRev == result.Revision
+	} else if producer != msg.InstanceID {
+		return
+	}
+	if !authorized && store.DB.Migrator().HasTable(&store.ConfigProjection{}) {
+		var confirmed store.ConfigProjection
+		if err := store.DB.Where("gateway_code = ? AND entity_type = ? AND entity_code = ?", peer.gatewayCode, result.EntityType, result.EntityCode).Take(&confirmed).Error; err != nil {
+			return
+		}
+		authorized = confirmed.Revision == result.Revision && confirmed.LifecycleVersion == result.LifecycleVersion
+	}
+	if !authorized {
+		return
+	}
+	detail := []rune(result.LastError)
+	if len(detail) > 1024 {
+		detail = detail[:1024]
+	}
+	state := store.GatewayRuntimeState{
+		GatewayCode: peer.gatewayCode, EntityType: result.EntityType, EntityCode: result.EntityCode,
+		ChangeID: result.ChangeID, ChangeSeq: seq, Revision: result.Revision, LifecycleVersion: result.LifecycleVersion,
+		ActiveRevision: result.ActiveRevision, ActiveLifecycleVersion: result.ActiveLifecycleVersion, CompensationStatus: result.CompensationStatus, CompensationError: result.CompensationError,
+		Status: result.Status, LastError: string(detail), Attempts: result.Attempts, UpdatedAt: time.Now().UnixMilli(),
+	}
+	if err := store.RecordGatewayRuntimeState(state); err != nil {
+		e.logger.Warn("Could not save gateway runtime result", zap.String("gateway", peer.gatewayCode), zap.Error(err))
+		return
+	}
+	if err := e.syncPublish(peer, &syncMessage{
+		Type: syncMsgRuntimeResultAck, NodeID: cloudSyncNodeID,
+		InstanceID: e.instanceID, ProtocolVersion: syncProtocolVersion,
+		RuntimeChangeID: result.ChangeID, RuntimeAttempts: result.Attempts,
+	}); err != nil {
+		e.logger.Debug("Gateway runtime result acknowledgement awaits retry", zap.String("gateway", peer.gatewayCode), zap.Error(err))
+	}
+}
+
 func (e *platformEngineImpl) applyInboundChange(ch store.SyncChange) string {
+	var relay *store.SyncChange
 	return applySyncChange(cloudSyncNodeID, syncApplyHooks{
+		preferRemote:   ch.OriginNode != cloudSyncNodeID,
+		authorizeApply: e.authorizeGatewayChange,
+		afterApplyTx: func(tx *gorm.DB, applied store.SyncChange, status string) error {
+			if status != syncStatusApplied {
+				return nil
+			}
+			var err error
+			if err = recordConfirmedProjectionTx(tx, applied); err != nil {
+				return err
+			}
+			relay, err = e.recordGatewayRelayTx(tx, applied)
+			return err
+		},
 		afterApply: func(applied store.SyncChange, status string) {
 			if status == syncStatusApplied || status == syncStatusConflict {
 				e.refreshSyncedDevice(applied)
-				e.relayAppliedChange(applied)
+				e.refreshSyncedProduct(applied)
+				if status == syncStatusApplied && applied.EntityType == store.SyncEntityRule {
+					if server, ok := e.ctx.GetCoreServer().(*core.Server); ok && server.RuleEngine != nil {
+						if err := server.RuleEngine.LoadRules(); err != nil {
+							e.logger.Error("Failed to load synchronized rules", zap.Error(err))
+						}
+					}
+				}
+				if relay != nil && e.syncHub != nil {
+					e.syncHub.notifyChange(*relay)
+				}
 			}
 		},
 	}, e.logger, ch)
+}
+
+func (e *platformEngineImpl) refreshSyncedProduct(ch store.SyncChange) {
+	if ch.EntityType != store.SyncEntityProduct || e.ctx == nil {
+		return
+	}
+	server, ok := e.ctx.GetCoreServer().(*core.Server)
+	if !ok || server == nil || server.DeviceManager == nil || server.DeviceManager.Registry == nil {
+		return
+	}
+	product, err := store.GetProduct(ch.EntityCode)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		server.DeviceManager.Registry.RemoveProduct(ch.EntityCode)
+		return
+	}
+	if err != nil {
+		e.logger.Error("Failed to refresh synced product registry", zap.String("product", ch.EntityCode), zap.Error(err))
+		return
+	}
+	server.DeviceManager.Registry.UpdateProduct(product)
 }
 
 // Refresh from committed state, rather than the incoming payload: conflicts
@@ -76,13 +240,17 @@ func (e *platformEngineImpl) refreshSyncedDevice(ch store.SyncChange) {
 	device, err := store.GetDevice(ch.EntityCode)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		server.DeviceManager.Registry.RemoveDevice(ch.EntityCode)
-		return
-	}
-	if err != nil {
+	} else if err != nil {
 		e.logger.Error("Failed to refresh synced device registry", zap.String("device", ch.EntityCode), zap.Error(err))
 		return
+	} else {
+		server.DeviceManager.Registry.UpdateDevice(device)
 	}
-	server.DeviceManager.Registry.UpdateDevice(device)
+	// The journal is committed before this hook. Refresh visible rows only
+	// after their confirmed state (including deletion) is available to HTTP.
+	if server.DeviceManager.EventBus != nil {
+		server.DeviceManager.EventBus.Publish(types.Event{Type: types.EventDeviceListChanged, Timestamp: time.Now().UnixMilli()})
+	}
 }
 
 func (e *platformEngineImpl) syncPublish(peer syncPeerRef, msg *syncMessage) error {
@@ -91,6 +259,9 @@ func (e *platformEngineImpl) syncPublish(peer syncPeerRef, msg *syncMessage) err
 	}
 	if peer.gatewayCode == "" {
 		return fmt.Errorf("sync peer %q has no routing code", peer.nodeID)
+	}
+	if msg.SessionToken == "" && e.syncHub != nil && msg.Type != syncMsgHello {
+		msg.SessionToken = e.syncHub.session(peer).deliveryToken
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {
@@ -113,11 +284,7 @@ func (e *platformEngineImpl) publishNodeConfig(peer syncPeerRef) {
 	if media == nil {
 		return
 	}
-	if err := e.syncPublish(peer, &syncMessage{
-		Type:         syncMsgNodeConfig,
-		NodeID:       cloudSyncNodeID,
-		MediaNetwork: media,
-	}); err != nil {
+	if err := e.recordMediaNetworkConfig(peer, media); err != nil {
 		e.logger.Warn("Failed to publish node configuration to gateway",
 			zap.String("gateway", peer.nodeID), zap.Error(err))
 	}
@@ -149,6 +316,23 @@ func (e *platformEngineImpl) syncPeersForChange(ch *store.SyncChange) []syncPeer
 	if ch == nil {
 		return nil
 	}
+	// Database recovery invalidates transport receipts, not completed user
+	// operations. Replaying historical accepted edits would overwrite the
+	// gateway's restored authority. Only unresolved intents are dispatched anew.
+	if ch.OriginNode == cloudSyncNodeID && store.DB.Migrator().HasTable(&store.ConfigIntent{}) {
+		var intent store.ConfigIntent
+		err := store.DB.Where("operation_code = ?", ch.ChangeID()).Take(&intent).Error
+		if err == nil && intent.Status != "pending" {
+			return nil
+		}
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+	}
+	return e.syncDestinationsForChange(ch)
+}
+
+func (e *platformEngineImpl) syncDestinationsForChange(ch *store.SyncChange) []syncPeerRef {
 	targets := ch.TargetNodes()
 	// Edge-originated changes are addressed to the cloud sentinel. Sending one
 	// back to a gateway would restart the loop the replay guard exists to break.
@@ -156,12 +340,25 @@ func (e *platformEngineImpl) syncPeersForChange(ch *store.SyncChange) []syncPeer
 		return nil
 	}
 	if len(targets) > 0 {
-		return syncPeerRefs(targets)
+		return withoutSyncPeer(syncPeerRefs(targets), ch.ExcludedNode)
 	}
 	// Without an explicit address, fan out to the whole scope rather than drop
 	// the change. A wrongly addressed change is visible and correctable; a
 	// dropped one is silent.
-	return syncPeerRefs(e.gatewaysInScope(ch.TenantID, ch.ProjectID))
+	return withoutSyncPeer(syncPeerRefs(e.gatewaysInScope(ch.TenantID, ch.ProjectID)), ch.ExcludedNode)
+}
+
+func withoutSyncPeer(peers []syncPeerRef, excluded string) []syncPeerRef {
+	if excluded == "" {
+		return peers
+	}
+	out := peers[:0]
+	for _, peer := range peers {
+		if peer.nodeID != excluded {
+			out = append(out, peer)
+		}
+	}
+	return out
 }
 
 func syncPeerRefs(codes []string) []syncPeerRef {
@@ -213,6 +410,14 @@ func (e *platformEngineImpl) routeDevice(d *store.Device) string {
 	if d.OwnerNode != "" {
 		return d.OwnerNode
 	}
+	if d.ProductCode == defaultGatewayProductCode {
+		return d.Code
+	}
+	if d.ParentCode != "" {
+		if gw := e.findTopLevelGateway(store.DB, d.ParentCode); gw != "" {
+			return gw
+		}
+	}
 	if gw := e.findTopLevelGateway(store.DB, d.Code); gw != "" {
 		return gw
 	}
@@ -232,7 +437,10 @@ func (e *platformEngineImpl) routeProduct(p *store.Product) string {
 	if p == nil {
 		return ""
 	}
-	return strings.Join(e.gatewaysInScope(p.TenantID, p.ProjectID), ",")
+	if p.OwnerNode != "" {
+		return p.OwnerNode
+	}
+	return ""
 }
 
 // handleSyncUp receives handshakes, change batches and acknowledgements from a
@@ -255,21 +463,43 @@ func (e *platformEngineImpl) handleSyncUp(_ mqtt.Client, msg mqtt.Message) {
 	)
 }
 
-// relayAppliedChange re-addresses a change that arrived from one gateway to the
-// other gateways in scope.
-//
-// It exists for entities that are shared rather than owned. A device resolves to
-// exactly the gateway that owns it, so excluding the origin leaves nothing to
-// relay and the call becomes a no-op. A product resolves to every gateway in
-// scope, which is how a product created on one gateway becomes visible on the
-// others without the platform having to invent a new change format.
-func (e *platformEngineImpl) relayAppliedChange(ch store.SyncChange) {
-	if e.syncHub == nil {
-		return
+// recordGatewayRelayTx makes a shared gateway edit and its forwarding outbox
+// atomic. If the relay cannot be saved, the inbound change remains unconsumed
+// and the gateway retries it rather than silently losing propagation.
+func (e *platformEngineImpl) recordGatewayRelayTx(tx *gorm.DB, ch store.SyncChange) (*store.SyncChange, error) {
+	if ch.OriginNode == cloudSyncNodeID {
+		return nil, nil
 	}
-	targets := e.relayTargets(ch)
-	if len(targets) == 0 {
-		return
+	if ch.EntityType != store.SyncEntityProduct && ch.EntityType != store.SyncEntityRuleGroup {
+		return nil, nil
+	}
+	if ch.EntityType == store.SyncEntityProduct {
+		var product struct {
+			OwnerNode string `json:"owner_node"`
+		}
+		if ch.Op == store.SyncOpDelete {
+			// Gateway-local product instances are owned by the originating site;
+			// deleting one cannot affect another gateway.
+			return nil, nil
+		}
+		if err := json.Unmarshal([]byte(ch.Payload), &product); err != nil {
+			return nil, err
+		}
+		if product.OwnerNode != "" {
+			return nil, nil
+		}
+	}
+	var gateways []string
+	if err := tx.Session(&gorm.Session{NewDB: true}).Model(&store.Device{}).
+		Where("tenant_id = ? AND project_id = ? AND product_code = ?", ch.TenantID, ch.ProjectID, defaultGatewayProductCode).
+		Pluck("code", &gateways).Error; err != nil {
+		return nil, err
+	}
+	targets := make([]string, 0, len(gateways))
+	for _, code := range gateways {
+		if code != "" && code != ch.OriginNode {
+			targets = append(targets, code)
+		}
 	}
 	relay := store.SyncChange{
 		EntityType: ch.EntityType,
@@ -278,47 +508,20 @@ func (e *platformEngineImpl) relayAppliedChange(ch store.SyncChange) {
 		// The entity was just written at ch.NewRev, so the relayed change offers
 		// exactly that revision. Bumping it would make every receiving gateway
 		// see a conflict against content it already has.
-		BaseRev:        ch.NewRev,
-		NewRev:         ch.NewRev,
-		Payload:        ch.Payload,
-		OriginNode:     cloudSyncNodeID,
-		OriginInstance: e.instanceID,
-		TargetNode:     strings.Join(targets, ","),
-		TenantID:       ch.TenantID,
-		ProjectID:      ch.ProjectID,
-		CreatedAt:      time.Now().UnixMilli(),
+		BaseRev:          ch.NewRev,
+		NewRev:           ch.NewRev,
+		LifecycleVersion: ch.LifecycleVersion,
+		Payload:          ch.Payload,
+		OriginNode:       cloudSyncNodeID,
+		OriginInstance:   e.instanceID,
+		AckTargets:       strings.Join(targets, ","),
+		ExcludedNode:     ch.OriginNode,
+		TenantID:         ch.TenantID,
+		ProjectID:        ch.ProjectID,
+		CreatedAt:        time.Now().UnixMilli(),
 	}
-	if _, err := store.AppendSyncChange(&relay); err != nil {
-		e.logger.Warn("Failed to record relay change",
-			zap.String("entity_type", ch.EntityType),
-			zap.String("entity_code", ch.EntityCode),
-			zap.Error(err))
-		return
+	if _, err := store.AppendSyncChangeTx(tx.Session(&gorm.Session{NewDB: true}), &relay); err != nil {
+		return nil, err
 	}
-	e.syncHub.notifyChange(relay)
-}
-
-func (e *platformEngineImpl) relayTargets(ch store.SyncChange) []string {
-	var candidates []string
-	switch ch.EntityType {
-	case store.SyncEntityDevice:
-		d, err := store.GetDevice(ch.EntityCode)
-		if err != nil || d == nil {
-			return nil
-		}
-		candidates = strings.Split(e.routeDevice(d), ",")
-	case store.SyncEntityProduct:
-		candidates = e.gatewaysInScope(ch.TenantID, ch.ProjectID)
-	default:
-		return nil
-	}
-	out := make([]string, 0, len(candidates))
-	for _, code := range candidates {
-		code = strings.TrimSpace(code)
-		if code == "" || code == ch.OriginNode {
-			continue
-		}
-		out = append(out, code)
-	}
-	return out
+	return &relay, nil
 }

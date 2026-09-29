@@ -4,16 +4,16 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"go.uber.org/zap"
 	"io"
 	"math"
+	"net"
 	"noyo/core/types"
 	"noyo/plugins/protocol/modbus/codec"
-	"net"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-	"go.uber.org/zap"
 )
 
 // PollingGroupConfig defines a group of registers to read together
@@ -189,8 +189,13 @@ func (p *ModbusPlugin) addDevice(device types.DeviceMeta) error {
 	// But Extras is map[string]interface{}.
 	// Helper:
 	var devConfig DeviceConfig
-	b, _ := json.Marshal(device.Extras)
-	json.Unmarshal(b, &devConfig)
+	b, err := json.Marshal(device.Extras)
+	if err != nil {
+		return fmt.Errorf("encode connection config: %w", err)
+	}
+	if err := json.Unmarshal(b, &devConfig); err != nil {
+		return fmt.Errorf("invalid connection config: %w", err)
+	}
 
 	// Defaults
 	if devConfig.TimeoutMS == 0 {
@@ -210,9 +215,10 @@ func (p *ModbusPlugin) addDevice(device types.DeviceMeta) error {
 
 	// Validate Gateway Config
 	if devConfig.IP == "" {
-		// If it's a standalone device without IP (e.g. just created), skip
-		// p.Logger.Warn("Invalid gateway config: IP is required", zap.String("device", device.DeviceCode))
-		return nil
+		return fmt.Errorf("connection IP or host is required")
+	}
+	if devConfig.Port < 1 || devConfig.Port > 65535 || devConfig.TimeoutMS < 0 || devConfig.MaxGroupLength < 1 || devConfig.MaxAddressGap < 0 {
+		return fmt.Errorf("invalid connection port, timeout or polling group limits")
 	}
 
 	// 3. Process Children
@@ -221,8 +227,13 @@ func (p *ModbusPlugin) addDevice(device types.DeviceMeta) error {
 		var cConfig ChildDeviceConfig
 		if len(childMeta.Extras) > 0 {
 			normalizeExtras(childMeta.Extras)
-			cb, _ := json.Marshal(childMeta.Extras)
-			json.Unmarshal(cb, &cConfig)
+			cb, err := json.Marshal(childMeta.Extras)
+			if err != nil {
+				return fmt.Errorf("encode child %s config: %w", childMeta.DeviceCode, err)
+			}
+			if err := json.Unmarshal(cb, &cConfig); err != nil {
+				return fmt.Errorf("invalid child %s config: %w", childMeta.DeviceCode, err)
+			}
 		}
 		if cConfig.SlaveID <= 0 {
 			cConfig.SlaveID = int(extractSlaveID(childMeta.Extras, 0))

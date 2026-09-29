@@ -42,6 +42,13 @@ type gatewayEngineImpl struct {
 	syncHub *syncHub
 	// recorder turns local writes into the propagation log.
 	recorder *changeRecorder
+	// Serializes runtime loading with retry so an older revision cannot finish
+	// after a newer one and leave the process running stale configuration.
+	runtimeApplyMu sync.Mutex
+	// Serializes configuration replay and durable remote commands with mode transitions.
+	configMutationMu    sync.Mutex
+	maintenanceWakeOnce sync.Once
+	maintenanceWake     chan struct{}
 }
 
 func (e *gatewayEngineImpl) prepareGatewayTelemetryEvent(gatewayCode string, event types.Event, device *store.Device) types.Event {
@@ -88,7 +95,7 @@ func (e *gatewayEngineImpl) Start() error {
 		e.gatewayCode = gatewayCode
 	}
 
-	opts := mqtt.NewClientOptions()
+	opts := newGatewayMQTTOptions()
 	opts.AddBroker(e.config.MqttUrl)
 	// Use deterministic ClientID so broker properly handles session takeover and LWT
 	opts.SetClientID(fmt.Sprintf("noyo-gw-cascade-%s", e.gatewayCode))
@@ -119,6 +126,12 @@ func (e *gatewayEngineImpl) Start() error {
 	})
 
 	e.client = mqtt.NewClient(opts)
+	// Install the session before MQTT can invoke OnConnect. A fast local broker
+	// can complete the connection before the former late initSync call, leaving
+	// the first connection without a handshake or catch-up.
+	if err := e.initSync(); err != nil {
+		return fmt.Errorf("gateway engine failed to initialize sync: %w", err)
+	}
 
 	go func() {
 		if token := e.client.Connect(); token.Wait() && token.Error() != nil {
@@ -131,21 +144,26 @@ func (e *gatewayEngineImpl) Start() error {
 	e.cancel = cancel
 	go e.telemetryLoop(ctx)
 	go e.alarmVideoUploadLoop(ctx)
+	go e.runtimeApplyRetryLoop(ctx)
+	go e.maintenanceHandoverLoop(ctx)
 
 	// Subscribe to local core events for telemetry routing to Platform
 	e.localEventSubs[types.EventDeviceStatusChanged] = e.ctx.SubscribeEvent(types.EventDeviceStatusChanged, e.handleLocalEvent)
 	e.localEventSubs[types.EventPropertyReported] = e.ctx.SubscribeEvent(types.EventPropertyReported, e.handleLocalEvent)
 	e.localEventSubs[types.EventEventReported] = e.ctx.SubscribeEvent(types.EventEventReported, e.handleLocalEvent)
 
-	// Wire the bidirectional change stream. The gateway code is resolved above,
-	// so every change can be stamped with its routing identity.
-	if err := e.initSync(); err != nil {
-		cancel()
-		return fmt.Errorf("gateway engine failed to initialize sync: %w", err)
-	}
-	go startSyncMaintenance(ctx, e.logger, e.gatewayCode)
+	// Keep the full change and idempotency history until snapshot recovery is
+	// available; an offline gateway may reconnect after the retention window.
 
 	return nil
+}
+
+func newGatewayMQTTOptions() *mqtt.ClientOptions {
+	// Sync callbacks publish replies and wait for their QoS 1 receipts. Ordered
+	// callbacks can block the MQTT reader behind a burst of inbound messages,
+	// preventing those same receipts from arriving. Sync sessions serialize
+	// cursor updates themselves; MQTT dispatch must remain free to receive.
+	return mqtt.NewClientOptions().SetOrderMatters(false)
 }
 
 func (e *gatewayEngineImpl) telemetryLoop(ctx context.Context) {
@@ -195,6 +213,37 @@ func (e *gatewayEngineImpl) telemetryLoop(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (e *gatewayEngineImpl) runtimeApplyRetryLoop(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	// A crash after committing a synchronized change but before activating the
+	// runtime leaves a pending row. Pick it up as soon as the engine starts.
+	e.retryRuntimeApplies()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			e.retryRuntimeApplies()
+		}
+	}
+}
+
+func (e *gatewayEngineImpl) retryRuntimeApplies() {
+	rows, err := store.ListUnappliedRuntime(100)
+	if err != nil {
+		e.logger.Warn("Could not list gateway runtime apply retries", zap.Error(err))
+		return
+	}
+	for _, row := range rows {
+		e.runtimeApplyMu.Lock()
+		_ = e.activateGatewayRuntimeLocked(row.EntityType, row.EntityCode, row.ChangeID, true)
+		e.runtimeApplyMu.Unlock()
+	}
+	e.flushUnreportedRuntime()
 }
 
 func (e *gatewayEngineImpl) Stop() error {
@@ -603,6 +652,14 @@ func (e *gatewayEngineImpl) handleCommand(client mqtt.Client, msg mqtt.Message) 
 	if !ok {
 		reply["code"] = 500
 		reply["message"] = "core server not found"
+		goto SEND_REPLY
+	}
+
+	if protectedRemoteConfigMutation(cmd.Method) {
+		e.configMutationMu.Lock()
+		defer e.configMutationMu.Unlock()
+		reply["code"] = 409
+		reply["message"] = "Configuration writes require durable synchronization"
 		goto SEND_REPLY
 	}
 

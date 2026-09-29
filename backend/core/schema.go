@@ -5,6 +5,7 @@ import (
 	"noyo/core/store"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/gogf/gf/v2/util/gconv"
 )
@@ -207,13 +208,45 @@ func defaultTagValue(field reflect.StructField) string {
 }
 
 // UpdatePluginConfig updates the plugin's config from a map
+var pluginConfigMutationMu sync.Mutex
+
 func UpdatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{}) error {
-	return updatePluginConfig(plugin, newConfig, 0, 0)
+	pluginConfigMutationMu.Lock()
+	defer pluginConfigMutationMu.Unlock()
+	return updatePluginConfig(plugin, newConfig, 0, 0, false)
 }
 
 // UpdatePluginConfigForScope updates the plugin config for a tenant/project scope.
 func UpdatePluginConfigForScope(plugin IManagedPlugin, newConfig map[string]interface{}, tenantID, projectID uint) error {
-	return updatePluginConfig(plugin, newConfig, tenantID, projectID)
+	pluginConfigMutationMu.Lock()
+	defer pluginConfigMutationMu.Unlock()
+	return updatePluginConfig(plugin, newConfig, tenantID, projectID, false)
+}
+
+// UpdatePluginConfigAtVersion checks the gateway's active configuration
+// revision under the same lock used by local Web edits.
+func UpdatePluginConfigAtVersion(plugin IManagedPlugin, newConfig map[string]interface{}, expected int64) error {
+	pluginConfigMutationMu.Lock()
+	defer pluginConfigMutationMu.Unlock()
+	name := plugin.GetMeta().Name
+	var model *store.PluginModel
+	var err error
+	if tenantID, projectID, scoped := singleProjectRuntimePluginScope(); scoped {
+		model, err = store.GetPluginForScope(name, tenantID, projectID)
+	} else {
+		model, err = store.GetPlugin(name)
+	}
+	if err != nil {
+		return err
+	}
+	var current int64
+	if model != nil {
+		current = model.Revision
+	}
+	if current != expected {
+		return fmt.Errorf("plugin %s configuration changed at the gateway", name)
+	}
+	return updatePluginConfig(plugin, newConfig, 0, 0, true)
 }
 
 func singleProjectRuntimePluginScope() (uint, uint, bool) {
@@ -231,7 +264,6 @@ func singleProjectRuntimePluginScope() (uint, uint, bool) {
 func SingleProjectRuntimePluginScope() (uint, uint, bool) {
 	return singleProjectRuntimePluginScope()
 }
-
 
 func isSingleProjectRuntimePluginScope(tenantID, projectID uint) bool {
 	runtimeTenantID, runtimeProjectID, ok := singleProjectRuntimePluginScope()
@@ -251,7 +283,31 @@ func cleanupSingleProjectRuntimePluginRows() error {
 		Delete(&store.PluginModel{}).Error
 }
 
-func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{}, tenantID, projectID uint) error {
+func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{}, tenantID, projectID uint, remote bool) (resultErr error) {
+	// Plugin parameters are stored locally. Restore the in-memory candidate
+	// only when validation or persistence fails.
+	originalEnabled := plugin.IsEnabled()
+	originalValue := reflect.ValueOf(plugin)
+	if originalValue.Kind() == reflect.Ptr {
+		originalValue = originalValue.Elem()
+	}
+	originalConfig := reflect.Value{}
+	configValue := originalValue.FieldByName("Config")
+	if configValue.IsValid() && configValue.CanSet() {
+		originalConfig = reflect.New(configValue.Type()).Elem()
+		originalConfig.Set(configValue)
+	}
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		if originalConfig.IsValid() {
+			configValue.Set(originalConfig)
+		}
+		if enabledField := originalValue.FieldByName("Enabled"); enabledField.IsValid() && enabledField.CanSet() && enabledField.Kind() == reflect.Bool {
+			enabledField.SetBool(originalEnabled)
+		}
+	}()
 	if preparer, ok := plugin.(IConfigUpdatePreparer); ok {
 		prepared, err := preparer.PrepareConfigUpdate(newConfig, tenantID, projectID)
 		if err != nil {
@@ -387,6 +443,10 @@ func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{},
 	}
 
 	name := plugin.GetMeta().Name
+	savePlugin := store.SavePluginForScope
+	if remote {
+		savePlugin = store.SaveRemotePluginForScope
+	}
 	if tenantID == 0 && projectID == 0 {
 		if runtimeTenantID, runtimeProjectID, ok := singleProjectRuntimePluginScope(); ok {
 			tenantID = runtimeTenantID
@@ -395,7 +455,7 @@ func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{},
 	}
 
 	if tenantID > 0 && projectID > 0 {
-		if err := store.SavePluginForScope(name, tenantID, projectID, enabled, configToSave); err != nil {
+		if err := savePlugin(name, tenantID, projectID, enabled, configToSave); err != nil {
 			return fmt.Errorf("failed to save scoped plugin config to db: %w", err)
 		}
 		if isSingleProjectRuntimePluginScope(tenantID, projectID) {
@@ -405,13 +465,13 @@ func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{},
 		if err != nil {
 			return fmt.Errorf("failed to resolve scoped plugin status: %w", err)
 		}
-		if err := store.SavePlugin(name, anyEnabled, configToSave); err != nil {
+		if err := savePlugin(name, 0, 0, anyEnabled, configToSave); err != nil {
 			return fmt.Errorf("failed to save plugin config to db: %w", err)
 		}
 		return nil
 	}
 
-	if err := store.SavePlugin(name, enabled, configToSave); err != nil {
+	if err := savePlugin(name, 0, 0, enabled, configToSave); err != nil {
 		return fmt.Errorf("failed to save plugin config to db: %w", err)
 	}
 

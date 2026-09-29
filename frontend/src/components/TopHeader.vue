@@ -6,6 +6,7 @@
       </button>
     </div>
     <div class="d-flex align-items-center gap-2">
+      <GatewayMaintenanceStatus :mode="mqttMode" />
       <!-- MQTT 状态微交互（位于消息中心左侧） -->
       <div class="dropdown me-1" :class="{ show: activeDropdown === 'mqtt' }">
         <button
@@ -371,6 +372,7 @@ import { publishAlarmEvent, subscribeAlarmEvents, resetAlarmEvents } from '../ut
 import { setAlarmBadge, clearAlarmBadge } from '../utils/browserAlarmNotifier.js';
 import { formatNamedReference } from '../utils/entityDisplay.js';
 import { formatDateTime } from '../utils/dateTime.js';
+import GatewayMaintenanceStatus from './cascade/GatewayMaintenanceStatus.vue';
 
 const props = defineProps({
   title: String,

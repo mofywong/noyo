@@ -40,6 +40,8 @@
     <!-- Table Glass Card（单屏填充 + 内部纵向滚动） -->
     <ListBatchActions :count="selected.length" :busy="deleting || loading" permission="product:delete" @delete="batchDelete" @clear="clearSelection" class="mb-3" />
 
+    <ConfigurationStatusNotice :failed="configurationStatesUnavailable" :cached="hasConfigurationStates" @refresh="reloadConfigurationStates" />
+    <PendingConfigurationList entity-type="driver" :intents="pendingConfigurationIntents" />
     <div class="card border-0 shadow-sm table-glass-card">
       <div class="card-body p-0 d-flex flex-column h-100 overflow-hidden">
         <div class="table-responsive flex-grow-1">
@@ -95,10 +97,11 @@
                   <input type="checkbox" class="form-check-input" :checked="selected.includes(driver.code)" :disabled="deleting || loading || isSystemDriver(driver)" @change="toggleSelection(driver.code)" :aria-label="driver.name || driver.code">
                 </td>
                 <td class="ps-4 d-none d-md-table-cell font-mono small text-truncate" style="max-width: 200px;">
-                  {{ formatNamedReference(driver.name, driver.code) }}
+                  {{ driver.code }}
                 </td>
                 <td class="fw-bold text-truncate" style="max-width: 200px;">
                   <span>{{ driver.name }}</span>
+                  <ConfigSyncBadge :state="configurationStateFor(driver)" :reason="configurationErrorFor(driver)" />
                   <span v-if="isSystemDriver(driver)" class="badge text-bg-secondary ms-2" style="font-size: 0.75rem;">
                     {{ $t('driver_system_builtin', '系统内置') }}
                   </span>
@@ -168,6 +171,7 @@
               <button type="button" class="btn-close" @click="closeModal"></button>
             </div>
             <div class="modal-body">
+              <ConfigurationStatePanel v-if="isEditing && currentDriver.code" entity-type="driver" :entity-code="currentDriver.code" :gateway-code="currentDriver.gateway_code || ''" />
               <div v-if="isSystemDriver(currentDriver)" class="alert alert-info d-flex align-items-center py-2 px-3 mb-3 small">
                 <i class="bi bi-info-circle me-2 flex-shrink-0"></i>
                 <span>{{ $t('driver_system_readonly_hint', '系统内置驱动由平台自动生成与维护，禁止编辑。') }}</span>
@@ -272,13 +276,18 @@ import { useI18n } from 'vue-i18n';
 import ScriptProductConfig from '../components/script/ScriptProductConfig.vue';
 import { useAuthStore } from '../stores/auth';
 import { isSingleProjectMode } from '../utils/systemMode.js';
-import { formatNamedReference } from '../utils/entityDisplay.js';
 import ListPagination from '../components/ListPagination.vue';
 import { formatDateTime } from '../utils/dateTime.js';
 import ListBatchActions from '../components/ListBatchActions.vue';
 import { useListSelection } from '../composables/useListSelection.js';
 import { useBatchDelete } from '../composables/useBatchDelete.js';
 import CompactListMetrics from '../components/CompactListMetrics.vue';
+import ConfigSyncBadge from '../components/cascade/ConfigSyncBadge.vue';
+import ConfigurationStatePanel from '../components/cascade/ConfigurationStatePanel.vue';
+import PendingConfigurationList from '../components/cascade/PendingConfigurationList.vue';
+import ConfigurationStatusNotice from '../components/cascade/ConfigurationStatusNotice.vue';
+import { useConfigurationStates } from '../composables/useConfigurationStates.js';
+import { resolveApiErrorMessage } from '../utils/apiMessages.js';
 
 const { t, locale } = useI18n();
 const { showToast } = useToast();
@@ -286,6 +295,7 @@ const { confirmDialog } = useConfirm();
 const authStore = useAuthStore();
 
 const drivers = ref([]);
+const { configurationStateFor, configurationErrorFor, pendingConfigurationIntents, configurationStatesUnavailable, hasConfigurationStates, reloadConfigurationStates } = useConfigurationStates('driver', drivers);
 const protocols = ref([]);
 const loading = ref(false);
 const total = ref(0);
@@ -412,6 +422,7 @@ const { deleting, batchDelete } = useBatchDelete({
 });
 
 const loadDrivers = async () => {
+  reloadConfigurationStates();
   loading.value = true;
   try {
     const res = await axios.get('/api/protocol-profiles', {
@@ -424,7 +435,7 @@ const loadDrivers = async () => {
       return loadDrivers();
     }
   } catch (err) {
-    showToast(err.response?.data?.error || t('sys_error', 'System error'), 'danger');
+    showToast(resolveApiErrorMessage(err, locale.value, t('sys_error', 'System error')), 'danger');
   } finally {
     loading.value = false;
   }
@@ -563,7 +574,7 @@ const saveDriver = async () => {
     closeModal();
     loadDrivers();
   } catch (err) {
-    showToast(err.response?.data?.error || t('sys_error', 'System error'), 'danger');
+    showToast(resolveApiErrorMessage(err, locale.value, t('sys_error', 'System error')), 'danger');
   }
 };
 
@@ -576,7 +587,7 @@ const deleteDriver = async (code) => {
     showToast(t('delete_success', 'Delete successful'), 'success');
     loadDrivers();
   } catch (err) {
-    showToast(err.response?.data?.error || t('sys_error', 'System error'), 'danger');
+    showToast(resolveApiErrorMessage(err, locale.value, t('sys_error', 'System error')), 'danger');
   }
 };
 
