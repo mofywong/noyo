@@ -35,6 +35,7 @@ const authStore = useAuthStore();
 const isZh = computed(() => String(locale.value).toLowerCase().startsWith('zh'));
 const STATES = {
   pending: { tone: 'dash-pill--warning', zh: '已保存，待应用', en: 'Saved, pending apply', zhHint: '修改意图已保存，尚未收到现场提交确认', enHint: 'The intent is saved; gateway commitment has not been confirmed' },
+  pending_sync: { tone: 'dash-pill--warning', zh: '待同步到平台', en: 'Pending sync to platform', zhHint: '本地配置已保存，平台尚未确认接收；平台连接恢复后会自动同步。此提示不表示本地配置尚未生效。', enHint: 'The configuration is saved locally; platform receipt is not yet confirmed. It will synchronize automatically when the platform connection recovers. This does not indicate pending local activation.' },
   pending_create: { tone: 'dash-pill--warning', zh: '已保存，待创建', en: 'Saved, pending creation', zhHint: '创建意图已保存，现场尚未确认创建资源', enHint: 'The creation intent is saved; the gateway has not confirmed creating the resource' },
   pending_delete: { tone: 'dash-pill--warning', zh: '已保存，待删除', en: 'Saved, pending deletion', zhHint: '删除意图已保存，现场仍保留最后确认配置', enHint: 'The deletion intent is saved; the last confirmed gateway configuration remains' },
   sync_conflict: { tone: 'dash-pill--danger', zh: '同步冲突', en: 'Sync conflict', zhHint: '两侧版本均已保留，系统未自动覆盖；请前往网关管理页决定保留哪一侧', enHint: 'Both versions were preserved and nothing was overwritten; decide which side to keep on the gateway management page' },

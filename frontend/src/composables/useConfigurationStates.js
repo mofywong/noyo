@@ -1,10 +1,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import axios from 'axios';
-import { configurationFailureReason, configurationResourceIndex, configurationStatus, pendingConfigurationCreates, resourceConfiguration } from '../utils/configurationState.js';
+import { useAuthStore } from '../stores/auth.js';
+import { configurationFailureReason, configurationNeedsAttention, configurationResourceIndex, configurationStatus, pendingConfigurationCreates, resourceConfiguration } from '../utils/configurationState.js';
 
 // Load once for the list, rather than once per row. Runtime results are separate
 // from persistence acknowledgements and must not be inferred from sync_state.
 export function useConfigurationStates(entityType, resources = null) {
+  const authStore = useAuthStore();
   const data = ref(null);
   const configurationStatesUnavailable = ref(false);
   const hasConfigurationStates = computed(() => data.value !== null);
@@ -39,11 +41,16 @@ export function useConfigurationStates(entityType, resources = null) {
 
   function summaryFor(resource) {
     const pendingEditAt = resource.UpdatedAt ?? resource.updated_at ?? null;
-    const key = JSON.stringify([resource.code, resource.gateway_code || '', resource.sync_state || '', pendingEditAt]);
+    // Gateway replication waits for the platform independently of local
+    // activation. Keep it visible without hiding runtime failures or retries.
+    const pendingSync = authStore.systemMode === 'gateway' && resource.sync_state === 'pending';
+    const syncState = pendingSync ? '' : resource.sync_state;
+    const key = JSON.stringify([resource.code, resource.gateway_code || '', resource.sync_state || '', pendingEditAt, authStore.systemMode || '']);
     const cache = indexed.value.summaries;
     if (!cache.has(key)) {
       const state = resourceConfiguration(indexed.value.resources, entityType, resource.code, resource.gateway_code || '');
-      const status = configurationStatus(state, resource.sync_state, pendingEditAt);
+      const configStatus = configurationStatus(state, syncState, pendingEditAt);
+      const status = pendingSync && !configurationNeedsAttention(configStatus) ? 'pending_sync' : configStatus;
       cache.set(key, {
         status: status === 'pending' && state.intents.some((entry) => entry.kind === 'delete' && entry.status === 'pending') ? 'pending_delete' : status,
         reason: configurationFailureReason(state),
