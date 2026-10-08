@@ -104,6 +104,8 @@ type BacnetPlugin struct {
 
 	// Tasks: DeviceCode -> StopChan
 	tasks map[string]chan struct{}
+
+	readPointFn func(dev bactypes.Device, objType int, instID int, propID int) (interface{}, error)
 }
 
 func init() {
@@ -709,6 +711,9 @@ func (p *BacnetPlugin) addDevice(device types.DeviceMeta) error {
 	}
 
 	// Create Polling Task
+	if oldStop, exists := p.tasks[device.DeviceCode]; exists {
+		close(oldStop)
+	}
 	stop := make(chan struct{})
 	p.tasks[device.DeviceCode] = stop
 
@@ -806,23 +811,32 @@ func (p *BacnetPlugin) pollingLoop(meta types.DeviceMeta, ip string, port int, d
 	}
 
 	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+
 		now := time.Now()
 		var nextWait time.Duration = time.Hour // Default large wait
 		var ptToRun *pointSched
+		var oldestOverdue *pointSched
 
 		// Find the point that needs to be run next (or immediately)
 		for _, s := range schedules {
 			wait := s.NextRun.Sub(now)
 			if wait <= 0 {
-				ptToRun = s
-				// Found a point to run immediately, no need to wait
-				nextWait = 0
-				break
-			}
-			if wait < nextWait {
+				if oldestOverdue == nil || s.NextRun.Before(oldestOverdue.NextRun) {
+					oldestOverdue = s
+				}
+			} else if wait < nextWait {
 				nextWait = wait
-				// ptToRun is not set here because we will sleep first
 			}
+		}
+
+		if oldestOverdue != nil {
+			ptToRun = oldestOverdue
+			nextWait = 0
 		}
 
 		if ptToRun == nil && nextWait > 0 {
@@ -839,8 +853,14 @@ func (p *BacnetPlugin) pollingLoop(meta types.DeviceMeta, ip string, port int, d
 		}
 
 		if ptToRun != nil {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
 			// Execute Read
-			val, err := p.readPoint(bacDevice, ptToRun.ObjType, ptToRun.InstID, ptToRun.PropID)
+			val, err := p.executeReadPoint(bacDevice, ptToRun.ObjType, ptToRun.InstID, ptToRun.PropID)
 			if err != nil {
 				p.Logger.Warn("Read BACnet Point Failed",
 					zap.String("device", meta.DeviceCode),
@@ -849,6 +869,12 @@ func (p *BacnetPlugin) pollingLoop(meta types.DeviceMeta, ip string, port int, d
 			} else {
 				// Report
 				p.Ctx.ReportProperty(meta, ptToRun.Name, val)
+			}
+
+			select {
+			case <-stop:
+				return
+			default:
 			}
 
 			// Update next run time
@@ -864,7 +890,17 @@ func (p *BacnetPlugin) pollingLoop(meta types.DeviceMeta, ip string, port int, d
 	}
 }
 
+func (p *BacnetPlugin) executeReadPoint(dev bactypes.Device, objType int, instID int, propID int) (interface{}, error) {
+	if p.readPointFn != nil {
+		return p.readPointFn(dev, objType, instID, propID)
+	}
+	return p.readPoint(dev, objType, instID, propID)
+}
+
 func (p *BacnetPlugin) readPoint(dev bactypes.Device, objType int, instID int, propID int) (interface{}, error) {
+	if p.client == nil {
+		return nil, fmt.Errorf("bacnet client not started")
+	}
 	req := bactypes.ReadPropertyData{
 		Object: bactypes.Object{
 			ID: bactypes.ObjectID{
