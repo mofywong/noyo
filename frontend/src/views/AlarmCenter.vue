@@ -943,6 +943,12 @@ const extraCopy = {
     indoorFirePassageEvent: '消防通道阻塞告警',
     objectMissingEvent: '物品缺失告警',
     areaIntrusionEvent: '区域入侵告警',
+    noHelmetEvent: '未戴安全帽告警',
+    postAbsenceEvent: '岗位缺员告警',
+    sleepOnDutyEvent: '疑似睡岗告警',
+    personFallEvent: '人员摔倒告警',
+    smokingEvent: '抽烟告警',
+    fightingEvent: '疑似打架告警',
     product: '产品',
     remove: '移除',
     delete: '删除',
@@ -1065,6 +1071,12 @@ const extraCopy = {
     indoorFirePassageEvent: 'Fire passage blockage alarm',
     objectMissingEvent: 'Object missing alarm',
     areaIntrusionEvent: 'Area intrusion alarm',
+    noHelmetEvent: 'No safety helmet alarm',
+    postAbsenceEvent: 'Post understaffed alarm',
+    sleepOnDutyEvent: 'Suspected sleeping on duty alarm',
+    personFallEvent: 'Person fall alarm',
+    smokingEvent: 'Smoking alarm',
+    fightingEvent: 'Suspected fighting alarm',
     product: 'Product',
     remove: 'Remove',
     delete: 'Delete',
@@ -1118,7 +1130,13 @@ const builtInPolicyEventKeys = {
   fire_lane_occupied_alarm: 'fireLaneOccupiedEvent',
   indoor_fire_passage_occupied_alarm: 'indoorFirePassageEvent',
   object_missing_alarm: 'objectMissingEvent',
-  area_intrusion_alarm: 'areaIntrusionEvent'
+  area_intrusion_alarm: 'areaIntrusionEvent',
+  no_helmet_alarm: 'noHelmetEvent',
+  post_absence_alarm: 'postAbsenceEvent',
+  sleep_on_duty_alarm: 'sleepOnDutyEvent',
+  person_fall_alarm: 'personFallEvent',
+  smoking_alarm: 'smokingEvent',
+  fighting_alarm: 'fightingEvent'
 }
 const builtInPolicyEventIDs = ['ai_fault', ...ALARM_EVENT_IDS.filter(id => id !== 'area_intrusion_leave')]
 const recoveryHoldPresets = [0, 30, 60, 300, 600]

@@ -5,6 +5,12 @@ export const ALARM_EVENT_IDS = [
   'object_missing_alarm',
   'area_intrusion_alarm',
   'area_intrusion_leave',
+  'no_helmet_alarm',
+  'post_absence_alarm',
+  'sleep_on_duty_alarm',
+  'person_fall_alarm',
+  'smoking_alarm',
+  'fighting_alarm',
   'rule_alarm'
 ]
 
@@ -24,7 +30,13 @@ const messages = {
       fire_passage_blocked: '消防通道阻塞',
       object_missing: '物品丢失',
       area_intrusion: '区域入侵',
-      area_intrusion_leave: '区域入侵离开'
+      area_intrusion_leave: '区域入侵离开',
+      no_helmet: '未戴安全帽',
+      post_absence: '岗位缺员',
+      sleep_on_duty: '疑似睡岗',
+      person_fall: '人员摔倒',
+      smoking: '抽烟',
+      fighting: '疑似打架'
     }
   },
   en: {
@@ -42,7 +54,13 @@ const messages = {
       fire_passage_blocked: 'Fire Passage Blockage',
       object_missing: 'Object Missing',
       area_intrusion: 'Area Intrusion',
-      area_intrusion_leave: 'Area Intrusion Left'
+      area_intrusion_leave: 'Area Intrusion Left',
+      no_helmet: 'No Safety Helmet',
+      post_absence: 'Post Understaffed',
+      sleep_on_duty: 'Suspected Sleeping on Duty',
+      person_fall: 'Person Fall',
+      smoking: 'Smoking',
+      fighting: 'Suspected Fighting'
     }
   }
 }
@@ -109,6 +127,17 @@ export const getAlarmEventName = (evt, eventDef = null, locale = 'zh') => {
   }
   if (isAreaIntrusionAlarm(evt)) {
     return messages[lang].scenes.area_intrusion
+  }
+  const personnelScene = {
+    no_helmet_alarm: 'no_helmet',
+    post_absence_alarm: 'post_absence',
+    sleep_on_duty_alarm: 'sleep_on_duty',
+    person_fall_alarm: 'person_fall',
+    smoking_alarm: 'smoking',
+    fighting_alarm: 'fighting'
+  }[evt?.event_id]
+  if (personnelScene) {
+    return getAlarmSceneLabel(personnelScene, locale)
   }
   if (eventDef?.name) {
     return eventDef.name

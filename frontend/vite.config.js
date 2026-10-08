@@ -2,8 +2,10 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import fs from 'node:fs'
+import path from 'node:path'
 
-const hasPro = fs.existsSync(fileURLToPath(new URL('./src/plugins/pro', import.meta.url)))
+const proPluginPath = fileURLToPath(new URL('./src/plugins/pro', import.meta.url))
+const hasPro = fs.existsSync(proPluginPath)
 const escapeHtmlAttr = (value) => String(value)
   .replaceAll('&', '&amp;')
   .replaceAll('"', '&quot;')
@@ -31,7 +33,12 @@ export default defineConfig(({ mode }) => {
     ],
     resolve: {
       alias: [
-        ...(hasPro ? [] : [
+        // Pro is mounted through a junction with preserveSymlinks enabled.
+        // Resolve the shared renderer contract from the real Pro directory.
+        ...(hasPro ? [{
+          find: '../../../../../backend/plugins/platform/yolo_pro/helmet_annotations.json',
+          replacement: path.resolve(fs.realpathSync(proPluginPath), '../../../backend/plugins/platform/yolo_pro/helmet_annotations.json')
+        }] : [
           { find: '@/plugins/pro/protocol/gb28181/GB28181PlayerWidget.vue', replacement: fileURLToPath(new URL('./src/components/EmptyWidget.vue', import.meta.url)) }
         ]),
         { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) }
