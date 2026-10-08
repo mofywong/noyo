@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"noyo/core"
+	"noyo/core/alarmmedia"
 	"noyo/core/config"
 	"noyo/core/store"
 	"os"
@@ -43,15 +44,22 @@ func setGatewaySystemConfig(coreServer *core.Server, params interface{}) (interf
 		return nil, fmt.Errorf("core server not available")
 	}
 	var req remoteSystemConfigSetRequest
+	req.Config = *coreServer.Config
+	req.Config.AlarmMedia.Normalize()
 	if err := scanRemotePluginParams(params, &req); err != nil {
+		return nil, err
+	}
+	if err := req.Config.AlarmMedia.Validate(); err != nil {
 		return nil, err
 	}
 	coreServer.Config.Server = req.Config.Server
 	coreServer.Config.TSDB = req.Config.TSDB
 	coreServer.Config.Log = req.Config.Log
+	coreServer.Config.AlarmMedia = req.Config.AlarmMedia
 	if err := store.SaveGlobalConfig(coreServer.Config); err != nil {
 		return nil, err
 	}
+	_ = alarmmedia.Configure(coreServer.Config.AlarmMedia)
 	return coreServer.Config, nil
 }
 

@@ -194,11 +194,14 @@ func (r *changeRecorder) RecordLocalGlobalConfigTx(tx *gorm.DB, cfg *config.Glob
 }
 
 func systemConfigFields(cfg *config.GlobalConfig) (map[string]interface{}, error) {
+	mediaPolicy := cfg.AlarmMedia
+	mediaPolicy.Normalize()
 	data, err := json.Marshal(struct {
-		Server config.ServerConfig `json:"server"`
-		TSDB   config.TSDBConfig   `json:"tsdb"`
-		Log    config.LogConfig    `json:"log"`
-	}{cfg.Server, cfg.TSDB, cfg.Log})
+		Server     config.ServerConfig     `json:"server"`
+		TSDB       config.TSDBConfig       `json:"tsdb"`
+		Log        config.LogConfig        `json:"log"`
+		AlarmMedia config.AlarmMediaConfig `json:"alarm_media"`
+	}{cfg.Server, cfg.TSDB, cfg.Log, mediaPolicy})
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +360,7 @@ func persistProtectedGatewayModelsTx(tx *gorm.DB, value store.ProtectedConfig) e
 		}).Create(&store.PluginModel{Name: value.PluginName, TenantID: value.TenantID, ProjectID: value.ProjectID, Enabled: enabled, Config: string(data), Revision: value.Revision}).Error
 	}
 	if value.Kind == "system" {
-		var cfg config.GlobalConfig
+		cfg := *config.DefaultConfig()
 		var previous store.SystemConfig
 		err := tx.Where("key = ?", "global_config").Take(&previous).Error
 		if err == nil {
@@ -372,6 +375,9 @@ func persistProtectedGatewayModelsTx(tx *gorm.DB, value store.ProtectedConfig) e
 			return err
 		}
 		if err = json.Unmarshal(data, &cfg); err != nil {
+			return err
+		}
+		if err := cfg.AlarmMedia.Validate(); err != nil {
 			return err
 		}
 		return store.SaveGlobalConfigTx(tx.Set(store.SyncApplyingKey, true), &cfg)
@@ -457,15 +463,30 @@ func (e *platformEngineImpl) queueRemoteSystemConfig(gateway string, params map[
 		return nil, fmt.Errorf("configuration synchronization is unavailable")
 	}
 	var request remoteSystemConfigSetRequest
+	request.Config = *config.DefaultConfig()
 	if err := scanRemotePluginParams(params, &request); err != nil {
+		return nil, err
+	}
+	var optional struct {
+		Config struct {
+			AlarmMedia *config.AlarmMediaConfig `json:"alarm_media"`
+		} `json:"config"`
+	}
+	if err := scanRemotePluginParams(params, &optional); err != nil {
 		return nil, err
 	}
 	if request.Config.Server.Port <= 0 || request.Config.Server.Port > 65535 {
 		return nil, fmt.Errorf("invalid HTTP port")
 	}
+	if err := request.Config.AlarmMedia.Validate(); err != nil {
+		return nil, err
+	}
 	fields, err := systemConfigFields(&request.Config)
 	if err != nil {
 		return nil, err
+	}
+	if optional.Config.AlarmMedia == nil {
+		delete(fields, "alarm_media")
 	}
 	code := store.ProtectedConfigCode(gateway, "system", "")
 	var recorded *store.ProtectedConfig

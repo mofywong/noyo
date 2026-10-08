@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"noyo/core/alarmmedia"
 	"noyo/core/config"
 	"noyo/core/protocol"
 	"noyo/core/store"
@@ -103,6 +104,10 @@ func NewServer() (*Server, error) {
 	}
 	if newConfig {
 		cfg = config.DefaultConfig()
+	}
+	cfg.AlarmMedia.Normalize()
+	if err := alarmmedia.Configure(cfg.AlarmMedia); err != nil {
+		return nil, fmt.Errorf("configure alarm recording storage: %w", err)
 	}
 	changed, err := cfg.NormalizeAuth()
 	if err != nil {

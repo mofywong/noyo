@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"noyo/core"
+	"noyo/core/alarmmedia"
 	"noyo/core/config"
 	"noyo/core/platform"
 	"noyo/core/store"
@@ -87,11 +88,15 @@ func (e *gatewayEngineImpl) applyProtectedGatewayRuntimeChange(ch store.SyncChan
 			return err
 		}
 		next := *e.server.Config
+		next.AlarmMedia.Normalize()
 		if err = json.Unmarshal(data, &next); err != nil {
 			return err
 		}
 		if next.Server.Port <= 0 || next.Server.Port > 65535 {
 			return fmt.Errorf("invalid HTTP port")
+		}
+		if err := next.AlarmMedia.Validate(); err != nil {
+			return err
 		}
 		if !reflect.DeepEqual(next.Server, e.server.Config.Server) || !reflect.DeepEqual(next.TSDB, e.server.Config.TSDB) || !sameLogConstruction(next.Log, e.server.Config.Log) {
 			// Keep the old runtime marked active until the new process has started.
@@ -101,6 +106,8 @@ func (e *gatewayEngineImpl) applyProtectedGatewayRuntimeChange(ch store.SyncChan
 			return &core.RuntimeActivationError{Cause: errors.New("committed system configuration is awaiting automatic daemon restart"), CompensationStatus: store.RuntimeCompensated}
 		}
 		e.server.Config.Log = next.Log
+		e.server.Config.AlarmMedia = next.AlarmMedia
+		_ = alarmmedia.Configure(next.AlarmMedia)
 		core.SetLoggerLevel(next.Log.Level)
 		store.SetDBLogLevel(next.Log.Level)
 		return nil

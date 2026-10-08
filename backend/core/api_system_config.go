@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"noyo/core/config"
+	"noyo/core/alarmmedia"
 	"noyo/core/store"
 
 	"github.com/gogf/gf/v2/frame/g"
@@ -22,9 +22,14 @@ func (s *Server) handleGetSystemConfig(r *ghttp.Request) {
 
 // handleUpdateSystemConfig updates the system configuration
 func (s *Server) handleUpdateSystemConfig(r *ghttp.Request) {
-	var req config.GlobalConfig
+	req := *s.Config
+	req.AlarmMedia.Normalize()
 	if err := json.Unmarshal(r.GetBody(), &req); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
+		return
+	}
+	if err := req.AlarmMedia.Validate(); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 		return
 	}
 
@@ -34,6 +39,7 @@ func (s *Server) handleUpdateSystemConfig(r *ghttp.Request) {
 	next.Server = req.Server
 	next.TSDB = req.TSDB
 	next.Log = req.Log
+	next.AlarmMedia = req.AlarmMedia
 
 	// Save to database
 	if err := store.SaveGlobalConfig(&next); err != nil {
@@ -42,6 +48,7 @@ func (s *Server) handleUpdateSystemConfig(r *ghttp.Request) {
 	}
 	if store.LocalConfigGatewayCode() == "" || !store.HasProtectedConfigSink() {
 		*s.Config = next
+		_ = alarmmedia.Configure(next.AlarmMedia)
 		SetLoggerLevel(req.Log.Level)
 		store.SetDBLogLevel(req.Log.Level)
 	}

@@ -103,6 +103,12 @@ func (s *Server) handleAlarmMediaFile(r *ghttp.Request) {
 		r.Response.WriteStatus(404)
 		return
 	}
+	release, ok := alarmmedia.Pin(id)
+	if !ok {
+		r.Response.WriteStatus(409)
+		return
+	}
+	defer release()
 	rec, err := alarmmedia.Load(id)
 	if err != nil || (rec.Status != "ready" && rec.Status != "partial") {
 		r.Response.WriteStatus(409)

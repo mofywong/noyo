@@ -21,7 +21,7 @@ func LoadGlobalConfig() (*config.GlobalConfig, error) {
 		return nil, err
 	}
 
-	var cfg config.GlobalConfig
+	cfg := *config.DefaultConfig()
 	if err := json.Unmarshal([]byte(sysConfig.Value), &cfg); err != nil {
 		return nil, err
 	}

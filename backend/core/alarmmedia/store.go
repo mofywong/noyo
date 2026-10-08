@@ -114,19 +114,7 @@ func List() []Record {
 	return out
 }
 func HasCapacity() bool {
-	var n int64
-	_ = filepath.WalkDir(Root, func(p string, d os.DirEntry, e error) error {
-		if e == nil && !d.IsDir() {
-			if st, e := d.Info(); e == nil {
-				n += st.Size()
-			}
-		}
-		if n > MaxStorageBytes {
-			return errors.New("quota")
-		}
-		return nil
-	})
-	return n < MaxStorageBytes-MaxFileBytes
+	return hasCapacityAt(time.Now())
 }
 
 // Recover marks interrupted local jobs explicitly instead of showing eternal capture.

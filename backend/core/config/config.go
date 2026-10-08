@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"strings"
 )
 
@@ -37,10 +38,41 @@ func (c *GlobalConfig) NormalizeAuth() (bool, error) {
 
 // GlobalConfig represents the root configuration structure
 type GlobalConfig struct {
-	Server ServerConfig `yaml:"server" json:"server"`
-	TSDB   TSDBConfig   `yaml:"tsdb" json:"tsdb"`
-	Log    LogConfig    `yaml:"log" json:"log"`
-	Auth   AuthConfig   `yaml:"auth" json:"auth"`
+	Server     ServerConfig     `yaml:"server" json:"server"`
+	TSDB       TSDBConfig       `yaml:"tsdb" json:"tsdb"`
+	Log        LogConfig        `yaml:"log" json:"log"`
+	Auth       AuthConfig       `yaml:"auth" json:"auth"`
+	AlarmMedia AlarmMediaConfig `yaml:"alarm_media" json:"alarm_media"`
+}
+
+type AlarmMediaConfig struct {
+	MaxStorageGiB int64 `yaml:"max_storage_gib" json:"max_storage_gib"`
+	RetentionDays int   `yaml:"retention_days" json:"retention_days"`
+}
+
+func DefaultAlarmMediaConfig() AlarmMediaConfig {
+	return AlarmMediaConfig{MaxStorageGiB: 10, RetentionDays: 30}
+}
+
+// Normalize supplies defaults when loading configurations predating this policy.
+func (c *AlarmMediaConfig) Normalize() {
+	defaults := DefaultAlarmMediaConfig()
+	if c.MaxStorageGiB == 0 {
+		c.MaxStorageGiB = defaults.MaxStorageGiB
+	}
+	if c.RetentionDays == 0 {
+		c.RetentionDays = defaults.RetentionDays
+	}
+}
+
+func (c AlarmMediaConfig) Validate() error {
+	if c.MaxStorageGiB < 1 || c.MaxStorageGiB > 1048576 {
+		return fmt.Errorf("alarm recording capacity must be an integer between 1 and 1048576 GiB / 告警录像容量必须为 1 到 1048576 GiB 的整数")
+	}
+	if c.RetentionDays < 1 || c.RetentionDays > 36500 {
+		return fmt.Errorf("alarm recording retention must be an integer between 1 and 36500 days / 告警录像保存时间必须为 1 到 36500 天的整数")
+	}
+	return nil
 }
 
 type ServerConfig struct {
@@ -75,6 +107,7 @@ type AuthConfig struct {
 // DefaultConfig returns the default configuration
 func DefaultConfig() *GlobalConfig {
 	return &GlobalConfig{
+		AlarmMedia: DefaultAlarmMediaConfig(),
 		Server: ServerConfig{
 			Port: 8989,
 		},

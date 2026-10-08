@@ -19,7 +19,8 @@
           <p class="small text-body-secondary mt-2 mb-2">{{ text.range }}: {{ formatTime(selected.start_at) }} – {{ formatTime(selected.end_at) }}</p>
           <a :href="previewUrl" class="btn btn-outline-primary btn-sm" download rel="noreferrer">{{ language === 'en' ? 'Download annotated recording' : '下载标注录像' }}</a>
         </template>
-        <p v-else-if="selected.status === 'failed'" class="small text-body-secondary">{{ text.failedHint }}</p>
+        <p v-else-if="selected.status === 'failed'" class="small text-body-secondary" role="alert">{{ failureHint }}</p>
+        <p v-else-if="selected.status === 'expired'" class="small text-body-secondary">{{ expirationHint }}</p>
       </template>
     </template>
   </section>
@@ -45,6 +46,13 @@ const copy = {
   en: { title: 'Alarm recording', select: 'Select recording', loading: 'Loading recordings…', capturing: 'Recording 5 seconds after the alarm…', rendering: 'Preparing annotated recording…', uploading: 'Waiting for gateway upload…', ready: 'Recording ready', partial: 'Partial recording ready', failed: 'Recording failed', partialHint: 'Stream startup, interruption or resource limits shortened this clip. The available time range is shown below.', failedHint: 'A playable recording could not be generated. The snapshot and alarm record remain available.', source: 'Download source stream', range: 'Recorded time range', loadFailed: 'Could not load recording status.', retry: 'Retry', unsupported: 'Your browser does not support video playback.', playFailed: 'Could not load the video. Refresh the details and try again.', unknown: 'Waiting for recording status', unknownTime: 'Alarm recording' }
 }
 const text = computed(() => copy[props.language] || copy.zh)
+const storageLimitHint = computed(() => props.language === 'en'
+  ? 'Alarm recording storage has reached its configured limit. Contact an administrator to adjust recording capacity or retention settings before new recordings can be generated. The snapshot and alarm record remain available.'
+  : '告警录像存储已达到配置上限。请联系管理员调整录像容量或保存时间，之后的新告警才能生成录像。截图和告警记录仍可查看。')
+const failureHint = computed(() => selected.value?.reason === 'storage_limit' ? storageLimitHint.value : text.value.failedHint)
+const expirationHint = computed(() => props.language === 'en'
+  ? 'This recording exceeded its retention period and was overwritten to free storage. The snapshot and alarm record remain available.'
+  : '此录像已超过保存期限，并在存储不足时被覆盖。截图和告警记录仍可查看。')
 const selected = computed(() => recordings.value.find(record => record.id === selectedId.value))
 const playable = computed(() => ['ready', 'partial'].includes(selected.value?.status))
 const fileUrl = kind => {
@@ -53,7 +61,7 @@ const fileUrl = kind => {
   return `/api/alarm-instances/${encodeURIComponent(props.alarmId)}/media/${encodeURIComponent(selected.value.id)}/${kind}?${query}`
 }
 const previewUrl = computed(() => fileUrl('preview.mp4'))
-const statusText = status => text.value[status] || text.value.unknown
+const statusText = status => status === 'expired' ? (props.language === 'en' ? 'Recording expired' : '录像已过期') : (text.value[status] || text.value.unknown)
 const formatTime = time => time ? new Date(time).toLocaleString(props.language === 'en' ? 'en-US' : 'zh-CN') : text.value.unknownTime
 const eventTime = record => formatTime(record.occurred_at)
 

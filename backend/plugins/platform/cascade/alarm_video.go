@@ -125,7 +125,13 @@ func (e *gatewayEngineImpl) alarmVideoUploadLoop(ctx context.Context) {
 			mapped := e.prepareGatewayTelemetryEvent(e.gatewayCode, types.Event{Topic: record.DeviceCode}, device)
 			localID := record.ID
 			record.DeviceCode = mapped.Topic
-			if err = e.uploadAlarmVideo(ctx, record); err == nil {
+			release, ok := alarmmedia.Pin(localID)
+			if !ok {
+				continue
+			}
+			err = e.uploadAlarmVideo(ctx, record)
+			release()
+			if err == nil {
 				_ = alarmmedia.Update(localID, func(r *alarmmedia.Record) { r.Uploaded = true })
 				delete(retries, localID)
 			} else {
