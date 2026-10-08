@@ -30,6 +30,7 @@ func (s *Server) RegisterDeviceRoutes(group *ghttp.RouterGroup) {
 	permissionPOST(group, "/devices", "device:create", s.handleCreateDevice)
 	permissionPUT(group, "/devices/:code/tags", "device:edit", s.handleReplaceDeviceTags)
 	permissionGET(group, "/devices/:code", "device:list", s.handleGetDevice)
+	permissionPUT(group, "/devices/:code/ai-config", "device:edit", s.handleUpdateDeviceAIConfig)
 	permissionPUT(group, "/devices/:code", "device:edit", s.handleUpdateDevice)
 	permissionDELETE(group, "/devices/:code", "device:delete", s.handleDeleteDevice)
 
@@ -690,6 +691,10 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 	}
 
 	s.Manager.ApplyDeviceDefaults(&d)
+	if err := validateEnabledAISceneRulesConfig(d.Config); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
 
 	// If protocol_name is empty but protocol_profile_code exists, inherit protocol from driver
 	if d.ProtocolName == "" && d.ProtocolProfileCode != "" {
@@ -808,6 +813,10 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 	}
 
 	s.Manager.ApplyDeviceDefaults(&d)
+	if err := validateEnabledAISceneRulesConfig(d.Config); err != nil {
+		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
 
 	// If protocol_name is empty but protocol_profile_code exists, inherit protocol from driver
 	if d.ProtocolName == "" && d.ProtocolProfileCode != "" {
