@@ -471,6 +471,20 @@ func (s *Server) handleGetPlugin(r *ghttp.Request) {
 	p := s.Manager.GetPlugin(name)
 	if p != nil {
 		schema := GetPluginConfigSchema(p)
+		if resolver, ok := p.(IConfigRequestScopeResolver); ok {
+			tenantID, projectID, err := resolver.ConfigRequestScope(r)
+			if err != nil {
+				r.Response.WriteStatus(403, g.Map{"code": 403, "message": err.Error()})
+				return
+			}
+			if provider, ok := p.(IScopedConfigSchemaProvider); ok {
+				schema, err = provider.GetConfigSchemaForScope(tenantID, projectID)
+				if err != nil {
+					r.Response.WriteJson(g.Map{"code": 500, "message": "Configuration unavailable"})
+					return
+				}
+			}
+		}
 		r.Response.WriteJson(g.Map{
 			"code": 0,
 			"data": schema,
@@ -565,7 +579,14 @@ func (s *Server) handleUpdatePluginConfig(r *ghttp.Request) {
 
 	// Update Config (Persist to DB)
 	var err error
-	if authCtx := requestAuthContext(r); authCtx != nil && authCtx.TenantID > 0 {
+	if resolver, ok := p.(IConfigRequestScopeResolver); ok {
+		tenantID, projectID, scopeErr := resolver.ConfigRequestScope(r)
+		if scopeErr != nil {
+			r.Response.WriteStatus(403, g.Map{"code": 403, "message": scopeErr.Error()})
+			return
+		}
+		err = UpdatePluginConfigForScope(p, newConfig, tenantID, projectID)
+	} else if authCtx := requestAuthContext(r); authCtx != nil && authCtx.TenantID > 0 {
 		tenantID, projectID, scopeErr := currentTenantProjectScope(r)
 		if scopeErr != nil {
 			r.Response.WriteJson(g.Map{"code": 400, "message": scopeErr.Error()})

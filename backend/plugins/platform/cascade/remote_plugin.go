@@ -62,6 +62,8 @@ type remotePluginSummary struct {
 	Category                string                   `json:"category"`
 	Icon                    string                   `json:"icon"`
 	Schema                  *core.PluginConfigSchema `json:"schema"`
+	Config                  map[string]interface{}   `json:"config,omitempty"`
+	EditableBaseVersion     int64                    `json:"base_version"`
 	Version                 string                   `json:"version"`
 	ConfigVersion           int64                    `json:"configVersion"`
 	UpdatedAt               int64                    `json:"updatedAt"`
@@ -197,6 +199,7 @@ func buildRemotePluginSummary(plugin core.IManagedPlugin) remotePluginSummary {
 	}
 
 	configVersion, updatedAt := getPluginConfigVersion(meta.Name)
+	schema := core.GetPluginConfigSchema(plugin)
 
 	return remotePluginSummary{
 		Name:                    meta.Name,
@@ -205,7 +208,9 @@ func buildRemotePluginSummary(plugin core.IManagedPlugin) remotePluginSummary {
 		Status:                  status,
 		Category:                meta.Category,
 		Icon:                    iconStr,
-		Schema:                  core.GetPluginConfigSchema(plugin),
+		Schema:                  schema,
+		Config:                  schema.Config,
+		EditableBaseVersion:     schema.BaseVersion,
 		Version:                 meta.Version,
 		ConfigVersion:           configVersion,
 		UpdatedAt:               updatedAt,

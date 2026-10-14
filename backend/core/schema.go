@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/gogf/gf/v2/util/gconv"
 )
 
@@ -54,6 +55,21 @@ type IConfigUpdatePreparer interface {
 	PrepareConfigUpdate(map[string]interface{}, uint, uint) (map[string]interface{}, error)
 }
 
+// IConfigUpdatePersister lets a plugin preserve extension fields and enforce
+// an exact-scope version check instead of the generic typed-config persistence.
+type IConfigUpdatePersister interface {
+	PersistConfigUpdate(map[string]interface{}, uint, uint, bool) error
+}
+
+// Request-scoped configuration hooks are opt-in; existing plugins keep their
+// current schema and update routing.
+type IConfigRequestScopeResolver interface {
+	ConfigRequestScope(*ghttp.Request) (uint, uint, error)
+}
+type IScopedConfigSchemaProvider interface {
+	GetConfigSchemaForScope(uint, uint) (*PluginConfigSchema, error)
+}
+
 // IConfigSchemaSanitizer removes credentials from generated or custom schemas.
 type IConfigSchemaSanitizer interface {
 	SanitizeConfigSchema(*PluginConfigSchema)
@@ -66,10 +82,12 @@ type ISetupSchemaProvider interface {
 
 // PluginConfigSchema describes the configuration structure of a plugin
 type PluginConfigSchema struct {
-	PluginName  string            `json:"plugin_name"`
-	Title       map[string]string `json:"title"`       // Display Name (i18n)
-	Description map[string]string `json:"description"` // Description (i18n)
-	Fields      []ConfigField     `json:"fields"`
+	PluginName  string                 `json:"plugin_name"`
+	Title       map[string]string      `json:"title"`       // Display Name (i18n)
+	Description map[string]string      `json:"description"` // Description (i18n)
+	Fields      []ConfigField          `json:"fields"`
+	Config      map[string]interface{} `json:"config,omitempty"`
+	BaseVersion int64                  `json:"base_version"`
 }
 
 // GetPluginConfigSchema generates the schema from the plugin's Config struct
@@ -308,6 +326,9 @@ func updatePluginConfig(plugin IManagedPlugin, newConfig map[string]interface{},
 			enabledField.SetBool(originalEnabled)
 		}
 	}()
+	if persister, ok := plugin.(IConfigUpdatePersister); ok {
+		return persister.PersistConfigUpdate(newConfig, tenantID, projectID, remote)
+	}
 	if preparer, ok := plugin.(IConfigUpdatePreparer); ok {
 		prepared, err := preparer.PrepareConfigUpdate(newConfig, tenantID, projectID)
 		if err != nil {
