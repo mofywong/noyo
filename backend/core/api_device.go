@@ -655,6 +655,8 @@ func validateDeviceProtocolBinding(device store.Device, parentDevice *store.Devi
 }
 
 func (s *Server) handleCreateDevice(r *ghttp.Request) {
+	s.aiModelConfigMu.RLock()
+	defer s.aiModelConfigMu.RUnlock()
 	var d store.Device
 	if err := json.Unmarshal(r.GetBody(), &d); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid JSON"})
@@ -693,6 +695,10 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 	s.Manager.ApplyDeviceDefaults(&d)
 	if err := validateEnabledAISceneRulesConfig(d.Config); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
+	if err := s.validateAIModelConfigChange("", d.Config); err != nil {
+		s.writeAIModelError(r, err)
 		return
 	}
 
@@ -772,6 +778,8 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 }
 
 func (s *Server) handleUpdateDevice(r *ghttp.Request) {
+	s.aiModelConfigMu.RLock()
+	defer s.aiModelConfigMu.RUnlock()
 	code := r.Get("code").String()
 	var d store.Device
 	if err := json.Unmarshal(r.GetBody(), &d); err != nil {
@@ -815,6 +823,10 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 	s.Manager.ApplyDeviceDefaults(&d)
 	if err := validateEnabledAISceneRulesConfig(d.Config); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
+	if err := s.validateAIModelConfigChange(oldDevice.Config, d.Config); err != nil {
+		s.writeAIModelError(r, err)
 		return
 	}
 

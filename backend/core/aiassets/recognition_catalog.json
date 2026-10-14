@@ -1,0 +1,435 @@
+{
+  "categories": [
+    {
+      "id": "open_kitchen",
+      "icon": "bi-cup-hot",
+      "name": {
+        "zh": "明厨亮灶",
+        "en": "Open Kitchen"
+      }
+    },
+    {
+      "id": "personnel",
+      "icon": "bi-shield-check",
+      "name": {
+        "zh": "人员安全",
+        "en": "Personnel Safety"
+      }
+    },
+    {
+      "id": "behavior",
+      "icon": "bi-person-walking",
+      "name": {
+        "zh": "行为监测",
+        "en": "Behavior Monitoring"
+      }
+    },
+    {
+      "id": "space",
+      "icon": "bi-bounding-box",
+      "name": {
+        "zh": "区域与资产",
+        "en": "Areas & Assets"
+      }
+    },
+    {
+      "id": "basic",
+      "icon": "bi-cpu",
+      "name": {
+        "zh": "基础识别",
+        "en": "Basic Recognition"
+      }
+    }
+  ],
+  "items": [
+    {
+      "id": "no_chef_hat",
+      "capabilityId": "yolo-pro-chef-hat",
+      "category": "open_kitchen",
+      "icon": "bi-person-exclamation",
+      "name": {
+        "zh": "未戴厨师帽",
+        "en": "No Chef Hat"
+      },
+      "description": {
+        "zh": "识别头部未佩戴厨师帽，沿用专用模型。",
+        "en": "Detect uncovered heads using the dedicated chef hat model."
+      },
+      "resourceKind": "chef_hat",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ],
+      "optionalResourceKinds": [
+        "chef_hat_hairnet"
+      ]
+    },
+    {
+      "id": "rat_detection",
+      "capabilityId": "yolo-pro-rat-detection",
+      "category": "open_kitchen",
+      "icon": "bi-bug",
+      "name": {
+        "zh": "老鼠检测",
+        "en": "Rat Detection"
+      },
+      "description": {
+        "zh": "发现鼠类活动；小区域近景有助于识别微小目标。",
+        "en": "Detect rodents; close views and focused regions help reveal small targets."
+      },
+      "resourceKind": "kitchen",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "cockroach_detection",
+      "capabilityId": "yolo-pro-cockroach-detection",
+      "category": "open_kitchen",
+      "icon": "bi-bug-fill",
+      "name": {
+        "zh": "蟑螂检测",
+        "en": "Cockroach Detection"
+      },
+      "description": {
+        "zh": "监测地面、墙角和操作台的蟑螂活动。",
+        "en": "Monitor cockroaches on floors, in corners and on work surfaces."
+      },
+      "resourceKind": "kitchen",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "no_mask",
+      "capabilityId": "yolo-pro-no-mask",
+      "category": "open_kitchen",
+      "icon": "bi-person-exclamation",
+      "name": {
+        "zh": "未戴口罩",
+        "en": "No Face Mask"
+      },
+      "description": {
+        "zh": "仅以明确的未戴口罩证据触发，遮挡时需谨慎判断。",
+        "en": "Trigger on explicit unmasked-face evidence; occlusion needs careful assessment."
+      },
+      "resourceKind": "kitchen",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "no_chef_uniform",
+      "capabilityId": "yolo-pro-no-chef-uniform",
+      "category": "open_kitchen",
+      "icon": "bi-person-badge",
+      "name": {
+        "zh": "未穿厨师服",
+        "en": "No Chef Uniform"
+      },
+      "description": {
+        "zh": "识别未穿厨师服；需按现场工服样式验证效果。",
+        "en": "Detect missing chef uniforms; validate against clothing used on site."
+      },
+      "resourceKind": "kitchen",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "trash_bin_open",
+      "capabilityId": "yolo-pro-trash-bin-open",
+      "category": "open_kitchen",
+      "icon": "bi-trash3",
+      "name": {
+        "zh": "垃圾桶未盖",
+        "en": "Open Trash Bin"
+      },
+      "description": {
+        "zh": "检测垃圾桶盖打开，持续超过配置时间后告警。",
+        "en": "Alert when an open bin lid persists beyond the configured time."
+      },
+      "resourceKind": "kitchen",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "trash_bin_overflow",
+      "capabilityId": "yolo-pro-trash-bin-overflow",
+      "category": "open_kitchen",
+      "icon": "bi-trash3-fill",
+      "name": {
+        "zh": "垃圾桶满溢",
+        "en": "Overflowing Trash Bin"
+      },
+      "description": {
+        "zh": "检测垃圾桶垃圾满溢，支持指定垃圾桶区域。",
+        "en": "Detect overflowing waste within a selected bin region."
+      },
+      "resourceKind": "kitchen",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "no_helmet",
+      "capabilityId": "yolo-pro-helmet",
+      "category": "personnel",
+      "icon": "bi-person-exclamation",
+      "name": {
+        "zh": "未戴安全帽",
+        "en": "No Safety Helmet"
+      },
+      "description": {
+        "zh": "监测作业区域的安全帽佩戴情况。",
+        "en": "Monitor safety helmet compliance in work areas."
+      },
+      "resourceKind": "helmet",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "no_vest",
+      "capabilityId": "yolo-pro-vest",
+      "category": "personnel",
+      "icon": "bi-person-badge",
+      "name": {
+        "zh": "未穿安全背心",
+        "en": "No Safety Vest"
+      },
+      "description": {
+        "zh": "识别未穿安全背心的作业人员。",
+        "en": "Detect workers without safety vests."
+      },
+      "resourceKind": "helmet",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "post_absence",
+      "capabilityId": "yolo-pro-post-absence",
+      "category": "personnel",
+      "icon": "bi-person-dash",
+      "name": {
+        "zh": "岗位缺员",
+        "en": "Post Understaffed"
+      },
+      "description": {
+        "zh": "按最低人数与持续时间监测岗位缺员。",
+        "en": "Monitor staffing using minimum headcount and duration."
+      },
+      "resourceKind": "general",
+      "rule": true,
+      "dependencies": []
+    },
+    {
+      "id": "sleep_on_duty",
+      "capabilityId": "yolo-pro-sleep-on-duty",
+      "category": "behavior",
+      "icon": "bi-moon",
+      "name": {
+        "zh": "在岗睡觉",
+        "en": "Sleeping on Duty"
+      },
+      "description": {
+        "zh": "结合姿态与持续观测识别疑似睡岗。",
+        "en": "Use posture and sustained observations to identify suspected sleeping."
+      },
+      "resourceKind": "pose",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "person_fall",
+      "capabilityId": "yolo-pro-person-fall",
+      "category": "behavior",
+      "icon": "bi-person-exclamation",
+      "name": {
+        "zh": "人员摔倒",
+        "en": "Person Fall"
+      },
+      "description": {
+        "zh": "结合姿态变化监测摔倒事件。",
+        "en": "Monitor falls using changes in body posture."
+      },
+      "resourceKind": "pose",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "smoking",
+      "capabilityId": "yolo-pro-smoking",
+      "category": "behavior",
+      "icon": "bi-cloud",
+      "name": {
+        "zh": "抽烟",
+        "en": "Smoking"
+      },
+      "description": {
+        "zh": "结合香烟目标与人员动作识别抽烟。",
+        "en": "Detect smoking using cigarette evidence and body movements."
+      },
+      "resourceKind": "smoking",
+      "rule": true,
+      "dependencies": [
+        "general_detection"
+      ]
+    },
+    {
+      "id": "fighting",
+      "capabilityId": "yolo-pro-fighting",
+      "category": "behavior",
+      "icon": "bi-people",
+      "name": {
+        "zh": "疑似打架",
+        "en": "Suspected Fighting"
+      },
+      "description": {
+        "zh": "结合连续动作识别疑似打架行为。",
+        "en": "Detect suspected fighting from sequences of actions."
+      },
+      "resourceKind": "fighting",
+      "rule": true,
+      "dependencies": [
+        "general_detection",
+        "pose_annotation"
+      ]
+    },
+    {
+      "id": "illegal_parking",
+      "capabilityId": "yolo-pro-illegal-parking",
+      "category": "space",
+      "icon": "bi-p-square",
+      "name": {
+        "zh": "违规停车",
+        "en": "Illegal Parking"
+      },
+      "description": {
+        "zh": "对指定区域的车辆停留进行计时告警。",
+        "en": "Alert on vehicles dwelling in restricted regions."
+      },
+      "resourceKind": "general",
+      "rule": true,
+      "dependencies": []
+    },
+    {
+      "id": "fire_lane_occupied",
+      "capabilityId": "yolo-pro-fire-lane-occupied",
+      "category": "space",
+      "icon": "bi-truck-front",
+      "name": {
+        "zh": "消防车通道占用",
+        "en": "Fire Lane Occupied"
+      },
+      "description": {
+        "zh": "监测消防车通道内车辆长时间占用。",
+        "en": "Monitor prolonged vehicle occupancy in fire lanes."
+      },
+      "resourceKind": "general",
+      "rule": true,
+      "dependencies": []
+    },
+    {
+      "id": "area_intrusion",
+      "capabilityId": "yolo-pro-area-intrusion",
+      "category": "space",
+      "icon": "bi-bounding-box-circles",
+      "name": {
+        "zh": "区域入侵",
+        "en": "Area Intrusion"
+      },
+      "description": {
+        "zh": "监测人员或车辆进入指定区域。",
+        "en": "Monitor people or vehicles entering selected regions."
+      },
+      "resourceKind": "general",
+      "rule": true,
+      "dependencies": []
+    },
+    {
+      "id": "indoor_fire_passage_occupied",
+      "capabilityId": "yolo-pro-indoor-fire-passage-occupied",
+      "category": "space",
+      "icon": "bi-fire",
+      "name": {
+        "zh": "消防通道堵塞",
+        "en": "Fire Passage Blockage"
+      },
+      "description": {
+        "zh": "结合背景基线识别通道障碍物。",
+        "en": "Detect passage obstructions against a captured baseline."
+      },
+      "resourceKind": "general",
+      "rule": true,
+      "dependencies": []
+    },
+    {
+      "id": "object_missing",
+      "capabilityId": "yolo-pro-object-missing",
+      "category": "space",
+      "icon": "bi-question-square",
+      "name": {
+        "zh": "物品丢失",
+        "en": "Object Missing"
+      },
+      "description": {
+        "zh": "监测指定物品离开或外观变化。",
+        "en": "Monitor disappearance or appearance changes of selected objects."
+      },
+      "resourceKind": "general",
+      "rule": true,
+      "dependencies": []
+    },
+    {
+      "id": "general_detection",
+      "capabilityId": "yolo-pro-general",
+      "category": "basic",
+      "icon": "bi-bounding-box",
+      "name": {
+        "zh": "通用目标检测",
+        "en": "General Object Detection"
+      },
+      "description": {
+        "zh": "识别人、车辆等目标，按摄像头配置检测类别。",
+        "en": "Detect people, vehicles and other objects using camera-specific classes."
+      },
+      "resourceKind": "general",
+      "rule": false,
+      "dependencies": []
+    },
+    {
+      "id": "pose_annotation",
+      "capabilityId": "yolo-pro-pose",
+      "category": "basic",
+      "icon": "bi-person-arms-up",
+      "name": {
+        "zh": "人体姿态标注",
+        "en": "Pose Annotation"
+      },
+      "description": {
+        "zh": "显示人体关键点与骨架，可在 AI 识别中单独开启。",
+        "en": "Display body keypoints and skeletons using the pose annotation switch."
+      },
+      "resourceKind": "pose",
+      "rule": false,
+      "dependencies": [
+        "general_detection"
+      ]
+    }
+  ]
+}

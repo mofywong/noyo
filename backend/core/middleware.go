@@ -193,8 +193,8 @@ func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 		return nil
 	}
 
-	if strings.HasPrefix(r.URL.Path,"/api/") && claims.ExpiresAt != nil {
-		setAssetCookie(r,tokenString,int(time.Until(claims.ExpiresAt.Time).Seconds()))
+	if strings.HasPrefix(r.URL.Path, "/api/") && claims.ExpiresAt != nil {
+		setAssetCookie(r, tokenString, int(time.Until(claims.ExpiresAt.Time).Seconds()))
 	}
 	return authCtx
 }
@@ -221,6 +221,10 @@ func logAuditRecord(r *ghttp.Request) {
 		action = "DELETE"
 	}
 
+	detail := "[MODEL_ARCHIVE_CONTENT_OMITTED]"
+	if strings.TrimRight(r.URL.Path, "/") != "/api/ai/models/import" {
+		detail = redactSensitiveBody(r.GetBody(), r.URL.Path)
+	}
 	log := store.AuditLog{
 		TenantID:  tenantID,
 		UserID:    userID,
@@ -229,7 +233,7 @@ func logAuditRecord(r *ghttp.Request) {
 		Module:    r.Router.Uri,
 		Action:    action,
 		Resource:  r.URL.Path,
-		Detail:    "Body: " + redactSensitiveBody(r.GetBody(), r.URL.Path),
+		Detail:    "Body: " + detail,
 		IP:        r.GetClientIp(),
 		UserAgent: r.Header.Get("User-Agent"),
 	}

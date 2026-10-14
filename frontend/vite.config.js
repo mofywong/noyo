@@ -33,6 +33,9 @@ export default defineConfig(({ mode }) => {
     ],
     resolve: {
       alias: [
+        // AI recognition and the model center share the base catalog, including
+        // when Pro is mounted through its frontend junction.
+        { find: '../../../../../../noyo/frontend/src/utils/recognitionCatalog.js', replacement: fileURLToPath(new URL('./src/utils/recognitionCatalog.js', import.meta.url)) },
         // Pro is mounted through a junction with preserveSymlinks enabled.
         // Resolve the shared renderer contract from the real Pro directory.
         ...(hasPro ? [{

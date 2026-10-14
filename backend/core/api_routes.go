@@ -53,6 +53,7 @@ func (s *Server) registerAPIRoutes() {
 			permissionGET(pluginGroup, "/:name/schemas", "plugin:list", s.handleGetPluginSchemas)
 			permissionPOST(pluginGroup, "/:name/config", "plugin:config", s.handleUpdatePluginConfig)
 			permissionPOST(pluginGroup, "/:name/discover", "plugin:config", s.handlePluginDiscover)
+			s.registerAIModelRoutes(protected)
 
 			systemGroup := protected.Group("/system")
 			permissionGET(systemGroup, "/stats", "dashboard:view", s.handleSystemStats)

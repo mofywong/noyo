@@ -17,6 +17,8 @@ import (
 // handleUpdateDeviceAIConfig changes only the AI analysis portion of a camera's
 // stored configuration. It does not make a manual device inventory edit.
 func (s *Server) handleUpdateDeviceAIConfig(r *ghttp.Request) {
+	s.aiModelConfigMu.RLock()
+	defer s.aiModelConfigMu.RUnlock()
 	code := r.Get("code").String()
 	device, err := store.GetDevice(code)
 	if err != nil {
@@ -42,6 +44,10 @@ func (s *Server) handleUpdateDeviceAIConfig(r *ghttp.Request) {
 	}
 	if err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
+		return
+	}
+	if err := s.validateAIModelConfigChange(device.Config, merged); err != nil {
+		s.writeAIModelError(r, err)
 		return
 	}
 	updated, err := store.UpdateDeviceAIConfig(code, patch)

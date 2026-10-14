@@ -135,6 +135,7 @@ func InitDB(dsn string) error {
 		&AppPermission{},
 		&AppDeviceTagPermission{},
 		&AuditLog{},
+		&ModelHistory{},
 		&TokenBlacklist{},
 		&AuthSession{},
 		&StoredAsset{},

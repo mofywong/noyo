@@ -46,6 +46,12 @@ const routes = [
     meta: { requiresAuth: true, permission: 'plugin:list' }
   },
   {
+    path: '/ai/model-center',
+    name: 'ModelManagement',
+    component: () => import('../views/ModelManagement.vue'),
+    meta: { requiresAuth: true, permission: 'plugin:list' }
+  },
+  {
     path: '/drivers',
     name: 'DeviceDrivers',
     component: () => import('../views/DeviceDrivers.vue'),

@@ -6,6 +6,29 @@ echo ==========================================
 
 cd /d "%~dp0"
 
+rem Lightweight resources use a separate output and never erase existing models.
+if not defined NOYO_PACKAGE_MODE set NOYO_PACKAGE_MODE=bundled
+if /I not "%NOYO_PACKAGE_MODE%"=="light" if /I not "%NOYO_PACKAGE_MODE%"=="bundled" (
+    echo Error: NOYO_PACKAGE_MODE must be light or bundled.
+    exit /b 1
+)
+set RESOURCE_OUTPUT=backend\linux
+if /I "%NOYO_PACKAGE_MODE%"=="light" set RESOURCE_OUTPUT=backend\linux-light
+if /I "%NOYO_PACKAGE_MODE%"=="light" (
+    for /f "delims=" %%F in ('dir /b /a "%RESOURCE_OUTPUT%\models" 2^>nul') do (
+        echo Error: lightweight output models must be empty. Use a fresh output directory.
+        exit /b 1
+    )
+    set ORT_AVAILABLE=
+    for %%L in (libonnxruntime.so libonnxruntime-cpu.so libonnxruntime-cuda.so libonnxruntime-gpu.so) do (
+        if exist "backend\lib\%%L" set ORT_AVAILABLE=1
+    )
+    if not defined ORT_AVAILABLE (
+        echo Error: lightweight Pro packages require baseline ONNX Runtime libraries in backend\lib.
+        exit /b 1
+    )
+)
+
 echo [1/3] Building Frontend Web UI...
 cd frontend
 call npm run build
@@ -31,27 +54,30 @@ if %errorlevel% neq 0 (
     exit /b %errorlevel%
 )
 
-echo [3/3] Syncing Resources to backend/linux/...
+echo [3/3] Syncing Resources to %RESOURCE_OUTPUT%/...
 cd /d "%~dp0"
-if not exist "backend\linux\lib" mkdir "backend\linux\lib"
-if not exist "backend\linux\models" mkdir "backend\linux\models"
-if not exist "backend\linux\data" mkdir "backend\linux\data"
+if not exist "%RESOURCE_OUTPUT%\lib" mkdir "%RESOURCE_OUTPUT%\lib"
+if not exist "%RESOURCE_OUTPUT%\models" mkdir "%RESOURCE_OUTPUT%\models"
+if not exist "%RESOURCE_OUTPUT%\data" mkdir "%RESOURCE_OUTPUT%\data"
 
-attrib -r "backend\linux\*.*" /s 2>nul
+attrib -r "%RESOURCE_OUTPUT%\*.*" /s 2>nul
 
-if errorlevel 1 exit /b !errorlevel!
-
-if exist "backend\lib\*.so" (
-    attrib -r "backend\linux\lib\*.so" 2>nul
-    copy /y "backend\lib\*.so" "backend\linux\lib\" >nul
+if exist "backend\lib\*.so*" (
+    attrib -r "%RESOURCE_OUTPUT%\lib\*.so*" 2>nul
+    copy /y "backend\lib\*.so*" "%RESOURCE_OUTPUT%\lib\" >nul
     if errorlevel 1 exit /b !errorlevel!
 )
-xcopy /s /e /y /q "backend\models\*" "backend\linux\models\" >nul
-if errorlevel 2 exit /b !errorlevel!
+if /I "%NOYO_PACKAGE_MODE%"=="bundled" (
+    xcopy /s /e /y /q "backend\models\*" "%RESOURCE_OUTPUT%\models\" >nul
+    if errorlevel 2 exit /b !errorlevel!
+) else (
+    copy /y "backend\linux\noyo-linux-amd64-pro" "%RESOURCE_OUTPUT%\" >nul
+    if errorlevel 1 exit /b !errorlevel!
+)
 
 echo ==========================================
 echo Build Linux Success!
-echo Output Directory: %~dp0backend\linux\
+echo Output Directory: %~dp0%RESOURCE_OUTPUT%\
 echo ==========================================
 endlocal
 exit /b 0

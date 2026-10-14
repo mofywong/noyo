@@ -307,7 +307,13 @@ const isGatewayRuntime = computed(() => {
 const hideTenantManagement = computed(() => hidesTenantManagement(authStore.systemMode));
 
 const extensionMenus = computed(() => {
-  return extensions.value.menus || [];
+  const menus = [...(extensions.value.menus || [])];
+  const sceneIndex = menus.findIndex(menu => menu.name === 'AiConfigCenter' || menu.path === '/ai/detection-center');
+  menus.splice(sceneIndex < 0 ? 0 : sceneIndex, 0, {
+    name: 'ModelManagement', path: '/ai/model-center', icon: 'bi bi-box-arrow-in-down',
+    labelKey: 'sidebar_model_center', permission: 'plugin:list',
+  });
+  return menus;
 });
 
 const isMenuVisible = (menu) => {

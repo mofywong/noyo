@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"noyo/core/aiassets"
 	"noyo/core/alarmmedia"
 	"noyo/core/config"
 	"noyo/core/protocol"
@@ -53,6 +54,10 @@ type Server struct {
 	WebServer         *ghttp.Server
 	uiFS              fs.FS
 	setupMu           sync.Mutex
+	aiAssetsMu        sync.Mutex
+	aiAssets          *aiassets.Service
+	aiAssetsRoot      string
+	aiModelConfigMu   sync.RWMutex
 }
 
 func (s *Server) SetUI(uiFS fs.FS) {
@@ -189,6 +194,7 @@ func (s *Server) Run() error {
 
 	// Initialize Web Server (so plugins can register routes)
 	s.WebServer = g.Server()
+	configureAIModelUploads(s.WebServer)
 	s.WebServer.SetRouteOverWrite(true) // Enable route overwrite for plugin reload
 	s.WebServer.SetPort(s.Config.Server.Port)
 	s.WebServer.SetDumpRouterMap(false) // Disable printing the route table on startup
@@ -242,6 +248,7 @@ func (s *Server) Run() error {
 	}
 
 	defer store.CloseDB()
+	defer s.closeAIModelAssets()
 
 	// 1. Init Plugins
 	if err := s.Manager.InitPlugins(); err != nil {
