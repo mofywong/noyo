@@ -23,6 +23,8 @@ func (s *Server) RegisterDeviceRoutes(group *ghttp.RouterGroup) {
 	permissionDELETE(group, "/products/:code", "product:delete", s.handleDeleteProduct)
 
 	permissionGET(group, "/devices", "device:list", s.handleListDevices)
+	permissionGET(group, "/ai/semantic-reviews", "device:list", s.handleSemanticReviewRecords)
+	permissionGET(group, "/ai/semantic-reviews/evidence", "device:list", s.handleSemanticReviewEvidence)
 	permissionGET(group, "/devices/stream", "device:list", s.handleDeviceStream)
 	permissionGET(group, "/devices/import/template", "device:create", s.handleDownloadTemplate)
 	permissionPOST(group, "/devices/import", "device:create", s.handleImportDevices)

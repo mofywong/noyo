@@ -423,6 +423,7 @@
           </div>
           <template v-else>
             <AlarmVideoEvidence v-if="selectedAlarm.public_id" :alarm-id="selectedAlarm.public_id" :language="language" />
+            <AiDecisionSource v-if="hasAiDecisionMetadata(selectedAiDecision)" :data="selectedAiDecision" :language="language" />
             <!-- 核心指标摘要卡片 -->
             <div class="card border mb-3 alarm-detail-summary">
               <div class="card-body p-3">
@@ -841,9 +842,11 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import WorkOrderFormFields from '../components/work-order/WorkOrderFormFields.vue'
 import AlarmVideoEvidence from '../components/AlarmVideoEvidence.vue'
+import AiDecisionSource from '../components/ai/AiDecisionSource.vue'
+import { hasAiDecisionMetadata, selectAlarmAiDecision } from '../utils/aiDecisionSource.js'
 import { exportAlarmPdf, alarmPdfFilename } from '../utils/alarmPdf.js'
 import ListPagination from '../components/ListPagination.vue'
-import { ALARM_EVENT_IDS } from '../utils/alarmEvents.js'
+import { ALARM_EVENT_IDS, getAlarmEventName } from '../utils/alarmEvents.js'
 import { resolveServerText } from '../utils/serverText.js'
 import { buildProductPointIndex, resolvePointName, localizePointCodeInText } from '../utils/propertyName.js'
 import { buildAlarmTimeline } from '../utils/alarmTimeline.js'
@@ -861,6 +864,7 @@ const copy = {
 }
 const extraCopy = {
   zh: {
+    noVestEvent: '未穿安全背心告警',
     eventParameters: '事件参数',
     owner: '当前处理人',
     unassigned: '待分派',
@@ -944,6 +948,7 @@ const extraCopy = {
     objectMissingEvent: '物品缺失告警',
     areaIntrusionEvent: '区域入侵告警',
     noHelmetEvent: '未戴安全帽告警',
+    noChefHatEvent: '未戴厨师帽告警',
     postAbsenceEvent: '岗位缺员告警',
     sleepOnDutyEvent: '疑似睡岗告警',
     personFallEvent: '人员摔倒告警',
@@ -989,6 +994,7 @@ const extraCopy = {
     clearedState: '已消除'
   },
   en: {
+    noVestEvent: 'No safety vest alarm',
     eventParameters: 'Event parameters',
     owner: 'Current handler',
     unassigned: 'Awaiting assignment',
@@ -1072,6 +1078,7 @@ const extraCopy = {
     objectMissingEvent: 'Object missing alarm',
     areaIntrusionEvent: 'Area intrusion alarm',
     noHelmetEvent: 'No safety helmet alarm',
+    noChefHatEvent: 'No chef hat alarm',
     postAbsenceEvent: 'Post understaffed alarm',
     sleepOnDutyEvent: 'Suspected sleeping on duty alarm',
     personFallEvent: 'Person fall alarm',
@@ -1132,6 +1139,8 @@ const builtInPolicyEventKeys = {
   object_missing_alarm: 'objectMissingEvent',
   area_intrusion_alarm: 'areaIntrusionEvent',
   no_helmet_alarm: 'noHelmetEvent',
+  no_vest_alarm: 'noVestEvent',
+  no_chef_hat_alarm: 'noChefHatEvent',
   post_absence_alarm: 'postAbsenceEvent',
   sleep_on_duty_alarm: 'sleepOnDutyEvent',
   person_fall_alarm: 'personFallEvent',
@@ -1139,6 +1148,7 @@ const builtInPolicyEventKeys = {
   fighting_alarm: 'fightingEvent'
 }
 const builtInPolicyEventIDs = ['ai_fault', ...ALARM_EVENT_IDS.filter(id => id !== 'area_intrusion_leave')]
+const builtInPolicyEventName = id => builtInPolicyEventKeys[id] ? t(builtInPolicyEventKeys[id]) : getAlarmEventName({ event_id: id }, null, language.value)
 const recoveryHoldPresets = [0, 30, 60, 300, 600]
 const handlingKeys = ['new', 'acknowledged', 'in_progress', 'pending_verification', 'shelved', 'closed']
 const pageSizeOptions = [10, 20, 50, 100]
@@ -1233,6 +1243,7 @@ const historyLoading = ref(false)
 const legacyDetail = ref(null)
 const selected = ref(null)
 const selectedEvents = ref([])
+const selectedAiDecision = computed(() => selectAlarmAiDecision(selected.value, selectedEvents.value))
 const timelineEvents = computed(() => buildAlarmTimeline(selectedEvents.value))
 function occurrenceText(index) {
   return language.value === 'en' ? `Occurrence ${index + 1}` : `第${index + 1}次发生`
@@ -1355,7 +1366,7 @@ const eventNameIdentifiers = computed(() => {
 })
 const policyEventOptions = computed(() => {
   const rawOptions = new Map()
-  for (const id of builtInPolicyEventIDs) rawOptions.set(id, { value: id, id, name: t(builtInPolicyEventKeys[id] || id), type: '', groupKey: '__system__', groupLabel: t('systemAndObservedEvents') })
+  for (const id of builtInPolicyEventIDs) rawOptions.set(id, { value: id, id, name: builtInPolicyEventName(id), type: '', groupKey: '__system__', groupLabel: t('systemAndObservedEvents') })
   for (const event of policySourceEvents.value) rawOptions.set(event.value, { ...event, groupKey: event.productCode, groupLabel: productDisplayName(event.productCode, event.productName) })
   for (const event of legacyEvents.value) {
     const id = String(event?.event_id || '').trim()
@@ -1457,7 +1468,7 @@ function eventDefinition(eventID, productCode = '') {
 function eventDisplayName(eventID, productCode = '', explicitName = '') {
   const id = String(eventID || '').trim()
   const definition = eventDefinition(id, productCode)
-  const builtInName = builtInPolicyEventKeys[id] ? t(builtInPolicyEventKeys[id]) : ''
+  const builtInName = builtInPolicyEventIDs.includes(id) ? builtInPolicyEventName(id) : ''
   const name = String(explicitName || definition?.name || builtInName || '').trim()
   if (!name) return prettifyIdentifier(id)
   const duplicateName = (eventNameIdentifiers.value.get(name.toLowerCase())?.size || 0) > 1

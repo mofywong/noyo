@@ -35,7 +35,8 @@ type platformEngineImpl struct {
 	// recorder turns local writes into the propagation log.
 	recorder *changeRecorder
 	// instanceID identifies the platform's change log.
-	instanceID string
+	instanceID           string
+	semanticSubscription uint64
 }
 
 const (
@@ -56,6 +57,7 @@ func (e *platformEngineImpl) Start() error {
 	e.alarmVideoInbox = make(chan alarmVideoEnvelope, 64)
 	videoCtx, videoCancel := context.WithCancel(context.Background())
 	e.cancel = videoCancel
+	e.startSemanticResults()
 	go e.alarmVideoReceiveLoop(videoCtx)
 	e.logger.Info("Platform Engine Started", zap.String("mqtt_url", e.config.MqttUrl))
 
@@ -249,6 +251,10 @@ func applyGatewayDeviceDefaults(device *store.Device) bool {
 
 func (e *platformEngineImpl) Stop() error {
 	e.logger.Info("Platform Engine Stopped")
+	if e.semanticSubscription != 0 {
+		e.ctx.UnsubscribeEvent(types.EventType("ai.semantic.result"), e.semanticSubscription)
+		e.semanticSubscription = 0
+	}
 
 	if e.cancel != nil {
 		e.cancel()
@@ -494,6 +500,7 @@ func (e *platformEngineImpl) findAffectedGwByProduct(db *gorm.DB, productCode st
 }
 
 func (e *platformEngineImpl) subscribeTopics(c mqtt.Client) {
+	c.Subscribe("noyo/cascade/gw/+/semantic/up", 1, e.handleSemanticUp)
 	c.Subscribe("noyo/cascade/gw/+/alarm-video/up", 1, e.handleAlarmVideo)
 	c.Subscribe("noyo/cascade/gw/+/provision/request", 1, e.handleProvisionRequest)
 	c.Subscribe("noyo/cascade/gw/+/register/request", 1, e.handleRegisterRequest)

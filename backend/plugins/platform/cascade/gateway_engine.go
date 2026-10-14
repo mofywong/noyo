@@ -49,6 +49,7 @@ type gatewayEngineImpl struct {
 	configMutationMu    sync.Mutex
 	maintenanceWakeOnce sync.Once
 	maintenanceWake     chan struct{}
+	semantic            *semanticGateway
 }
 
 func (e *gatewayEngineImpl) prepareGatewayTelemetryEvent(gatewayCode string, event types.Event, device *store.Device) types.Event {
@@ -132,6 +133,9 @@ func (e *gatewayEngineImpl) Start() error {
 	if err := e.initSync(); err != nil {
 		return fmt.Errorf("gateway engine failed to initialize sync: %w", err)
 	}
+	if err := e.initSemanticGateway(); err != nil {
+		return err
+	}
 
 	go func() {
 		if token := e.client.Connect(); token.Wait() && token.Error() != nil {
@@ -142,6 +146,8 @@ func (e *gatewayEngineImpl) Start() error {
 	// Start telemetry reporting loop
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
+	e.semantic.wg.Add(1)
+	go e.semantic.loop(ctx)
 	go e.telemetryLoop(ctx)
 	go e.alarmVideoUploadLoop(ctx)
 	go e.runtimeApplyRetryLoop(ctx)
@@ -258,6 +264,9 @@ func (e *gatewayEngineImpl) Stop() error {
 	if e.cancel != nil {
 		e.cancel()
 	}
+	if e.semantic != nil {
+		e.semantic.wg.Wait()
+	}
 	if e.client != nil && e.client.IsConnected() {
 		// Explicitly publish Offline status before graceful disconnect
 		// to ensure the retained "online" message is cleared.
@@ -287,6 +296,7 @@ func (e *gatewayEngineImpl) handleLocalEvent(event types.Event) {
 }
 
 func (e *gatewayEngineImpl) subscribeTopics(c mqtt.Client) {
+	c.Subscribe(fmt.Sprintf("noyo/cascade/gw/%s/semantic/down", e.gatewayCode), 1, e.handleSemanticDown)
 	c.Subscribe(fmt.Sprintf("noyo/cascade/gw/%s/alarm-video/down", e.gatewayCode), 1, func(_ mqtt.Client, msg mqtt.Message) {
 		if msg.Retained() || len(msg.Payload()) > 4096 {
 			return

@@ -6,8 +6,8 @@ import (
 	"math"
 )
 
-// validateEnabledAISceneRulesConfig rejects enabled intrusion regions that the
-// scene analyzer would silently discard. Disabled rules remain valid drafts.
+// validateEnabledAISceneRulesConfig rejects duplicate scene types and enabled
+// rules the scene analyzer would silently discard. Disabled rules remain valid drafts.
 func validateEnabledAISceneRulesConfig(configJSON string) error {
 	if configJSON == "" {
 		return nil
@@ -35,11 +35,39 @@ func validateEnabledAISceneRulesConfig(configJSON string) error {
 		ROIRegions []struct {
 			ROI []aiScenePoint `json:"roi_points"`
 		} `json:"roi_regions"`
+		SemanticVerification struct {
+			Enabled         bool   `json:"enabled"`
+			Mode            string `json:"mode"`
+			CooldownSeconds int    `json:"cooldown_seconds"`
+			Execution       string `json:"execution"`
+		} `json:"semantic_verification"`
 	}
 	if err := json.Unmarshal(config.AISceneRules, &rules); err != nil {
 		return fmt.Errorf("invalid ai_scene_rules: %w", err)
 	}
+	sceneTypes := make(map[string]bool, len(rules))
 	for i, rule := range rules {
+		if rule.SceneType != "" {
+			if sceneTypes[rule.SceneType] {
+				return fmt.Errorf("duplicate AI scene rule %s / 同一摄像机不能重复配置同一种AI规则", rule.SceneType)
+			}
+			sceneTypes[rule.SceneType] = true
+		}
+		if rule.Enabled && rule.SemanticVerification.Enabled {
+			v := rule.SemanticVerification
+			if rule.SceneType != "sleep_on_duty" && rule.SceneType != "person_fall" && rule.SceneType != "smoking" && rule.SceneType != "fighting" {
+				return fmt.Errorf("rule %d does not support semantic review / 该规则不支持语义复核", i+1)
+			}
+			if v.Mode != "" && v.Mode != "verify_uncertain" && v.Mode != "review_local_alerts" {
+				return fmt.Errorf("rule %d has invalid semantic review mode / 语义复核模式无效", i+1)
+			}
+			if v.Execution != "" && v.Execution != "local_first" && v.Execution != "platform" {
+				return fmt.Errorf("rule %d has invalid semantic execution policy / 语义复核执行策略无效", i+1)
+			}
+			if v.CooldownSeconds != 0 && v.CooldownSeconds < 30 {
+				return fmt.Errorf("rule %d semantic cooldown must be 0 (unlimited) or at least 30 seconds / 语义复核冷却为0表示不限制，或至少30秒", i+1)
+			}
+		}
 		if !rule.Enabled || rule.SceneType != "area_intrusion" {
 			continue
 		}
