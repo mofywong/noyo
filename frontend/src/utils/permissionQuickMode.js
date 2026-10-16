@@ -34,10 +34,10 @@ export const QUICK_MODE_MODULES = [
     group: 'business',
     icon: 'bi-hdd-network',
     nameKey: 'perm_mod_gateway',
-    levels: ['none', 'readonly', 'edit', 'full'],
+    levels: ['none', 'readonly', 'edit'],
     readonly: ['gateway:list'],
     edit: ['gateway:config'],
-    full: ['gateway:delete']
+    full: []
   },
   {
     module: 'device',
@@ -70,6 +70,67 @@ export const QUICK_MODE_MODULES = [
     full: ['device_tag:delete']
   },
   {
+    module: 'rule',
+    group: 'business',
+    icon: 'bi-diagram-3',
+    nameKey: 'perm_mod_rule',
+    levels: ['none', 'readonly', 'edit', 'full'],
+    readonly: ['rule:list', 'rule:detail', 'rule:log'],
+    edit: ['rule:create', 'rule:edit', 'rule:enable'],
+    full: ['rule:delete']
+  },
+  {
+    module: 'work_order',
+    group: 'business',
+    icon: 'bi-ticket-detailed',
+    nameKey: 'perm_mod_work_order',
+    levels: ['none', 'readonly', 'edit', 'full'],
+    readonly: ['work_order:list'],
+    edit: ['work_order:create', 'work_order:process'],
+    full: ['work_order:approve', 'work_order:manage', 'work_order:integration']
+  },
+  {
+    module: 'ai_scene',
+    group: 'business',
+    icon: 'bi-bounding-box-circles',
+    nameKey: 'perm_mod_ai_scene',
+    levels: ['none', 'readonly', 'edit'],
+    readonly: ['ai_scene:list'],
+    edit: ['ai_scene:edit'],
+    full: []
+  },
+  {
+    module: 'semantic_review',
+    group: 'business',
+    icon: 'bi-journal-text',
+    nameKey: 'perm_mod_semantic_review',
+    levels: ['none', 'readonly'],
+    dependencies: ['ai_scene:list'],
+    readonly: ['semantic_review:list'],
+    edit: [],
+    full: []
+  },
+  {
+    module: 'ai_model',
+    group: 'business',
+    icon: 'bi-box-arrow-in-down',
+    nameKey: 'perm_mod_ai_model',
+    levels: ['none', 'readonly', 'edit'],
+    readonly: ['ai_model:list'],
+    edit: ['ai_model:export'],
+    full: []
+  },
+  {
+    module: 'ai_assistant',
+    group: 'business',
+    icon: 'bi-stars',
+    nameKey: 'perm_mod_ai_assistant',
+    levels: ['none', 'readonly'],
+    readonly: ['ai_assistant:use'],
+    edit: [],
+    full: []
+  },
+  {
     module: 'alarm',
     group: 'business',
     icon: 'bi-bell-fill',
@@ -77,7 +138,7 @@ export const QUICK_MODE_MODULES = [
     levels: ['none', 'readonly', 'edit', 'full'],
     readonly: ['alarm:list'],
     edit: ['alarm:handle'],
-    full: ['alarm:delete']
+    full: ['alarm:delete', 'alarm:manage', 'alarm:export']
   },
   {
     module: 'audit',
@@ -157,7 +218,7 @@ export const QUICK_MODE_MODULES = [
     levels: ['none', 'readonly', 'edit', 'full'],
     readonly: ['system:license'],
     edit: ['system:config'],
-    full: ['history:delete']
+    full: ['history:delete', 'ai_model:manage']
   }
 ];
 
@@ -167,6 +228,7 @@ export function getAvailableQuickModeModules(allPermissions, hiddenModules = [])
     .filter(mod => !hiddenModules.includes(mod.module))
     .map(mod => ({
       ...mod,
+      dependencies: (mod.dependencies || []).filter(code => allowedCodes.has(code)),
       readonly: mod.readonly.filter(code => allowedCodes.has(code)),
       edit: mod.edit.filter(code => allowedCodes.has(code)),
       full: mod.full.filter(code => allowedCodes.has(code))
@@ -183,7 +245,7 @@ export function inferQuickModeLevel(modConfig, selectedCodes, currentLevel) {
   if (selectedModCodes.length === 0) return 'none';
   
   if (currentLevel && currentLevel !== 'custom' && currentLevel !== 'none') {
-    const expectedCodes = getCodesForLevel(modConfig, currentLevel);
+    const expectedCodes = getCodesForLevel(modConfig, currentLevel).filter(code => allModCodes.includes(code));
     const isExactMatch = selectedModCodes.length === expectedCodes.length && 
                          expectedCodes.every(c => selectedModCodes.includes(c));
     if (isExactMatch) {
@@ -219,8 +281,8 @@ export function inferQuickModeLevel(modConfig, selectedCodes, currentLevel) {
 
 export function getCodesForLevel(modConfig, level) {
   if (level === 'none' || level === 'custom') return [];
-  if (level === 'readonly') return [...modConfig.readonly];
-  if (level === 'edit') return [...modConfig.readonly, ...modConfig.edit];
-  if (level === 'full') return [...modConfig.readonly, ...modConfig.edit, ...modConfig.full];
-  return [];
+  const codes = [...modConfig.readonly];
+  if (level === 'edit' || level === 'full') codes.push(...modConfig.edit);
+  if (level === 'full') codes.push(...modConfig.full);
+  return [...new Set([...codes, ...(modConfig.dependencies || [])])];
 }

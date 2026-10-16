@@ -165,6 +165,7 @@
           class="card dashboard-card dashboard-kpi-card dashboard-ai-action"
           data-dashboard-card
           data-dashboard-ai-trigger
+          v-permission="'ai_assistant:use'"
           role="button"
           tabindex="0"
           @click="openAICopilot"

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"reflect"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -15,6 +16,67 @@ var aiConfigKeys = map[string]bool{
 	"yolo_confidence":        true, "yolo_classes": true,
 	"ai_basic_detection_groups": true, "ai_basic_detections": true,
 	"ai_scene_rules": true,
+}
+
+// DeviceAIConfigView keeps independent AI readers away from device credentials
+// and connection settings. Protocol selectors are needed to render AI controls.
+func DeviceAIConfigView(raw string) string {
+	var config map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &config) != nil {
+		return "{}"
+	}
+	view := make(map[string]json.RawMessage)
+	for key, value := range config {
+		if aiConfigKeys[key] || key == "_protocol" || key == "protocol" {
+			view[key] = value
+		}
+	}
+	data, _ := json.Marshal(view)
+	return string(data)
+}
+
+// DeviceAIConfigChanged also covers inventory/import writes, so callers cannot
+// bypass AI authorization by choosing the general device endpoint.
+func DeviceAIConfigChanged(before, after string) bool {
+	decode := func(raw string) (map[string]interface{}, bool) {
+		config := map[string]interface{}{}
+		if raw == "" {
+			return config, true
+		}
+		if json.Unmarshal([]byte(raw), &config) != nil || config == nil {
+			return nil, false
+		}
+		return config, true
+	}
+	oldConfig, oldOK := decode(before)
+	newConfig, newOK := decode(after)
+	if !oldOK || !newOK {
+		return true
+	}
+	// Disabled/empty defaults added by a protocol do not enable an AI capability.
+	normalize := func(value interface{}) interface{} {
+		switch v := value.(type) {
+		case bool:
+			if !v {
+				return nil
+			}
+		case float64:
+			if v == 0 {
+				return nil
+			}
+		case []interface{}:
+			if len(v) == 0 {
+				return nil
+			}
+		}
+		return value
+	}
+	for key := range aiConfigKeys {
+		if !reflect.DeepEqual(normalize(oldConfig[key]), normalize(newConfig[key])) {
+			return true
+		}
+	}
+	return false
 }
 
 // MergeDeviceAIConfig applies only AI analysis fields. It cannot change device

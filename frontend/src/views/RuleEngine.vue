@@ -20,6 +20,7 @@
           size="sm"
           icon="bi bi-stars"
           @click="openAiRuleCreator"
+          v-if="authStore.hasPermission('ai_assistant:use')"
           v-permission="'rule:create'"
         >
           {{ $t('rule_ai_create') }}
@@ -111,7 +112,7 @@
                   <template v-if="aiRuleFilter">
                     <i class="bi bi-stars fs-1 d-block mb-2"></i>
                     <div class="fw-semibold text-body">{{ aiRuleCount === 0 ? $t('rule_ai_empty') : $t('rule_ai_empty_filtered') }}</div>
-                    <LiquidGlassButton variant="outline-info" size="sm" class="mt-3" icon="bi bi-stars" @click="openAiRuleCreator">
+                    <LiquidGlassButton v-if="authStore.hasPermission('ai_assistant:use') && authStore.hasPermission('rule:create')" variant="outline-info" size="sm" class="mt-3" icon="bi bi-stars" @click="openAiRuleCreator">
                       {{ $t('rule_ai_create') }}
                     </LiquidGlassButton>
                   </template>
@@ -161,7 +162,7 @@
                     <button class="table-action-btn table-action-btn--info" @click="openRuleGraph(rule)" :title="$t('rule_graph_view')">
                       <i class="bi bi-diagram-3"></i>
                     </button>
-                    <button class="table-action-btn table-action-btn--primary" @click="openAiRuleHelper(rule)" :title="$t('rule_ai_help')">
+                    <button v-permission="'ai_assistant:use'" class="table-action-btn table-action-btn--primary" @click="openAiRuleHelper(rule)" :title="$t('rule_ai_help')">
                       <i class="bi bi-stars"></i>
                     </button>
                     <button v-if="rule.enabled" class="table-action-btn table-action-btn--warning" @click="toggleRule(rule, false)" :title="$t('disable')" v-permission="'rule:enable'">
@@ -257,7 +258,7 @@
                     </td>
                     <td class="text-end">{{ log.duration_ms }} ms</td>
                     <td class="text-end">
-                      <button class="btn btn-outline-primary btn-sm" @click="analyzeRuleLog(log)" :title="$t('rule_ai_analyze_log')">
+                      <button v-permission="'ai_assistant:use'" class="btn btn-outline-primary btn-sm" @click="analyzeRuleLog(log)" :title="$t('rule_ai_analyze_log')">
                         <i class="bi bi-stars"></i>
                       </button>
                     </td>
@@ -305,6 +306,7 @@ import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, reactiv
 import { useI18n } from 'vue-i18n'
 import { useToast } from '../composables/useToast'
 import axios from 'axios'
+import { useAuthStore } from '../stores/auth.js'
 import RuleGraphViewer from '@/components/rule/RuleGraphViewer.vue'
 import ListPagination from '@/components/ListPagination.vue'
 import { formatDateTime } from '../utils/dateTime.js'
@@ -783,6 +785,7 @@ export default {
   name: 'RuleEngine',
   components: { ActionEditor, RuleConditionGroupEditor, RuleGraphViewer, VarInputWrapper, ListPagination, CompactListMetrics, DetailDrawer, ConfigSyncBadge, ConfigurationStatePanel, PendingConfigurationList },
   setup() {
+    const authStore = useAuthStore()
     const configurationRule = ref(null)
     const { configurationStateFor, pendingConfigurationIntents, reloadConfigurationStates } = useConfigurationStates('rule')
     const { t } = useI18n()
@@ -1680,7 +1683,7 @@ export default {
       addSequenceGroup, addParallelGroup, addEffectiveWindow, removeEffectiveWindow, applyEffectiveModeDefaults,
       parseNumberList, syncCronExpression,
       removeAction, addSubAction, removeSubAction, saveRule, toggleRule, deleteRule,
-      openAiRuleCreator, openAiRuleHelper, openRuleGraph, closeRuleGraph, handleGraphUpdate, triggerTypeLabel, openLogs, analyzeRuleLog, openGroupModal, saveGroup, deleteGroup
+      authStore, openAiRuleCreator, openAiRuleHelper, openRuleGraph, closeRuleGraph, handleGraphUpdate, triggerTypeLabel, openLogs, analyzeRuleLog, openGroupModal, saveGroup, deleteGroup
     }
   }
 }

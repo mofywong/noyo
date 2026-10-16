@@ -14,6 +14,18 @@ import (
 	"gorm.io/gorm"
 )
 
+func requireDeviceAIConfigPermission(r *ghttp.Request, projectID uint, before, after string) bool {
+	if !store.DeviceAIConfigChanged(before, after) {
+		return true
+	}
+	auth := requestAuthContext(r)
+	if auth != nil && auth.HasProjectPermission("ai_scene:edit", projectID) {
+		return true
+	}
+	r.Response.WriteJson(g.Map{"code": 403, "message": "Permission denied: ai_scene:edit"})
+	return false
+}
+
 // handleUpdateDeviceAIConfig changes only the AI analysis portion of a camera's
 // stored configuration. It does not make a manual device inventory edit.
 func (s *Server) handleUpdateDeviceAIConfig(r *ghttp.Request) {
@@ -66,5 +78,5 @@ func (s *Server) handleUpdateDeviceAIConfig(r *ghttp.Request) {
 	s.Logger.Info("AI analysis configuration updated",
 		zap.String("deviceCode", code), zap.String("protocol", updated.ProtocolName),
 		zap.Bool("online", slices.Contains(s.DeviceManager.GetOnlineDeviceCodes(), code)))
-	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{"config": updated.Config}})
+	r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{"config": store.DeviceAIConfigView(updated.Config)}})
 }

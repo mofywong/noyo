@@ -17,6 +17,7 @@
           {{ t('refresh') }}
         </LiquidGlassButton>
         <LiquidGlassButton
+          v-if="authStore.hasPermission('alarm:manage')"
           variant="outline-secondary"
           size="sm"
           icon="bi bi-sliders"
@@ -50,7 +51,7 @@
           <span class="badge rounded-pill ms-1" :class="activeView === 'queue' ? 'text-bg-primary' : 'text-bg-secondary'">{{ total }}</span>
         </button>
       </li>
-      <li class="nav-item" role="presentation">
+      <li v-if="authStore.hasPermission('device:list')" class="nav-item" role="presentation">
         <button
           id="alarm-history-tab"
           class="nav-link"
@@ -238,7 +239,7 @@
                   <!-- 关联工单 -->
                   <td>
                     <button
-                      v-if="alarmOf(item).work_order_public_id"
+                      v-if="authStore.hasPermission('work_order:list') && alarmOf(item).work_order_public_id"
                       type="button"
                       class="btn btn-sm btn-outline-primary py-0 px-2 rounded-pill"
                       @click.stop="goWorkOrder(alarmOf(item).work_order_public_id)"
@@ -410,7 +411,7 @@
               {{ alarmContextText(selected) }}
             </p>
           </div>
-          <button type="button" class="btn btn-outline-primary btn-sm flex-shrink-0" :disabled="detailLoading || !pdfDetailReady || pdfExporting" @click="downloadAlarmPdf">
+          <button v-if="authStore.hasPermission('alarm:export')" type="button" class="btn btn-outline-primary btn-sm flex-shrink-0" :disabled="detailLoading || !pdfDetailReady || pdfExporting" @click="downloadAlarmPdf">
             {{ pdfExporting ? pdfCopy.exporting : pdfCopy.export }}
           </button>
           <button type="button" class="btn-close flex-shrink-0" :aria-label="t('close')" @click="closeDetail"></button>
@@ -460,7 +461,7 @@
               <button v-if="canCreateWorkOrder(selected)" type="button" class="btn btn-outline-primary" @click="openWorkOrder(selected)">
                 <i class="bi bi-ticket-detailed me-1"></i>{{ t('createWorkOrder') }}
               </button>
-              <button v-else-if="selectedAlarm.work_order_public_id" type="button" class="btn btn-outline-primary" @click="goWorkOrder(selectedAlarm.work_order_public_id)">
+              <button v-else-if="authStore.hasPermission('work_order:list') && selectedAlarm.work_order_public_id" type="button" class="btn btn-outline-primary" @click="goWorkOrder(selectedAlarm.work_order_public_id)">
                 <i class="bi bi-box-arrow-up-right me-1"></i>{{ t('viewWorkOrder') }}
               </button>
               <div class="d-flex gap-2">
@@ -840,6 +841,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
+import { useAuthStore } from '../stores/auth.js'
 import WorkOrderFormFields from '../components/work-order/WorkOrderFormFields.vue'
 import AlarmVideoEvidence from '../components/AlarmVideoEvidence.vue'
 import AiDecisionSource from '../components/ai/AiDecisionSource.vue'
@@ -857,6 +859,7 @@ import LiquidGlassPopover from '../components/liquid-glass/LiquidGlassPopover.vu
 
 const { locale } = useI18n()
 const router = useRouter()
+const authStore = useAuthStore()
 const language = computed(() => String(locale.value || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh')
 const copy = {
   zh: { eyebrow: '运行保障', title: '告警中心', subtitle: '将当前告警的状态处置与历史设备事件分开呈现，避免历史记录被误判为待处理故障。', policies: '告警策略', refresh: '刷新', close: '关闭', overview: '告警概览', viewSwitch: '告警视图', queue: '处置队列', history: '历史设备事件', search: '搜索', searchPlaceholder: '标题、来源或指纹', historySearchPlaceholder: '设备、事件类型或编号', severity: '级别', condition: '条件状态', handling: '处置状态', all: '全部', critical: '紧急', major: '严重', warning: '警告', info: '提示', firing: '告警中', recovered: '已恢复', filter: '查询', reset: '重置', appliedFilters: '当前筛选：', records: '条记录', includeClosed: '包含已关闭', alarm: '告警', state: '状态', occurrence: '次数', owner: '负责人', workOrder: '工单', actions: '操作', loading: '加载中…', empty: '当前没有符合筛选条件的可处置告警。', viewHistory: '查看已有历史事件', device: '设备', time: '时间', event: '事件', historyEmpty: '当前页没有匹配的历史事件。', historyNotice: '历史设备事件来自既有时序数据，只读展示，不表示当前仍有待处置告警；只有新上报并被告警策略物化的事件才能确认、关闭或联动工单。', historyReadOnly: '此记录为历史证据，只读展示，不可直接创建处置工单。', originalData: '原始事件数据', user: '用户', unassigned: '未分配', notLinked: '未关联', acknowledge: '确认', details: '详情', page: '第', previous: '上一页', next: '下一页', createWorkOrder: '创建联动工单', viewWorkOrder: '查看关联工单', shelve: '搁置', unshelve: '解除搁置', assign: '分派', closeAlarm: '关闭告警', alarmDetails: '告警详情', evidence: '告警证据', snapshot: '现场截图', source: '来源', firstSeen: '首次发生', recoveredAt: '恢复时间', timeline: '处置时间线', noTimeline: '暂无处置记录', assignee: '处理人', selectAssignee: '请选择处理人', reason: '搁置原因', shelveReasonHint: '例如：计划维护或已知重复告警', until: '搁置至', untilHint: '留空则需手动解除搁置。', disposition: '关闭结论', resolved: '已解决', falsePositive: '误报', duplicate: '重复告警', maintenance: '维护窗口', noAction: '无需处理', comment: '处置说明', closeGuardHint: '正常关闭需条件已恢复并通过校验；是否要求工单由服务端策略强制执行。', cancel: '取消', confirm: '确认', template: '工单模板', selectTemplate: '请选择模板', priority: '优先级', low: '低', normal: '普通', high: '高', urgent: '紧急', workOrderTitle: '工单标题', summary: '工单摘要', summaryHint: '补充现场观察、影响范围或处置目标。', form: '工单表单', formHint: '告警证据、时间线与原始上下文会自动绑定到工单，无需复制 JSON。', create: '创建工单', evidenceAttached: '告警证据将自动附着到工单；仅需填写人工处置所需字段。', policyHint: '策略按来源匹配，控制告警级别、恢复观察、工单要求和自动关闭。', newPolicy: '新建策略', noPoliciesTitle: '尚未配置告警策略', noPoliciesHint: '创建策略后，新的匹配事件将进入可确认、可关闭并可联动工单的处置队列。', code: '编码', name: '名称', sourceType: '来源类型', sourceRef: '来源标识', any: '任意', recoveryHold: '恢复观察（秒）', ackSla: '确认 SLA（秒）', enabled: '启用', autoClose: '恢复后自动关闭', requireWorkOrder: '关闭前必须有关联工单', allowException: '允许例外关闭', save: '保存', edit: '编辑', total: '全部告警', active: '告警中', unack: '未确认', progress: '处理中', verification: '待验证', shelved: '已搁置', closedToday: '今日关闭', new: '新建', acknowledged: '已确认', in_progress: '处理中', pending_verification: '待验证', closed: '已关闭', eventOpened: '首次告警', eventRepeated: '重复发生', eventRecovered: '条件恢复', eventClosed: '告警关闭', eventBound: '关联工单', eventShelved: '告警搁置', eventUnshelved: '解除搁置', eventEscalated: 'SLA 升级', ai_fault: 'AI 设备异常' },
@@ -1176,7 +1179,7 @@ const pdfCopy = computed(() => language.value === 'en' ? {
   states: { capturing: '录制中', rendering: '生成中', uploading: '上传中', ready: '已就绪', partial: '部分录像', failed: '生成失败' }, unknown: '未知',
 })
 async function downloadAlarmPdf() {
-  if (!selected.value || detailLoading.value || !pdfDetailReady.value || pdfExporting.value) return
+  if (!authStore.hasPermission('alarm:export') || !selected.value || detailLoading.value || !pdfDetailReady.value || pdfExporting.value) return
   pdfExporting.value = true
   pdfError.value = ''
   const item = selected.value
@@ -1548,10 +1551,10 @@ function timelineDetail(item) {
   if (payload.actor_user_id) details.push(formatCopy('handledBy', { name: ownerName(payload.actor_user_id) }))
   return details.join(language.value === 'en' ? '; ' : '；')
 }
-function canAcknowledge(item) { const alarm = alarmOf(item); return alarm.handling_status === 'new' && alarm.condition_status !== 'recovered' }
-function canOperate(item) { return alarmOf(item).handling_status !== 'closed' }
+function canAcknowledge(item) { const alarm = alarmOf(item); return authStore.hasPermission('alarm:handle') && alarm.handling_status === 'new' && alarm.condition_status !== 'recovered' }
+function canOperate(item) { return authStore.hasPermission('alarm:handle') && alarmOf(item).handling_status !== 'closed' }
 function canAssignAlarm(item) { const alarm = alarmOf(item); return canOperate(item) && !alarm.work_order_public_id }
-function canCreateWorkOrder(item) { const alarm = alarmOf(item); return canOperate(item) && !alarm.work_order_public_id }
+function canCreateWorkOrder(item) { const alarm = alarmOf(item); return authStore.hasPermission('work_order:create') && authStore.hasPermission('work_order:list') && canOperate(item) && !alarm.work_order_public_id }
 function canExceptionClose(item) { return Boolean(item?.policy?.allow_exception_close) }
 function canClose(item) { const alarm = alarmOf(item); return canOperate(item) && (alarm.condition_status === 'recovered' || canExceptionClose(item)) }
 const activeEvidenceTab = ref('alarm')
@@ -1814,6 +1817,7 @@ async function loadQueue() {
 }
 
 async function loadLegacyHistory() {
+  if (!authStore.hasPermission('device:list')) return
   const requestVersion = ++historyLoadVersion
   historyLoading.value = true
   try {
@@ -1836,8 +1840,8 @@ async function refreshAll() {
 }
 async function loadEntityCatalog() {
   const [productsResult, devicesResult] = await Promise.allSettled([
-    axios.get('/api/products', { params: { page: 1, pageSize: 1000 } }),
-    axios.get('/api/devices', { params: { page: 1, pageSize: 1000 } })
+    authStore.hasPermission('product:list') ? axios.get('/api/products', { params: { page: 1, pageSize: 1000 } }) : Promise.resolve({ data: { code: 0, data: [] } }),
+    authStore.hasPermission('device:list') ? axios.get('/api/devices', { params: { page: 1, pageSize: 1000 } }) : Promise.resolve({ data: { code: 0, data: [] } })
   ])
   if (productsResult.status === 'fulfilled' && productsResult.value.data?.code === 0) catalogProducts.value = productsResult.value.data?.data || []
   if (devicesResult.status === 'fulfilled' && devicesResult.value.data?.code === 0) catalogDevices.value = devicesResult.value.data?.data || []
@@ -1867,7 +1871,7 @@ function applyQuickFilter() {
   activeView.value = 'queue'
   loadQueue()
 }
-function openHistory() { activeView.value = 'history'; if (!legacyEvents.value.length && !historyLoading.value) loadLegacyHistory() }
+function openHistory() { if (!authStore.hasPermission('device:list')) return; activeView.value = 'history'; if (!legacyEvents.value.length && !historyLoading.value) loadLegacyHistory() }
 function goQueuePage(target) { const next = Math.min(Math.max(1, Math.ceil(total.value / pageSize.value)), Math.max(1, Number(target) || 1)); if (next === page.value) return; page.value = next; loadQueue() }
 function changeQueuePageSize(size) { pageSize.value = Number(size) || 10; page.value = 1; loadQueue() }
 function goLegacyPage(target) { const next = Math.min(Math.max(1, Math.ceil(legacyTotal.value / legacyPageSize.value)), Math.max(1, Number(target) || 1)); if (next === legacyPage.value) return; legacyPage.value = next; loadLegacyHistory() }
@@ -1903,7 +1907,7 @@ async function openDetail(item) {
   }
 }
 function closeDetail() { detailLoadVersion++; selected.value = null; selectedEvents.value = []; nextTick(() => detailReturnFocus.value?.focus?.()); detailReturnFocus.value = null }
-async function acknowledge(item) { try { await axios.post(`/api/alarm-instances/${alarmOf(item).public_id}/acknowledge`, { comment: '' }); await loadQueue(); if (selected.value) await openDetail(selected.value) } catch (error) { requestError.value = errorMessage(error) } }
+async function acknowledge(item) { if (!canAcknowledge(item)) return; try { await axios.post(`/api/alarm-instances/${alarmOf(item).public_id}/acknowledge`, { comment: '' }); await loadQueue(); if (selected.value) await openDetail(selected.value) } catch (error) { requestError.value = errorMessage(error) } }
 
 function captureModalFocus() { modalReturnFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null }
 function focusModal(dialog) { nextTick(() => dialog.value?.querySelector('[autofocus], input, select, textarea, button')?.focus()) }
@@ -1922,12 +1926,13 @@ function handleModalKeyboard(event) {
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
   if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
 }
-function openOperation(kind) { captureModalFocus(); operationError.value = ''; operation.value = kind; operationForm.value = { ownerUserID: 0, reason: '', until: '', disposition: selectedAlarm.value.condition_status === 'recovered' ? 'resolved' : 'false_positive', comment: '' }; focusModal(operationDialog) }
+function openOperation(kind) { if (!canOperate(selected.value)) return; captureModalFocus(); operationError.value = ''; operation.value = kind; operationForm.value = { ownerUserID: 0, reason: '', until: '', disposition: selectedAlarm.value.condition_status === 'recovered' ? 'resolved' : 'false_positive', comment: '' }; focusModal(operationDialog) }
 function closeOperation() { operation.value = ''; restoreModalFocus() }
-async function submitOperation() { const id = selectedAlarm.value.public_id; operationSubmitting.value = true; operationError.value = ''; try { if (operation.value === 'assign') await axios.post(`/api/alarm-instances/${id}/assign`, { owner_user_id: operationForm.value.ownerUserID, comment: operationForm.value.comment || '' }); if (operation.value === 'shelve') await axios.post(`/api/alarm-instances/${id}/shelve`, { reason: operationForm.value.reason, until: operationForm.value.until ? new Date(operationForm.value.until).toISOString() : '' }); if (operation.value === 'close') await axios.post(`/api/alarm-instances/${id}/close`, { disposition: operationForm.value.disposition, comment: operationForm.value.comment }); closeOperation(); await loadQueue(); await openDetail(selected.value) } catch (error) { operationError.value = errorMessage(error) } finally { operationSubmitting.value = false } }
-async function unshelve() { try { await axios.post(`/api/alarm-instances/${selectedAlarm.value.public_id}/unshelve`, { comment: '' }); await loadQueue(); await openDetail(selected.value) } catch (error) { requestError.value = errorMessage(error) } }
+async function submitOperation() { if (!canOperate(selected.value)) return; const id = selectedAlarm.value.public_id; operationSubmitting.value = true; operationError.value = ''; try { if (operation.value === 'assign') await axios.post(`/api/alarm-instances/${id}/assign`, { owner_user_id: operationForm.value.ownerUserID, comment: operationForm.value.comment || '' }); if (operation.value === 'shelve') await axios.post(`/api/alarm-instances/${id}/shelve`, { reason: operationForm.value.reason, until: operationForm.value.until ? new Date(operationForm.value.until).toISOString() : '' }); if (operation.value === 'close') await axios.post(`/api/alarm-instances/${id}/close`, { disposition: operationForm.value.disposition, comment: operationForm.value.comment }); closeOperation(); await loadQueue(); await openDetail(selected.value) } catch (error) { operationError.value = errorMessage(error) } finally { operationSubmitting.value = false } }
+async function unshelve() { if (!canOperate(selected.value)) return; try { await axios.post(`/api/alarm-instances/${selectedAlarm.value.public_id}/unshelve`, { comment: '' }); await loadQueue(); await openDetail(selected.value) } catch (error) { requestError.value = errorMessage(error) } }
 
 async function openWorkOrder(item) {
+  if (!canCreateWorkOrder(item)) return;
   captureModalFocus()
   workOrderError.value = ''
   workOrderSuccess.value = ''
@@ -1945,18 +1950,19 @@ async function openWorkOrder(item) {
 }
 function closeWorkOrder() { showWorkOrder.value = false; restoreModalFocus() }
 async function loadWorkOrderTemplate() { workOrderTemplate.value = null; workOrder.value.formData = {}; if (!workOrder.value.templateId) return; try { const response = await axios.get(`/api/work-order-templates/${workOrder.value.templateId}`); if (response.data?.code !== 0) throw new Error(response.data?.message); workOrderTemplate.value = response.data.data } catch (error) { workOrderError.value = errorMessage(error) } }
-async function createWorkOrder() { const alarm = alarmOf(workOrder.value.alarm); if (!workOrder.value.templateId || !workOrder.value.title) { workOrderError.value = language.value === 'zh' ? '请选择模板并填写工单标题。' : 'Select a template and enter a work-order title.'; return } workOrderSubmitting.value = true; workOrderError.value = ''; try { const response = await axios.post('/api/work-orders/from-alarm', { template_id: workOrder.value.templateId, title: workOrder.value.title, summary: workOrder.value.summary, priority: workOrder.value.priority, alarm_instance_id: alarm.public_id, generation: alarm.generation, idempotency_key: `alarm:${alarm.public_id}`, form_data: workOrder.value.formData }); if (response.data?.code !== 0) throw new Error(response.data?.message); workOrderSuccess.value = response.data?.created ? (language.value === 'zh' ? '工单已创建并关联告警。' : 'Work order created and linked to the alarm.') : (language.value === 'zh' ? '该告警已关联既有工单。' : 'This alarm is already linked to a work order.'); await loadQueue(); if (selected.value) await openDetail(selected.value) } catch (error) { workOrderError.value = errorMessage(error) } finally { workOrderSubmitting.value = false } }
-function goWorkOrder(publicID) { router.push({ path: '/work-orders', query: { highlight: publicID } }) }
+async function createWorkOrder() { if (!canCreateWorkOrder(workOrder.value.alarm)) return; const alarm = alarmOf(workOrder.value.alarm); if (!workOrder.value.templateId || !workOrder.value.title) { workOrderError.value = language.value === 'zh' ? '请选择模板并填写工单标题。' : 'Select a template and enter a work-order title.'; return } workOrderSubmitting.value = true; workOrderError.value = ''; try { const response = await axios.post('/api/work-orders/from-alarm', { template_id: workOrder.value.templateId, title: workOrder.value.title, summary: workOrder.value.summary, priority: workOrder.value.priority, alarm_instance_id: alarm.public_id, generation: alarm.generation, idempotency_key: `alarm:${alarm.public_id}`, form_data: workOrder.value.formData }); if (response.data?.code !== 0) throw new Error(response.data?.message); workOrderSuccess.value = response.data?.created ? (language.value === 'zh' ? '工单已创建并关联告警。' : 'Work order created and linked to the alarm.') : (language.value === 'zh' ? '该告警已关联既有工单。' : 'This alarm is already linked to a work order.'); await loadQueue(); if (selected.value) await openDetail(selected.value) } catch (error) { workOrderError.value = errorMessage(error) } finally { workOrderSubmitting.value = false } }
+function goWorkOrder(publicID) { if (!authStore.hasPermission('work_order:list')) return; router.push({ path: '/work-orders', query: { highlight: publicID } }) }
 
 async function openPolicies() {
+  if (!authStore.hasPermission('alarm:manage')) return;
   if (!showPolicies.value) captureModalFocus()
   showPolicies.value = true
   policyError.value = ''
   focusModal(policyDialog)
   const [policiesResult, templatesResult, productsResult] = await Promise.allSettled([
     axios.get('/api/alarm-policies'),
-    axios.get('/api/work-order-templates'),
-    axios.get('/api/products', { params: { page: 1, pageSize: 1000 } })
+    authStore.hasPermission('work_order:list') ? axios.get('/api/work-order-templates') : Promise.resolve({ data: { code: 0, data: [] } }),
+    authStore.hasPermission('product:list') ? axios.get('/api/products', { params: { page: 1, pageSize: 1000 } }) : Promise.resolve({ data: { code: 0, data: [] } })
   ])
   if (policiesResult.status !== 'fulfilled' || policiesResult.value.data?.code !== 0) {
     policyError.value = errorMessage(policiesResult.status === 'fulfilled' ? new Error(policiesResult.value.data?.message) : policiesResult.reason)
@@ -2021,6 +2027,7 @@ function syncPolicyWorkOrderOptions() {
   if (mode !== 'auto') editingPolicy.value.work_order_template_id = 0
 }
 async function savePolicy() {
+  if (!authStore.hasPermission('alarm:manage')) return;
   try {
     if (!editingPolicy.value) return
     policyError.value = ''
@@ -2073,6 +2080,7 @@ async function savePolicy() {
   } catch (error) { policyError.value = errorMessage(error) }
 }
 async function deletePolicy(policy) {
+  if (!authStore.hasPermission('alarm:manage')) return
   if (!window.confirm(formatCopy('deletePolicyConfirm', { name: policy.name }))) return
   policyError.value = ''
   try {
@@ -2088,7 +2096,7 @@ function closeLegacyDetail() { legacyDetail.value = null; restoreModalFocus() }
 onMounted(async () => {
   window.addEventListener('keydown', handleModalKeyboard)
   await refreshAll()
-  try { participants.value = await loadAllWorkOrderParticipants() } catch (_) { participants.value = [] }
+  try { if (authStore.hasPermission('work_order:list')) participants.value = await loadAllWorkOrderParticipants() } catch (_) { participants.value = [] }
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', handleModalKeyboard))
 </script>

@@ -86,6 +86,9 @@ func (s *Server) wrapPluginHandler(handler interface{}) func(*ghttp.Request) {
 			return // auth failed, response already written
 		}
 		defer logAuditRecord(r)
+		if !s.authorizePluginHTTP(r, authCtx) {
+			return
+		}
 		originalHandler(r)
 	}
 }
@@ -349,9 +352,9 @@ func (s *Server) handleUploadImage(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 400, "message": "Invalid image or image storage unavailable"})
 		return
 	}
-	if err := recordUploadedAsset(r,"/data/images/"+filename); err != nil {
-		_ = os.Remove("./data/images/"+filename)
-		r.Response.WriteJson(g.Map{"code":500,"message":"Failed to record image ownership"})
+	if err := recordUploadedAsset(r, "/data/images/"+filename); err != nil {
+		_ = os.Remove("./data/images/" + filename)
+		r.Response.WriteJson(g.Map{"code": 500, "message": "Failed to record image ownership"})
 		return
 	}
 

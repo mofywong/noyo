@@ -21,7 +21,7 @@
           size="sm"
           icon="bi bi-shield-check"
           @click="openAIBatchConfigModal"
-          v-permission="'device:edit'"
+          v-permission="'plugin:config'"
         >
           {{ $t('ai_batch_config') }}
         </LiquidGlassButton>
@@ -372,7 +372,7 @@
                         <i class="bi bi-tags me-2 text-primary"></i> {{ $t('dev_tag_manage') }}
                       </a>
                     </li>
-                    <li v-permission="'device:edit'">
+                    <li v-permission="'plugin:config'">
                       <a class="dropdown-item" href="#" @click.prevent="runDeviceMenuAction(close, () => openSingleAIModal(device))">
                         <i class="bi bi-shield-check me-2 text-warning"></i> {{ aiText('AI 设备守护', 'AI Device Guardian') }}
                       </a>
@@ -535,19 +535,19 @@
         <button class="btn btn-outline-secondary btn-sm" @click="openDataModal(drawerDevice, 'realtime')">
           <i class="bi bi-activity me-1"></i>{{ $t('drawer_view_data') }}
         </button>
-        <button v-if="!drawerDevice?.parent_code || isChildOfCascade(drawerDevice)" class="btn btn-outline-secondary btn-sm" @click="openCreateSubDeviceModal(drawerDevice)">
+        <button v-permission="'device:create'" v-if="!drawerDevice?.parent_code || isChildOfCascade(drawerDevice)" class="btn btn-outline-secondary btn-sm" @click="openCreateSubDeviceModal(drawerDevice)">
           <i class="bi bi-plus-square me-1"></i>{{ $t('dev_create_sub') }}
         </button>
-        <button v-if="needsProtocolMapping(drawerDevice)" class="btn btn-outline-secondary btn-sm" @click="openMappingModal(drawerDevice)">
+        <button v-permission="'device:edit'" v-if="needsProtocolMapping(drawerDevice)" class="btn btn-outline-secondary btn-sm" @click="openMappingModal(drawerDevice)">
           <i class="bi bi-diagram-3 me-1"></i>{{ $t('drawer_mapping') }}
         </button>
-        <button class="btn btn-outline-primary btn-sm" @click="openSingleAIModal(drawerDevice)">
+        <button v-permission="'plugin:config'" class="btn btn-outline-primary btn-sm" @click="openSingleAIModal(drawerDevice)">
           <i class="bi bi-shield-check me-1"></i>{{ $t('drawer_configure_guardian') }}
         </button>
-        <button class="btn btn-outline-secondary btn-sm" @click="openEditModal(drawerDevice)">
+        <button v-permission="'device:edit'" class="btn btn-outline-secondary btn-sm" @click="openEditModal(drawerDevice)">
           <i class="bi bi-pencil me-1"></i>{{ $t('dev_edit') }}
         </button>
-        <button class="btn btn-outline-danger btn-sm" @click="deleteDevice(drawerDevice)">
+        <button v-permission="'device:delete'" class="btn btn-outline-danger btn-sm" @click="deleteDevice(drawerDevice)">
           <i class="bi bi-trash me-1"></i>{{ $t('drawer_delete') }}
         </button>
       </template>
@@ -607,7 +607,7 @@
               <div class="col-md-6 border-start">
                 <h6 class="mb-3">{{ $t('dev_config') }}</h6>
                 <div v-if="currentSchema">
-                   <SchemaForm :schema="currentSchema" v-model="newDevice.config" />
+                   <SchemaForm :schema="currentSchema" :readonly-keys="readonlyAiConfigKeys" v-model="newDevice.config" />
                 </div>
                 <div v-else class="text-muted small">
                   {{ $t('dev_select_prod_hint') }}
@@ -1162,6 +1162,10 @@ const showProjectColumn = computed(() => {
 const newDevice = ref({ code: '', name: '', product_code: '', protocol_profile_code: '', protocol_name: '', parent_code: '', enabled: true, config: {} });
 const isSubDeviceForm = computed(() => !isEditing.value && !!newDevice.value.parent_code);
 const currentSchema = ref(null);
+const readonlyAiConfigKeys = computed(() => authStore.hasPermission('ai_scene:edit') ? [] : [
+  'enable_ai', 'enable_yolo', 'enable_yolo_webrtc', 'enable_pose_annotation',
+  'yolo_confidence', 'yolo_classes', 'ai_basic_detection_groups', 'ai_basic_detections', 'ai_scene_rules',
+]);
 const isEditing = ref(false);
 
 
@@ -1992,6 +1996,7 @@ const runDeviceMenuAction = (close, fn) => {
 };
 
 const isActionVisible = (action, device) => {
+  if (action.permission && !authStore.hasPermission(action.permission)) return false;
   if (action.condition && typeof action.condition === 'function') {
     return action.condition(device);
   }
@@ -1999,6 +2004,7 @@ const isActionVisible = (action, device) => {
 };
 
 const executeAction = (action, device) => {
+  if (!isActionVisible(action, device)) return;
   if (action.action && typeof action.action === 'function') {
     // Pass a local emit-like function that handles 'open-modal'
     action.action(device, (eventName, payload) => {
@@ -2346,6 +2352,7 @@ const aiPointLabel = (evt) => {
 };
 
 const fetchDeviceAIConfig = async () => {
+  if (!authStore.hasPermission('plugin:config')) return;
   if (!currentSingleAIDevice.value) return;
   try {
      const res = await axios.get(`/api/plugins/ai_predict/config/tasks/${currentSingleAIDevice.value.code}`);
@@ -2368,6 +2375,7 @@ const fetchDeviceAIConfig = async () => {
 };
 
 const fetchAIProgress = async () => {
+  if (!authStore.hasPermission('plugin:config')) return;
   if (!currentSingleAIDevice.value || !aiConfig.value.property) return;
   try {
      const res = await axios.get(`/api/plugins/ai_predict/config/tasks/${currentSingleAIDevice.value.code}`);
@@ -2388,6 +2396,7 @@ const fetchAIProgress = async () => {
 };
 
 const saveSingleAIConfig = async () => {
+  if (!authStore.hasPermission('plugin:config')) return;
     if (!currentSingleAIDevice.value) return;
     try {
         const { progress, ...configForSave } = aiConfig.value;
@@ -2953,6 +2962,7 @@ const unbindDeviceTag = async (device, tag) => {
 };
 
 const openSingleAIModal = async (device) => {
+  if (!authStore.hasPermission('plugin:config')) return;
   currentSingleAIDevice.value = device;
   dismissHoverCard(); // 弹窗打开时收起悬浮卡片，避免层叠干扰
   singleAITSLMap.value = {};
@@ -3379,6 +3389,7 @@ watch(() => newDevice.value.parent_code, (newParentCode) => {
   });
 
 const fetchConfiguredTasks = async () => {
+  if (!authStore.hasPermission('plugin:config')) return;
   try {
     const res = await axios.get('/api/plugins/ai_predict/config/tasks');
     if (res.data.code === 0 && res.data.data) {
@@ -3779,6 +3790,7 @@ const saveDeviceMapping = async () => {
 };
 
 const openAIBatchConfigModal = () => {
+  if (!authStore.hasPermission('plugin:config')) return;
     batchAiConfig.value = {
         product_code: '',
         devices: [],
@@ -3824,6 +3836,7 @@ const onBatchProductChange = () => {
 };
 
 const saveBatchAITasks = async () => {
+    if (!authStore.hasPermission('plugin:config')) return;
     try {
         // Prepare the payload 
         const res = await axios.post('/api/plugins/ai_predict/config/tasks/batch', batchAiConfig.value);

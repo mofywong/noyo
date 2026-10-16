@@ -25,7 +25,7 @@
           </div>
           <input v-model.trim="search" class="form-control form-control-sm model-search" type="search" :placeholder="copy.libSearch" :aria-label="copy.libSearch">
           <LiquidGlassButton v-if="catalog.canManage" variant="primary" size="sm" icon="bi bi-box-arrow-in-down" :disabled="!!busy" :aria-expanded="updateOpen" aria-controls="model-update" @click="updateOpen = !updateOpen">{{ updateOpen ? copy.closeUpdate : copy.updateModels }}</LiquidGlassButton>
-          <LiquidGlassButton variant="outline-secondary" size="sm" icon="bi bi-download" :loading="exporting" :disabled="loading || exporting || !!busy" @click="exportModels">{{ copy.exportModels }}</LiquidGlassButton>
+          <LiquidGlassButton v-if="authStore.hasPermission('ai_model:export')" variant="outline-secondary" size="sm" icon="bi bi-download" :loading="exporting" :disabled="loading || exporting || !!busy" @click="exportModels">{{ copy.exportModels }}</LiquidGlassButton>
         </div>
         <section v-show="updateOpen && catalog.canManage" id="model-update" class="model-section" :aria-label="copy.updateModels">
           <h2>{{ copy.updateModels }}</h2>
@@ -54,6 +54,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
+import { useAuthStore } from '../stores/auth.js';
 import LiquidGlassButton from '../components/liquid-glass/LiquidGlassButton.vue';
 import CapabilityCard from '../components/model/CapabilityCard.vue';
 import ModelLibraryTable from '../components/model/ModelLibraryTable.vue';
@@ -67,11 +68,16 @@ import { useToast } from '../composables/useToast.js';
 import { modelCenterCopy, modelErrorText, modelPackageActionAllowed, modelLibraryRows, modelSystemCapabilities, modelText, normalizeModelCatalog, normalizeModelJob, unwrapModelResponse } from '../utils/modelCenter.js';
 
 const API = '/api/ai/models';
+const authStore = useAuthStore();
 const { locale } = useI18n();
 const { confirmDialog } = useConfirm();
 const { showToast } = useToast();
 const copy = computed(() => modelCenterCopy(locale.value));
-const catalog = ref(normalizeModelCatalog());
+const rawCatalog = ref(normalizeModelCatalog());
+const catalog = computed(() => ({
+  ...rawCatalog.value,
+  canManage: rawCatalog.value.canManage && authStore.isSystemAdmin && authStore.hasPermission('ai_model:manage'),
+}));
 const jobs = ref([]);
 const search = ref('');
 const activeTab = ref('capabilities');
@@ -178,7 +184,7 @@ function switchTab(id) {
 }
 
 async function exportModels() {
-  if (exporting.value) return;
+  if (!authStore.hasPermission('ai_model:export') || exporting.value) return;
   exporting.value = true;
   error.value = null;
   let url;
@@ -237,7 +243,7 @@ async function refreshCatalog(showLoading = true) {
   try {
     const data = await request('get', '/catalog');
     if (disposed) return;
-    catalog.value = normalizeModelCatalog(data);
+    rawCatalog.value = normalizeModelCatalog(data);
     setJobs(data.jobs || []);
     if (!visibleTabs.some(tab => tab.id === activeTab.value)) activeTab.value = 'capabilities';
     schedulePoll();

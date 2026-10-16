@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"noyo/core/importer"
 	"noyo/core/protocol"
@@ -11,7 +12,36 @@ import (
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
+
+// An import is also an update when its code already exists. Check the stored
+// scope and AI configuration before SaveDevice can overwrite or restore it.
+func (s *Server) authorizeImportedDevice(r *ghttp.Request, device *store.Device) error {
+	var existing store.Device
+	err := store.DB.Unscoped().Where("code = ?", device.Code).First(&existing).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	before := ""
+	auth := requestAuthContext(r)
+	if err == nil {
+		if existing.TenantID != device.TenantID || existing.ProjectID != device.ProjectID || !canAccessDevice(r, &existing) {
+			return fmt.Errorf("Device is outside current project")
+		}
+		if auth == nil || !auth.HasProjectPermission("device:edit", existing.ProjectID) {
+			return fmt.Errorf("Permission denied: device:edit")
+		}
+		if err := s.checkDeviceTagPermission(r, existing.Code); err != nil {
+			return err
+		}
+		before = existing.Config
+	}
+	if store.DeviceAIConfigChanged(before, device.Config) && (auth == nil || !auth.HasProjectPermission("ai_scene:edit", device.ProjectID)) {
+		return fmt.Errorf("Permission denied: ai_scene:edit")
+	}
+	return nil
+}
 
 // handleDownloadTemplate handles template download request
 func (s *Server) handleDownloadTemplate(r *ghttp.Request) {
@@ -239,6 +269,10 @@ func (s *Server) handleImportDevices(r *ghttp.Request) {
 
 		configBytes, _ := json.Marshal(config)
 		device.Config = string(configBytes)
+		if err := s.authorizeImportedDevice(r, &device); err != nil {
+			errs = append(errs, fmt.Sprintf("%s (%s)", err, devModel.Name))
+			continue
+		}
 
 		if err := store.SaveDevice(&device); err != nil {
 			errs = append(errs, fmt.Sprintf("Failed to save device %s: %v", devModel.Name, err))

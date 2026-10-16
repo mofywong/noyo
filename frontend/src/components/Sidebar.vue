@@ -311,7 +311,7 @@ const extensionMenus = computed(() => {
   const sceneIndex = menus.findIndex(menu => menu.name === 'AiConfigCenter' || menu.path === '/ai/detection-center');
   menus.splice(sceneIndex < 0 ? 0 : sceneIndex, 0, {
     name: 'ModelManagement', path: '/ai/model-center', icon: 'bi bi-box-arrow-in-down',
-    labelKey: 'sidebar_model_center', permission: 'plugin:list',
+    labelKey: 'sidebar_model_center', permission: 'ai_model:list',
   });
   return menus;
 });

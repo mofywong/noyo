@@ -8,7 +8,7 @@
     <div class="d-flex align-items-center gap-2">
       <GatewayMaintenanceStatus :mode="mqttMode" />
       <!-- MQTT 状态微交互（位于消息中心左侧） -->
-      <div class="dropdown me-1" :class="{ show: activeDropdown === 'mqtt' }">
+      <div v-if="authStore.hasPermission('gateway:list')" class="dropdown me-1" :class="{ show: activeDropdown === 'mqtt' }">
         <button
           class="header-action-btn position-relative d-flex align-items-center justify-content-center"
           :class="mqttActionBtnClass"

@@ -203,12 +203,12 @@ func (s *Server) validateAIModelConfigChange(before, after string) error {
 
 func (s *Server) registerAIModelRoutes(protected *ghttp.RouterGroup) {
 	models := protected.Group("/ai/models")
-	permissionGET(models, "/", "plugin:list", s.handleModelCatalog)
-	permissionGET(models, "/catalog", "plugin:list", s.handleModelCatalog)
-	permissionGET(models, "/export", "plugin:list", s.handleModelExport)
-	permissionGET(models, "/history", "plugin:list", s.handleModelHistory)
-	permissionGET(models, "/jobs", "plugin:list", s.handleModelJobs)
-	permissionGET(models, "/jobs/:id", "plugin:list", s.handleModelJob)
+	permissionGET(models, "/", "ai_model:list", s.handleModelCatalog)
+	permissionGET(models, "/catalog", "ai_model:list", s.handleModelCatalog)
+	permissionGET(models, "/export", "ai_model:export", s.handleModelExport)
+	permissionGET(models, "/history", "ai_model:list", s.handleModelHistory)
+	permissionGET(models, "/jobs", "ai_model:list", s.handleModelJobs)
+	permissionGET(models, "/jobs/:id", "ai_model:list", s.handleModelJob)
 	admin := models.Group("/")
 	admin.Middleware(func(r *ghttp.Request) {
 		auth := RequestAuthContext(r)
@@ -218,6 +218,7 @@ func (s *Server) registerAIModelRoutes(protected *ghttp.RouterGroup) {
 		}
 		r.Middleware.Next()
 	})
+	admin.Middleware(PermissionMiddleware("ai_model:manage"))
 	admin.POST("/plan", s.handleModelPlan)
 	admin.GET("/delivery-catalog", s.handleModelDeliveryCatalog)
 	admin.POST("/jobs", s.handleModelInstall)

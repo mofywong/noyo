@@ -243,6 +243,14 @@ var superAdminDefaultPermissionCodes = map[string]bool{
 	"alarm:list":             true,
 	"alarm:handle":           true,
 	"alarm:manage":           true,
+	"alarm:export":           true,
+	"ai_scene:list":          true,
+	"ai_scene:edit":          true,
+	"semantic_review:list":   true,
+	"ai_model:list":          true,
+	"ai_model:export":        true,
+	"ai_model:manage":        true,
+	"ai_assistant:use":       true,
 }
 
 var exclusiveTenantManagementPermissionCodes = map[string]bool{
@@ -352,6 +360,15 @@ func InitPermissions() {
 		// Plugins
 		{Code: "plugin:list", Name: "插件列表", Module: "plugin", Type: "menu"},
 		{Code: "plugin:config", Name: "配置插件", Module: "plugin", Type: "button"},
+		// Independent AI capabilities; custom roles and custom scope limits opt in.
+		{Code: "ai_scene:list", Name: "AI场景 / AI scenes", Module: "ai_scene", Type: "menu"},
+		{Code: "ai_scene:edit", Name: "配置AI场景 / Configure AI scenes", Module: "ai_scene", Type: "button"},
+		{Code: "semantic_review:list", Name: "语义复核记录 / Semantic reviews", Module: "semantic_review", Type: "menu"},
+		{Code: "ai_model:list", Name: "模型中心 / Model center", Module: "ai_model", Type: "menu"},
+		{Code: "ai_model:export", Name: "导出模型资产 / Export model assets", Module: "ai_model", Type: "button"},
+		// Models are machine-wide assets, so mutation remains a system capability.
+		{Code: "ai_model:manage", Name: "管理模型资产 / Manage model assets", Module: "system", Type: "button"},
+		{Code: "ai_assistant:use", Name: "使用AI助手 / Use AI assistant", Module: "ai_assistant", Type: "menu"},
 		// AI Brain
 		{Code: "ai_brain:view", Name: "AI大脑查看", Module: "ai_brain", Type: "menu"},
 		{Code: "ai_brain:review", Name: "AI大脑审核", Module: "ai_brain", Type: "button"},
@@ -366,6 +383,7 @@ func InitPermissions() {
 		{Code: "alarm:list", Name: "告警列表", Module: "alarm", Type: "menu"},
 		{Code: "alarm:handle", Name: "处理告警", Module: "alarm", Type: "button"},
 		{Code: "alarm:manage", Name: "告警策略管理", Module: "alarm", Type: "button"},
+		{Code: "alarm:export", Name: "导出告警报告 / Export alarm reports", Module: "alarm", Type: "button"},
 		// Rules
 		{Code: "rule:list", Name: "规则列表", Module: "rule", Type: "menu"},
 		{Code: "rule:detail", Name: "规则详情", Module: "rule", Type: "button"},
@@ -570,7 +588,7 @@ func shouldGrantProjectAdminPermission(perm Permission) bool {
 		return false
 	}
 	switch perm.Module {
-	case "user", "role", "product", "device", "device_tag", "gateway", "alarm", "rule", "work_order", "plugin", "ai_brain":
+	case "user", "role", "product", "device", "device_tag", "gateway", "alarm", "rule", "work_order", "plugin", "ai_brain", "ai_scene", "semantic_review", "ai_model", "ai_assistant":
 		return true
 	default:
 		return false
@@ -767,8 +785,12 @@ func DeleteProduct(code string) error {
 		deleted := product
 		var recordErr error
 		change, recordErr = recordProductDeletedTx(tx, &deleted)
-		if recordErr != nil { return recordErr }
-		if deferred, err := DeferredConfigDelete(tx, change); err != nil || deferred { return err }
+		if recordErr != nil {
+			return recordErr
+		}
+		if deferred, err := DeferredConfigDelete(tx, change); err != nil || deferred {
+			return err
+		}
 		newCode := fmt.Sprintf("%s_del_%d", product.Code, time.Now().UnixNano())
 
 		// Rename code to release unique constraint

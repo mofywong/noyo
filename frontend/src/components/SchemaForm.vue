@@ -1,6 +1,6 @@
 <template>
   <div v-if="schema && schema.properties">
-    <div v-for="{ key, prop } in sortedProperties" :key="key" class="mb-3">
+    <fieldset v-for="{ key, prop } in sortedProperties" :key="key" class="mb-3 border-0 p-0" :disabled="readonlyKeys.includes(key)">
       <label class="form-label">
         {{ getTitle(prop, key) }}
         <span v-if="isRequired(key)" class="text-danger">*</span>
@@ -122,7 +122,7 @@
       >
       
       <div v-if="getDescription(prop)" class="form-text">{{ getDescription(prop) }}</div>
-    </div>
+    </fieldset>
   </div>
 </template>
 
@@ -166,6 +166,10 @@ const getEnumLabel = (prop, opt, idx) => {
 };
 
 const props = defineProps({
+  readonlyKeys: {
+    type: Array,
+    default: () => []
+  },
   schema: {
     type: Object,
     required: true
@@ -238,11 +242,13 @@ const sortedProperties = computed(() => {
 });
 
 const updateField = (key, value) => {
+  if (props.readonlyKeys.includes(key)) return;
   const newValue = { ...props.modelValue, [key]: value };
   emit('update:modelValue', newValue);
 };
 
 const addArrayItem = (key, itemSchema) => {
+  if (props.readonlyKeys.includes(key)) return;
   const currentArray = props.modelValue[key] || [];
   // Initialize new item with defaults if possible
   const newItem = {};
@@ -257,12 +263,14 @@ const addArrayItem = (key, itemSchema) => {
 };
 
 const removeArrayItem = (key, index) => {
+  if (props.readonlyKeys.includes(key)) return;
   const currentArray = props.modelValue[key] || [];
   const newArray = currentArray.filter((_, i) => i !== index);
   emit('update:modelValue', { ...props.modelValue, [key]: newArray });
 };
 
 const updateArrayItem = (key, index, val) => {
+  if (props.readonlyKeys.includes(key)) return;
   const currentArray = props.modelValue[key] || [];
   const newArray = [...currentArray];
   newArray[index] = val;

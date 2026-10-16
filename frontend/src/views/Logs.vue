@@ -176,7 +176,7 @@
 
     <!-- AI Tooltip -->
     <div v-if="showAiTooltip" class="position-fixed" :style="{ top: tooltipY + 'px', left: tooltipX + 'px', zIndex: 1050 }">
-      <button class="btn btn-sm btn-primary shadow rounded-pill" @click.stop="openAiAnalysis">
+      <button v-permission="'ai_assistant:use'" class="btn btn-sm btn-primary shadow rounded-pill" @click.stop="openAiAnalysis">
         <i class="bi bi-robot"></i> {{ $t('ai_analyze') || 'AI 分析' }}
       </button>
     </div>

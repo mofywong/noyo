@@ -49,7 +49,7 @@ const routes = [
     path: '/ai/model-center',
     name: 'ModelManagement',
     component: () => import('../views/ModelManagement.vue'),
-    meta: { requiresAuth: true, permission: 'plugin:list' }
+    meta: { requiresAuth: true, permission: 'ai_model:list' }
   },
   {
     path: '/drivers',

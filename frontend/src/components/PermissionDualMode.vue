@@ -98,7 +98,7 @@
                   <div class="form-check">
                     <input class="form-check-input" type="checkbox" :value="p.code" :id="'perm'+p.ID+componentId" v-model="selectedPermCodes" :disabled="isReadOnly">
                     <label class="form-check-label d-flex justify-content-between" :for="'perm'+p.ID+componentId">
-                      <span>{{ p.name }} <span class="text-muted small ms-1">({{ p.code }})</span></span>
+                      <span>{{ permissionName(p) }} <span class="text-muted small ms-1">({{ p.code }})</span></span>
                       <span class="badge bg-secondary opacity-75 fw-normal" style="font-size: 0.7em">{{ translateType(p.type) }}</span>
                     </label>
                   </div>
@@ -142,7 +142,7 @@ const activeModules = computed(() => {
 })
 
 const MODULE_ORDER = [
-  'dashboard', 'plugin', 'product', 'gateway', 'device', 'topology', 'device_tag', 'alarm', 'audit', 'system_logs', 'user', 'tenant', 'project', 'role', 'app', 'system'
+  'dashboard', 'plugin', 'product', 'gateway', 'device', 'topology', 'device_tag', 'rule', 'alarm', 'work_order', 'ai_scene', 'semantic_review', 'ai_model', 'ai_assistant', 'audit', 'system_logs', 'user', 'tenant', 'project', 'role', 'app', 'system'
 ]
 
 const normalizedPermissions = computed(() => {
@@ -210,15 +210,9 @@ const onQuickLevelChange = (modConfig, level) => {
 
 const setAllQuickMode = (level) => {
   activeModules.value.forEach(mod => {
-    if (mod.levels.includes(level)) {
-      onQuickLevelChange(mod, level)
-    } else if (level === 'full' && mod.levels.includes('edit')) {
-      onQuickLevelChange(mod, 'edit')
-    } else if (level === 'edit' && mod.levels.includes('readonly')) {
-      onQuickLevelChange(mod, 'readonly')
-    } else if (level === 'none') {
-      onQuickLevelChange(mod, 'none')
-    }
+    const levels = ['none', 'readonly', 'edit', 'full']
+    const availableLevel = levels.slice(0, levels.indexOf(level) + 1).reverse().find(candidate => mod.levels.includes(candidate))
+    onQuickLevelChange(mod, availableLevel || 'none')
   })
 }
 
@@ -234,9 +228,7 @@ const groupedPermissions = computed(() => {
   })
 
   const orderedGroups = {}
-  const displayOrder = [
-    'dashboard', 'plugin', 'product', 'gateway', 'device', 'topology', 'device_tag', 'alarm', 'audit', 'system_logs', 'user', 'tenant', 'project', 'role', 'app', 'system'
-  ]
+  const displayOrder = MODULE_ORDER
   for (const mod of displayOrder) {
     if (groups[mod] && groups[mod].length > 0) {
       orderedGroups[mod] = groups[mod]
@@ -262,7 +254,7 @@ const filteredGroupedPermissions = computed(() => {
       filtered[mod] = perms
       continue
     }
-    const filteredPerms = perms.filter(p => p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q))
+    const filteredPerms = perms.filter(p => permissionName(p).toLowerCase().includes(q) || p.code.toLowerCase().includes(q))
     if (filteredPerms.length > 0) {
       filtered[mod] = filteredPerms
     }
@@ -331,6 +323,11 @@ const translateModule = (module) => {
     'history': 'perm_mod_history',
     'rule': 'perm_mod_rule',
     'alarm': 'perm_mod_alarm',
+    'work_order': 'perm_mod_work_order',
+    'ai_scene': 'perm_mod_ai_scene',
+    'semantic_review': 'perm_mod_semantic_review',
+    'ai_model': 'perm_mod_ai_model',
+    'ai_assistant': 'perm_mod_ai_assistant',
     'auth': 'perm_mod_auth',
     'product': 'perm_mod_product',
     'user': 'perm_mod_user',
@@ -364,6 +361,11 @@ const translateType = (type) => {
     'data': '数据'
   }
   return t('perm_type_' + t_key, keyMap[t_key] || type)
+}
+
+const permissionName = (permission) => {
+  const key = `perm_code_${permission.code.replaceAll(':', '_')}`
+  return t(key, permission.name)
 }
 </script>
 

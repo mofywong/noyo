@@ -431,25 +431,28 @@ func (p *CascadePlugin) Init(ctx platform.Context) error {
 	}
 
 	// Register HTTP routes
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/status", p.handleGetStatus)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/maintenance", p.handleLocalMaintenance)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/maintenance", p.handleGatewayMaintenance)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/runtime-results", p.handleGatewayRuntimeResults)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/configuration/resources", p.handleConfigurationStates)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/stream", p.handleStream)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/sync/conflicts", p.handleSyncConflicts)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/sync/conflicts/resolve", p.handleSyncConflictResolve)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways", p.handleGatewayList)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins", p.handleGatewayPlugins)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName", p.handleGatewayPluginConfig)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName/config", p.handleGatewayPluginConfigSave)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName/status", p.handleGatewayPluginStatusSave)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/system/config", p.handleGatewaySystemConfig)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/license/status", p.handleGatewayLicenseStatus)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/license/upload", p.handleGatewayLicenseUpload)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/system/log/files", p.handleGatewayLogFiles)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/system/log/file", p.handleGatewayLogFile)
-	_ = ctx.RegisterHTTPHandler("/api/extension/cascade/gateways/:gwSn/system/log/tail", p.handleGatewayLogTail)
+	bind := func(path string, handler func(*ghttp.Request)) {
+		_ = ctx.RegisterHTTPHandler(path, p.authorizeHTTP(path, handler))
+	}
+	bind("/api/extension/cascade/status", p.handleGetStatus)
+	bind("/api/extension/cascade/maintenance", p.handleLocalMaintenance)
+	bind("/api/extension/cascade/gateways/:gwSn/maintenance", p.handleGatewayMaintenance)
+	bind("/api/extension/cascade/gateways/:gwSn/runtime-results", p.handleGatewayRuntimeResults)
+	bind("/api/extension/cascade/configuration/resources", p.handleConfigurationStates)
+	bind("/api/extension/cascade/stream", p.handleStream)
+	bind("/api/extension/cascade/sync/conflicts", p.handleSyncConflicts)
+	bind("/api/extension/cascade/sync/conflicts/resolve", p.handleSyncConflictResolve)
+	bind("/api/extension/cascade/gateways", p.handleGatewayList)
+	bind("/api/extension/cascade/gateways/:gwSn/plugins", p.handleGatewayPlugins)
+	bind("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName", p.handleGatewayPluginConfig)
+	bind("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName/config", p.handleGatewayPluginConfigSave)
+	bind("/api/extension/cascade/gateways/:gwSn/plugins/:pluginName/status", p.handleGatewayPluginStatusSave)
+	bind("/api/extension/cascade/gateways/:gwSn/system/config", p.handleGatewaySystemConfig)
+	bind("/api/extension/cascade/gateways/:gwSn/license/status", p.handleGatewayLicenseStatus)
+	bind("/api/extension/cascade/gateways/:gwSn/license/upload", p.handleGatewayLicenseUpload)
+	bind("/api/extension/cascade/gateways/:gwSn/system/log/files", p.handleGatewayLogFiles)
+	bind("/api/extension/cascade/gateways/:gwSn/system/log/file", p.handleGatewayLogFile)
+	bind("/api/extension/cascade/gateways/:gwSn/system/log/tail", p.handleGatewayLogTail)
 
 	return nil
 }
@@ -469,15 +472,9 @@ func (p *CascadePlugin) handleGetStatus(r *ghttp.Request) {
 		}
 	}
 
-	r.Response.WriteJson(map[string]interface{}{
-		"plugin":       "cascade",
-		"status":       map[bool]string{true: "connected", false: "disconnected"}[connected],
-		"connected":    connected,
-		"mode":         active.Config.Mode,
-		"broker":       active.Config.MqttUrl,
-		"gateway_code": active.Config.GatewaySn,
-		"ts":           time.Now(),
-	})
+	data := p.statusPayload(r, connected, active.Config.Mode, active.Config.MqttUrl, active.Config.GatewaySn)
+	data["ts"] = time.Now()
+	r.Response.WriteJson(data)
 }
 
 func (p *CascadePlugin) handleStream(r *ghttp.Request) {
@@ -505,15 +502,8 @@ func (p *CascadePlugin) handleStream(r *ghttp.Request) {
 	}
 
 	sendEventStatus := func(connected bool, mode, broker, gwCode string) error {
-		data := map[string]interface{}{
-			"plugin":       "cascade",
-			"status":       map[bool]string{true: "connected", false: "disconnected"}[connected],
-			"connected":    connected,
-			"mode":         mode,
-			"broker":       broker,
-			"gateway_code": gwCode,
-			"ts":           time.Now(),
-		}
+		data := p.statusPayload(r, connected, mode, broker, gwCode)
+		data["ts"] = time.Now()
 		b, _ := json.Marshal(data)
 		msg := fmt.Sprintf("event: status\ndata: %s\n\n", string(b))
 		if _, err := r.Response.Writer.Write([]byte(msg)); err != nil {
@@ -577,7 +567,23 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 	coreServer, _ := active.ctx.GetCoreServer().(*core.Server)
 	tenantID := r.GetCtxVar("tenant_id").Uint()
 	projectID := r.GetCtxVar("project_id").Uint()
-	devices, _, err := store.ListDevices(0, 0, tenantID, projectID)
+	principal := core.RequestAuthContext(r)
+	if principal == nil {
+		writeCascadeAccessDenied(r)
+		return
+	}
+	if !principal.IsSystemAdmin {
+		tenantID = principal.TenantID
+	}
+	filter := store.DeviceQueryFilter{TenantID: tenantID, ProjectID: projectID}
+	if projects, restricted := principal.ProjectIDsForTenantQuery(); restricted {
+		if len(projects) == 0 {
+			r.Response.WriteJson(map[string]interface{}{"code": 0, "data": []interface{}{}})
+			return
+		}
+		filter.AllowedProjectIDs = projects
+	}
+	devices, _, err := store.ListDevicesWithFilter(0, 0, filter)
 	if err != nil {
 		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
 		return
@@ -637,7 +643,7 @@ func (p *CascadePlugin) handleGatewayList(r *ghttp.Request) {
 
 	items := make([]gatewayItem, 0)
 	for _, dev := range devices {
-		if dev.ProductCode != defaultGatewayProductCode {
+		if dev.ProductCode != defaultGatewayProductCode || !cascadeResourceAllowed(r, dev.TenantID, dev.ProjectID, "gateway:list") {
 			continue
 		}
 		maintenance := maintenanceStates[dev.Code]
@@ -790,11 +796,26 @@ func (p *CascadePlugin) handleSyncConflicts(r *ghttp.Request) {
 	active := p.getActivePlugin()
 	tenantID := r.GetCtxVar("tenant_id").Uint()
 	projectID := r.GetCtxVar("project_id").Uint()
+	principal := core.RequestAuthContext(r)
+	if principal == nil {
+		writeCascadeAccessDenied(r)
+		return
+	}
+	if !principal.IsSystemAdmin {
+		tenantID = principal.TenantID
+	}
 	items, err := collectSyncConflicts(tenantID, projectID)
 	if err != nil {
 		r.Response.WriteJson(map[string]interface{}{"code": 500, "message": err.Error()})
 		return
 	}
+	visible := make([]syncConflictView, 0, len(items))
+	for _, item := range items {
+		if syncConflictVisible(r, item) {
+			visible = append(visible, item)
+		}
+	}
+	items = visible
 	nodeID, _, _ := active.activeSyncContext()
 	data := map[string]interface{}{
 		"node_id": nodeID,
@@ -835,6 +856,12 @@ func (p *CascadePlugin) handleSyncConflictResolve(r *ghttp.Request) {
 	if len(requests) == 0 {
 		r.Response.WriteJson(map[string]interface{}{"code": 400, "message": "no resolutions supplied"})
 		return
+	}
+	for _, item := range requests {
+		if !syncResolutionAllowed(r, item) {
+			writeCascadeAccessDenied(r)
+			return
+		}
 	}
 
 	nodeID, origin, notify := active.activeSyncContext()
@@ -1038,20 +1065,18 @@ func (p *CascadePlugin) remotePluginEngine(r *ghttp.Request, gwSn string) (*plat
 	return engine, true
 }
 
-func (p *CascadePlugin) ensureGatewayInRequestScope(r *ghttp.Request, gwSn string) bool {
+func (p *CascadePlugin) ensureGatewayInRequestScope(r *ghttp.Request, gwSn string, permissions ...string) bool {
 	device, err := store.GetDevice(gwSn)
-	if err != nil || device == nil {
+	if err != nil || device == nil || device.ProductCode != defaultGatewayProductCode {
 		r.Response.WriteJson(map[string]interface{}{"code": 404, "message": "gateway not found"})
 		return false
 	}
-	tenantID := r.GetCtxVar("tenant_id").Uint()
-	if tenantID > 0 && device.TenantID != tenantID {
-		r.Response.WriteJson(map[string]interface{}{"code": 403, "message": "gateway is outside current tenant"})
-		return false
+	permission := ""
+	if len(permissions) > 0 {
+		permission = permissions[0]
 	}
-	projectID := r.GetCtxVar("project_id").Uint()
-	if projectID > 0 && device.ProjectID != projectID {
-		r.Response.WriteJson(map[string]interface{}{"code": 403, "message": "gateway is outside current project"})
+	if !cascadeResourceAllowed(r, device.TenantID, device.ProjectID, permission) {
+		writeCascadeAccessDenied(r)
 		return false
 	}
 	return true

@@ -327,6 +327,7 @@ const fetchMqttStatus = async () => {
   if (!activeMqttPlugin.value) return;
   const rawName = String(activeMqttPlugin.value?.name || activeMqttPlugin.value?.Name || '').trim().toLowerCase();
   const pluginEndpoint = rawName.includes('cascade') ? 'cascade' : (rawName.includes('mqtt') ? 'mqtt_api' : rawName);
+  if (pluginEndpoint !== 'cascade' && !authStore.hasPermission('plugin:list')) return;
 
   try {
     const res = await axios.get(`/api/extension/${pluginEndpoint}/status`);
@@ -660,6 +661,7 @@ watch(shouldLoadShellData, (enabled) => {
 }, { flush: 'post' });
 
 const checkLicense = async () => {
+  if (!authStore.hasPermission('system:license')) return;
   try {
     const res = await axios.get('/api/extension/license/status');
     if (res.data && res.data.code === 200) {

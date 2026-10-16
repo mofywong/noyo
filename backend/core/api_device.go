@@ -23,8 +23,10 @@ func (s *Server) RegisterDeviceRoutes(group *ghttp.RouterGroup) {
 	permissionDELETE(group, "/products/:code", "product:delete", s.handleDeleteProduct)
 
 	permissionGET(group, "/devices", "device:list", s.handleListDevices)
-	permissionGET(group, "/ai/semantic-reviews", "device:list", s.handleSemanticReviewRecords)
-	permissionGET(group, "/ai/semantic-reviews/evidence", "device:list", s.handleSemanticReviewEvidence)
+	permissionGET(group, "/ai/devices", "ai_scene:list", s.handleListDevices)
+	permissionGET(group, "/ai/devices/:code", "ai_scene:list", s.handleGetDevice)
+	permissionGET(group, "/ai/semantic-reviews", "semantic_review:list", s.handleSemanticReviewRecords)
+	permissionGET(group, "/ai/semantic-reviews/evidence", "semantic_review:list", s.handleSemanticReviewEvidence)
 	permissionGET(group, "/devices/stream", "device:list", s.handleDeviceStream)
 	permissionGET(group, "/devices/import/template", "device:create", s.handleDownloadTemplate)
 	permissionPOST(group, "/devices/import", "device:create", s.handleImportDevices)
@@ -32,7 +34,7 @@ func (s *Server) RegisterDeviceRoutes(group *ghttp.RouterGroup) {
 	permissionPOST(group, "/devices", "device:create", s.handleCreateDevice)
 	permissionPUT(group, "/devices/:code/tags", "device:edit", s.handleReplaceDeviceTags)
 	permissionGET(group, "/devices/:code", "device:list", s.handleGetDevice)
-	permissionPUT(group, "/devices/:code/ai-config", "device:edit", s.handleUpdateDeviceAIConfig)
+	permissionPUT(group, "/devices/:code/ai-config", "ai_scene:edit", s.handleUpdateDeviceAIConfig)
 	permissionPUT(group, "/devices/:code", "device:edit", s.handleUpdateDevice)
 	permissionDELETE(group, "/devices/:code", "device:delete", s.handleDeleteDevice)
 
@@ -302,6 +304,9 @@ func (s *Server) handleGetDevice(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 403, "message": "Access denied"})
 		return
 	}
+	if deviceReadPermission(r) == "ai_scene:list" {
+		device.Config = store.DeviceAIConfigView(device.Config)
+	}
 	r.Response.WriteJson(g.Map{"code": 0, "data": device})
 }
 
@@ -407,7 +412,7 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 		scope := currentDeviceTagScope(r)
 		anyFiltered := false
 		for _, device := range devices {
-			allowed, err := canReadDeviceByTagPermission(authCtx, scope, device.Code)
+			allowed, err := canReadDeviceByTagPermissionFor(authCtx, scope, device.Code, deviceReadPermission(r))
 			canAccess := canAccessDevice(r, &device)
 			if err == nil && allowed && canAccess {
 				filtered = append(filtered, device)
@@ -575,6 +580,9 @@ func (s *Server) handleListDevices(r *ghttp.Request) {
 			}
 			gatewayOnline, gatewayEnabled = &online, &parent.Enabled
 		}
+		if deviceReadPermission(r) == "ai_scene:list" {
+			d.Config = store.DeviceAIConfigView(d.Config)
+		}
 		result = append(result, DeviceWithStatus{
 			Device:                 d,
 			ParentName:             parentName,
@@ -695,6 +703,9 @@ func (s *Server) handleCreateDevice(r *ghttp.Request) {
 	}
 
 	s.Manager.ApplyDeviceDefaults(&d)
+	if !requireDeviceAIConfigPermission(r, d.ProjectID, "", d.Config) {
+		return
+	}
 	if err := validateEnabledAISceneRulesConfig(d.Config); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 		return
@@ -823,6 +834,9 @@ func (s *Server) handleUpdateDevice(r *ghttp.Request) {
 	}
 
 	s.Manager.ApplyDeviceDefaults(&d)
+	if !requireDeviceAIConfigPermission(r, d.ProjectID, oldDevice.Config, d.Config) {
+		return
+	}
 	if err := validateEnabledAISceneRulesConfig(d.Config); err != nil {
 		r.Response.WriteJson(g.Map{"code": 400, "message": err.Error()})
 		return
@@ -1663,6 +1677,18 @@ func filterDevicesForAuthContextStats(authCtx *AuthContext, devices []*store.Dev
 }
 
 func canReadDeviceByTagPermission(authCtx *AuthContext, scope store.AccessScope, deviceCode string) (bool, error) {
+	return canReadDeviceByTagPermissionFor(authCtx, scope, deviceCode, "device:list")
+}
+
+func deviceReadPermission(r *ghttp.Request) string {
+	permission := r.GetCtxVar("required_permission").String()
+	if permission == "ai_scene:list" || permission == "ai_scene:edit" || permission == "semantic_review:list" {
+		return permission
+	}
+	return "device:list"
+}
+
+func canReadDeviceByTagPermissionFor(authCtx *AuthContext, scope store.AccessScope, deviceCode, permission string) (bool, error) {
 	if authCtx == nil {
 		return false, nil
 	}
@@ -1671,7 +1697,7 @@ func canReadDeviceByTagPermission(authCtx *AuthContext, scope store.AccessScope,
 		if err != nil {
 			return false, err
 		}
-		if !authCtx.HasProjectPermission("device:list", projectID) {
+		if !authCtx.HasProjectPermission(permission, projectID) {
 			return false, nil
 		}
 		return appCanAccessDeviceByTagPermission(authCtx, scope, deviceCode, "read")
@@ -1788,12 +1814,12 @@ func deviceTagPermissionProjectID(authCtx *AuthContext, deviceCode string) (uint
 	if authCtx == nil {
 		return 0, fmt.Errorf("auth context not found")
 	}
-	if authCtx.ProjectID > 0 {
-		return authCtx.ProjectID, nil
-	}
 	var device store.Device
 	if err := store.DB.Select("project_id").Where("code = ?", deviceCode).First(&device).Error; err != nil {
 		return 0, err
+	}
+	if authCtx.ProjectID > 0 && device.ProjectID != authCtx.ProjectID {
+		return 0, fmt.Errorf("device project is outside current scope")
 	}
 	if device.ProjectID > 0 && !authCtx.CanAccessProject(device.ProjectID) {
 		return 0, fmt.Errorf("device project is outside allowed scope")
@@ -2001,6 +2027,6 @@ func canAccessDevice(r *ghttp.Request, device *store.Device) bool {
 	if !(device.ProjectID > 0 && authCtx.CanAccessProject(device.ProjectID)) {
 		return false
 	}
-	allowed, err := canReadDeviceByTagPermission(authCtx, currentDeviceTagScope(r), device.Code)
+	allowed, err := canReadDeviceByTagPermissionFor(authCtx, currentDeviceTagScope(r), device.Code, deviceReadPermission(r))
 	return err == nil && allowed
 }
