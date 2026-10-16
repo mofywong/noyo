@@ -29,7 +29,7 @@
         </div>
         <section v-show="updateOpen && catalog.canManage" id="model-update" class="model-section" :aria-label="copy.updateModels">
           <h2>{{ copy.updateModels }}</h2>
-          <ModelImportStep :catalog="catalog" :job="importJob" :busy="!!busy" :submit="importOffline" @start="startImport" @activate="activatePending" @retry="retryJob" @view-capabilities="switchTab('capabilities')" />
+          <ModelImportStep :catalog="catalog" :job="importJob" :busy="!!busy" :visible="updateOpen && catalog.canManage" :submit="importOffline" @start="startImport" @activate="activatePending" @retry="retryJob" @view-capabilities="switchTab('capabilities')" />
         </section>
         <ModelSkeleton v-if="loading && !catalog.packages.length" variant="table" :count="6" :label="copy.loadingLibrary" />
         <ModelEmptyState v-else-if="!catalog.packages.length" icon="bi-box" :message="copy.emptyInstalledModels" />

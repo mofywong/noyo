@@ -85,6 +85,7 @@ func (s *Service) decodeManifest(data []byte, entries map[string]*zip.File) (imp
 			}
 			return m, errCode("unsupported", "model contract requires an application update: "+release.ID)
 		}
+		p.Description = Text{}
 		if len(release.Description) != 0 {
 			description, err := manifestDescription(release.Description)
 			if err != nil {
@@ -109,8 +110,13 @@ func (s *Service) decodeManifest(data []byte, entries map[string]*zip.File) (imp
 			if !sameReleaseContent(existing, p) {
 				return m, errCode("conflict", "immutable model release already exists: "+p.ID)
 			}
-			// Preserve existing receipts and trusted built-in provenance.
-			p = clonePackage(existing)
+			// Installed releases retain their receipt identity. An uninstalled
+			// compiled template supplies a contract, not release metadata.
+			if existing.Source != "builtin" || s.installed(existing) {
+				description := p.Description
+				p = clonePackage(existing)
+				p.Description = description
+			}
 		}
 		m.Packages = append(m.Packages, p)
 	}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Import stages an offline ZIP and returns a reviewable plan. It does not enable
@@ -40,6 +41,7 @@ func (s *Service) importArchive(ctx context.Context, reader io.Reader, single bo
 		s.mu.Unlock()
 		return Plan{}, errCode("conflict", "installer is closed")
 	}
+	_ = s.expireImportPreviewsLocked(time.Now().UTC())
 	s.mu.Unlock()
 	if err := s.checkSpace(0); err != nil {
 		return Plan{}, err
@@ -274,11 +276,15 @@ func (s *Service) importArchive(ctx context.Context, reader io.Reader, single bo
 	priorReleases := s.packages
 	priorImported := cloneReleases(s.state.Imported)
 	// Another upload may have registered this identity while extraction ran.
+	// Uninstalled releases may refresh manifest metadata, but their resource
+	// contents and installed release identities remain immutable.
 	for _, p := range manifest.Packages {
 		if existing, ok := s.packages[p.ID][p.Version]; ok && fingerprint(existing) != fingerprint(p) {
-			delete(s.state.Plans, plan.ID)
-			delete(s.state.Imports, plan.ID)
-			return Plan{}, errCode("conflict", "immutable model release already exists")
+			if s.installed(existing) || !sameReleaseContent(existing, p) {
+				delete(s.state.Plans, plan.ID)
+				delete(s.state.Imports, plan.ID)
+				return Plan{}, errCode("conflict", "immutable model release already exists")
+			}
 		}
 	}
 	s.packages = cloneReleases(s.packages)

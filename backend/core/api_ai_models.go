@@ -224,6 +224,7 @@ func (s *Server) registerAIModelRoutes(protected *ghttp.RouterGroup) {
 	admin.POST("/jobs/:id/cancel", s.handleModelCancel)
 	admin.POST("/jobs/:id/retry", s.handleModelRetry)
 	admin.POST("/import", s.handleModelImport)
+	admin.DELETE("/imports/:id", s.handleModelDiscardImport)
 	admin.POST("/activate", s.handleModelActivate)
 	admin.POST("/packages/:id/:version/verify", s.handleModelVerify)
 	admin.DELETE("/packages/:id/:version", s.handleModelDelete)
@@ -381,6 +382,16 @@ func (s *Server) handleModelRetry(r *ghttp.Request) {
 		r.Response.WriteJson(g.Map{"code": 0, "data": publicModelJob(job)})
 	})
 }
+func (s *Server) handleModelDiscardImport(r *ghttp.Request) {
+	s.withModelAssets(r, func(service *aiassets.Service) {
+		if err := service.DiscardImport(r.Get("id").String()); err != nil {
+			s.writeAIModelError(r, err)
+			return
+		}
+		r.Response.WriteJson(g.Map{"code": 0})
+	})
+}
+
 func (s *Server) handleModelImport(r *ghttp.Request) {
 	if r.Request.ContentLength > maxModelUploadBytes {
 		s.writeAIModelError(r, &aiassets.Error{Code: "archive_too_large"})
@@ -464,14 +475,24 @@ func modelHistoryActor(r *ghttp.Request) aiassets.HistoryActor {
 	if auth == nil {
 		return aiassets.HistoryActor{Name: "system"}
 	}
-	name := auth.Username
+	username := auth.Username
+	name := username
+	if auth.UserID != 0 && store.DB != nil {
+		if user, err := store.GetUserByID(auth.UserID); err == nil {
+			username = user.Username
+			name = strings.TrimSpace(user.DisplayName)
+			if name == "" {
+				name = username
+			}
+		}
+	}
 	if name == "" && auth.UserID != 0 {
-		name = fmt.Sprintf("user:%d", auth.UserID)
+		name = fmt.Sprintf("%d", auth.UserID)
 	}
 	if name == "" {
 		name = auth.AppID
 	}
-	return aiassets.HistoryActor{UserID: auth.UserID, TenantID: auth.TenantID, Username: auth.Username, Name: name, IP: r.GetClientIp()}
+	return aiassets.HistoryActor{UserID: auth.UserID, TenantID: auth.TenantID, Username: username, Name: name, IP: r.GetClientIp()}
 }
 
 func (s *Server) handleModelHistory(r *ghttp.Request) {
@@ -492,8 +513,12 @@ func (s *Server) handleModelHistory(r *ghttp.Request) {
 		}
 		items := make([]g.Map, 0, len(page.Items))
 		for _, item := range page.Items {
+			operator := item.OperatorName
+			if item.OperatorUserID != 0 {
+				operator = fmt.Sprintf("%s (%d)", operator, item.OperatorUserID)
+			}
 			items = append(items, g.Map{"id": item.ID, "action": item.Action, "version": item.Version,
-				"previousVersion": item.PreviousVersion, "operatorName": item.OperatorName, "createdAt": item.CreatedAt})
+				"previousVersion": item.PreviousVersion, "operatorName": operator, "createdAt": item.CreatedAt})
 		}
 		r.Response.Header().Set("Cache-Control", "no-store")
 		r.Response.WriteJson(g.Map{"code": 0, "data": g.Map{"items": items, "total": page.Total, "page": page.Page, "pageSize": page.PageSize}})

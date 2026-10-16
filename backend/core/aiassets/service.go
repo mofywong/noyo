@@ -250,6 +250,8 @@ func NewService(root string, options Options) (*Service, error) {
 			return nil, errCode("storage_error", "invalid persisted import")
 		}
 	}
+	s.cleanOrphanImportsLocked()
+	_ = s.expireImportPreviewsLocked(time.Now().UTC())
 	if err = s.refreshSnapshotLocked(); err != nil {
 		return nil, err
 	}

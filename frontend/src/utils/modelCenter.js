@@ -734,11 +734,11 @@ export function modelSceneAvailable(capability) {
 /** Unmanaged files are installed, but have no verifiable release version. */
 export function modelLibraryRows(catalog) {
   return modelPackageRows(catalog).map(row => {
-    const installedReleases = row.releases.filter(pkg => pkg.installed || ['active', 'candidate', 'installed'].includes(pkg.state));
+    const installedReleases = row.releases.filter(pkg => pkg.installed);
     const legacy = row.releases.some(pkg => pkg.state === 'legacy');
     const current = row.activeRelease;
     const installed = installedReleases.length > 0 || legacy;
-    return { ...row, installed, installedVersions: installedReleases.map(pkg => pkg.version), version: current?.version || '', state: installed ? 'installed' : 'missing' };
+    return { ...row, releases: installedReleases, installed, installedVersions: installedReleases.map(pkg => pkg.version), version: current?.version || '', state: installed ? 'installed' : 'missing' };
   });
 }
 

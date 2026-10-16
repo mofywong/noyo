@@ -203,7 +203,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
 import LiquidGlassButton from '../liquid-glass/LiquidGlassButton.vue';
@@ -229,6 +229,7 @@ const props = defineProps({
   job: { type: Object, default: null },
   /** 页面正在执行其它变更操作（如启用待启用项）时为 true。 */
   busy: { type: Boolean, default: false },
+  visible: { type: Boolean, default: true },
   submit: { type: Function, required: true },
 });
 
@@ -247,6 +248,9 @@ const failure = ref(null);
 const idempotencyKey = ref('');
 const dragging = ref(false);
 let dragDepth = 0;
+let uploadController = null;
+let submittedPlan = false;
+let disposed = false;
 /**
  * 本次导入会话标记。`job` 是页面轮询维护的任务对象，会跨越多次导入留在 props 里，
  * 因此不能单独用它判断「是否已开始」，否则重置后再选文件会直接跳到结果区。
@@ -342,7 +346,7 @@ function selectArchive(files) {
   if (selectionLocked.value) return;
   const selected = Array.from(files || []);
   if (!selected.length) return;
-  plan.value = null;
+  releasePlan();
   failure.value = null;
   idempotencyKey.value = '';
   sessionActive.value = false;
@@ -384,7 +388,10 @@ function onDrop(event) {
  * 页面通过 submit Promise 创建任务并轮询，成功/失败显式回流。
  */
 async function start() {
-  if (!archive.value || selectionLocked.value) return;
+  if (!archive.value || selectionLocked.value || disposed || props.visible === false) return;
+  releasePlan();
+  const controller = new AbortController();
+  uploadController = controller;
   const form = new FormData();
   form.append('file', archive.value);
   uploadPercent.value = 0;
@@ -398,39 +405,81 @@ async function start() {
       method: 'post',
       url: '/api/ai/models/import?single=true',
       data: form,
+      signal: controller.signal,
       timeout: 0,
-      onUploadProgress: event => { if (event.total) uploadPercent.value = Math.floor(event.loaded / event.total * 100); },
+      onUploadProgress: event => { if (controller === uploadController && event.total) uploadPercent.value = Math.floor(event.loaded / event.total * 100); },
     });
-    plan.value = normalizeModelPlan(unwrapModelResponse(response));
+    const preview = normalizeModelPlan(unwrapModelResponse(response));
+    if (controller !== uploadController || disposed || props.visible === false) {
+      discardPreview(preview.id);
+      return;
+    }
+    plan.value = preview;
     // 计划不可安装时停在解析结果，让用户看清原因而不是发一个注定失败的任务。
     if (!plan.value.packages.length || plan.value.blocked || !plan.value.id) return;
     idempotencyKey.value = globalThis.crypto?.randomUUID?.() || `model-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   } catch (error) {
+    if (controller !== uploadController || disposed) return;
     failure.value = error;
     archive.value = null;
     plan.value = null;
     sessionActive.value = false;
   } finally {
-    uploading.value = false;
+    if (controller === uploadController) {
+      uploadController = null;
+      uploading.value = false;
+    }
   }
 }
 
 async function submitPlan() {
-  if (!plan.value?.id || plan.value.blocked || working.value || props.busy) return;
+  if (!plan.value?.id || plan.value.blocked || working.value || props.busy || disposed || props.visible === false) return;
   submitting.value = true;
   failure.value = null;
-  try { await props.submit({ plan: plan.value, idempotencyKey: idempotencyKey.value }); }
+  try {
+    await props.submit({ plan: plan.value, idempotencyKey: idempotencyKey.value });
+    submittedPlan = true;
+  }
   catch (error) { failure.value = error; }
-  finally { submitting.value = false; }
+  finally {
+    submitting.value = false;
+    if (disposed || props.visible === false) abandonPreview();
+  }
 }
 
-// 已创建的任务回流后也可解除提交进度。
-watch(() => props.job?.id, id => { if (id) submitting.value = false; });
+function discardPreview(id) {
+  if (!id) return;
+  // Expiry also covers a lost response or an unavailable cleanup endpoint.
+  void axios.request({ method: 'delete', url: `/api/ai/models/imports/${encodeURIComponent(id)}`, timeout: 15000 }).catch(() => {});
+}
+
+function releasePlan() {
+  if (!submittedPlan) discardPreview(plan.value?.id);
+  plan.value = null;
+  submittedPlan = false;
+}
+
+function abandonPreview() {
+  if (submitting.value || submittedPlan) return;
+  uploadController?.abort();
+  uploadController = null;
+  clearPreview();
+}
+
+watch(() => props.visible, visible => { if (visible === false) abandonPreview(); }, { flush: 'sync' });
+onBeforeUnmount(() => {
+  disposed = true;
+  abandonPreview();
+});
 
 function reset() {
   if (selectionLocked.value) return;
+  clearPreview();
+}
+
+function clearPreview() {
   archive.value = null;
-  plan.value = null;
+  releasePlan();
   failure.value = null;
   idempotencyKey.value = '';
   uploading.value = false;

@@ -15,10 +15,16 @@ import (
 
 func (s *Service) worker() {
 	defer close(s.done)
+	cleanup := time.NewTicker(time.Hour)
+	defer cleanup.Stop()
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
+		case now := <-cleanup.C:
+			s.mu.Lock()
+			_ = s.expireImportPreviewsLocked(now)
+			s.mu.Unlock()
 		case <-s.wake:
 		}
 		for {

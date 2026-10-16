@@ -41,7 +41,7 @@ const emit = defineEmits(['close', 'activate', 'uninstall', 'verify']);
 const { locale } = useI18n();
 const copy = computed(() => modelCenterCopy(locale.value));
 const drawerTitle = computed(() => `${modelText(props.row?.title, locale.value, props.row?.id || '')} · ${copy.value.viewVersions}`);
-const description = release => modelText(release.description, locale.value, copy.value.noVersionDescription);
+const description = release => modelText(release.description, locale.value, '');
 const installedTime = release => modelTimestamp(release.installedAt, locale.value);
 const canSwitch = release => props.catalog.canManage && modelPackageActionAllowed(release, 'activate');
 const canDelete = release => props.catalog.canManage && modelPackageActionAllowed(release, 'uninstall');
