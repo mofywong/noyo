@@ -1117,6 +1117,7 @@ import { useListSelection } from '../composables/useListSelection.js';
 import { useBatchDelete } from '../composables/useBatchDelete.js';
 import { useConfirm } from '../composables/useConfirm';
 import { useToast } from '../composables/useToast';
+import { useAuthStore } from '../stores/auth';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { LineChart, BarChart, ScatterChart } from 'echarts/charts';
@@ -1144,6 +1145,10 @@ use([
 const { t, locale } = useI18n();
 const { confirmDialog } = useConfirm();
 const { showToast } = useToast();
+// 行内操作菜单的可见性判定（isActionVisible）按权限过滤菜单项，
+// authStore 必须在这里落地：缺了它每次展开 "⋯" 菜单都会抛
+// ReferenceError: authStore is not defined，菜单直接渲染不出来。
+const authStore = useAuthStore();
 
 const devices = ref([]);
 const { configurationStateFor, configurationErrorFor, pendingConfigurationIntents, configurationStatesUnavailable, hasConfigurationStates, reloadConfigurationStates } = useConfigurationStates('device', devices);

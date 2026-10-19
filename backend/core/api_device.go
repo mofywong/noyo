@@ -241,6 +241,11 @@ func (s *Server) handleUpdateProduct(r *ghttp.Request) {
 	}
 	// Update Registry Cache
 	s.DeviceManager.Registry.UpdateProduct(updatedProduct)
+	// 物模型可能新增/移除了经纬度语义标记 ⇒ 定位语义缓存立刻失效，
+	// 否则设备在这 60s 内仍按旧语义判定"遥测 / 手动"。
+	if s.Location != nil {
+		s.Location.InvalidateProductSemantics(updatedProduct.Code)
+	}
 
 	// Hot Reload: Restart all enabled devices using this product
 	devices, err := store.ListDevicesByProduct(updatedProduct.Code)
@@ -287,6 +292,9 @@ func (s *Server) handleDeleteProduct(r *ghttp.Request) {
 		}
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
+	}
+	if s.Location != nil {
+		s.Location.InvalidateProductSemantics(code)
 	}
 	r.Response.WriteJson(g.Map{"code": 0, "message": "Product deleted"})
 }
@@ -966,6 +974,8 @@ func (s *Server) handleDeleteDevice(r *ghttp.Request) {
 		if parentCode != "" {
 			s.restartParent(parentCode)
 		}
+		// 位置快照与围栏判定状态随设备一起清理，避免孤儿数据留在地图上。
+		s.cleanupDeviceLocationData(code)
 	}
 
 	s.DeviceManager.EventBus.Publish(types.Event{
@@ -1156,6 +1166,10 @@ func (s *Server) handleDeviceStream(r *ghttp.Request) {
 	id2 := s.DeviceManager.EventBus.SubscribeWithID(types.EventDeviceListChanged, handler)
 	id3 := s.DeviceManager.EventBus.SubscribeWithID(types.EventEventReported, handler)
 	id4 := s.DeviceManager.EventBus.SubscribeWithID(types.EventPropertyReported, handler)
+	// 地图页需要的两类变更：围栏跃迁（决定点位是"在线"还是"预警/告警"）
+	// 与位置变更（决定点位画在哪）。缺了它们，地图上的颜色和坐标只能靠重进页面刷新。
+	id5 := s.DeviceManager.EventBus.SubscribeWithID(types.EventGeofenceTriggered, handler)
+	id6 := s.DeviceManager.EventBus.SubscribeWithID(types.EventDeviceLocationChanged, handler)
 
 	// Cleanup subscriptions when this SSE connection closes
 	defer func() {
@@ -1163,6 +1177,8 @@ func (s *Server) handleDeviceStream(r *ghttp.Request) {
 		s.DeviceManager.EventBus.Unsubscribe(types.EventDeviceListChanged, id2)
 		s.DeviceManager.EventBus.Unsubscribe(types.EventEventReported, id3)
 		s.DeviceManager.EventBus.Unsubscribe(types.EventPropertyReported, id4)
+		s.DeviceManager.EventBus.Unsubscribe(types.EventGeofenceTriggered, id5)
+		s.DeviceManager.EventBus.Unsubscribe(types.EventDeviceLocationChanged, id6)
 		s.Logger.Debug("SSE client disconnected, subscriptions cleaned up")
 	}()
 

@@ -51,6 +51,9 @@ type Server struct {
 	Integrations      *workorder.GormIntegrationStore
 	TSDB              *tsdb.TSDBManager
 	MediaSessions     *MediaSessionManager
+	// Location 统一收口设备位置写入（遥测与人工标注），Geofence 负责空间判定。
+	Location          *LocationService
+	Geofence          *GeofenceService
 	WebServer         *ghttp.Server
 	uiFS              fs.FS
 	setupMu           sync.Mutex
@@ -146,7 +149,11 @@ func NewServer() (*Server, error) {
 	s.AlarmCenter = NewAlarmCenterService(store.DB, s.AlarmInstances, s.WorkOrderService, s.WorkOrderCommands)
 	s.Integrations = workorder.NewGormIntegrationStore(store.DB)
 	s.RuleEngine = NewRuleEngine(s)
+	s.Location = NewLocationService(s)
+	s.Geofence = NewGeofenceService(s)
 	go s.AlarmCenter.RunAutoCloseLoop()
+	// 围栏迟滞必须由时间驱动：人工标注只写一次位置，没有后续上报来推进状态机。
+	go s.Geofence.RunDwellLoop()
 
 	SetDefaultServer(s)
 	return s, nil

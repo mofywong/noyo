@@ -529,10 +529,20 @@
                       <span class="badge bg-danger position-absolute top-0 start-0 m-1 shadow-sm">{{ t('firingState') }}</span>
                     </a>
                   </div>
-                  <div v-else class="text-body-secondary small text-center py-3 mb-3 border rounded bg-body-tertiary">
+                  <div v-else-if="!geofenceParams(selected)" class="text-body-secondary small text-center py-3 mb-3 border rounded bg-body-tertiary">
                     {{ t('noAlarmEvidence') }}
                   </div>
                   <div class="row g-2 small">
+                    <template v-if="geofenceParams(selected)">
+                      <div class="col-12 col-sm-6">
+                        <div class="text-secondary fw-normal">{{ t('fenceName') }}</div>
+                        <div class="fw-semibold text-body">{{ geofenceParams(selected).fence_name || selectedAlarm.title }}</div>
+                      </div>
+                      <div class="col-12 col-sm-6">
+                        <div class="text-secondary fw-normal">{{ t('fenceCoordinates') }}</div>
+                        <div class="fw-semibold text-body">{{ geofenceCoordinates(selected) }}</div>
+                      </div>
+                    </template>
                     <div class="col-12 col-sm-6">
                       <div class="text-secondary fw-normal">{{ t('device') }}</div>
                       <div class="fw-semibold text-body">{{ alarmDeviceName(selected) }}</div>
@@ -849,6 +859,7 @@ import { hasAiDecisionMetadata, selectAlarmAiDecision } from '../utils/aiDecisio
 import { exportAlarmPdf, alarmPdfFilename } from '../utils/alarmPdf.js'
 import ListPagination from '../components/ListPagination.vue'
 import { ALARM_EVENT_IDS, getAlarmEventName } from '../utils/alarmEvents.js'
+import { subscribeAlarmEvents } from '../utils/alarmRealtime.js'
 import { resolveServerText } from '../utils/serverText.js'
 import { buildProductPointIndex, resolvePointName, localizePointCodeInText } from '../utils/propertyName.js'
 import { buildAlarmTimeline } from '../utils/alarmTimeline.js'
@@ -974,6 +985,10 @@ const extraCopy = {
     eventLevelAlert: '告警',
     eventLevelError: '故障',
     sourceDeviceEvent: '设备事件',
+    sourceGeofence: '地理围栏',
+    eventGeofenceBreach: '地理围栏越界',
+    fenceName: '触发围栏',
+    fenceCoordinates: '告警位置（经度，纬度）',
     timelineObserved: '收到事件信号',
     timelineAcknowledged: '告警已确认',
     timelineAssigned: '告警已分派',
@@ -1104,6 +1119,10 @@ const extraCopy = {
     eventLevelAlert: 'Alert',
     eventLevelError: 'Error',
     sourceDeviceEvent: 'Device event',
+    sourceGeofence: 'Geofence',
+    eventGeofenceBreach: 'Geofence breach',
+    fenceName: 'Triggered geofence',
+    fenceCoordinates: 'Alarm location (longitude, latitude)',
     timelineObserved: 'Event signal received',
     timelineAcknowledged: 'Alarm acknowledged',
     timelineAssigned: 'Alarm assigned',
@@ -1468,8 +1487,13 @@ function eventDefinition(eventID, productCode = '') {
   const id = String(eventID || '').trim()
   return policySourceEvents.value.find(event => event.id === id && (!productCode || event.productCode === productCode)) || policySourceEvents.value.find(event => event.id === id)
 }
+// 围栏告警的 source_ref 是 "geofence_breach"，它不属于任何产品的物模型事件，
+// 走 prettify 会显示成英文 "geofence breach"。这里给它一个正式名字。
+const PLATFORM_EVENT_NAMES = { geofence_breach: 'eventGeofenceBreach' }
+
 function eventDisplayName(eventID, productCode = '', explicitName = '') {
   const id = String(eventID || '').trim()
+  if (PLATFORM_EVENT_NAMES[id]) return t(PLATFORM_EVENT_NAMES[id])
   const definition = eventDefinition(id, productCode)
   const builtInName = builtInPolicyEventIDs.includes(id) ? builtInPolicyEventName(id) : ''
   const name = String(explicitName || definition?.name || builtInName || '').trim()
@@ -1482,7 +1506,22 @@ function alarmProductCode(item) { const evidence = evidenceOf(item); return evid
 function alarmEventID(item) { const alarm = alarmOf(item); const evidence = evidenceOf(item); return alarm.source_ref || evidence.event_id || evidence.params?.event_id || '' }
 function alarmDeviceName(item) { const evidence = evidenceOf(item); return deviceDisplayName(alarmDeviceCode(item), evidence.device_name || evidence.params?.device_name) }
 function alarmProductName(item) { const evidence = evidenceOf(item); return productDisplayName(alarmProductCode(item), evidence.product_name || evidence.params?.product_name) }
-function alarmEventName(item) { const evidence = evidenceOf(item); return eventDisplayName(alarmEventID(item), alarmProductCode(item), evidence.event_name || evidence.params?.event_name) }
+function geofenceParams(item) {
+  if (alarmOf(item).source_type !== 'geofence' && alarmEventID(item) !== 'geofence_breach') return null
+  return evidenceOf(item).params || {}
+}
+function geofenceCoordinates(item) {
+  const params = geofenceParams(item)
+  if (params?.longitude == null || params?.latitude == null) return '-'
+  const lng = Number(params.longitude), lat = Number(params.latitude)
+  return Number.isFinite(lng) && Number.isFinite(lat) ? `${lng.toFixed(6)}, ${lat.toFixed(6)}` : '-'
+}
+function alarmEventName(item) {
+  const params = geofenceParams(item)
+  if (params) return getAlarmEventName({ event_id: 'geofence_breach', params }, null, language.value)
+  const evidence = evidenceOf(item)
+  return eventDisplayName(alarmEventID(item), alarmProductCode(item), evidence.event_name || evidence.params?.event_name)
+}
 // 自监测类告警（如 AI 预测维护）用点位标识符标记监测对象；标识符是传输数据，
 // 展示时要换成产品里配置的点位名称。
 function alarmPointCode(item) { const evidence = evidenceOf(item); return String(evidence.params?.property || '').trim() }
@@ -1494,6 +1533,8 @@ function localizeAlarmPointText(item, text) {
 }
 function titleOf(item) {
   const alarm = alarmOf(item)
+  const fence = geofenceParams(item)
+  if (fence) return [alarmDeviceName(item), alarmEventName(item), fence.fence_name || alarm.title].filter(value => value && value !== '-').join(' · ')
   const title = String(alarm.title || '').trim()
   if (!title || title === alarm.source_ref) return alarmEventName(item)
   // Alarm titles are generated by the backend; resolve the bilingual payload (or
@@ -1531,7 +1572,13 @@ function currentHandlerText(item) {
   }).filter(Boolean))]
   return names.length ? names.join(language.value === 'en' ? ', ' : '、') : t('unclaimed')
 }
-function sourceTypeText(value) { return value === 'device_event' ? t('sourceDeviceEvent') : prettifyIdentifier(value) }
+function sourceTypeText(value) {
+  if (value === 'device_event') return t('sourceDeviceEvent')
+  // 围栏告警单独一个来源类型：告警中心要能一眼看出这不是设备事件，
+  // 也才能在策略里用 source_type=geofence 单独控制级别与工单要求。
+  if (value === 'geofence') return t('sourceGeofence')
+  return prettifyIdentifier(value)
+}
 function dispositionLabel(value) { const key = ({ resolved: 'resolved', false_positive: 'falsePositive', duplicate: 'duplicate', maintenance: 'maintenance', no_action_required: 'noAction', auto_recovered: 'recovered', work_order_closed: 'eventClosed' })[value]; return key ? t(key) : t('timelineUnknown') }
 function localizedTimelineText(value) {
   const text = String(value || '').trim()
@@ -2093,12 +2140,23 @@ async function deletePolicy(policy) {
 function openLegacyDetail(event) { captureModalFocus(); legacyDetail.value = event; focusModal(legacyDialog) }
 function closeLegacyDetail() { legacyDetail.value = null; restoreModalFocus() }
 
+let unsubscribeGeofenceAlarms
+let geofenceRefreshTimer
 onMounted(async () => {
   window.addEventListener('keydown', handleModalKeyboard)
+  unsubscribeGeofenceAlarms = subscribeAlarmEvents(event => {
+    if (event.event_id !== 'geofence_breach') return
+    clearTimeout(geofenceRefreshTimer)
+    geofenceRefreshTimer = setTimeout(() => { loadQueue() }, 250)
+  })
   await refreshAll()
   try { if (authStore.hasPermission('work_order:list')) participants.value = await loadAllWorkOrderParticipants() } catch (_) { participants.value = [] }
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', handleModalKeyboard))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleModalKeyboard)
+  unsubscribeGeofenceAlarms?.()
+  clearTimeout(geofenceRefreshTimer)
+})
 </script>
 
 <style scoped>

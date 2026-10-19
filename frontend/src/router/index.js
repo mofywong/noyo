@@ -70,6 +70,12 @@ const routes = [
     meta: { requiresAuth: true, permission: 'device:list' }
   },
   {
+    path: '/device-map',
+    name: 'DeviceMap',
+    component: () => import('../views/DeviceMap.vue'),
+    meta: { requiresAuth: true, permission: 'device_map:view' }
+  },
+  {
     path: '/device-tags',
     name: 'DeviceTags',
     component: DeviceTags,

@@ -60,6 +60,7 @@ go.work.sum
 .env.test.local
 .env.production.local
 docs/*
+!docs/permission_coverage_review_20261016.md
 .superpowers/*
 backend/noyo.db*
 backend/linux/*

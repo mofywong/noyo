@@ -26,7 +26,22 @@
           <template v-for="(param, index) in params" :key="index">
             <tr :class="{'table-primary': isEditing && editingIndex === index}">
               <td>{{ param.name }}</td>
-              <td><small class="font-monospace">{{ param.identifier }}</small></td>
+              <td>
+                <small class="font-monospace">{{ param.identifier }}</small>
+                <span
+                  v-if="!param.dataType?.specs?.semantic && autoDetectLocationRole(param.identifier)"
+                  class="badge text-bg-info ms-1 fw-normal"
+                  :title="$t('tsl_prop_semantic_hint')"
+                >
+                  {{
+                    $t(
+                      autoDetectLocationRole(param.identifier) === 'longitude'
+                        ? 'tsl_auto_detected_longitude'
+                        : 'tsl_auto_detected_latitude',
+                    )
+                  }}
+                </span>
+              </td>
               <td><span class="badge bg-secondary">{{ param.dataType?.type }}</span></td>
               <td class="text-center">
                  <i v-if="param.required" class="bi bi-check-lg text-success"></i>
@@ -89,6 +104,22 @@
                       <input v-model.number="currentParam.dataType.specs.step" type="number" class="form-control form-control-sm">
                     </div>
                     
+                    <!-- Location semantics（设备定位语义） -->
+                    <div class="col-md-12">
+                      <label class="form-label small">{{ $t('tsl_prop_semantic') }}</label>
+                      <select v-model="currentParam.dataType.specs.semantic" class="form-select form-select-sm">
+                        <option value="">{{ $t('tsl_prop_semantic_none') }}</option>
+                        <option value="longitude">{{ $t('tsl_semantic_longitude') }}</option>
+                        <option value="latitude">{{ $t('tsl_semantic_latitude') }}</option>
+                        <option value="altitude">{{ $t('tsl_semantic_altitude') }}</option>
+                        <option value="accuracy">{{ $t('tsl_semantic_accuracy') }}</option>
+                        <option value="speed">{{ $t('tsl_semantic_speed') }}</option>
+                        <option value="heading">{{ $t('tsl_semantic_heading') }}</option>
+                        <option value="fixTime">{{ $t('tsl_semantic_fix_time') }}</option>
+                      </select>
+                      <div class="form-text">{{ $t('tsl_prop_semantic_hint') }}</div>
+                    </div>
+
                     <!-- Text Specs -->
                     <div class="col-md-6" v-if="['text'].includes(currentParam.dataType.type)">
                        <label class="form-label small">{{ $t('tsl_prop_max_len') }}</label>
@@ -194,6 +225,22 @@
                     <input v-model.number="currentParam.dataType.specs.step" type="number" class="form-control form-control-sm">
                   </div>
                   
+                  <!-- Location semantics（设备定位语义） -->
+                  <div class="col-md-12">
+                    <label class="form-label small">{{ $t('tsl_prop_semantic') }}</label>
+                    <select v-model="currentParam.dataType.specs.semantic" class="form-select form-select-sm">
+                      <option value="">{{ $t('tsl_prop_semantic_none') }}</option>
+                      <option value="longitude">{{ $t('tsl_semantic_longitude') }}</option>
+                      <option value="latitude">{{ $t('tsl_semantic_latitude') }}</option>
+                      <option value="altitude">{{ $t('tsl_semantic_altitude') }}</option>
+                      <option value="accuracy">{{ $t('tsl_semantic_accuracy') }}</option>
+                      <option value="speed">{{ $t('tsl_semantic_speed') }}</option>
+                      <option value="heading">{{ $t('tsl_semantic_heading') }}</option>
+                      <option value="fixTime">{{ $t('tsl_semantic_fix_time') }}</option>
+                    </select>
+                    <div class="form-text">{{ $t('tsl_prop_semantic_hint') }}</div>
+                  </div>
+
                   <!-- Text Specs -->
                   <div class="col-md-6" v-if="['text'].includes(currentParam.dataType.type)">
                      <label class="form-label small">{{ $t('tsl_prop_max_len') }}</label>
@@ -254,6 +301,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { autoDetectLocationRole } from '../../utils/deviceMap';
 
 const { t } = useI18n();
 
@@ -335,7 +383,7 @@ const removeEnumItem = (idx) => {
 };
 
 const startAdd = () => {
-  currentParam.value = { name: '', identifier: '', required: false, dataType: { type: 'int', specs: {} } };
+  currentParam.value = { name: '', identifier: '', required: false, dataType: { type: 'int', specs: { semantic: '' } } };
   currentParamSpecsJson.value = '';
   enumList.value = [];
   editingIndex.value = -1;
@@ -348,6 +396,9 @@ const startEdit = (index) => {
     currentParam.value.dataType = { type: 'int', specs: {} };
   } else if (!currentParam.value.dataType.specs) {
     currentParam.value.dataType.specs = {};
+  }
+  if (currentParam.value.dataType.specs.semantic === undefined) {
+    currentParam.value.dataType.specs.semantic = '';
   }
 
   // Normalize backend data types to TSL abstract types for echoing
@@ -369,6 +420,32 @@ const cancelEdit = () => {
   isEditing.value = false;
 };
 
+/**
+ * 规范化定位语义规格。
+ *
+ * - 空语义不落库，避免物模型里留下语义为空的噪声字段
+ * - 选中经纬度时自动补齐推荐规格：类型 double、单位 °、范围 ±180/±90、步长 1e-6
+ *   这些值决定坐标能否被完整表达（步长 1e-6 ≈ 0.11 m），不能留给用户去猜。
+ */
+const normalizeSemanticSpecs = () => {
+  const dataType = currentParam.value.dataType;
+  if (!dataType) return;
+  dataType.specs = dataType.specs || {};
+  const specs = dataType.specs;
+  if (!specs.semantic) {
+    delete specs.semantic;
+    return;
+  }
+  if (specs.semantic === 'longitude' || specs.semantic === 'latitude') {
+    const isLongitude = specs.semantic === 'longitude';
+    if (dataType.type !== 'double') dataType.type = 'double';
+    if (!specs.unit) specs.unit = '°';
+    if (specs.min === undefined || specs.min === null || specs.min === '') specs.min = isLongitude ? -180 : -90;
+    if (specs.max === undefined || specs.max === null || specs.max === '') specs.max = isLongitude ? 180 : 90;
+    if (!specs.step) specs.step = 0.000001;
+  }
+};
+
 const saveParam = () => {
   if (!currentParam.value.identifier) {
     alert(t('tsl_param_id_required'));
@@ -376,6 +453,7 @@ const saveParam = () => {
   }
   // Ensure specs are synced
   saveEnumSpecs();
+  normalizeSemanticSpecs();
   
   const newParams = [...params.value];
   if (editingIndex.value === -1) {

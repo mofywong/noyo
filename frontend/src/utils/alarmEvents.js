@@ -19,7 +19,8 @@ export const ALARM_EVENT_IDS = [
   'person_fall_alarm',
   'smoking_alarm',
   'fighting_alarm',
-  'rule_alarm'
+  'rule_alarm',
+  'geofence_breach'
 ]
 
 const messages = {
@@ -31,6 +32,10 @@ const messages = {
     event: '事件',
     deviceAlarm: (deviceName) => `设备: ${deviceName} 发生了告警事件`,
     deviceLeft: (deviceName) => `设备: ${deviceName} 目标已离开告警区域`,
+    geofenceBreach: '地理围栏越界',
+    geofenceRecovered: '围栏告警已恢复',
+    geofenceForbid: '进入禁入区域',
+    geofenceKeepIn: '离开限定区域',
     scenes: {
       no_vest: '未穿安全背心',
       illegal_parking: '机动车违法停车',
@@ -59,6 +64,10 @@ const messages = {
     event: 'Event',
     deviceAlarm: (deviceName) => `Device: ${deviceName} reported an alarm event`,
     deviceLeft: (deviceName) => `Device: ${deviceName} target left the alarm area`,
+    geofenceBreach: 'Geofence breach',
+    geofenceRecovered: 'Geofence alarm recovered',
+    geofenceForbid: 'Entered restricted area',
+    geofenceKeepIn: 'Left permitted area',
     scenes: {
       illegal_parking: 'Illegal Parking',
       fire_lane_occupied: 'Fire Lane Occupied',
@@ -109,7 +118,7 @@ export const isAlarmEvent = (evt) => {
 
 export const getAlarmEventKey = (evt) => JSON.stringify([
   evt.device_code, evt.event_id, evt.params?.signal_id || evt.params?.occurred_at || evt.ts,
-  evt.params?.rule_id || '', evt.params?.target_id || '', evt.params?.alarm_status || ''
+  evt.params?.rule_id || '', evt.params?.fence_id || '', evt.params?.target_id || '', evt.params?.alarm_status || '', evt.params?.alarm_phase || ''
 ])
 
 export const mergeRecentAlarmEvents = (current, incoming) => {
@@ -138,6 +147,10 @@ export const getAlarmSceneLabel = (sceneType, locale = 'zh') => {
 
 export const getAlarmEventName = (evt, eventDef = null, locale = 'zh') => {
   const lang = normalizeLocale(locale)
+  if (evt?.event_id === 'geofence_breach') {
+    if (isAlarmClearedEvent(evt)) return messages[lang].geofenceRecovered
+    return messages[lang][({ forbid: 'geofenceForbid', keep_in: 'geofenceKeepIn' })[evt.params?.rule_type] || 'geofenceBreach']
+  }
   if (isAreaIntrusionLeave(evt)) {
     return messages[lang].scenes.area_intrusion_leave
   }
@@ -176,6 +189,7 @@ export const getAlarmEventName = (evt, eventDef = null, locale = 'zh') => {
 
 export const getAlarmEventTypeLabel = (evt, eventDef = null, locale = 'zh') => {
   const lang = normalizeLocale(locale)
+  if (evt?.event_id === 'geofence_breach') return isAlarmClearedEvent(evt) ? messages[lang].info : messages[lang].alarm
   if (isAreaIntrusionLeave(evt)) {
     return messages[lang].left
   }
@@ -190,6 +204,9 @@ export const getAlarmEventTypeLabel = (evt, eventDef = null, locale = 'zh') => {
 
 export const getAlarmToastMessage = (evt, deviceName, locale = 'zh') => {
   const lang = normalizeLocale(locale)
+  if (evt?.event_id === 'geofence_breach') {
+    return [deviceName, getAlarmEventName(evt, null, locale), evt.params?.fence_name].filter(Boolean).join(' · ')
+  }
   if (isAreaIntrusionLeave(evt)) {
     return messages[lang].deviceLeft(deviceName)
   }

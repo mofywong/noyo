@@ -712,13 +712,28 @@ func (dm *DeviceManager) enrichAlarmEvent(meta DeviceMeta, eventID string, param
 		return
 	}
 	device, err := store.GetDevice(meta.DeviceCode)
-	if err != nil || device.TenantID == 0 || device.ProjectID == 0 {
+	if err != nil || device == nil {
+		// 这两条早退以前是完全静默的：设备只要落在 tenant/project 为 0 的上下文里，
+		// 告警就永远不出、日志里也看不到任何痕迹 —— 排查时根本无从下手。
+		dm.logAlarmSkip("device lookup failed", meta.DeviceCode, eventID, err)
+		return
+	}
+	if device.TenantID == 0 || device.ProjectID == 0 {
+		dm.logAlarmSkip("device has no tenant/project scope", meta.DeviceCode, eventID, nil)
 		return
 	}
 	scope := workorder.Scope{TenantID: device.TenantID, ProjectID: device.ProjectID}
 	productName, eventName, eventLevel := resolveAlarmEventMetadata(meta.ProductCode, eventID)
+	// 来源类型默认是设备事件；围栏这类"不是物模型事件"的来源可以在 params 里
+	// 指定自己的类型，告警中心才能分类展示、策略才能按来源精确匹配。
+	sourceType := AlarmSourceDeviceEvent
+	if rawSource, ok := params["alarm_source_type"].(string); ok {
+		if trimmed := strings.TrimSpace(rawSource); trimmed != "" {
+			sourceType = trimmed
+		}
+	}
 	signalMetadata := AlarmSignalMetadata{
-		SourceType:  "device_event",
+		SourceType:  sourceType,
 		SourceRef:   eventID,
 		ProductCode: meta.ProductCode,
 		EventLevel:  eventLevel,
@@ -796,6 +811,21 @@ func (dm *DeviceManager) enrichAlarmEvent(meta DeviceMeta, eventID string, param
 	}
 	params["_alarm_instance_id"] = instance.ID
 	params["_generation"] = instance.Generation
+}
+
+// logAlarmSkip 让"告警被静默丢弃"变得可见。
+//
+// 告警链路里有一串 early return（设备查不到、租户/项目为空、没有策略…），
+// 全都不出声。现场报"设备越界了但没有告警"时，这些静默分支是最难定位的一环。
+func (dm *DeviceManager) logAlarmSkip(reason, deviceCode, eventID string, err error) {
+	if dm == nil || dm.Server == nil || dm.Server.Logger == nil {
+		return
+	}
+	fields := []zap.Field{zap.String("device", deviceCode), zap.String("event", eventID)}
+	if err != nil {
+		fields = append(fields, zap.Error(err))
+	}
+	dm.Server.Logger.Warn("Alarm instance skipped: "+reason, fields...)
 }
 
 // localizeAlarmPointName replaces the monitored-point identifier embedded in an
@@ -971,6 +1001,28 @@ func (dm *DeviceManager) ReportDeviceProperties(meta DeviceMeta, properties map[
 		Timestamp: time.Now().UnixMilli(),
 	})
 
-	// 4. Broadcast to Platform Plugins -> Removed, handled by DispatchService via EventBus
+	// 4. 位置落库（仅对物模型带经纬度语义的动态设备生效）
+	dm.reportLocationFromProperties(meta.DeviceCode, properties)
+
+	// 5. Broadcast to Platform Plugins -> Removed, handled by DispatchService via EventBus
 	return nil
+} 
+
+// reportLocationFromProperties 把属性上报里的定位信息交给定位服务。
+//
+// 这是定位的**遥测入口**：物模型里带经纬度语义属性的设备，其上报会自动落图。
+// 静态设备（无定位语义）在这里直接返回，人工标注走 LocationService.SetManualLocation。
+//
+// 刻意不返回错误：位置是属性上行的副产品，落库失败不能让主数据链路失败。
+func (dm *DeviceManager) reportLocationFromProperties(deviceCode string, properties map[string]interface{}) {
+	if dm == nil || dm.Server == nil || dm.Server.Location == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil && dm.Server.Logger != nil {
+			dm.Server.Logger.Error("Panic while recording device location",
+				zap.String("device", deviceCode), zap.Any("recover", r))
+		}
+	}()
+	dm.Server.Location.RecordTelemetry(deviceCode, properties)
 }

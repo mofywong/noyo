@@ -77,6 +77,7 @@ func (s *Server) registerAPIRoutes() {
 			s.RegisterRuleRoutes(tenantProtectedGroup)
 			s.RegisterWorkOrderRoutes(tenantProtectedGroup)
 			s.RegisterAlarmCenterRoutes(tenantProtectedGroup)
+			s.RegisterLocationRoutes(tenantProtectedGroup)
 
 			protected.Group("/users", func(userGroup *ghttp.RouterGroup) {
 				userGroup.Middleware(TenantMiddleware())

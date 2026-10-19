@@ -14,7 +14,7 @@ export function publishAlarmEvent(event) {
   if (seen.has(key)) return
   seen.set(key, true)
   if (seen.size > 500) seen.delete(seen.keys().next().value)
-  const scope = JSON.stringify([event.device_code, event.params?.rule_id || event.event_id])
+  const scope = JSON.stringify([event.device_code, event.params?.rule_id || event.event_id, event.params?.fence_id || ''])
   const occurred = Number(event.params?.occurred_at || event.ts)
   if (occurred < (watermarks.get(scope) || 0)) return
   watermarks.set(scope, occurred)

@@ -31,6 +31,15 @@
     --color-warning: #d97706;
     --color-danger: #dc2626;
     --color-info: #0284c7;
+    --map-device-offline: #64748b;
+    --map-device-outline: #ffffff;
+    --map-device-surface-top: #ffffff;
+    --map-device-surface-bottom: #edf2f7;
+    --map-device-border: #cbd5e1;
+    --map-device-highlight: rgba(255, 255, 255, 0.9);
+    --map-device-glyph: #334155;
+    --map-device-badge-ink: #ffffff;
+    --map-device-shadow: rgba(15, 23, 42, 0.24);
 
     /* Interaction surfaces — Noyo UX Guidelines §3.5 */
     --bg-hover: rgba(15, 23, 42, 0.04);
@@ -135,6 +144,15 @@
     --color-warning: #ff9f0a;
     --color-danger: #ff453a;
     --color-info: #64d2ff;
+    --map-device-offline: #94a3b8;
+    --map-device-outline: #1c1e26;
+    --map-device-surface-top: #353d4c;
+    --map-device-surface-bottom: #202733;
+    --map-device-border: #64748b;
+    --map-device-highlight: rgba(255, 255, 255, 0.14);
+    --map-device-glyph: #e2e8f0;
+    --map-device-badge-ink: #0d0f14;
+    --map-device-shadow: rgba(0, 0, 0, 0.48);
 
     /* Interaction surfaces — iOS tertiary fill */
     --bg-hover: rgba(120, 120, 128, 0.18);

@@ -22,6 +22,11 @@ const (
 	AlarmConditionRecovered = "recovered"
 	AlarmConditionUnknown   = "unknown"
 
+	// 告警来源类型。设备事件是默认来源；地理围栏越界单独一类，
+	// 便于告警中心分类展示、策略按来源精确匹配。
+	AlarmSourceDeviceEvent = "device_event"
+	AlarmSourceGeofence    = "geofence"
+
 	AlarmHandlingNew                 = "new"
 	AlarmHandlingAcknowledged        = "acknowledged"
 	AlarmHandlingInProgress          = "in_progress"
@@ -1117,6 +1122,13 @@ func policyMatchScoreForSignal(policy store.AlarmPolicy, metadata AlarmSignalMet
 		return false, 0
 	}
 	typeOK, typeScore := match(policy.SourceType, metadata.SourceType)
+	if !typeOK && metadata.SourceType == AlarmSourceGeofence &&
+		strings.EqualFold(strings.TrimSpace(policy.SourceType), AlarmSourceDeviceEvent) {
+		// 围栏越界也是"设备上的告警"：按 device_event 配的策略必须覆盖它，
+		// 否则用户给设备事件配的级别、自动关闭、工单要求对围栏告警全部失效 ——
+		// 那就谈不上"统一管理"了。分数低于精确匹配，专属策略仍然优先。
+		typeOK, typeScore = true, 1
+	}
 	if !typeOK {
 		return -1
 	}

@@ -47,6 +47,9 @@
       <a v-if="authStore.hasPermission('device:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Devices' }" @click.prevent="navigate('/devices')">
         <i class="bi bi-cpu"></i> <span>{{ $t('sidebar_devices') }}</span>
       </a>
+      <a v-if="authStore.hasPermission('device_map:view')" href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceMap' }" @click.prevent="navigate('/device-map')">
+        <i class="bi bi-geo-alt"></i> <span>{{ $t('sidebar_device_map') }}</span>
+      </a>
       <a v-if="authStore.hasPermission('device_tag:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'DeviceTags' }" @click.prevent="navigate('/device-tags')">
         <i class="bi bi-tags"></i> <span>{{ $t('sidebar_device_tags') }}</span>
       </a>

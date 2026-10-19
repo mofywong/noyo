@@ -139,6 +139,10 @@ func InitDB(dsn string) error {
 		&TokenBlacklist{},
 		&AuthSession{},
 		&StoredAsset{},
+		&DeviceLocation{},
+		&Geofence{},
+		&GeofenceDevice{},
+		&DeviceFenceState{},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
@@ -251,6 +255,12 @@ var superAdminDefaultPermissionCodes = map[string]bool{
 	"ai_model:export":        true,
 	"ai_model:manage":        true,
 	"ai_assistant:use":       true,
+	"device_map:view":        true,
+	"device_location:edit":   true,
+	"geofence:list":          true,
+	"geofence:create":        true,
+	"geofence:edit":          true,
+	"geofence:delete":        true,
 }
 
 var exclusiveTenantManagementPermissionCodes = map[string]bool{
@@ -414,6 +424,13 @@ func InitPermissions() {
 		{Code: "tenant:transfer", Name: "转让租户管理员", Module: "tenant", Type: "button"},
 		// Device Upload
 		{Code: "device:upload", Name: "设备图片上传", Module: "device", Type: "button"},
+		// Device Map & Geofence
+		{Code: "device_map:view", Name: "设备地图 / Device map", Module: "device_map", Type: "menu"},
+		{Code: "device_location:edit", Name: "标注设备位置 / Set device location", Module: "device_map", Type: "button"},
+		{Code: "geofence:list", Name: "地理围栏 / Geofences", Module: "geofence", Type: "menu"},
+		{Code: "geofence:create", Name: "创建地理围栏 / Create geofences", Module: "geofence", Type: "button"},
+		{Code: "geofence:edit", Name: "编辑地理围栏 / Edit geofences", Module: "geofence", Type: "button"},
+		{Code: "geofence:delete", Name: "删除地理围栏 / Delete geofences", Module: "geofence", Type: "button"},
 	}
 
 	for _, p := range defaultPermissions {
@@ -588,7 +605,7 @@ func shouldGrantProjectAdminPermission(perm Permission) bool {
 		return false
 	}
 	switch perm.Module {
-	case "user", "role", "product", "device", "device_tag", "gateway", "alarm", "rule", "work_order", "plugin", "ai_brain", "ai_scene", "semantic_review", "ai_model", "ai_assistant":
+	case "user", "role", "product", "device", "device_tag", "gateway", "alarm", "rule", "work_order", "plugin", "ai_brain", "ai_scene", "semantic_review", "ai_model", "ai_assistant", "device_map", "geofence":
 		return true
 	default:
 		return false
