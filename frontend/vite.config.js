@@ -59,11 +59,15 @@ export default defineConfig(({ mode }) => {
         '/data': {
           target: 'http://localhost:8989',
           changeOrigin: true,
+        },
+        '/screen-editor': {
+          target: 'http://localhost:8989',
+          changeOrigin: true,
         }
       }
     },
     build: {
-      outDir: '../backend/dist',
+      outDir: process.env.NOYO_FRONTEND_OUT_DIR || '../backend/dist',
       emptyOutDir: true
     }
   }

@@ -10,6 +10,9 @@ if [[ ! -r dist/index.html ]]; then
     exit 1
 fi
 
+# The frontend postbuild places the pinned editor beside the main SPA.
+node ../scripts/build-goview.mjs --verify-only
+
 # Publish only after compilation and RPATH patching both succeed.
 mkdir -p linux
 output=$(mktemp linux/.noyo-linux-amd64-pro.XXXXXX)

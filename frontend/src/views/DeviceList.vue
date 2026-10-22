@@ -164,6 +164,12 @@
     </div>
 
     <!-- 表格容器 -->
+    <div v-if="deviceListLoadFailed" class="alert alert-warning d-flex flex-wrap align-items-center gap-2" role="alert">
+      <span class="flex-grow-1">{{ $t('dev_list_refresh_failed') }}</span>
+      <LiquidGlassButton variant="secondary" size="sm" :disabled="loading" @click="fetchDevices(false)">
+        {{ $t('common_retry') }}
+      </LiquidGlassButton>
+    </div>
     <ConfigurationStatusNotice :failed="configurationStatesUnavailable" :cached="hasConfigurationStates" @refresh="reloadConfigurationStates" />
     <PendingConfigurationList entity-type="device" :intents="pendingConfigurationIntents" />
     <div class="card border-0 shadow-sm table-glass-card">
@@ -1157,6 +1163,7 @@ const configuredDeviceCodes = ref(new Set());
 const products = ref([]);
 const drivers = ref([]);
 const loading = ref(false);
+const deviceListLoadFailed = ref(false);
 const showCreateModal = ref(false);
 const showDiscoveryModal = ref(false);
 const showProjectColumn = computed(() => {
@@ -1510,6 +1517,7 @@ let fetchDebounceTimer = null;
 
 const clearFilters = () => {
   isClearing = true;
+  invalidateDeviceListRequest();
   if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
   search.value = '';
   filterProduct.value = '';
@@ -1811,6 +1819,7 @@ const changePageSize = (size) => {
 };
 
 const triggerQuery = (resetPage = true, delay = 0) => {
+  invalidateDeviceListRequest();
   if (resetPage) {
     page.value = 1;
   }
@@ -3107,6 +3116,7 @@ const restartAIBaselineCalibration = async () => {
 
 
 onUnmounted(() => {
+  invalidateDeviceListRequest();
   clearHoverTimers();
   if (drawerTimer) clearInterval(drawerTimer);
   if (drawerTrendTimer) clearInterval(drawerTrendTimer);
@@ -3144,7 +3154,44 @@ const fetchParentDevices = async () => {
   }
 };
 
+// Device list request lifecycle. Every refresh, including SSE, shares this guard.
+let deviceListRequestVersion = 0;
+let deviceListRequestController = null;
+let deviceListDataScope = null;
+
+const getDeviceListScope = () => JSON.stringify([
+  localStorage.getItem('access_token'),
+  localStorage.getItem('current_tenant_id'),
+  localStorage.getItem('current_project_id')
+]);
+
+const getDeviceListQueryKey = () => JSON.stringify([
+  getDeviceListScope(), page.value, pageSize.value, search.value.trim(),
+  filterProduct.value, filterParent.value, filterEnabled.value, filterOnline.value,
+  filterTag.value, deviceMetricFilters.value
+]);
+
+const invalidateDeviceListRequest = () => {
+  deviceListRequestVersion++;
+  deviceListRequestController?.abort();
+  deviceListRequestController = null;
+  loading.value = false;
+};
+
 const fetchDevices = async (silent = false) => {
+  const requestVersion = ++deviceListRequestVersion;
+  deviceListRequestController?.abort();
+  const controller = new AbortController();
+  deviceListRequestController = controller;
+  const requestScope = getDeviceListScope();
+  const requestKey = getDeviceListQueryKey();
+  const isCurrent = () => requestVersion === deviceListRequestVersion
+    && !controller.signal.aborted && requestKey === getDeviceListQueryKey();
+  if (deviceListDataScope !== null && deviceListDataScope !== requestScope) {
+    devices.value = [];
+    total.value = 0;
+    stats.value = { total: 0, online: 0, alarm: 0 };
+  }
   if (!silent) reloadConfigurationStates();
   if (!silent) loading.value = true;
   try {
@@ -3178,17 +3225,22 @@ const fetchDevices = async (silent = false) => {
       params.tag_id = filterTag.value;
     }
 
-    const res = await axios.get('/api/devices', { params });
+    const res = await axios.get('/api/devices', { params, signal: controller.signal });
+    if (!isCurrent()) return;
+    if (res.data.code !== 0) throw new Error('Device list request failed');
     if (res.data.code === 0) {
       const data = res.data.data || [];
       const totalCount = typeof res.data.total === 'number' ? res.data.total : data.length;
 
       // 若当前页无数据且 total > 0 (例如在最后一页删除设备)，自动跳回最大有效页
-      if (data.length === 0 && totalCount > 0 && page.value > 1) {
-        page.value = Math.max(1, Math.ceil(totalCount / pageSize.value));
+      const lastPage = Math.max(1, Math.ceil(totalCount / params.pageSize));
+      if (data.length === 0 && totalCount > 0 && params.page > lastPage) {
+        page.value = lastPage;
         return fetchDevices(silent);
       }
 
+      deviceListDataScope = requestScope;
+      deviceListLoadFailed.value = false;
       devices.value = data;
       total.value = totalCount;
       if (res.data.stats) {
@@ -3200,9 +3252,15 @@ const fetchDevices = async (silent = false) => {
       }
     }
   } catch (e) {
-    console.error(e);
+    if (isCurrent() && e?.code !== 'ERR_CANCELED' && e?.name !== 'AbortError') {
+      deviceListLoadFailed.value = true;
+      console.error(e);
+    }
   } finally {
-    if (!silent) loading.value = false;
+    if (requestVersion === deviceListRequestVersion) {
+      loading.value = false;
+      deviceListRequestController = null;
+    }
   }
 };
 

@@ -137,6 +137,7 @@ func transitionGatewayMaintenance(code, from, to string, requireSettled bool) (*
 
 func validMaintenanceTransition(from, to string) bool {
 	return from == GatewayModeNormal && to == GatewayModeMaintenance ||
+		from == GatewayModeReconciling && to == GatewayModeMaintenance ||
 		from == GatewayModeMaintenance && to == GatewayModeReconciling ||
 		from == GatewayModeReconciling && to == GatewayModeNormal
 }

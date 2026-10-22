@@ -147,6 +147,8 @@
       ref="buttonEl"
       :type="type"
       class="noyo-glass-btn"
+      :aria-label="ariaLabel || undefined"
+      :aria-pressed="ariaPressed === undefined ? undefined : String(ariaPressed)"
       :class="[
         `noyo-glass-btn--${variant}`,
         `noyo-glass-btn--${size}`,
@@ -230,6 +232,10 @@ interface LiquidGlassButtonProps {
   tilt?: boolean
   /** 是否启用背景折射管线 / enable backdrop refraction pipeline */
   refract?: boolean
+  /** 无障碍名称（转发给内部 button） / accessible name forwarded to the button */
+  ariaLabel?: string
+  /** 切换态（转发 aria-pressed） / toggle state forwarded as aria-pressed */
+  ariaPressed?: boolean
 }
 
 const props = withDefaults(defineProps<LiquidGlassButtonProps>(), {
@@ -409,6 +415,12 @@ function onPointerUp() {
 function onClick(event: MouseEvent) {
   emit('click', event)
 }
+
+// 供宿主聚焦内部按钮（例如从编辑器返回工具栏时） / let the host focus the real button
+function focus() {
+  buttonEl.value?.focus()
+}
+defineExpose({ focus, el: buttonEl })
 
 onMounted(() => {
   if (props.refract && backdropSvgSupport()) {

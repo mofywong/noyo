@@ -70,7 +70,9 @@ func (e *gatewayEngineImpl) enterMaintenance() (*store.GatewayMaintenance, error
 	if state.Mode == store.GatewayModeMaintenance {
 		return state, nil
 	}
-	state, err = e.transitionAtRuntimeBoundary(store.GatewayModeNormal, store.GatewayModeMaintenance)
+	// Reopening an unconfirmed handover starts a new maintenance epoch. The
+	// retained changes are included in the next exit's handover barrier.
+	state, err = e.transitionAtRuntimeBoundary(state.Mode, store.GatewayModeMaintenance)
 	if err != nil {
 		return nil, err
 	}

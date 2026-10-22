@@ -1,8 +1,14 @@
 import { createI18n } from 'vue-i18n'
+import screenMessages from './screens/messages.js'
 import { brandMessages } from './config/brand'
 
 const messages = {
     en: {
+        common_retry: 'Retry',
+        dev_list_refresh_failed: 'Could not load devices for the current filters. Displayed rows may be outdated. Retry to refresh them.',
+        header_recent_alarms_7d: 'Recent alarms (7 days)',
+        header_history_needs_migration: 'Some older history needs ownership migration before it can be shown.',
+        header_history_load_failed: 'Recent history could not be refreshed. Displayed alarms may be outdated.',
         batch_delete: 'Delete selected',
         batch_selected_count: '{count} selected',
         batch_select_page: 'Select all eligible rows on this page',
@@ -1579,6 +1585,11 @@ dev_tags: 'Tags',
         rg_palette_actions: 'Actions'
     },
     zh: {
+        common_retry: '重试',
+        dev_list_refresh_failed: '当前筛选条件下的设备加载失败，已显示的数据可能过期。请重试刷新。',
+        header_recent_alarms_7d: '最近告警（7 天）',
+        header_history_needs_migration: '部分旧历史记录需迁移归属信息后才能显示。',
+        header_history_load_failed: '最近历史记录刷新失败，已显示的告警可能过期。',
         batch_delete: '批量删除',
         batch_selected_count: '已选择 {count} 项',
         batch_select_page: '全选当前页可操作项',
@@ -3215,5 +3226,9 @@ const i18n = createI18n({
     fallbackLocale: 'en',
     messages
 })
+
+for (const [language, message] of Object.entries(screenMessages)) {
+    i18n.global.mergeLocaleMessage(language, message)
+}
 
 export default i18n

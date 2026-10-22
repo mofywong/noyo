@@ -6,11 +6,12 @@ import (
 	"io/fs"
 	"log"
 	"noyo/core"
+	"noyo/core/screenpreflight"
 	"os"
 	"path/filepath"
 )
 
-//go:embed dist
+//go:embed all:dist
 var distFS embed.FS
 
 // loadUIFS resolves the embedded production UI first and then supports the
@@ -53,6 +54,13 @@ func loadUIFS() (fs.FS, string, error) {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "screen-preflight" {
+		uiFS, err := fs.Sub(distFS, "dist")
+		if err != nil {
+			uiFS = nil
+		}
+		os.Exit(screenpreflight.Execute(os.Args[2:], uiFS, os.Stdout, os.Stderr))
+	}
 	fmt.Println("STARTING BACKEND...")
 	// Create Server
 	server, err := core.NewServer()

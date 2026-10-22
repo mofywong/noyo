@@ -32,6 +32,9 @@
       <a v-if="authStore.hasPermission('dashboard:view')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Dashboard' }" @click.prevent="navigate('/')">
         <i class="bi bi-speedometer2"></i> <span>{{ $t('sidebar_dashboard') }}</span>
       </a>
+      <a v-if="authStore.hasPermission('screen:list')" href="/screens" class="nav-link" :class="{ active: String(currentRouteName).startsWith('Screen') }" @click.prevent="navigate('/screens')">
+        <i class="bi bi-window-stack"></i> <span>{{ $t('screens.title') }}</span>
+      </a>
       <a v-if="authStore.hasPermission('plugin:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'Marketplace' }" @click.prevent="navigate('/marketplace')">
         <i class="bi bi-shop"></i> <span>{{ $t('sidebar_marketplace') }}</span>
       </a>
@@ -233,7 +236,9 @@ const normalizeCurrentProject = async () => {
   const projectIds = userProjects.value.map(p => Number(p.ID));
   const selectedProjectId = Number(currentProjectId.value || 0);
 
-  if (requiresProjectContext.value) {
+  // Single-project modes hide the selector, including for administrators.
+  // Persist the displayed project so project-scoped requests carry its ID.
+  if (isGatewayRuntime.value || requiresProjectContext.value) {
     if (projectIds.length === 0) {
       persistProjectContext(0);
       return;

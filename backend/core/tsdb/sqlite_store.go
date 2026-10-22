@@ -1,17 +1,19 @@
 package tsdb
 
 import (
-	"encoding/json"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -60,6 +62,15 @@ func (s *SQLiteStore) Close() error {
 
 // getDB returns a DB instance for the specific month (e.g. "202310")
 func (s *SQLiteStore) getDB(monthStr string) (*gorm.DB, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.getDBContext(ctx, monthStr)
+}
+
+func (s *SQLiteStore) getDBContext(ctx context.Context, monthStr string) (*gorm.DB, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	if db, ok := s.dbs[monthStr]; ok {
 		s.mu.RUnlock()
@@ -69,6 +80,9 @@ func (s *SQLiteStore) getDB(monthStr string) (*gorm.DB, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// Double check
 	if db, ok := s.dbs[monthStr]; ok {
@@ -80,7 +94,8 @@ func (s *SQLiteStore) getDB(monthStr string) (*gorm.DB, error) {
 
 	// GORM Config: Silent logger to avoid noise
 	gormConfig := &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
+		Logger:                logger.Default.LogMode(logger.Silent),
+		DefaultContextTimeout: 5 * time.Second,
 	}
 
 	db, err := gorm.Open(sqlite.Open(dbPath), gormConfig)
@@ -89,10 +104,18 @@ func (s *SQLiteStore) getDB(monthStr string) (*gorm.DB, error) {
 	}
 
 	// WAL Mode for concurrency
-	db.Exec("PRAGMA journal_mode=WAL;")
+	if err := db.WithContext(ctx).Exec("PRAGMA journal_mode=WAL;").Error; err != nil {
+		if conn, closeErr := db.DB(); closeErr == nil {
+			_ = conn.Close()
+		}
+		return nil, fmt.Errorf("failed to enable history WAL: %w", err)
+	}
 
 	// Auto Migrate
-	if err := db.AutoMigrate(&Record{}); err != nil {
+	if err := db.WithContext(ctx).AutoMigrate(&Record{}); err != nil {
+		if conn, closeErr := db.DB(); closeErr == nil {
+			_ = conn.Close()
+		}
 		return nil, fmt.Errorf("failed to migrate tsdb table: %w", err)
 	}
 
@@ -108,32 +131,79 @@ func (s *SQLiteStore) getMonthStr(ts int64) string {
 
 // WriteBatch writes a batch of records
 func (s *SQLiteStore) WriteBatch(records []*Record) error {
+	return s.WriteBatchContext(context.Background(), records)
+}
+
+// WriteBatchContext allows shutdown to share a deadline across every month.
+func (s *SQLiteStore) WriteBatchContext(parent context.Context, records []*Record) error {
 	// Group records by month to minimize DB switching/transactions
 	groups := make(map[string][]*Record)
 	for _, r := range records {
+		if r == nil {
+			return errors.New("nil history record")
+		}
+		if r.IngestID == nil || *r.IngestID == "" {
+			key, err := uuid.NewRandom()
+			if err != nil {
+				return err
+			}
+			keyString := key.String()
+			r.IngestID = &keyString
+		}
 		month := s.getMonthStr(r.Ts)
 		groups[month] = append(groups[month], r)
 	}
 
+	var writeErrors []error
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
 	for month, recs := range groups {
-		db, err := s.getDB(month)
+		if err := ctx.Err(); err != nil {
+			writeErrors = append(writeErrors, err)
+			break
+		}
+		db, err := s.getDBContext(ctx, month)
 		if err != nil {
-			s.logger.Error("Failed to get DB for batch", zap.String("month", month), zap.Error(err))
+			writeErrors = append(writeErrors, fmt.Errorf("open history month %s: %w", month, err))
 			continue
 		}
-
-		// Transaction
-		err = db.Transaction(func(tx *gorm.DB) error {
-			if err := tx.CreateInBatches(recs, 100).Error; err != nil {
-				return err
-			}
-			return nil
+		// SQLite can commit one month before another fails. Replay the same
+		// ingestion identities, never month-local row IDs, after such a failure.
+		copies := make([]*Record, len(recs))
+		for i, record := range recs {
+			copyRecord := *record
+			copyRecord.ID = 0
+			copies[i] = &copyRecord
+		}
+		err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "ingest_id"}}, DoNothing: true}).CreateInBatches(copies, 100).Error
 		})
 		if err != nil {
-			s.logger.Error("Batch insert failed", zap.String("month", month), zap.Error(err))
+			writeErrors = append(writeErrors, fmt.Errorf("insert history month %s: %w", month, err))
+			continue
+		}
+		// RETURNING rows omit conflicts, so a mixed replay/new batch cannot
+		// safely map returned IDs by slice position.
+		keys := make([]string, len(recs))
+		for i, record := range recs {
+			keys[i] = *record.IngestID
+		}
+		var identities []Record
+		if err := db.WithContext(ctx).Select("id,ingest_id").Where("ingest_id IN ?", keys).Find(&identities).Error; err != nil {
+			writeErrors = append(writeErrors, fmt.Errorf("read committed history identities %s: %w", month, err))
+			continue
+		}
+		ids := make(map[string]int64, len(identities))
+		for _, record := range identities {
+			if record.IngestID != nil {
+				ids[*record.IngestID] = record.ID
+			}
+		}
+		for _, record := range recs {
+			record.ID = ids[*record.IngestID]
 		}
 	}
-	return nil
+	return errors.Join(writeErrors...)
 }
 
 // Prune removes old files
@@ -173,375 +243,14 @@ func (s *SQLiteStore) Prune(retentionDays int) {
 	}
 }
 
-// Query executes a query
-func (s *SQLiteStore) Query(req QueryRequest) (*QueryResponse, error) {
-	//s.logger.Info("SQLiteStore Query",
-	//	zap.String("device", req.DeviceCode),
-	//	zap.Int("type", req.Type))
-
-	if req.Aggregate {
-		return s.queryAggregated(req)
-	}
-	return s.queryList(req)
-}
-
-func (s *SQLiteStore) queryList(req QueryRequest) (*QueryResponse, error) {
-	start := req.StartTime
-	end := req.EndTime
-	if end == 0 {
-		end = time.Now().UnixMilli()
-	}
-
-	months := s.getMonthsInRange(start, end)
-
-	// 1. Calculate Total Count
-	var total int64
-	for _, month := range months {
-		db, err := s.getDB(month)
-		if err != nil {
-			continue
-		}
-		var count int64
-		tx := db.Model(&Record{}).Where("ts BETWEEN ? AND ?", start, end)
-		if req.DeviceCode != "" {
-			tx = tx.Where("device_code = ?", req.DeviceCode)
-		}
-		if req.Type > 0 {
-			tx = tx.Where("type = ?", req.Type)
-		}
-		tx.Count(&count)
-		total += count
-	}
-
-	// 2. Pagination (Newest to Oldest)
-	offset := int64((req.Page - 1) * req.PageSize)
-	if offset < 0 {
-		offset = 0
-	}
-	limit := int(req.PageSize)
-	if limit <= 0 {
-		limit = 20
-	}
-
-	resultList := make([]interface{}, 0)
-
-	// Iterate backwards
-	for i := len(months) - 1; i >= 0; i-- {
-		if limit <= 0 {
-			break
-		}
-		month := months[i]
-		db, err := s.getDB(month)
-		if err != nil {
-			continue
-		}
-
-		var count int64
-		tx := db.Model(&Record{}).Where("ts BETWEEN ? AND ?", start, end)
-		if req.DeviceCode != "" {
-			tx = tx.Where("device_code = ?", req.DeviceCode)
-		}
-		if req.Type > 0 {
-			tx = tx.Where("type = ?", req.Type)
-		}
-		tx.Count(&count)
-
-		if count == 0 {
-			continue
-		}
-
-		if offset >= count {
-			offset -= count
-			continue
-		}
-
-		var recs []Record
-		tx2 := db.Where("ts BETWEEN ? AND ?", start, end)
-		if req.DeviceCode != "" {
-			tx2 = tx2.Where("device_code = ?", req.DeviceCode)
-		}
-		if req.Type > 0 {
-			tx2 = tx2.Where("type = ?", req.Type)
-		}
-
-		if err := tx2.Order("ts desc").Offset(int(offset)).Limit(limit).Find(&recs).Error; err != nil {
-			s.logger.Error("Query failed", zap.String("month", month), zap.Error(err))
-			continue
-		}
-
-		for _, r := range recs {
-			var payload map[string]interface{}
-			if err := json.Unmarshal(r.Payload, &payload); err != nil {
-				payload = map[string]interface{}{"raw": string(r.Payload), "error": "parse_failed"}
-			}
-
-			if req.Type == TypeTelemetry && len(req.Keys) > 0 {
-				filtered := make(map[string]interface{})
-				for _, k := range req.Keys {
-					if v, ok := payload[k]; ok {
-						filtered[k] = v
-					}
-				}
-				filtered["ts"] = r.Ts
-				filtered["_record_id"] = r.ID
-				resultList = append(resultList, filtered)
-			} else {
-				payload["ts"] = r.Ts
-				payload["_type"] = r.Type
-				payload["_record_id"] = r.ID
-				payload["device_code"] = r.DeviceCode
-				resultList = append(resultList, payload)
-			}
-		}
-
-		fetched := len(recs)
-		limit -= fetched
-		offset = 0 // Offset consumed
-	}
-
-	return &QueryResponse{
-		Total: total,
-		List:  resultList,
-	}, nil
-}
-
-func (s *SQLiteStore) queryAggregated(req QueryRequest) (*QueryResponse, error) {
-	start := req.StartTime
-	end := req.EndTime
-	if end == 0 {
-		end = time.Now().UnixMilli()
-	}
-
-	months := s.getMonthsInRange(start, end)
-	var interval int64
-	var resultList []interface{}
-
-	if req.Type == TypeEvent {
-		eventCounts := make(map[string]int)
-		for _, month := range months {
-			func() {
-				db, err := s.getDB(month)
-				if err != nil {
-					return
-				}
-				rows, err := db.Model(&Record{}).
-					Where("device_code = ? AND type = ? AND ts >= ? AND ts <= ?", req.DeviceCode, req.Type, start, end).
-					Rows()
-				if err != nil {
-					return
-				}
-				defer rows.Close()
-
-				for rows.Next() {
-					var r Record
-					db.ScanRows(rows, &r)
-					var payload map[string]interface{}
-					if err := json.Unmarshal(r.Payload, &payload); err == nil {
-						if eid, ok := payload["event_id"].(string); ok {
-							eventCounts[eid]++
-						} else {
-							eventCounts["Unknown"]++
-						}
-					}
-				}
-			}()
-		}
-		for k, v := range eventCounts {
-			resultList = append(resultList, map[string]interface{}{
-				"event_id": k,
-				"count":    v,
-				"ts":       start,
-			})
-		}
-	} else {
-		// Telemetry Aggregation
-		targetPoints := req.MaxPoints
-		if targetPoints <= 0 {
-			targetPoints = 2000
-		}
-		interval = (end - start) / int64(targetPoints)
-		if interval < 1000 {
-			interval = 1000
-		}
-
-		type Bucket struct {
-			Sum    map[string]float64
-			Count  map[string]int
-			Min    map[string]float64
-			Max    map[string]float64
-			Values map[string][]float64
-			Last   map[string]interface{}
-		}
-		buckets := make(map[int64]*Bucket)
-
-		rawLimit := targetPoints
-		rawList := make([]interface{}, 0, rawLimit)
-		useRaw := true
-
-		for _, month := range months {
-			func() {
-				db, err := s.getDB(month)
-				if err != nil {
-					return
-				}
-
-				rows, err := db.Model(&Record{}).
-					Where("device_code = ? AND type = ? AND ts >= ? AND ts <= ?", req.DeviceCode, req.Type, start, end).
-					Rows()
-				if err != nil {
-					return
-				}
-				defer rows.Close()
-
-				for rows.Next() {
-					var r Record
-					db.ScanRows(rows, &r)
-					var payload map[string]interface{}
-					if err := json.Unmarshal(r.Payload, &payload); err == nil {
-						// Aggregation
-						binIdx := (r.Ts - start) / interval
-						b, ok := buckets[binIdx]
-						if !ok {
-							b = &Bucket{
-								Sum:    make(map[string]float64),
-								Count:  make(map[string]int),
-								Min:    make(map[string]float64),
-								Max:    make(map[string]float64),
-								Values: make(map[string][]float64),
-								Last:   make(map[string]interface{}),
-							}
-							buckets[binIdx] = b
-						}
-
-						for k, v := range payload {
-							if len(req.Keys) > 0 {
-								found := false
-								for _, rk := range req.Keys {
-									if rk == k {
-										found = true
-										break
-									}
-								}
-								if !found {
-									continue
-								}
-							}
-
-							if num, ok := v.(float64); ok {
-								b.Count[k]++
-								switch req.AggMethod {
-								case "min":
-									if val, exists := b.Min[k]; !exists || num < val {
-										b.Min[k] = num
-									}
-								case "max":
-									if val, exists := b.Max[k]; !exists || num > val {
-										b.Max[k] = num
-									}
-								case "median":
-									b.Values[k] = append(b.Values[k], num)
-								default: // avg
-									b.Sum[k] += num
-								}
-							}
-							b.Last[k] = v
-						}
-
-						// Raw
-						if useRaw {
-							item := make(map[string]interface{})
-							item["ts"] = r.Ts
-							for k, v := range payload {
-								if len(req.Keys) > 0 {
-									found := false
-									for _, rk := range req.Keys {
-										if rk == k {
-											found = true
-											break
-										}
-									}
-									if !found {
-										continue
-									}
-								}
-								item[k] = v
-							}
-							rawList = append(rawList, item)
-							if len(rawList) > rawLimit {
-								useRaw = false
-								rawList = nil
-							}
-						}
-					}
-				}
-			}()
-		}
-
-		if useRaw {
-			sort.Slice(rawList, func(i, j int) bool {
-				t1 := rawList[i].(map[string]interface{})["ts"].(int64)
-				t2 := rawList[j].(map[string]interface{})["ts"].(int64)
-				return t1 < t2
-			})
-			return &QueryResponse{
-				Total: int64(len(rawList)),
-				List:  rawList,
-			}, nil
-		}
-
-		// Fallback to Aggregated
-		var keys []int64
-		for k := range buckets {
-			keys = append(keys, k)
-		}
-		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-
-		for _, k := range keys {
-			b := buckets[k]
-			item := make(map[string]interface{})
-			item["ts"] = start + k*interval
-			for pk, pv := range b.Last {
-				item[pk] = pv
-			}
-			switch req.AggMethod {
-			case "min":
-				for pk, val := range b.Min {
-					item[pk] = val
-				}
-			case "max":
-				for pk, val := range b.Max {
-					item[pk] = val
-				}
-			case "median":
-				for pk, vals := range b.Values {
-					if len(vals) > 0 {
-						sort.Float64s(vals)
-						item[pk] = vals[len(vals)/2]
-					}
-				}
-			default:
-				for pk, sum := range b.Sum {
-					if cnt := b.Count[pk]; cnt > 0 {
-						item[pk] = sum / float64(cnt)
-					}
-				}
-			}
-			resultList = append(resultList, item)
-		}
-	}
-
-	return &QueryResponse{
-		Total:    int64(len(resultList)),
-		List:     resultList,
-		Interval: interval,
-	}, nil
-}
-
 func (s *SQLiteStore) getMonthsInRange(start, end int64) []string {
+	if start > end {
+		return []string{}
+	}
 	startT := time.UnixMilli(start)
 	endT := time.UnixMilli(end)
 	months := []string{}
-	curr := startT
+	curr := time.Date(startT.Year(), startT.Month(), 1, 0, 0, 0, 0, startT.Location())
 	for !curr.After(endT) {
 		m := curr.Format("200601")
 		if len(months) == 0 || months[len(months)-1] != m {

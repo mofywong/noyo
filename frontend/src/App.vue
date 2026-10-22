@@ -4,7 +4,7 @@
     :data-bs-theme="currentTheme === 'system' ? systemTheme : currentTheme"
     :style="liquidGlassRootStyle"
   >
-    <template v-if="!isStandalonePage">
+    <template v-if="!isStandalonePage && !isScreenWorkspace">
       <Sidebar 
         :is-open="sidebarOpen" 
         :current-plugin="currentPluginName"
@@ -215,6 +215,9 @@ const copyToClipboard = async (text) => {
 
 // Computed
 const currentPluginName = computed(() => route.params.name);
+// The screen editor owns its page chrome. Global plugin launchers stay in the
+// application shell; the dedicated IOC assistant owns this workspace.
+const isScreenWorkspace = computed(() => !!route.meta?.screenMode);
 const isStandalonePage = computed(() => (
   isDevelopmentDemoPath.value ||
   route.name === 'Login' ||
@@ -240,6 +243,7 @@ const cascadePluginEnabled = computed(() => {
 const pageTitle = computed(() => {
   const name = route.name;
   if (name === 'Dashboard') return t('page_dashboard');
+  if (String(name).startsWith('Screen')) return t('screens.title');
   if (name === 'Marketplace') return t('page_marketplace');
   if (name === 'Products') return t('sidebar_products');
   if (name === 'Devices') return t('sidebar_devices');

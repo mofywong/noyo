@@ -137,6 +137,31 @@ func ListDeviceLocationsByCodes(codes []string) (map[string]*DeviceLocation, err
 	return out, nil
 }
 
+// LoadDeviceNames 批量读取设备名称，返回 device_code -> name。
+//
+// 大屏的地图与告警面板都需要「名称」而不是编码：编码是运维标识
+// （DEV_06_FAS_BACNET_GW），直接贴到墙上没人认得出是哪个点位。
+// 名称取不到时由调用方回退到编码，不要在这里编造占位符。
+func LoadDeviceNames(codes []string) (map[string]string, error) {
+	out := make(map[string]string)
+	if DB == nil || len(codes) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		Code string
+		Name string
+	}
+	if err := DB.Model(&Device{}).Select("code, name").Where("code IN ?", codes).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if row.Name != "" {
+			out[row.Code] = row.Name
+		}
+	}
+	return out, nil
+}
+
 // Geofence 是地理围栏定义。坐标一律 WGS-84。
 //
 // 注意：围栏当前只在本端持久化，尚未接入 cascade 配置同步链路。

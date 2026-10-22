@@ -5,7 +5,6 @@
       {{ modeLabel }}
     </span>
     <button
-      v-if="state.mode !== 'reconciling'"
       v-permission="'gateway:config'"
       type="button"
       class="gateway-maintenance-status__action"
@@ -37,11 +36,11 @@ const copy = computed(() => String(locale.value).toLowerCase().startsWith('zh')
       normal: '正常模式', maintenance: '本地维护中', reconciling: '正在交接',
       enter: '进入维护', exit: '结束维护', working: '处理中…',
       hint: '只有在页面新增、修改或删除产品、驱动和设备时需要维护模式；维护期间平台对这些资源的修改暂停。',
-      handoverHint: '正在同步本地改动，交接期间产品、驱动和设备暂时只读。系统会自动完成交接并恢复正常状态，无需重复操作。',
+      handoverHint: '正在同步本地改动，交接期间产品、驱动和设备暂时只读。如需继续修改，可重新进入维护模式；结束维护后统一交接，待平台确认后恢复正常。',
       enterTitle: '准备进入维护模式',
-      enterMessage: '进入后，你可以在网关页面新增、修改或删除产品、驱动和设备，平台对这些资源的修改会暂停。请完成并保存改动后点击「结束维护」，系统会把改动同步给平台。',
+      enterMessage: '进入后，你可以在网关页面新增、修改或删除产品、驱动和设备，平台对这些资源的修改会暂停。尚未同步的改动会保留；请完成并保存改动后点击「结束维护」，系统会统一交接全部改动。',
       exitTitle: '准备结束维护模式',
-      exitMessage: '请先保存本地改动。结束后，产品、驱动和设备将恢复本地只读，系统会把已保存的改动同步给平台。请等待「正在交接」结束；确认和重试由系统自动完成，无需重复操作。',
+      exitMessage: '请先保存本地改动。结束后，产品、驱动和设备将恢复本地只读，系统会统一交接全部已保存的改动，待平台确认后恢复正常。平台离线时会自动重试；如需继续修改，可重新进入维护模式。',
       exitConfirm: '结束维护并同步', enterCancel: '暂不进入', exitCancel: '继续维护',
       entered: '已进入维护模式。请在页面完成并保存产品、驱动或设备的改动，完成后点击「结束维护」。',
       failed: '维护状态操作失败',
@@ -50,11 +49,11 @@ const copy = computed(() => String(locale.value).toLowerCase().startsWith('zh')
       normal: 'Normal mode', maintenance: 'Local maintenance', reconciling: 'Reconciling',
       enter: 'Start maintenance', exit: 'Finish maintenance', working: 'Working…',
       hint: 'Maintenance mode is required only to create, edit or delete products, drivers and devices on the page. Platform edits to these resources pause during maintenance.',
-      handoverHint: 'Syncing your local changes. Products, drivers and devices are read-only during handover. The system will finish the handover and return to normal automatically; no further action is needed.',
+      handoverHint: 'Syncing your local changes. Products, drivers and devices are read-only during handover. To continue editing, start maintenance again. Finishing maintenance hands over all saved changes together and returns to normal after platform confirmation.',
       enterTitle: 'Start maintenance mode',
-      enterMessage: 'You will be able to create, edit or delete products, drivers and devices on the gateway page. Platform edits to these resources will pause. Save your changes, then click “Finish maintenance” to sync them to the platform.',
+      enterMessage: 'You will be able to create, edit or delete products, drivers and devices on the gateway page. Platform edits to these resources will pause. Unsynced changes will be retained. Save your changes, then click “Finish maintenance” to hand over all changes together.',
       exitTitle: 'Finish maintenance mode',
-      exitMessage: 'Please save your local changes first. Products, drivers and devices will become locally read-only, and your saved changes will sync to the platform. Wait for “Reconciling” to finish. The system handles confirmation and retries automatically; no further action is needed.',
+      exitMessage: 'Please save your local changes first. Products, drivers and devices will become locally read-only. All saved changes will be handed over together, returning to normal after platform confirmation. The system retries while the platform is offline. To continue editing, start maintenance again.',
       exitConfirm: 'Finish and sync', enterCancel: 'Not now', exitCancel: 'Keep maintaining',
       entered: 'Maintenance mode is on. Make and save your product, driver or device changes on the page, then click “Finish maintenance”.',
       failed: 'Could not change maintenance mode',
@@ -73,7 +72,7 @@ async function fetchState() {
 }
 
 async function changeMode() {
-  if (!gatewayMode.value || !['normal', 'maintenance'].includes(state.value?.mode) || changing.value) return;
+  if (!gatewayMode.value || !['normal', 'maintenance', 'reconciling'].includes(state.value?.mode) || changing.value) return;
   const mode = state.value.mode;
   const action = mode === 'maintenance' ? 'exit' : 'enter';
   changing.value = true;

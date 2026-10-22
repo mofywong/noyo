@@ -87,8 +87,13 @@
           </span>
         </button>
         <ul class="dropdown-menu dropdown-menu-end shadow-sm" :class="{ show: activeDropdown === 'alarm' }" style="width: 320px; max-height: 400px; overflow-y: auto;">
-          <li><h6 class="dropdown-header">{{ $t('header_latest_alarms', '最新告警') }}</h6></li>
-          <li v-if="recentAlarms.length === 0"><span class="dropdown-item text-muted small">{{ $t('header_no_alarms', '暂无新告警') }}</span></li>
+          <li><h6 class="dropdown-header">{{ $t('header_recent_alarms_7d') }}</h6></li>
+          <li v-if="legacyHistoryUnscoped"><span class="dropdown-item-text text-warning small" role="status">{{ $t('header_history_needs_migration') }}</span></li>
+          <li v-if="eventsHistoryLoadFailed" class="dropdown-item-text small" role="alert">
+            <span class="text-warning">{{ $t('header_history_load_failed') }}</span>
+            <button type="button" class="btn btn-outline-secondary btn-sm mt-2" @click="fetchRecentEvents">{{ $t('common_retry') }}</button>
+          </li>
+          <li v-if="recentAlarms.length === 0 && !legacyHistoryUnscoped && !eventsHistoryLoadFailed"><span class="dropdown-item text-muted small">{{ $t('header_no_alarms', '暂无新告警') }}</span></li>
           <li v-for="evt in recentAlarms" :key="evt.ts">
             <a class="dropdown-item py-2 border-bottom" href="#" @click.prevent="goToAlarmDetail(evt)">
               <div class="d-flex w-100 justify-content-between">
@@ -101,7 +106,7 @@
               </p>
             </a>
           </li>
-          <li v-if="recentAlarms.length > 0">
+          <li>
             <a class="dropdown-item text-center small text-primary py-2" href="#" @click.prevent="goToAlarms">{{ $t('header_view_all_alarms', '查看全部告警') }}</a>
           </li>
         </ul>
@@ -484,6 +489,8 @@ const liquidGlassCopy = computed(() => locale.value === 'zh'
     });
 
 const recentEvents = ref([]);
+const legacyHistoryUnscoped = ref(false);
+const eventsHistoryLoadFailed = ref(false);
 const unreadCount = ref(0);
 const devices = ref({});
 const products = ref({});
@@ -805,21 +812,29 @@ let eventStreamStopped = false;
 const fetchRecentEvents = async () => {
   if (eventsFetchPending || eventStreamStopped || !localStorage.getItem('access_token') || !authStore.hasPermission('device:list')) return;
   eventsFetchPending = true;
+  const requestScope = JSON.stringify(['access_token', 'current_tenant_id', 'current_project_id'].map(key => localStorage.getItem(key)));
   try {
+    const endTime = Date.now();
+    const startTime = endTime - 7 * 24 * 60 * 60 * 1000;
     const res = await axios.post('/api/history/query', {
       device_code: "",
       type: 2, // Event
-      start_time: 0,
-      end_time: 0,
+      start_time: startTime,
+      end_time: endTime,
+      skip_total: true,
       page: 1,
       page_size: 50  // 多拉一些，过滤后取告警
     });
+    if (eventStreamStopped || requestScope !== JSON.stringify(['access_token', 'current_tenant_id', 'current_project_id'].map(key => localStorage.getItem(key)))) return;
+    if (res.data.code !== 0 || !res.data.data) throw new Error('Recent history request failed');
     if (res.data.code === 0 && res.data.data) {
       if (eventStreamStopped) return;
+      eventsHistoryLoadFailed.value = false;
+      legacyHistoryUnscoped.value = Boolean(res.data.data.legacy_unscoped);
       for (const evt of [...(res.data.data.list || [])].sort((a, b) => a.ts - b.ts)) {
         if (isAlarmClearedEvent(evt) && Date.now() - evt.ts < 30000) publishAlarmEvent(evt);
       }
-      const list = mergeRecentAlarmEvents(recentEvents.value, res.data.data.list || []);
+      const list = mergeRecentAlarmEvents(recentEvents.value, res.data.data.list || []).filter(evt => evt.ts >= startTime);
       recentEvents.value = list;
       
       // 只统计告警事件的未读数
@@ -846,7 +861,9 @@ const fetchRecentEvents = async () => {
       }
     }
   } catch (e) {
-    // ignore
+    if (!eventStreamStopped && requestScope === JSON.stringify(['access_token', 'current_tenant_id', 'current_project_id'].map(key => localStorage.getItem(key)))) {
+      eventsHistoryLoadFailed.value = true;
+    }
   } finally {
     eventsFetchPending = false;
   }

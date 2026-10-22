@@ -33,6 +33,10 @@ type DeviceRuntime struct {
 	Status                DeviceStatus
 	Properties            map[string]interface{}
 	PropertiesInitialized bool
+	ScreenSamples         map[string]ScreenSample
+	ScreenVersion         uint64
+	ScreenStatusVersion   uint64
+	ScreenStatusReceived  int64
 }
 
 // DeviceManager manages the lifecycle of devices and their tasks
@@ -310,7 +314,10 @@ func (dm *DeviceManager) ReportDeviceStatus(deviceCode string, status DeviceStat
 
 	rt.mu.Lock()
 	rt.Status = status
+	rt.ScreenStatusVersion++
+	rt.ScreenStatusReceived = time.Now().UnixMilli()
 	rt.mu.Unlock()
+	dm.publishScreenRuntimeChange(deviceCode, nil)
 
 	// Notify EventBus every time, no filtering
 	statusStr := types.DeviceStatusOffline
@@ -351,7 +358,10 @@ func (dm *DeviceManager) UpdateStatus(deviceCode string, err error) {
 
 	// Create copy for publishing to avoid holding lock during Publish
 	statusCopy := rt.Status
+	rt.ScreenStatusVersion++
+	rt.ScreenStatusReceived = now.UnixMilli()
 	rt.mu.Unlock()
+	dm.publishScreenRuntimeChange(deviceCode, nil)
 
 	statusStr := types.DeviceStatusOffline
 	if statusCopy.Online {
@@ -507,7 +517,6 @@ func (dm *DeviceManager) mergeLatestData(deviceCode string, data map[string]inte
 	rt := dm.getRuntime(deviceCode)
 
 	rt.mu.Lock()
-	defer rt.mu.Unlock()
 
 	if rt.Properties == nil {
 		rt.Properties = make(map[string]interface{})
@@ -521,6 +530,9 @@ func (dm *DeviceManager) mergeLatestData(deviceCode string, data map[string]inte
 		rt.Properties[k] = v
 	}
 	rt.PropertiesInitialized = true
+	samples := recordScreenSamplesLocked(rt, data)
+	rt.mu.Unlock()
+	dm.publishScreenRuntimeChange(deviceCode, samples)
 
 	if isInitial {
 		// Do not return changed properties on the very first state initialization
@@ -922,7 +934,12 @@ func (dm *DeviceManager) pushDeviceEventToTSDB(meta DeviceMeta, eventId string, 
 		return
 	}
 	paramsForTSDB := cloneEventParams(params)
-	go func() {
+	owner, err := dm.historyOwner(meta.DeviceCode)
+	if err != nil {
+		dm.Server.Logger.Error("Failed to resolve event history owner", zap.Error(err))
+		return
+	}
+	func() {
 		data := map[string]interface{}{
 			"event_id": eventId,
 			"params":   paramsForTSDB,
@@ -932,12 +949,17 @@ func (dm *DeviceManager) pushDeviceEventToTSDB(meta DeviceMeta, eventId string, 
 			dm.Server.Logger.Error("Failed to marshal event for TSDB", zap.Error(err))
 			return
 		}
-		dm.TSDB.Push(&tsdb.Record{
+		if err := dm.TSDB.Push(&tsdb.Record{
+			DeviceID:   owner.DeviceID,
+			TenantID:   owner.TenantID,
+			ProjectID:  owner.ProjectID,
 			Ts:         eventTs,
 			DeviceCode: meta.DeviceCode,
 			Type:       tsdb.TypeEvent,
 			Payload:    payload,
-		})
+		}); err != nil {
+			dm.Server.Logger.Error("Failed to accept event history", zap.String("device", meta.DeviceCode), zap.Error(err))
+		}
 	}()
 }
 
@@ -976,23 +998,37 @@ func (dm *DeviceManager) ReportDeviceProperties(meta DeviceMeta, properties map[
 	changedProperties, isInitial := dm.mergeLatestData(meta.DeviceCode, properties)
 	go dm.UpdateStatus(meta.DeviceCode, nil)
 
-	// 2. Persist to TSDB
+	// 2. Persist to TSDB. Keep live dispatch working, and report persistence failure
+	// to the producer so a failed admission is never acknowledged as stored.
+	var historyErr error
 	if dm.TSDB != nil {
 		payload, err := json.Marshal(properties)
 		if err == nil {
-			record := &tsdb.Record{
-				Ts:         time.Now().UnixMilli(),
-				DeviceCode: meta.DeviceCode,
-				Type:       tsdb.TypeTelemetry,
-				Payload:    payload,
+			owner, ownerErr := dm.historyOwner(meta.DeviceCode)
+			if ownerErr != nil {
+				historyErr = fmt.Errorf("resolve history owner: %w", ownerErr)
+			} else {
+				record := &tsdb.Record{
+					DeviceID:   owner.DeviceID,
+					TenantID:   owner.TenantID,
+					ProjectID:  owner.ProjectID,
+					Ts:         time.Now().UnixMilli(),
+					DeviceCode: meta.DeviceCode,
+					Type:       tsdb.TypeTelemetry,
+					Payload:    payload,
+				}
+				historyErr = dm.TSDB.Push(record)
 			}
-			dm.TSDB.Push(record)
 		} else {
 			dm.Server.Logger.Error("Failed to marshal properties for TSDB", zap.Error(err))
+			historyErr = err
 		}
 	}
 
 	// 3. Publish Event
+	if historyErr != nil {
+		dm.Server.Logger.Error("Failed to accept telemetry history", zap.String("device", meta.DeviceCode), zap.Error(historyErr))
+	}
 	dm.EventBus.Publish(types.Event{
 		Type:      types.EventPropertyReported,
 		Topic:     meta.DeviceCode,
@@ -1005,8 +1041,8 @@ func (dm *DeviceManager) ReportDeviceProperties(meta DeviceMeta, properties map[
 	dm.reportLocationFromProperties(meta.DeviceCode, properties)
 
 	// 5. Broadcast to Platform Plugins -> Removed, handled by DispatchService via EventBus
-	return nil
-} 
+	return historyErr
+}
 
 // reportLocationFromProperties 把属性上报里的定位信息交给定位服务。
 //

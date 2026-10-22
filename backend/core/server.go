@@ -13,6 +13,7 @@ import (
 	"noyo/core/alarmmedia"
 	"noyo/core/config"
 	"noyo/core/protocol"
+	"noyo/core/screenassets"
 	"noyo/core/store"
 	"noyo/core/system"
 	"noyo/core/tsdb"
@@ -52,15 +53,15 @@ type Server struct {
 	TSDB              *tsdb.TSDBManager
 	MediaSessions     *MediaSessionManager
 	// Location 统一收口设备位置写入（遥测与人工标注），Geofence 负责空间判定。
-	Location          *LocationService
-	Geofence          *GeofenceService
-	WebServer         *ghttp.Server
-	uiFS              fs.FS
-	setupMu           sync.Mutex
-	aiAssetsMu        sync.Mutex
-	aiAssets          *aiassets.Service
-	aiAssetsRoot      string
-	aiModelConfigMu   sync.RWMutex
+	Location        *LocationService
+	Geofence        *GeofenceService
+	WebServer       *ghttp.Server
+	uiFS            fs.FS
+	setupMu         sync.Mutex
+	aiAssetsMu      sync.Mutex
+	aiAssets        *aiassets.Service
+	aiAssetsRoot    string
+	aiModelConfigMu sync.RWMutex
 }
 
 func (s *Server) SetUI(uiFS fs.FS) {
@@ -162,13 +163,25 @@ func NewServer() (*Server, error) {
 // Run starts the server and blocks until an interrupt signal is received
 func (s *Server) Run() error {
 	s.Logger.Info("Starting Gateway Server...")
+	historyStopped := false
+	stopHistory := func() {
+		if historyStopped {
+			return
+		}
+		historyStopped = true
+		if err := s.TSDB.Stop(); err != nil {
+			s.Logger.Error("History shutdown left pending records for recovery", zap.Error(err))
+		}
+	}
 
 	// Start TSDB
 	if err := s.TSDB.Init(); err != nil {
 		s.Logger.Error("Failed to init TSDB", zap.Error(err))
 	} else {
-		s.TSDB.Start()
-		defer s.TSDB.Stop()
+		if err := s.TSDB.Start(); err != nil {
+			return fmt.Errorf("start history: %w", err)
+		}
+		defer stopHistory()
 	}
 
 	// Global ONNX Runtime Initialization
@@ -213,6 +226,10 @@ func (s *Server) Run() error {
 
 	// Serve UI
 	if s.uiFS != nil {
+		screenEditor := screenassets.Handler(s.uiFS)
+		s.WebServer.BindHandler("/screen-editor/*", func(r *ghttp.Request) {
+			screenEditor.ServeHTTP(r.Response.Writer, r.Request)
+		})
 		// Serve static images from /data/images and attachments from /data/attachments
 		s.WebServer.BindHandler("/data/images/*", func(r *ghttp.Request) {
 			s.serveAuthorizedAsset(r, "./data/images", "/data/images/", false)
@@ -223,7 +240,7 @@ func (s *Server) Run() error {
 
 		s.WebServer.BindHandler("/*", func(r *ghttp.Request) {
 			// Skip API
-			if strings.HasPrefix(r.Request.URL.Path, "/api/") || strings.HasPrefix(r.Request.URL.Path, "/data/") {
+			if strings.HasPrefix(r.Request.URL.Path, "/api/") || strings.HasPrefix(r.Request.URL.Path, "/data/") || strings.HasPrefix(r.Request.URL.Path, "/screen-editor") {
 				r.Response.WriteStatus(404)
 				return
 			}
@@ -315,6 +332,7 @@ func (s *Server) Run() error {
 		}
 	}
 	s.Manager.StopPlugins()
+	stopHistory()
 	s.Logger.Sync()
 	return nil
 }
@@ -334,6 +352,13 @@ func (s *Server) handleQueryHistory(r *ghttp.Request) {
 	if req.PageSize <= 0 {
 		req.PageSize = 20
 	}
+	owners, err := historyOwners(r, req.DeviceCode)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "History access denied / 无权访问历史数据"})
+		return
+	}
+	req.Owners = owners
+	req.Context = r.Context()
 
 	res, err := s.TSDB.Query(req)
 	if err != nil {
@@ -683,7 +708,17 @@ func (s *Server) handleDeleteRecord(r *ghttp.Request) {
 		return
 	}
 
-	if err := s.TSDB.DeleteRecord(req.ID, req.Ts); err != nil {
+	record, err := s.TSDB.GetRecord(r.Context(), req.ID, req.Ts)
+	if err != nil {
+		r.Response.WriteJson(g.Map{"code": 404, "message": "History record unavailable / 历史记录不可用"})
+		return
+	}
+	if !canDeleteHistoryRecord(r, record) {
+		r.Response.WriteJson(g.Map{"code": 403, "message": "History access denied / 无权访问历史数据"})
+		return
+	}
+	owner := tsdb.RecordOwner{DeviceID: record.DeviceID, TenantID: record.TenantID, ProjectID: record.ProjectID}
+	if err := s.TSDB.DeleteOwnedRecord(r.Context(), req.ID, req.Ts, owner); err != nil {
 		r.Response.WriteJson(g.Map{"code": 500, "message": err.Error()})
 		return
 	}

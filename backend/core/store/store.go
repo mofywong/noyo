@@ -95,6 +95,15 @@ func InitDB(dsn string) error {
 
 	// AutoMigrate models
 	err = DB.AutoMigrate(
+		&IOCScreen{},
+		&IOCScreenMessage{},
+		&IOCScreenConversation{},
+		&IOCScreenAssistantJob{},
+		&IOCScreenRelease{},
+		&IOCScreenResourceRef{},
+		&IOCScreenAsset{},
+		&IOCDataSet{},
+		&IOCDataSetVersion{},
 		&SyncChange{},
 		&ConfigProjection{},
 		&ConfigIntent{},
@@ -324,6 +333,12 @@ func InitDefaultData() {
 
 func InitPermissions() {
 	defaultPermissions := []Permission{
+		{Code: "screen:list", Name: "大屏列表 / Screens", Module: "screen", Type: "menu"},
+		{Code: "screen:view", Name: "查看大屏 / View screen", Module: "screen", Type: "button"},
+		{Code: "screen:create", Name: "创建大屏 / Create screen", Module: "screen", Type: "button"},
+		{Code: "screen:edit", Name: "编辑大屏 / Edit screen", Module: "screen", Type: "button"},
+		{Code: "screen:publish", Name: "发布大屏 / Publish screen", Module: "screen", Type: "button"},
+		{Code: "screen:delete", Name: "删除大屏 / Delete screen", Module: "screen", Type: "button"},
 		// Tenants
 		{Code: "tenant:list", Name: "租户列表", Module: "tenant", Type: "menu"},
 		{Code: "tenant:create", Name: "创建租户", Module: "tenant", Type: "button"},

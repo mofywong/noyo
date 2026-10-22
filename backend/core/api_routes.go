@@ -54,6 +54,9 @@ func (s *Server) registerAPIRoutes() {
 			permissionPOST(pluginGroup, "/:name/config", "plugin:config", s.handleUpdatePluginConfig)
 			permissionPOST(pluginGroup, "/:name/discover", "plugin:config", s.handlePluginDiscover)
 			s.registerAIModelRoutes(protected)
+			// Screens resolve a concrete project scope themselves, including for
+			// global super administrators whose account has no tenant identity.
+			s.RegisterScreenRoutes(protected)
 
 			systemGroup := protected.Group("/system")
 			permissionGET(systemGroup, "/stats", "dashboard:view", s.handleSystemStats)

@@ -125,7 +125,7 @@
                 {{ gt('enter') }}
               </LiquidGlassButton>
               <LiquidGlassButton
-                v-if="['normal', 'maintenance'].includes(maintenanceStates[gw.sn]?.mode)"
+                v-if="['normal', 'maintenance', 'reconciling'].includes(maintenanceStates[gw.sn]?.mode)"
                 v-permission="'gateway:config'"
                 variant="secondary"
                 size="sm"
@@ -497,8 +497,9 @@ const fetchGateways = async (options = {}) => {
 };
 
 const requestMaintenance = async (gateway, action = 'enter') => {
-  const expectedMode = action === 'exit' ? 'maintenance' : 'normal';
-  if (!['enter', 'exit'].includes(action) || !gateway?.online || maintenanceRequests.value[gateway.sn] || maintenanceStates.value[gateway.sn]?.mode !== expectedMode) return;
+  const expectedMode = maintenanceStates.value[gateway?.sn]?.mode;
+  const allowedModes = action === 'exit' ? ['maintenance'] : ['normal', 'reconciling'];
+  if (!['enter', 'exit'].includes(action) || !gateway?.online || maintenanceRequests.value[gateway.sn] || !allowedModes.includes(expectedMode)) return;
   maintenanceRequests.value = { ...maintenanceRequests.value, [gateway.sn]: true };
   try {
     const confirmed = await confirmDialog({

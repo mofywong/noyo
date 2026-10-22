@@ -222,7 +222,13 @@ func logAuditRecord(r *ghttp.Request) {
 	}
 
 	detail := "[MODEL_ARCHIVE_CONTENT_OMITTED]"
-	if strings.TrimRight(r.URL.Path, "/") != "/api/ai/models/import" {
+	detailPrefix := "Body: "
+	if r.URL.Path == "/api/screens" || strings.HasPrefix(r.URL.Path, "/api/screens/") {
+		// Screen documents and uploads may be large and may contain sensitive
+		// configuration. Record bounded metadata without reading the body.
+		detail = screenAuditDetail(r)
+		detailPrefix = "Metadata: "
+	} else if strings.TrimRight(r.URL.Path, "/") != "/api/ai/models/import" {
 		detail = redactSensitiveBody(r.GetBody(), r.URL.Path)
 	}
 	log := store.AuditLog{
@@ -233,7 +239,7 @@ func logAuditRecord(r *ghttp.Request) {
 		Module:    r.Router.Uri,
 		Action:    action,
 		Resource:  r.URL.Path,
-		Detail:    "Body: " + detail,
+		Detail:    detailPrefix + detail,
 		IP:        r.GetClientIp(),
 		UserAgent: r.Header.Get("User-Agent"),
 	}

@@ -103,6 +103,9 @@ if not exist "..\backend\dist\index.html" (
 )
 cd ..
 
+node scripts\build-goview.mjs --verify-only
+if %errorlevel% neq 0 exit /b %errorlevel%
+
 echo [2/3] Skipping copy (Vite builds to backend/dist directly)...
 
 echo [3/3] Building Backend...

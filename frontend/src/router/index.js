@@ -46,6 +46,16 @@ const routes = [
     meta: { requiresAuth: true, permission: 'plugin:list' }
   },
   {
+    path: '/screens', name: 'Screens',
+    component: () => import('../views/ScreenList.vue'),
+    meta: { requiresAuth: true, permission: 'screen:list' }
+  },
+  ...['edit', 'preview', 'view'].map((mode) => ({
+    path: `/screens/:id/${mode}`, name: `Screen-${mode}`,
+    component: () => import('../views/ScreenHost.vue'),
+    meta: { requiresAuth: true, permission: mode === 'edit' ? 'screen:edit' : 'screen:view', screenMode: mode }
+  })),
+  {
     path: '/ai/model-center',
     name: 'ModelManagement',
     component: () => import('../views/ModelManagement.vue'),
