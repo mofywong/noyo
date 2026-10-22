@@ -91,7 +91,19 @@ echo ==========================================
 set NOYO_EDITION=%EDITION_NAME%
 set NOYO_BUILD_YOLO=%BUILD_YOLO%
 
-echo [1/3] Building Frontend...
+echo [1/4] Installing screen engine dependencies...
+if not exist "integrations\goview\app\node_modules" (
+    pushd integrations\goview\app
+    call npm ci --no-audit --no-fund
+    if %errorlevel% neq 0 (
+        popd
+        echo Error: screen engine dependency install failed.
+        exit /b %errorlevel%
+    )
+    popd
+)
+
+echo [2/4] Building Frontend...
 cd frontend
 call npm install
 if %errorlevel% neq 0 exit /b %errorlevel%
@@ -106,9 +118,9 @@ cd ..
 node scripts\build-goview.mjs --verify-only
 if %errorlevel% neq 0 exit /b %errorlevel%
 
-echo [2/3] Skipping copy (Vite builds to backend/dist directly)...
+echo [3/4] Skipping copy (Vite builds to backend/dist directly)...
 
-echo [3/3] Building Backend...
+echo [4/4] Building Backend...
 cd backend
 set CGO_ENABLED=0
 if /I "%EDITION_NAME%"=="pro" if "%BUILD_YOLO%"=="1" if "%BUILD_ONNXRUNTIME%"=="1" set CGO_ENABLED=1

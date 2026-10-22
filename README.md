@@ -74,9 +74,9 @@ npm run build
 `npm run build` 除打包控制台前端外，还会一并处理 IOC 大屏编辑器引擎（`integrations/goview`）：
 
 - `prebuild` → `sync-pro`（生成 `pro_imports.go` / `community_imports.go` / `go.work` 与前端 Pro 插件软链）→ `build-goview --preserve-only`（保留已有引擎）
-- `postbuild` → `build-goview`（首次构建会在 `integrations/goview/app` 内执行 `npm ci` 并 `vite build`，**需联网下载约 1.6 GB 依赖**；产物按 `UPSTREAM.json` 的 `buildId` 落到 `backend/dist/screen-editor/<buildId>/`，并做 SHA256 资产校验）
+- `postbuild` → `build-goview`：直接调用 `integrations/goview/app` 里的本地 Vite 与打戳脚本构建引擎（依赖缺失时先自动执行 `npm ci`，**首次需联网下载约 1.6 GB**）；产物按 `UPSTREAM.json` 的 `buildId` 落到 `backend/dist/screen-editor/<buildId>/`，并做 SHA256 资产校验
 
-*\* 引擎源码（含 Noyo 自维护的 `src/noyo/`）随仓库提供，无需额外拉取上游；仅依赖需要联网安装。*
+*\* 引擎源码（含 Noyo 自维护的 `src/noyo/`）随仓库提供，无需额外拉取上游。若希望跳过自动安装，可先手工执行 `cd integrations/goview/app && npm ci`。*
 
 ### 2. 编译并运行核心服务
 

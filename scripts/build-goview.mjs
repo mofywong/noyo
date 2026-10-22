@@ -119,19 +119,35 @@ async function verifyAssetManifest(directory) {
   const found = Object.keys(actual).sort()
   if (!actual['index.html'] || !actual['.noyo-build.json'] || wanted.length !== found.length || wanted.some((key, index) => key !== found[index] || installed.files[key] !== actual[key])) throw new Error(`Editor asset SHA256 verification failed: ${directory}`)
 }
-async function runNpm(arguments_) {
-  const npmCli = process.env.npm_execpath
-  const executable = npmCli ? process.execPath : process.platform === 'win32' ? 'npm.cmd' : 'npm'
-  const cliArgs = npmCli ? [npmCli, ...arguments_] : arguments_
-  console.log(`[GoView] ${arguments_.join(' ')} (${buildId})`)
+async function runNode(scriptArguments) {
+  console.log(`[GoView] node ${scriptArguments.map(argument => path.isAbsolute(argument) ? path.relative(app, argument) : argument).join(' ')} (${buildId})`)
   await new Promise((resolve, reject) => {
-    const child = spawn(executable, cliArgs, { cwd: app, env: { ...process.env, NOYO_SCREEN_BASE: base }, shell: !npmCli && process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, scriptArguments, { cwd: app, env: { ...process.env, NOYO_SCREEN_BASE: base }, stdio: ['ignore', 'pipe', 'pipe'] })
     let tail = ''
     const capture = (chunk) => { tail = (tail + chunk.toString()).slice(-3600) }
     child.stdout.on('data', capture); child.stderr.on('data', capture)
     child.on('error', reject)
-    child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`GoView npm failed (${code}):\n${tail}`)))
+    child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`GoView build step failed (${code}):\n${tail}`)))
   })
+}
+// Install with inherited stdio: npm spawning a piped child is what breaks on some Windows sandboxes,
+// and the progress belongs on the operator's terminal anyway.
+async function runNpmInstall() {
+  console.log(`[GoView] npm ci (${buildId})`)
+  const npmCli = process.env.npm_execpath
+  const executable = npmCli ? process.execPath : process.platform === 'win32' ? 'npm.cmd' : 'npm'
+  const cliArgs = npmCli ? [npmCli, 'ci', '--no-audit', '--no-fund'] : ['ci', '--no-audit', '--no-fund']
+  await new Promise((resolve, reject) => {
+    const child = spawn(executable, cliArgs, { cwd: app, env: { ...process.env, NOYO_SCREEN_BASE: base }, shell: !npmCli && process.platform === 'win32', stdio: 'inherit' })
+    child.on('error', reject)
+    child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`GoView dependency install failed (${code}). Run "npm ci" inside ${app} and retry.`)))
+  })
+}
+async function buildEngine() {
+  // Drive Vite and the stamp step directly instead of `npm run build`: one less process layer, and no
+  // dependency on npm's script runner (which crashes when spawned from a build step on some hosts).
+  await runNode([path.join(app, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'])
+  await runNode([path.join(sourceRoot, 'tooling', 'stamp-build.cjs')])
 }
 async function dependenciesCurrent() {
   try {
@@ -165,8 +181,8 @@ else {
   }
   if (!fresh && args.includes('--copy-only')) throw new Error('GoView output is stale. Run the build without --copy-only first.')
   if (!fresh) {
-    if (!(await dependenciesCurrent())) await runNpm(['ci', '--no-audit', '--no-fund'])
-    await runNpm(['run', 'build'])
+    if (!(await dependenciesCurrent())) await runNpmInstall()
+    await buildEngine()
     stamp = await stampAt(sourceDist)
     if (await fingerprint() !== sourceFingerprint) throw new Error('GoView sources changed while building. Retry after source edits are complete.')
     await fs.writeFile(path.join(sourceDist, '.noyo-build.json'), `${JSON.stringify({ ...stamp, sourceFingerprint }, null, 2)}\n`)

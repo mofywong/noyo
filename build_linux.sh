@@ -58,7 +58,12 @@ build_edition() {
     export NOYO_EDITION=$edition_name
     export NOYO_BUILD_YOLO=$BUILD_YOLO
 
-    echo "[1/3] Building Frontend..."
+    echo "[1/4] Installing screen engine dependencies..."
+    if [ ! -d "integrations/goview/app/node_modules" ]; then
+        ( cd integrations/goview/app && npm ci --no-audit --no-fund )
+    fi
+
+    echo "[2/4] Building Frontend..."
     cd frontend
     npm install
     npm run build
@@ -68,9 +73,9 @@ build_edition() {
     fi
     cd ..
 
-    echo "[2/3] Skipping copy (Vite builds to backend/dist directly)..."
+    echo "[3/4] Skipping copy (Vite builds to backend/dist directly)..."
 
-    echo "[3/3] Building Backend..."
+    echo "[4/4] Building Backend..."
     cd backend
     export CGO_ENABLED=0
     if [ "$edition_name" = "pro" ] && [ "$BUILD_YOLO" = "1" ] && [ "$BUILD_ONNXRUNTIME" = "1" ]; then

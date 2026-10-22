@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "sync-pro": "node ../scripts/sync-pro.mjs",
-    "predev": "npm run sync-pro",
+    "predev": "node ../scripts/sync-pro.mjs",
     "dev": "vite",
-    "prebuild": "npm run sync-pro && node ../scripts/build-goview.mjs --preserve-only",
+    "prebuild": "node ../scripts/sync-pro.mjs && node ../scripts/build-goview.mjs --preserve-only",
     "build": "vite build",
     "postbuild": "node ../scripts/build-goview.mjs",
     "preview": "vite preview",
