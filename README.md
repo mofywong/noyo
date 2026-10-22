@@ -56,7 +56,9 @@ Noyo 采用前后端分离与微内核插件化设计，保证了系统的高内
 
 ## 🚀 极速启动指南
 
-Noyo 支持全平台跨平台编译运行。在开始前，请确保安装 [Go 1.20+](https://go.dev/dl/) 与 [Node.js 18+](https://nodejs.org/en/download/)。
+Noyo 支持全平台跨平台编译运行。开始前请安装 [Go 1.26.2+](https://go.dev/dl/) 与 [Node.js 20.19+ / 22.12+](https://nodejs.org/en/download/)（Vite 7 的下限），并保证 `git`、`npm` 在 `PATH` 中。
+
+*\* 企业版联合编译需要把 `noyo-pro` 与 `noyo` 克隆为**同级目录**（默认名 `noyo` / `noyo-pro`）；如需其他位置，设置环境变量 `NOYO_PRO_DIR` 指向 `noyo-pro` 根目录。*
 
 ### 1. 构建前端面板
 
