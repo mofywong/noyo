@@ -67,19 +67,28 @@ npm install
 # 构建生产环境静态文件
 npm run build
 ```
-*\* 构建产物将输出至 `dist` 目录，启动后端时会自动托管静态路由。*
+*\* 构建产物将输出至 `backend/dist` 目录，启动后端时会自动托管静态路由（该目录由 `//go:embed` 编译进二进制）。*
+
+`npm run build` 除打包控制台前端外，还会一并处理 IOC 大屏编辑器引擎（`integrations/goview`）：
+
+- `prebuild` → `sync-pro`（生成 `pro_imports.go` / `community_imports.go` / `go.work` 与前端 Pro 插件软链）→ `build-goview --preserve-only`（保留已有引擎）
+- `postbuild` → `build-goview`（首次构建会在 `integrations/goview/app` 内执行 `npm ci` 并 `vite build`，**需联网下载约 1.6 GB 依赖**；产物按 `UPSTREAM.json` 的 `buildId` 落到 `backend/dist/screen-editor/<buildId>/`，并做 SHA256 资产校验）
+
+*\* 引擎源码（含 Noyo 自维护的 `src/noyo/`）随仓库提供，无需额外拉取上游；仅依赖需要联网安装。*
 
 ### 2. 编译并运行核心服务
 
 ```bash
 cd backend
 # 下载并校验 Go 依赖
-go mod tidy
+go mod download
 # 编译可执行程序（以 Linux/macOS 为例）
-go build -o noyo main.go
+go build -o noyo .
 # 启动平台
 ./noyo
 ```
+*\* 第 1 步的前端构建必须先行，否则 `backend/dist` 为空（仅含 `.gitkeep`），二进制里没有可托管的页面。*
+
 *\* 启动后，引擎将在当前目录自动生成 `data/db` 本地数据文件。打开浏览器访问对应的监听端口（默认为 8989 端口，视配置而定），即可登录 Noyo 控制台。*
 
 ### 3. 企业版插件与多工作区开发构建 (进阶)
@@ -88,16 +97,22 @@ go build -o noyo main.go
 
 如果您在进行企业版的多分支工作区（Git Worktree）开发，可以通过以下标准流程进行极速切换：
 
-1. **设置后端工作区 (`go.work`)**
-   在 `backend` 目录下创建或编辑 `go.work`，使用 `use` 指向你的目标工作区路径：
+1. **后端工作区 (`go.work`) 由脚本自动生成**
+   `backend/go.work` 不纳入版本库（每台机器的目录布局不同）。`npm run sync-pro` 会按实际布局生成它：
+   - 找到 Pro 插件目录（`NOYO_PRO_DIR`，否则默认上级目录 `../noyo-pro`）→ 生成 `use ( . <相对路径>/backend/plugins )`
+   - 找不到 → 删除 `go.work`，并按社区版生成注册文件
+
+   需要手工接管时，可参考 `backend/go.work.example` 复制为 `backend/go.work` 再改路径：
    ```go
    go 1.26.2
-   
+
    use (
        .
        ../../noyo-pro-your-worktree/backend/plugins // 指向实际所在的 Pro 插件目录
    )
    ```
+
+   *\* 仓库布局约束：`noyo` 与 `noyo-pro` 应克隆为**同级目录**（默认名 `noyo` / `noyo-pro`），否则请显式设置 `NOYO_PRO_DIR`。*
 
 2. **指定环境变量并执行构建**
    构建脚本与前端运行脚本天然支持环境变量 `NOYO_PRO_DIR`。只要传入该变量，脚本即可精准定位插件工作区，自动完成前端依赖链并生成 `pro_imports.go` 注册文件。

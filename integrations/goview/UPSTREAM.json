@@ -1,0 +1,30 @@
+{
+  "repository": "https://gitee.com/dromara/go-view",
+  "branch": "master-fetch",
+  "commit": "5ab05b439703ffda6d050e5626969459b3e3c1cf",
+  "version": "2.2.9",
+  "buildId": "goview-5ab05b4-noyo19",
+  "adapterVersion": 15,
+  "previousBuildIds": [
+    "goview-5ab05b4-noyo1",
+    "goview-5ab05b4-noyo2",
+    "goview-5ab05b4-noyo3",
+    "goview-5ab05b4-noyo4",
+    "goview-5ab05b4-noyo5",
+    "goview-5ab05b4-noyo6",
+    "goview-5ab05b4-noyo7",
+    "goview-5ab05b4-noyo8",
+    "goview-5ab05b4-noyo9",
+    "goview-5ab05b4-noyo10",
+    "goview-5ab05b4-noyo11",
+    "goview-5ab05b4-noyo12",
+    "goview-5ab05b4-noyo13",
+    "goview-5ab05b4-noyo14",
+    "goview-5ab05b4-noyo15",
+    "goview-5ab05b4-noyo16",
+    "goview-5ab05b4-noyo17",
+    "goview-5ab05b4-noyo18"
+  ],
+  "retrieval": "Gitee recursive tree and raw blobs, 1002 Git blob SHA-1 checksums verified",
+  "retrievedAt": "2026-10-19"
+}

@@ -36,6 +36,7 @@ coverage.*
 *.coverprofile
 profile.cov
 go.work.sum
+/backend/go.work
 *.lic
 *.noyo_machine_id
 # Custom NOYO files
@@ -43,7 +44,8 @@ go.work.sum
 /backend/data/db/
 /backend/data/logs/
 /backend/data/images/
-/backend/dist/
+/backend/dist/*
+!/backend/dist/.gitkeep
 /frontend/dist/
 /backend/gobacnet.log
 /backend/.gocache/
@@ -55,12 +57,15 @@ go.work.sum
 /backend/noyo-*
 # Environments
 .env
+!/integrations/goview/app/.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 docs/*
 !docs/permission_coverage_review_20261016.md
+!docs/ioc-ai-generation-design.md
+!docs/ioc-ai-design-references.md
 .superpowers/*
 backend/noyo.db*
 backend/linux/*

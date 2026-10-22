@@ -1,0 +1,9 @@
+// Example workspace file. `npm run sync-pro` (frontend prebuild) generates
+// backend/go.work for the layout you actually have, so this file is only
+// needed when wiring the workspace by hand.
+go 1.26.2
+
+use (
+	.
+	../../noyo-pro/backend/plugins
+)

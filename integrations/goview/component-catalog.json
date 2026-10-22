@@ -1,0 +1,642 @@
+[
+  {
+    "key": "BarCommon",
+    "path": "Charts/Bars/BarCommon",
+    "zh": "柱状图",
+    "en": "Bar chart",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "BarCrossrange",
+    "path": "Charts/Bars/BarCrossrange",
+    "zh": "横向柱状图",
+    "en": "Horizontal bars",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "BarLine",
+    "path": "Charts/Bars/BarLine",
+    "zh": "柱状图 & 折线图",
+    "en": "Bars and lines",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "CapsuleChart",
+    "path": "Charts/Bars/CapsuleChart",
+    "zh": "胶囊柱图",
+    "en": "Capsule bars",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "LineCommon",
+    "path": "Charts/Lines/LineCommon",
+    "zh": "折线图",
+    "en": "Line chart",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "LineGradients",
+    "path": "Charts/Lines/LineGradients",
+    "zh": "双折线渐变面积图",
+    "en": "Gradient areas",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "LineGradientSingle",
+    "path": "Charts/Lines/LineGradientSingle",
+    "zh": "单折线渐变面积图",
+    "en": "Gradient area",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "LineLinearSingle",
+    "path": "Charts/Lines/LineLinearSingle",
+    "zh": "单折线渐变图",
+    "en": "Gradient line",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "MapAmap",
+    "path": "Charts/Maps/MapAmap",
+    "zh": "高德地图",
+    "en": "Amap device map",
+    "group": "Charts",
+    "binding": "map"
+  },
+  {
+    "key": "MapBase",
+    "path": "Charts/Maps/MapBase",
+    "zh": "地图(可选省份)",
+    "en": "China / province map",
+    "group": "Charts",
+    "binding": "map"
+  },
+  {
+    "key": "Dial",
+    "path": "Charts/Mores/Dial",
+    "zh": "表盘",
+    "en": "Gauge",
+    "group": "Charts",
+    "binding": "number"
+  },
+  {
+    "key": "Funnel",
+    "path": "Charts/Mores/Funnel",
+    "zh": "漏斗图",
+    "en": "Funnel",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "Graph",
+    "path": "Charts/Mores/Graph",
+    "zh": "关系图",
+    "en": "Network graph",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "Heatmap",
+    "path": "Charts/Mores/Heatmap",
+    "zh": "热力图",
+    "en": "Heatmap",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "Process",
+    "path": "Charts/Mores/Process",
+    "zh": "NaiveUI-进度",
+    "en": "Progress",
+    "group": "Charts",
+    "binding": "number"
+  },
+  {
+    "key": "Radar",
+    "path": "Charts/Mores/Radar",
+    "zh": "雷达图",
+    "en": "Radar",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "Sankey",
+    "path": "Charts/Mores/Sankey",
+    "zh": "桑基图",
+    "en": "Sankey",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "TreeMap",
+    "path": "Charts/Mores/TreeMap",
+    "zh": "树形分布",
+    "en": "Treemap",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "WaterPolo",
+    "path": "Charts/Mores/WaterPolo",
+    "zh": "水球图",
+    "en": "Liquid fill",
+    "group": "Charts",
+    "binding": "number"
+  },
+  {
+    "key": "PieCircle",
+    "path": "Charts/Pies/PieCircle",
+    "zh": "饼图-环形",
+    "en": "Donut",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "PieCommon",
+    "path": "Charts/Pies/PieCommon",
+    "zh": "饼图",
+    "en": "Pie chart",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "ScatterCommon",
+    "path": "Charts/Scatters/ScatterCommon",
+    "zh": "散点图",
+    "en": "Scatter",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "ScatterLogarithmicRegression",
+    "path": "Charts/Scatters/ScatterLogarithmicRegression",
+    "zh": "对数回归散点图",
+    "en": "Regression scatter",
+    "group": "Charts",
+    "binding": "chart"
+  },
+  {
+    "key": "Border01",
+    "path": "Decorates/Borders/Border01",
+    "zh": "边框-01",
+    "en": "Border 01",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border02",
+    "path": "Decorates/Borders/Border02",
+    "zh": "边框-02",
+    "en": "Border 02",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border03",
+    "path": "Decorates/Borders/Border03",
+    "zh": "边框-03",
+    "en": "Border 03",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border04",
+    "path": "Decorates/Borders/Border04",
+    "zh": "边框-04",
+    "en": "Border 04",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border05",
+    "path": "Decorates/Borders/Border05",
+    "zh": "边框-05",
+    "en": "Border 05",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border06",
+    "path": "Decorates/Borders/Border06",
+    "zh": "边框-06",
+    "en": "Border 06",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border07",
+    "path": "Decorates/Borders/Border07",
+    "zh": "边框-07",
+    "en": "Border 07",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border08",
+    "path": "Decorates/Borders/Border08",
+    "zh": "边框-08",
+    "en": "Border 08",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border09",
+    "path": "Decorates/Borders/Border09",
+    "zh": "边框-09",
+    "en": "Border 09",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border10",
+    "path": "Decorates/Borders/Border10",
+    "zh": "边框-10",
+    "en": "Border 10",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border11",
+    "path": "Decorates/Borders/Border11",
+    "zh": "边框-11",
+    "en": "Border 11",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border12",
+    "path": "Decorates/Borders/Border12",
+    "zh": "边框-12",
+    "en": "Border 12",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Border13",
+    "path": "Decorates/Borders/Border13",
+    "zh": "边框-13",
+    "en": "Border 13",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Decorates01",
+    "path": "Decorates/Decorates/Decorates01",
+    "zh": "装饰-01",
+    "en": "Decoration 01",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Decorates02",
+    "path": "Decorates/Decorates/Decorates02",
+    "zh": "装饰-02",
+    "en": "Decoration 02",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Decorates03",
+    "path": "Decorates/Decorates/Decorates03",
+    "zh": "装饰-03",
+    "en": "Decoration 03",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Decorates04",
+    "path": "Decorates/Decorates/Decorates04",
+    "zh": "装饰-04",
+    "en": "Decoration 04",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Decorates05",
+    "path": "Decorates/Decorates/Decorates05",
+    "zh": "装饰-05",
+    "en": "Decoration 05",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Decorates06",
+    "path": "Decorates/Decorates/Decorates06",
+    "zh": "装饰-06",
+    "en": "Decoration 06",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "FlowChartLine",
+    "path": "Decorates/FlowChart/FlowChartLine",
+    "zh": "流程线",
+    "en": "Flow line",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "CirclePoint",
+    "path": "Decorates/Mores/CirclePoint",
+    "zh": "圆点光环",
+    "en": "Glowing point",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Clock",
+    "path": "Decorates/Mores/Clock",
+    "zh": "时钟",
+    "en": "Clock",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "CountDown",
+    "path": "Decorates/Mores/CountDown",
+    "zh": "倒计时",
+    "en": "Countdown",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "FlipperNumber",
+    "path": "Decorates/Mores/FlipperNumber",
+    "zh": "数字翻牌-需动态触发",
+    "en": "Flip counter",
+    "group": "Decorates",
+    "binding": "number"
+  },
+  {
+    "key": "FullScreen",
+    "path": "Decorates/Mores/FullScreen",
+    "zh": "全屏按钮",
+    "en": "Fullscreen button",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Number",
+    "path": "Decorates/Mores/Number",
+    "zh": "数字计数",
+    "en": "Number counter",
+    "group": "Decorates",
+    "binding": "number"
+  },
+  {
+    "key": "PipelineH",
+    "path": "Decorates/Mores/PipelineH",
+    "zh": "管道-横向",
+    "en": "Horizontal pipeline",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "PipelineV",
+    "path": "Decorates/Mores/PipelineV",
+    "zh": "管道-纵向",
+    "en": "Vertical pipeline",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "TimeCommon",
+    "path": "Decorates/Mores/TimeCommon",
+    "zh": "通用时间",
+    "en": "Date and time",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "ThreeEarth01",
+    "path": "Decorates/Three/ThreeEarth01",
+    "zh": "三维地球",
+    "en": "3D globe",
+    "group": "Decorates",
+    "binding": "static"
+  },
+  {
+    "key": "Icon",
+    "path": "Icons/Default/Icon",
+    "zh": "图标",
+    "en": "Icon",
+    "group": "Icons",
+    "binding": "static"
+  },
+  {
+    "key": "InputsDate",
+    "path": "Informations/Inputs/InputsDate",
+    "zh": "时间选择器",
+    "en": "Date picker",
+    "group": "Informations",
+    "binding": "static"
+  },
+  {
+    "key": "InputsInput",
+    "path": "Informations/Inputs/InputsInput",
+    "zh": "输入框",
+    "en": "Text input",
+    "group": "Informations",
+    "binding": "static"
+  },
+  {
+    "key": "InputsPagination",
+    "path": "Informations/Inputs/InputsPagination",
+    "zh": "分页",
+    "en": "Pagination",
+    "group": "Informations",
+    "binding": "static"
+  },
+  {
+    "key": "InputsSelect",
+    "path": "Informations/Inputs/InputsSelect",
+    "zh": "下拉选择器",
+    "en": "Select",
+    "group": "Informations",
+    "binding": "static"
+  },
+  {
+    "key": "InputsTab",
+    "path": "Informations/Inputs/InputsTab",
+    "zh": "标签选择器",
+    "en": "Tabs",
+    "group": "Informations",
+    "binding": "static"
+  },
+  {
+    "key": "Iframe",
+    "path": "Informations/Mores/Iframe",
+    "zh": "远程网页",
+    "en": "Embedded webpage",
+    "group": "Informations",
+    "binding": "static"
+  },
+  {
+    "key": "Image",
+    "path": "Informations/Mores/Image",
+    "zh": "图片",
+    "en": "Image",
+    "group": "Informations",
+    "binding": "static"
+  },
+  {
+    "key": "ImageCarousel",
+    "path": "Informations/Mores/ImageCarousel",
+    "zh": "轮播图",
+    "en": "Image carousel",
+    "group": "Informations",
+    "binding": "static"
+  },
+  {
+    "key": "Video",
+    "path": "Informations/Mores/Video",
+    "zh": "视频",
+    "en": "Video",
+    "group": "Informations",
+    "binding": "static"
+  },
+  {
+    "key": "WordCloud",
+    "path": "Informations/Mores/WordCloud",
+    "zh": "词云",
+    "en": "Word cloud",
+    "group": "Informations",
+    "binding": "words"
+  },
+  {
+    "key": "TextBarrage",
+    "path": "Informations/Texts/TextBarrage",
+    "zh": "弹幕文字",
+    "en": "Scrolling text",
+    "group": "Informations",
+    "binding": "text"
+  },
+  {
+    "key": "TextCommon",
+    "path": "Informations/Texts/TextCommon",
+    "zh": "文字",
+    "en": "Text / metric",
+    "group": "Informations",
+    "binding": "text"
+  },
+  {
+    "key": "TextGradient",
+    "path": "Informations/Texts/TextGradient",
+    "zh": "渐变文字",
+    "en": "Gradient text",
+    "group": "Informations",
+    "binding": "text"
+  },
+  {
+    "key": "TableList",
+    "path": "Tables/Tables/TableList",
+    "zh": "滚动排名列表",
+    "en": "Ranking table",
+    "group": "Tables",
+    "binding": "table"
+  },
+  {
+    "key": "TablesBasic",
+    "path": "Tables/Tables/TablesBasic",
+    "zh": "基础分页表格",
+    "en": "Paginated table",
+    "group": "Tables",
+    "binding": "table"
+  },
+  {
+    "key": "TableScrollBoard",
+    "path": "Tables/Tables/TableScrollBoard",
+    "zh": "轮播列表",
+    "en": "Scrolling table",
+    "group": "Tables",
+    "binding": "table"
+  },
+  {
+    "key": "VChartArea",
+    "path": "VChart/Areas/VChartArea",
+    "zh": "VChart面积图",
+    "en": "VChart area",
+    "group": "VChart",
+    "binding": "chart"
+  },
+  {
+    "key": "VChartPercentArea",
+    "path": "VChart/Areas/VChartPercentArea",
+    "zh": "VChart百分比面积图",
+    "en": "VChart percent area",
+    "group": "VChart",
+    "binding": "chart"
+  },
+  {
+    "key": "VChartBarCommon",
+    "path": "VChart/Bars/VChartBarCommon",
+    "zh": "并列柱状图-VChart",
+    "en": "VChart grouped bars",
+    "group": "VChart",
+    "binding": "chart"
+  },
+  {
+    "key": "VChartBarCrossrange",
+    "path": "VChart/Bars/VChartBarCrossrange",
+    "zh": "并列柱状图-VChart",
+    "en": "VChart horizontal bars",
+    "group": "VChart",
+    "binding": "chart"
+  },
+  {
+    "key": "VChartBarStack",
+    "path": "VChart/Bars/VChartBarStack",
+    "zh": "堆叠柱状图-VChart",
+    "en": "VChart stacked bars",
+    "group": "VChart",
+    "binding": "chart"
+  },
+  {
+    "key": "VChartFunnel",
+    "path": "VChart/Funnels/VChartFunnel",
+    "zh": "漏斗图-VChart",
+    "en": "VChart funnel",
+    "group": "VChart",
+    "binding": "chart"
+  },
+  {
+    "key": "VChartLine",
+    "path": "VChart/Lines/VChartLine",
+    "zh": "折线图-VChart",
+    "en": "VChart line",
+    "group": "VChart",
+    "binding": "chart"
+  },
+  {
+    "key": "VChartPie",
+    "path": "VChart/Pies/VChartPie",
+    "zh": "饼图多欢-VChart",
+    "en": "VChart pie",
+    "group": "VChart",
+    "binding": "chart"
+  },
+  {
+    "key": "VChartScatter",
+    "path": "VChart/Scatters/VChartScatter",
+    "zh": "散点图-VChart",
+    "en": "VChart scatter",
+    "group": "VChart",
+    "binding": "chart"
+  },
+  {
+    "key": "VChartWordCloud",
+    "path": "VChart/WordClouds/VChartWordCloud",
+    "zh": "词云图-VChart",
+    "en": "VChart word cloud",
+    "group": "VChart",
+    "binding": "chart"
+  }
+]
