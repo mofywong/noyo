@@ -55,15 +55,15 @@ echo Building version: %VERSION%
 
 if /I "%EDITION%"=="all" (
     call :build_edition community ""
-    if %errorlevel% neq 0 exit /b %errorlevel%
+    if errorlevel 1 exit /b 1
     call :build_edition pro "-pro"
-    if %errorlevel% neq 0 exit /b %errorlevel%
+    if errorlevel 1 exit /b 1
 ) else if /I "%EDITION%"=="pro" (
     call :build_edition pro "-pro"
-    if %errorlevel% neq 0 exit /b %errorlevel%
+    if errorlevel 1 exit /b 1
 ) else (
     call :build_edition community ""
-    if %errorlevel% neq 0 exit /b %errorlevel%
+    if errorlevel 1 exit /b 1
 )
 
 echo ==========================================
@@ -123,7 +123,9 @@ echo [3/4] Skipping copy (Vite builds to backend/dist directly)...
 echo [4/4] Building Backend...
 cd backend
 set CGO_ENABLED=0
-if /I "%EDITION_NAME%"=="pro" if "%BUILD_YOLO%"=="1" if "%BUILD_ONNXRUNTIME%"=="1" set CGO_ENABLED=1
+rem The Pro voice assistant links sherpa-onnx through cgo, so the Pro build always needs a C
+rem toolchain - independently of the YOLO / ONNX Runtime toggles.
+if /I "%EDITION_NAME%"=="pro" set CGO_ENABLED=1
 set GOARCH=amd64
 set LDFLAGS=-w -s -X "noyo/core/system.Version=%VERSION%"
 

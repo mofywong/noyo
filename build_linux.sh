@@ -78,7 +78,8 @@ build_edition() {
     echo "[4/4] Building Backend..."
     cd backend
     export CGO_ENABLED=0
-    if [ "$edition_name" = "pro" ] && [ "$BUILD_YOLO" = "1" ] && [ "$BUILD_ONNXRUNTIME" = "1" ]; then
+    # Pro 插件的语音助手通过 cgo 链接 sherpa-onnx，与 YOLO / ONNX Runtime 开关无关。
+    if [ "$edition_name" = "pro" ]; then
         export CGO_ENABLED=1
     fi
     export GOOS=linux
