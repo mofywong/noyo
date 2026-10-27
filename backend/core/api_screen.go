@@ -57,7 +57,7 @@ func screenAuditSummary(method, path string, screenID uint, revision, requestID 
 				if method == http.MethodPut {
 					action = "rename"
 				}
-			case "publish", "unpublish", "copy", "validate":
+			case "publish", "unpublish", "copy", "validate", "apply":
 				if method == http.MethodPost {
 					action = parts[3]
 				}
@@ -150,6 +150,8 @@ func (s *Server) RegisterScreenRoutes(group *ghttp.RouterGroup) {
 	g.PUT("/:id/metadata", s.handleScreenMetadata)
 	g.GET("/:id/draft", s.handleScreenDraft)
 	g.PUT("/:id/draft", s.handleScreenSaveDraft)
+	g.POST("/:id/apply", s.handleScreenApply)
+	g.GET("/:id/apply/:requestId", s.handleScreenApplyStatus)
 	g.POST("/:id/validate", s.handleScreenValidate)
 	g.POST("/:id/publish", s.handleScreenPublish)
 	g.POST("/:id/unpublish", s.handleScreenUnpublish)
@@ -167,6 +169,7 @@ func (s *Server) RegisterScreenRoutes(group *ghttp.RouterGroup) {
 	g.POST("/:id/runtime/alarms", s.handleScreenRuntimeAlarms)
 	g.POST("/:id/runtime/data", s.handleScreenRuntimeData)
 	g.POST("/:id/data-preview", s.handleScreenDataPreview)
+	g.POST("/:id/binding-preview", s.handleScreenBindingPreview)
 	g.GET("/:id/datasets", s.handleScreenDatasets)
 	g.POST("/:id/datasets", s.handleScreenDatasetSave)
 	g.GET("/:id/datasets/:datasetId/versions/:version", s.handleScreenDatasetVersion)
@@ -334,11 +337,15 @@ func screenAuthorizedDocument(r *ghttp.Request) (*store.IOCScreen, screen.Envelo
 	return row, doc, revision, err
 }
 
-func screenReadJSON(r *ghttp.Request, dest interface{}) error {
-	if r.ContentLength > screen.MaxDocumentBytes+65536 {
+func screenReadJSON(r *ghttp.Request, dest interface{}, limits ...int64) error {
+	limit := int64(screen.MaxDocumentBytes + 65536)
+	if len(limits) > 0 {
+		limit = limits[0]
+	}
+	if r.ContentLength > limit {
 		return screenFail(413, "Screen request exceeds limit / 大屏请求超过大小限制")
 	}
-	reader := io.LimitReader(r.Body, screen.MaxDocumentBytes+65537)
+	reader := io.LimitReader(r.Body, limit+1)
 	dec := json.NewDecoder(reader)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dest); err != nil {

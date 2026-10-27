@@ -2,12 +2,14 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -73,6 +75,49 @@ func screenReadableDevice(r *ghttp.Request, row *store.IOCScreen, code string) (
 	return device, true
 }
 
+// Reading a product's TSL is the expensive half of the per-viewer permission
+// refresh: a screen that binds 200 devices of one model unmarshals the same
+// document 200 times in a single call and repeats that for every viewer every
+// 15 seconds. One process-wide cache bounded by a short TTL keeps a product edit
+// visible within a minute without the per-device parse.
+const screenProductFieldsTTL = 60 * time.Second
+
+var screenProductFieldsCache struct {
+	sync.Mutex
+	entries map[string]screenProductFieldsEntry
+}
+
+type screenProductFieldsEntry struct {
+	fields  map[string]bool
+	expires time.Time
+}
+
+func screenProductFields(productCode string) map[string]bool {
+	code := strings.TrimSpace(productCode)
+	if code == "" {
+		return nil
+	}
+	now := time.Now()
+	screenProductFieldsCache.Lock()
+	if entry, ok := screenProductFieldsCache.entries[code]; ok && now.Before(entry.expires) {
+		fields := entry.fields
+		screenProductFieldsCache.Unlock()
+		return fields
+	}
+	screenProductFieldsCache.Unlock()
+	fields := map[string]bool{}
+	for _, prop := range loadProductTSLProperties(code) {
+		fields[propertyStringField(prop, "identifier")] = true
+	}
+	screenProductFieldsCache.Lock()
+	if screenProductFieldsCache.entries == nil {
+		screenProductFieldsCache.entries = map[string]screenProductFieldsEntry{}
+	}
+	screenProductFieldsCache.entries[code] = screenProductFieldsEntry{fields: fields, expires: now.Add(screenProductFieldsTTL)}
+	screenProductFieldsCache.Unlock()
+	return fields
+}
+
 func screenAllowedBindings(r *ghttp.Request, row *store.IOCScreen, doc screen.Envelope) map[string]bool {
 	allowed := map[string]bool{}
 	devices := map[string]bool{}
@@ -87,11 +132,9 @@ func screenAllowedBindings(r *ghttp.Request, row *store.IOCScreen, doc screen.En
 			if _, checked := devices[code]; !checked {
 				device, readable := screenReadableDevice(r, row, code)
 				devices[code] = readable
-				fields[code] = map[string]bool{}
+				fields[code] = nil
 				if readable {
-					for _, prop := range loadProductTSLProperties(device.ProductCode) {
-						fields[code][propertyStringField(prop, "identifier")] = true
-					}
+					fields[code] = screenProductFields(device.ProductCode)
 				}
 			}
 			if !devices[code] {
@@ -538,13 +581,23 @@ func (s *Server) handleScreenRuntimeHistory(r *ghttp.Request) {
 		screenWriteData(r, map[string]interface{}{"bindingId": request.BindingID, "value": []interface{}{}, "quality": "access_denied"})
 		return
 	}
-	codes := screenBindingDevices(binding)
-	if binding.Kind == "history" && len(codes) != 1 {
-		screenWriteError(r, screenFail(400, "History requires one device / 历史绑定仅支持单设备"))
+	sample, err := s.screenReadBindingHistory(r.Context(), row, binding, request.StartTime, request.EndTime, request.MaxPoints)
+	if err != nil {
+		screenWriteError(r, err)
 		return
 	}
+	screenWriteData(r, map[string]interface{}{"bindingId": request.BindingID, "value": sample.Value, "quality": sample.Quality, "receivedAt": sample.ReceivedAt})
+}
+
+// Both saved runtime and detached proposal previews share range limits and transforms.
+// The caller authorizes the binding before entering this read-only function.
+func (s *Server) screenReadBindingHistory(ctx context.Context, row *store.IOCScreen, binding screen.Binding, start, end int64, limit int) (screenRuntimeSample, error) {
+	empty := screenRuntimeSample{}
+	codes := screenBindingDevices(binding)
+	if binding.Kind == "history" && len(codes) != 1 {
+		return empty, screenFail(400, "History requires one device / 历史绑定仅支持单设备")
+	}
 	now := time.Now().UnixMilli()
-	end := request.EndTime
 	if end == 0 {
 		end = now
 	}
@@ -552,15 +605,12 @@ func (s *Server) handleScreenRuntimeHistory(r *ghttp.Request) {
 	if window == 0 {
 		window = 3600000
 	}
-	start := request.StartTime
 	if start == 0 {
 		start = end - window
 	}
 	if start < 0 || end < start || end > now+60000 || end-start > 31*86400000 {
-		screenWriteError(r, screenFail(400, "History time range exceeds limits / 历史查询时间范围超限"))
-		return
+		return empty, screenFail(400, "History time range exceeds limits / 历史查询时间范围超限")
 	}
-	limit := request.MaxPoints
 	if limit <= 0 {
 		limit = binding.MaxPoints
 	}
@@ -574,17 +624,15 @@ func (s *Server) handleScreenRuntimeHistory(r *ghttp.Request) {
 		limit = binding.MaxPoints
 	}
 	if binding.Kind == "eventList" {
-		result, queryErr := s.screenEventRows(r.Context(), row, binding, start, end, limit)
+		result, queryErr := s.screenEventRows(ctx, row, binding, start, end, limit)
 		if queryErr != nil {
-			screenWriteError(r, screenFail(503, "Event history unavailable / 事件历史暂不可用"))
-			return
+			return empty, screenFail(503, "Event history unavailable / 事件历史暂不可用")
 		}
 		quality := "good"
 		if len(result) == 0 {
 			quality = "no_data"
 		}
-		screenWriteData(r, map[string]interface{}{"bindingId": request.BindingID, "value": result, "quality": quality, "receivedAt": now})
-		return
+		return screenRuntimeSample{Value: result, Quality: quality, ReceivedAt: now}, nil
 	}
 	keys := screenBindingKeys(binding)
 	method := binding.Aggregate
@@ -592,15 +640,13 @@ func (s *Server) handleScreenRuntimeHistory(r *ghttp.Request) {
 		method = "avg"
 	}
 	if method == "sum" || method == "count" {
-		screenWriteError(r, screenFail(400, "Unsupported history aggregation / 不支持此历史聚合方式"))
-		return
+		return empty, screenFail(400, "Unsupported history aggregation / 不支持此历史聚合方式")
 	}
 	result := []map[string]interface{}{}
 	if s.TSDB != nil {
-		response, queryErr := s.TSDB.Query(tsdb.QueryRequest{DeviceCode: codes[0], StartTime: start, EndTime: end, Type: tsdb.TypeTelemetry, Keys: keys, Aggregate: true, MaxPoints: limit, AggMethod: method, Page: 1, PageSize: limit})
+		response, queryErr := s.TSDB.Query(tsdb.QueryRequest{Context: ctx, DeviceCode: codes[0], StartTime: start, EndTime: end, Type: tsdb.TypeTelemetry, Keys: keys, Aggregate: true, MaxPoints: limit, AggMethod: method, Page: 1, PageSize: limit})
 		if queryErr != nil {
-			screenWriteError(r, screenFail(503, "History service unavailable / 历史服务暂不可用"))
-			return
+			return empty, screenFail(503, "History service unavailable / 历史服务暂不可用")
 		}
 		if response != nil {
 			for _, entry := range response.List {
@@ -630,7 +676,7 @@ func (s *Server) handleScreenRuntimeHistory(r *ghttp.Request) {
 	if len(result) == 0 {
 		quality = "no_data"
 	}
-	screenWriteData(r, map[string]interface{}{"bindingId": request.BindingID, "value": result, "quality": quality, "receivedAt": now})
+	return screenRuntimeSample{Value: result, Quality: quality, ReceivedAt: now}, nil
 }
 
 func (s *Server) handleScreenBindingCatalog(r *ghttp.Request) {

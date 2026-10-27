@@ -1,12 +1,12 @@
 import { SCREEN_PROTOCOL } from './api.js'
 
 export const SCREEN_RPC_TYPES = new Set([
-  'screen.load', 'screen.save', 'screen.validate', 'screen.publish',
+  'screen.load', 'screen.save', 'screen.apply', 'screen.apply.status', 'screen.validate', 'screen.publish',
   'asset.upload', 'asset.resolve', 'asset.list', 'binding.catalog', 'runtime.snapshot',
   'runtime.subscribe', 'runtime.unsubscribe', 'runtime.history', 'runtime.alarms',
   'assistant.plan', 'assistant.history', 'assistant.message', 'assistant.conversations', 'assistant.conversation.create',
   'assistant.task.current', 'assistant.task.resume', 'assistant.task.cancel',
-  'dataset.preview', 'dataset.list', 'dataset.load', 'dataset.save', 'runtime.data',
+  'dataset.preview', 'binding.preview', 'dataset.list', 'dataset.load', 'dataset.save', 'runtime.data',
 ])
 
 // A same-origin iframe isolates dependency and style trees, not untrusted JavaScript.

@@ -39,6 +39,7 @@ type screenAssistantMetric struct {
 	Question    string          `json:"question,omitempty"`
 	Reason      string          `json:"reason,omitempty"`
 	Priority    int             `json:"priority,omitempty"`
+	Task        string          `json:"task,omitempty"`
 }
 
 type screenAssistantMetrics struct {
@@ -118,9 +119,9 @@ func screenAssistantStage(ctx context.Context, model screenAssistantModel, paylo
 			return cached, nil
 		}
 	}
-	limit := 60 * time.Second
+	limit := 180 * time.Second
 	if stage == "intention" {
-		limit = 30 * time.Second
+		limit = 90 * time.Second
 	}
 	phaseCtx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
@@ -734,6 +735,16 @@ func (s *Server) screenAssistantWorkflow(ctx context.Context, model screenAssist
 	var selected []screenAssistantMetricCandidate
 	if candidateMode {
 		metrics, selected, err = screenAssistantResolveSelection(content, candidates)
+		if err != nil {
+			// One bounded repair using the authoritative catalog, never replay
+			// arbitrary provider output or weaken schema/binding validation.
+			payload["repair"] = "Metric selection failed schema or candidate validation. Return only selected and limitations. Select at most 12 exact candidate IDs, with question, reason, priority (0..3), and an advertised task. No extra fields."
+			content, err = screenAssistantStage(ctx, model, payload, "metrics", metricsPrompt, false, emit)
+			delete(payload, "repair")
+			if err == nil {
+				metrics, selected, err = screenAssistantResolveSelection(content, candidates)
+			}
+		}
 	} else {
 		err = screenAssistantDecode(content, &metrics)
 	}
@@ -757,7 +768,7 @@ func (s *Server) screenAssistantWorkflow(ctx context.Context, model screenAssist
 	if err := screenAssistantSaveCheckpoint(ctx, "metrics", screenAssistantCheckpointHash(payload, "metrics"), content); err != nil {
 		return zero, err
 	}
-	emit("stage", map[string]string{"stage": "validating"})
+	emit("stage", map[string]string{"stage": "checking"})
 	if candidateMode {
 		metrics, selected, err = screenAssistantResolveProductMetrics(ctx, row, metrics, selected)
 		if err != nil {
@@ -773,6 +784,9 @@ func (s *Server) screenAssistantWorkflow(ctx context.Context, model screenAssist
 		return zero, err
 	}
 	payload["metricPlan"], payload["trials"], payload["metricEvidence"] = metrics, screenAssistantCompactTrials(trials), evidence
+	if err := screenAssistantSaveCheckpoint(ctx, "checking", "", fmt.Sprintf(`{"count":%d}`, len(metrics.Metrics))); err != nil {
+		return zero, err
+	}
 	presentationPrompt := screenAssistantPresentationPrompt
 	if candidateMode {
 		payload["selectedMetrics"] = screenAssistantCandidateProjection(selected)
@@ -865,7 +879,6 @@ func (s *Server) screenAssistantWorkflow(ctx context.Context, model screenAssist
 			reviewed.Limitations = append(reviewed.Limitations, note)
 		}
 	}
-	emit("stage", map[string]string{"stage": "validating"})
 	unavailable := 0
 	for _, trial := range trials {
 		quality := trial.(screenRuntimeSample).Quality

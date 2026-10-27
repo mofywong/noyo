@@ -68,17 +68,16 @@ function flatten(items = []) {
 // that set, so an empty one is meaningless — and a 400 on validate discards the
 // whole proposal. Dropping only the broken binding keeps the rest of the screen
 // applicable, and the note tells the reviewer which widget lost its data.
-function dropDeviceLessBindings(document) {
-  const dropped = []
-  for (const [id, binding] of Object.entries(document.bindings || {})) {
-    if (!object(binding) || binding.kind === 'dataset') continue
-    const devices = [...(Array.isArray(binding.deviceCodes) ? binding.deviceCodes : []), binding.deviceCode].filter(Boolean)
-    if (devices.length) continue
-    delete document.bindings[id]
-    document.targets = (document.targets || []).filter(target => target.bindingId !== id)
-    dropped.push(id)
-  }
-  return dropped
+// Intent narrows the compiler's write scope. It never grants authorization to
+// query data; that remains the host's job. Ambiguous requests stay mixed.
+export function inferAssistantIntent(prompt = '', plan = {}) {
+  const text = String(prompt).toLowerCase()
+    .replace(/(?:保持|保留|不修改|不改变|不更改)[^，。；\n]*(?:绑定|数据源|指标)[^，。；\n]*/g, '')
+    .replace(/(?:keep|preserve|retain)[^.;\n]*(?:binding|data source|metric)[^.;\n]*/g, '')
+  if (/(?:新增|创建|重新生成|删除|重做|绑定|换数据源|接入数据|统计口径)|\b(?:create|rebuild|regenerate|delete|bind|rebind|query)\b/.test(text)) return 'mixed'
+  if (/(?:布局|排版|位置|间距|对齐)|\b(?:layout|position|spacing|alignment)\b/.test(text)) return 'layout'
+  if (/(?:文案|文字|说明|标注|颜色|字体|样式)|\b(?:copy|wording|note|label|colou?r|font|style)\b/.test(text)) return 'copy_style'
+  return !text.trim() && ['copy', 'style', 'copy_style', 'layout', 'binding', 'mixed'].includes(plan?.intent) ? plan.intent : 'mixed'
 }
 
 // Compiled blueprints must not silently overlap. Incremental edits are exempt:
@@ -95,9 +94,13 @@ function verifyLayout(componentList) {
   }
 }
 
-export function compileAssistantPlan(source, plan, { createComponent, getWidget, locale, applyTheme, expandBlueprint }) {
+export function compileAssistantPlan(source, plan, { createComponent, getWidget, locale, applyTheme, expandBlueprint, intent = 'mixed' }) {
   checkJSON(plan)
   if (!object(plan) || plan.clarification) fail()
+  const preservesBindings = ['copy', 'style', 'copy_style', 'layout'].includes(intent)
+  const copyStyleOnly = ['copy', 'style', 'copy_style'].includes(intent)
+  const scopeViolation = () => { throw new Error('INTENT_SCOPE_VIOLATION') }
+  if (preservesBindings && plan.sections != null || copyStyleOnly && plan.canvas != null) scopeViolation()
   const document = clone(source)
   document.bindings ||= {}
   document.targets ||= []
@@ -143,6 +146,9 @@ export function compileAssistantPlan(source, plan, { createComponent, getWidget,
   for (const operation of operations) {
     if (!object(operation) || !/^[A-Za-z0-9][A-Za-z0-9_.:\-]{0,127}$/.test(operation.id) || ids.has(operation.id)) fail()
     if (Object.keys(operation).some(key => !['type', 'id', 'key', 'x', 'y', 'w', 'h', 'title', 'option', 'binding', 'theme'].includes(key))) fail()
+    if (preservesBindings && (operation.type !== 'update' || own(operation, 'binding'))) scopeViolation()
+    if (copyStyleOnly && ['x', 'y', 'w', 'h'].some(key => own(operation, key))) scopeViolation()
+    if (preservesBindings && object(operation.option) && own(operation.option, 'dataset') && document.targets.some(target => target.componentId === operation.id)) scopeViolation()
     ids.add(operation.id)
     const location = locate(content.componentList, operation.id)
     let component = location?.component
@@ -199,8 +205,8 @@ export function compileAssistantPlan(source, plan, { createComponent, getWidget,
   if (flatten(content.componentList).length > 200) fail()
   if (plan.canvas) for (const component of flatten(content.componentList)) geometry(component.attr, width, height)
   if (compiled) {
-    const unbound = dropDeviceLessBindings(document)
-    if (unbound.length) notes.push(`${unbound.length} binding(s) were dropped because they had no device`)
+    // Binding errors must reach structured validation. Silently deleting a
+    // contract here hides an invalid proposal and can discard existing wiring.
     verifyLayout(content.componentList)
     // A compiled screen is fully machine-authored, so it gets the full check. A
     // hand-edited screen is exempt: stacked decorations are legitimate there.
@@ -208,5 +214,6 @@ export function compileAssistantPlan(source, plan, { createComponent, getWidget,
     if (report.errors.length) throw new Error(report.errors[0])
     notes.push(...report.warnings)
   }
+  if (preservesBindings && (JSON.stringify(document.bindings) !== JSON.stringify(source.bindings || {}) || JSON.stringify(document.targets) !== JSON.stringify(source.targets || []))) scopeViolation()
   return { document, changes, notes, destructive: changes.some(item => item.type === 'remove' || own(item, 'binding') && item.binding === null) }
 }

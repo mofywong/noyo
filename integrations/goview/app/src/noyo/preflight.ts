@@ -10,6 +10,7 @@
 // reviewer knows what was downgraded instead of discovering it later.
 import { shapeOf, targetOf, type WidgetShape } from './widgets'
 import { paletteForCanvas } from './screenTheme'
+import { fitsPresentation, presentationCapability } from './presentationMatcher'
 
 export interface PreflightReport {
   errors: string[]
@@ -121,6 +122,11 @@ export function preflightDocument(document: any, options: PreflightOptions = {})
     const key = component?.chartConfig?.key
     const shape = shapeOf(key)
     const option = component?.option || {}
+
+    const capability = presentationCapability(key)
+    if (bound.has(component.id) && capability && !fitsPresentation(capability, attr.w, attr.h)) {
+      errors.push(`${pick('tiny', locale)}: ${label} (${capability.minWidth} × ${capability.minHeight})`)
+    }
 
     if ((CHART_SHAPES.includes(shape) || shape === 'number' || shape === 'progress') && optionHasCssVar(option)) {
       errors.push(`${pick('cssVar', locale)}: ${label}`)

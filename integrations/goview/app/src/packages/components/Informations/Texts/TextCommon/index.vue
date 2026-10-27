@@ -1,5 +1,5 @@
 <template>
-  <div class="go-text-box">
+  <div class="go-text-box" :title="chartConfig.chartConfig?.title">
     <div class="content">
       <span style="cursor: pointer; white-space: pre-wrap" v-if="link" @click="click">{{ option.dataset }}</span>
       <span style="white-space: pre-wrap" v-else>{{ option.dataset }}</span>

@@ -2,8 +2,10 @@ package core
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gogf/gf/v2/net/ghttp"
@@ -23,11 +25,16 @@ type screenAssistantContextScope struct {
 }
 
 type screenAssistantContextGroup struct {
-	ID          string   `json:"id"`
+	ID string `json:"id"`
+	// Scope names what the group selects: a product's live membership, one
+	// explicitly chosen device, or every device in the project. A project group
+	// is the only scope that can carry a genuine cross-device total.
+	Scope       string   `json:"scope,omitempty"`
 	ProductCode string   `json:"productCode,omitempty"`
 	Name        string   `json:"name"`
 	Count       int      `json:"count"`
 	Dynamic     bool     `json:"dynamic"`
+	ScopeState  string   `json:"scopeState,omitempty"`
 	DeviceCodes []string `json:"-"`
 }
 
@@ -89,8 +96,39 @@ func screenAssistantContextProducts(r *ghttp.Request, row *store.IOCScreen) ([]s
 }
 
 func screenAssistantContextFields(code string) []screen.ProfileField {
+	return screenAssistantContextPropertyFields(loadProductTSLProperties(code))
+}
+
+// Deployed device counts are the only evidence that a product definition can
+// carry a live metric. A definition with no device is a valid catalogue entry,
+// but binding a discovered panel to it can only ever return no_data.
+func screenAssistantProductDeviceCounts(r *ghttp.Request, row *store.IOCScreen) (map[string]int, int, error) {
+	counts := []struct {
+		ProductCode string
+		Total       int
+	}{}
+	err := store.DB.WithContext(r.Context()).Model(&store.Device{}).
+		Select("product_code, COUNT(*) AS total").
+		Where("tenant_id = ? AND project_id = ?", row.TenantID, row.ProjectID).
+		Group("product_code").Scan(&counts).Error
+	if err != nil {
+		return nil, 0, screenFail(503, "Device catalogue unavailable / 设备目录暂不可用")
+	}
+	result := map[string]int{}
+	total := 0
+	for _, item := range counts {
+		if item.ProductCode == "" {
+			continue
+		}
+		result[item.ProductCode] = item.Total
+		total += item.Total
+	}
+	return result, total, nil
+}
+
+func screenAssistantContextPropertyFields(properties []map[string]any) []screen.ProfileField {
 	fields := []screen.ProfileField{}
-	for _, property := range loadProductTSLProperties(code) {
+	for _, property := range properties {
 		key := propertyStringField(property, "identifier")
 		if key == "" || len(key) > 128 || screenAssistantPrivateFieldKey(key) {
 			continue
@@ -102,6 +140,23 @@ func screenAssistantContextFields(code string) []screen.ProfileField {
 		}
 	}
 	return fields
+}
+
+func screenAssistantProductSchema(product store.Product) screen.ProfileProduct {
+	var config map[string]any
+	_ = json.Unmarshal([]byte(product.Config), &config)
+	if tsl, ok := config["tsl"].(map[string]any); ok {
+		config = tsl
+	}
+	properties := []map[string]any{}
+	if raw, ok := config["properties"].([]any); ok {
+		for _, value := range raw {
+			if property, ok := value.(map[string]any); ok {
+				properties = append(properties, property)
+			}
+		}
+	}
+	return screen.ProfileProduct{Code: product.Code, Name: product.Name, Fields: screenAssistantContextPropertyFields(properties), Events: screenAssistantEventMetadata(product.Config)}
 }
 
 // Unset discovers accessible product definitions. Explicit device context is
@@ -132,14 +187,22 @@ func (s *Server) screenAssistantContext(r *ghttp.Request, row *store.IOCScreen, 
 	if err != nil {
 		return nil, err
 	}
+	counts, totalDevices, err := screenAssistantProductDeviceCounts(r, row)
+	if err != nil {
+		return nil, err
+	}
 	byProduct := map[string]store.Product{}
 	for _, product := range visible {
 		byProduct[product.Code] = product
 	}
 	selectedProducts := map[string]bool{}
 	if defaultAll {
+		// Discovery must not advertise definitions that cannot carry data: an
+		// empty product would otherwise become a permanently blank panel.
 		for _, product := range visible {
-			selectedProducts[product.Code] = true
+			if counts[product.Code] > 0 {
+				selectedProducts[product.Code] = true
+			}
 		}
 	}
 	for _, code := range products {
@@ -191,7 +254,14 @@ func (s *Server) screenAssistantContext(r *ghttp.Request, row *store.IOCScreen, 
 	for code := range selectedProducts {
 		product := byProduct[code]
 		// -1 means unresolved, never a claim that this product has no devices.
-		result.Groups = append(result.Groups, screenAssistantContextGroup{ID: screenAssistantContextID("product", code), ProductCode: code, Name: screenAssistantText(product.Name, 128), Count: -1, Dynamic: true})
+		group := screenAssistantContextGroup{ID: screenAssistantContextID("product", code), Scope: "product", ProductCode: code, Name: screenAssistantText(product.Name, 128), Count: -1, Dynamic: true, ScopeState: "unresolved"}
+		if !defaultAll && counts[code] == 0 {
+			// Explicitly selected and currently undeployed. The scope stays a
+			// resolvable waiting view, but it is reported as empty so the plan does
+			// not present it as a measured result.
+			group.ScopeState = "empty"
+		}
+		result.Groups = append(result.Groups, group)
 		if !profileProducts[code] {
 			definition := screen.BuildSceneProfile([]screen.ProfileInput{{ProductCode: code, ProductName: product.Name, Fields: screenAssistantContextFields(code)}}, 64).Products[0]
 			definition.Devices = 0
@@ -199,8 +269,21 @@ func (s *Server) screenAssistantContext(r *ghttp.Request, row *store.IOCScreen, 
 			result.Profile.Products = append(result.Profile.Products, definition)
 		}
 	}
+	// Every single-device KPI answers "what is this box reading". A screen also
+	// needs project totals that no product scope can express. An explicitly
+	// cleared scope stays empty: a project-wide total is a scope grant, so it is
+	// offered only for discovery or when products were selected.
+	if totalDevices > 0 && (defaultAll || len(selectedProducts) > 0) {
+		result.Groups = append(result.Groups, screenAssistantContextGroup{
+			ID:         screenAssistantContextID("project", fmt.Sprintf("%d:%d", row.TenantID, row.ProjectID)),
+			Scope:      "project",
+			Count:      totalDevices,
+			Dynamic:    true,
+			ScopeState: "project",
+		})
+	}
 	for _, device := range result.Devices {
-		result.Groups = append(result.Groups, screenAssistantContextGroup{ID: screenAssistantContextID("device", device.Code), ProductCode: device.ProductCode, Name: device.Name, Count: 1, Dynamic: false, DeviceCodes: []string{device.Code}})
+		result.Groups = append(result.Groups, screenAssistantContextGroup{ID: screenAssistantContextID("device", device.Code), Scope: "device", ProductCode: device.ProductCode, Name: device.Name, Count: 1, Dynamic: false, ScopeState: "resolved", DeviceCodes: []string{device.Code}})
 	}
 	sort.Slice(result.Groups, func(i, j int) bool { return result.Groups[i].ID < result.Groups[j].ID })
 	sort.Slice(result.Profile.Products, func(i, j int) bool { return result.Profile.Products[i].Code < result.Profile.Products[j].Code })
@@ -211,6 +294,39 @@ func (s *Server) screenAssistantContext(r *ghttp.Request, row *store.IOCScreen, 
 	// never needs this per-device array when it can select group/candidate refs.
 	result.Profile.Devices = nil
 	return result, nil
+}
+
+// A shared name is only a discovery hint. Require the complete executable
+// property/event schema to agree before offering an in-context alternative.
+// Truncated or empty schemas cannot establish this equivalence.
+func screenAssistantCompatibleProducts(a, b screen.ProfileProduct) bool {
+	if a.FieldsOmitted != 0 || b.FieldsOmitted != 0 || len(a.Fields)+len(a.Events) == 0 || len(b.Fields)+len(b.Events) == 0 {
+		return false
+	}
+	contract := func(product screen.ProfileProduct) string {
+		normalize := func(fields []screen.ProfileField) []screen.ProfileField {
+			result := append([]screen.ProfileField{}, fields...)
+			for i := range result {
+				result[i].Zh, result[i].En, result[i].Provenance = "", "", ""
+				result[i].Aggregations = append([]string{}, result[i].Aggregations...)
+				sort.Strings(result[i].Aggregations)
+			}
+			sort.Slice(result, func(i, j int) bool { return result[i].Key < result[j].Key })
+			return result
+		}
+		events := append([]screen.ProfileEvent{}, product.Events...)
+		for i := range events {
+			events[i].Zh, events[i].En = "", ""
+			events[i].Fields = normalize(events[i].Fields)
+		}
+		sort.Slice(events, func(i, j int) bool { return events[i].Key < events[j].Key })
+		value, _ := json.Marshal(struct {
+			Fields []screen.ProfileField
+			Events []screen.ProfileEvent
+		}{normalize(product.Fields), events})
+		return string(value)
+	}
+	return contract(a) == contract(b)
 }
 
 func screenAssistantBindingProducts(r *ghttp.Request, row *store.IOCScreen, devices []screenAssistantDevice) ([]interface{}, error) {
@@ -241,11 +357,22 @@ func screenAssistantBindingProducts(r *ghttp.Request, row *store.IOCScreen, devi
 // resolved and authorized again by screenPrepareData on every runtime refresh.
 // A false result means a real capability/capacity gap, never "waiting for data".
 func screenAssistantGroupQuery(group screenAssistantContextGroup, kind, key, aggregate string, windowMs int64) (screen.Binding, bool) {
+	return screenAssistantGroupQueryField(group, kind, key, aggregate, windowMs, nil, "zh")
+}
+
+func screenAssistantGroupQueryField(group screenAssistantContextGroup, kind, key, aggregate string, windowMs int64, field *screen.ProfileField, locale string) (screen.Binding, bool) {
+	project := group.Scope == "project"
 	limit := dataquery.MaxDevices
 	if kind == "deviceSummary" || kind == "aggregate" || kind == "distribution" || kind == "alarmList" {
 		limit = screenAssistantContextDeviceBudget
 	}
-	if (group.Dynamic && group.ProductCode == "") || (!group.Dynamic && len(group.DeviceCodes) == 0) || group.Count > limit {
+	if project {
+		// An empty selector is resolved against the whole project at runtime, and
+		// that resolution is capped at MaxDevices. Advertising a wider capacity
+		// here would only fail later on every refresh.
+		limit = dataquery.MaxDevices
+	}
+	if (!group.Dynamic && len(group.DeviceCodes) == 0) || (group.Dynamic && group.ProductCode == "" && !project) || group.Count > limit {
 		return screen.Binding{}, false
 	}
 	plan := dataquery.Plan{SchemaVersion: dataquery.SchemaVersion, Sources: []dataquery.Source{{ID: "raw", Kind: "latest", Selector: dataquery.Selector{ProductCode: group.ProductCode}}}, Output: "stats", WindowMs: windowMs}
@@ -275,6 +402,17 @@ func screenAssistantGroupQuery(group screenAssistantContextGroup, kind, key, agg
 		if key != "onlineRate" {
 			plan.Steps = append(plan.Steps, dataquery.Step{ID: "stats", Op: "aggregate", Input: input, Measures: []dataquery.Measure{count}})
 		}
+	case "alarmCount", "eventCount":
+		// A cross-device incident total. It counts incident records, never device
+		// properties, so it stays a project-level figure rather than a sum of
+		// per-device counters.
+		field := "id"
+		plan.Sources[0].Kind = "alarms"
+		if kind == "eventCount" {
+			field = "ts"
+			plan.Sources[0].Kind = "events"
+		}
+		plan.Steps = []dataquery.Step{{ID: "stats", Op: "aggregate", Input: "raw", Measures: []dataquery.Measure{{ID: "value", Function: "count", Field: field}}}}
 	case "aggregate", "history":
 		if key == "" || (aggregate != "avg" && aggregate != "min" && aggregate != "max" && aggregate != "sum" && aggregate != "count") {
 			return screen.Binding{}, false
@@ -300,8 +438,20 @@ func screenAssistantGroupQuery(group screenAssistantContextGroup, kind, key, agg
 			return screen.Binding{}, false
 		}
 		plan.Sources[0].Fields = []string{key}
-		plan.Steps = []dataquery.Step{{ID: "reported", Op: "filter", Input: "raw", Expression: fmt.Sprintf("row[%q] != nil", key)}, {ID: "stats", Op: "aggregate", Input: "reported", GroupBy: []string{key}, Measures: []dataquery.Measure{{ID: "value", Function: "count_distinct", Field: "device_code"}}}}
 		mapping.Category = key
+		plan.Steps = []dataquery.Step{{ID: "reported", Op: "filter", Input: "raw", Expression: fmt.Sprintf("row[%q] != nil", key)}, {ID: "stats", Op: "aggregate", Input: "reported", GroupBy: []string{key}, Measures: []dataquery.Measure{{ID: "value", Function: "count_distinct", Field: "device_code"}}}}
+		if field != nil {
+			// A state is a per-device reading, not a magnitude. Grouping the raw
+			// boolean produces unreadable true/false categories and drops every
+			// state no device currently reports, which turns a two-state breakdown
+			// into a single-colour circle. Label the declared states and always
+			// emit all of them.
+			if categories := screenAssistantStateCategories(*field, locale); len(categories) > 0 {
+				if screenAssistantLabelDistribution(&plan, key, categories) {
+					mapping.Category = "category"
+				}
+			}
+		}
 	case "eventList", "alarmList":
 		plan.Sources[0].Kind = "events"
 		mapping.Columns = []string{"ts", "device_name", "event_zh", "event_type", "parameters"}
@@ -317,4 +467,133 @@ func screenAssistantGroupQuery(group screenAssistantContextGroup, kind, key, agg
 		return screen.Binding{}, false
 	}
 	return screen.Binding{Kind: "dataset", Query: &plan, Mapping: mapping, WindowMs: windowMs}, true
+}
+
+// A declared state list is authoritative. A boolean without declared labels still
+// has exactly two states, so its readable wording comes from the property name.
+type screenAssistantStateCategory struct {
+	Match interface{}
+	Label string
+}
+
+var screenAssistantStatePairs = []struct {
+	needles []string
+	zh      [2]string
+	en      [2]string
+}{
+	{[]string{"手自动", "手动自动", "auto"}, [2]string{"自动", "手动"}, [2]string{"Auto", "Manual"}},
+	{[]string{"释放", "闭锁", "release"}, [2]string{"已释放", "未释放"}, [2]string{"Released", "Latched"}},
+	{[]string{"切断", "cut off"}, [2]string{"已切断", "未切断"}, [2]string{"Cut off", "Open"}},
+	{[]string{"复位", "reset"}, [2]string{"已复位", "未复位"}, [2]string{"Reset", "Not reset"}},
+	{[]string{"消音", "mute", "silence"}, [2]string{"已消音", "未消音"}, [2]string{"Silenced", "Audible"}},
+	{[]string{"充电", "浮充", "charg"}, [2]string{"充电中", "未充电"}, [2]string{"Charging", "Idle"}},
+	{[]string{"应急", "强启", "emergency"}, [2]string{"应急点亮", "正常"}, [2]string{"Emergency on", "Normal"}},
+	{[]string{"就绪", "ready"}, [2]string{"就绪", "未就绪"}, [2]string{"Ready", "Not ready"}},
+	{[]string{"动作", "actuat", "tripped"}, [2]string{"已动作", "未动作"}, [2]string{"Actuated", "Idle"}},
+	{[]string{"开启", "开门", "打开", "open"}, [2]string{"已开启", "已关闭"}, [2]string{"Open", "Closed"}},
+	{[]string{"关闭", "closed", "close limit"}, [2]string{"已关闭", "未关闭"}, [2]string{"Closed", "Open"}},
+	{[]string{"运行", "run"}, [2]string{"运行", "停止"}, [2]string{"Running", "Stopped"}},
+	{[]string{"故障", "断线", "短路", "fault", "error"}, [2]string{"故障", "正常"}, [2]string{"Fault", "Normal"}},
+	{[]string{"报警", "火警", "超限", "超温", "欠压", "过压", "缺相", "高限", "低限", "低液位", "溢流", "预警", "alarm", "fire"}, [2]string{"报警", "正常"}, [2]string{"Alarm", "Normal"}},
+	{[]string{"正常", "normal"}, [2]string{"正常", "异常"}, [2]string{"Normal", "Abnormal"}},
+	{[]string{"在线", "在位", "online"}, [2]string{"在线", "离线"}, [2]string{"Online", "Offline"}},
+}
+
+func screenAssistantBoolLabels(field screen.ProfileField, locale string) (string, string) {
+	text := strings.ToLower(strings.Join([]string{field.Zh, field.En}, " "))
+	for _, pair := range screenAssistantStatePairs {
+		for _, needle := range pair.needles {
+			if strings.Contains(text, needle) {
+				if locale == "zh" {
+					return pair.zh[0], pair.zh[1]
+				}
+				return pair.en[0], pair.en[1]
+			}
+		}
+	}
+	if locale == "zh" {
+		return "是", "否"
+	}
+	return "Yes", "No"
+}
+
+func screenAssistantStateLiteral(value string) interface{} {
+	if number, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
+		return number
+	}
+	return value
+}
+
+// Category values arrive as booleans, numbers or strings depending on the device
+// firmware, so a match accepts the declared value in both its typed and textual
+// form. Only literals are emitted; no field value is interpolated as code.
+func screenAssistantStateMatch(key string, match interface{}) string {
+	literal := ""
+	switch value := match.(type) {
+	case bool:
+		literal = strconv.FormatBool(value)
+	case float64:
+		literal = strconv.FormatFloat(value, 'g', -1, 64)
+		return fmt.Sprintf("(row[%q] == %s || row[%q] == %q)", key, literal, key, literal)
+	case string:
+		literal = strconv.Quote(value)
+	default:
+		return "nil"
+	}
+	return fmt.Sprintf("row[%q] == %s", key, literal)
+}
+
+func screenAssistantStateCategories(field screen.ProfileField, locale string) []screenAssistantStateCategory {
+	if len(field.Values) > 0 {
+		keys := make([]string, 0, len(field.Values))
+		for key := range field.Values {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		if len(keys) > 8 {
+			keys = keys[:8]
+		}
+		result := make([]screenAssistantStateCategory, 0, len(keys))
+		for _, key := range keys {
+			label := screenAssistantText(field.Values[key], 32)
+			if label == "" {
+				label = screenAssistantText(key, 32)
+			}
+			result = append(result, screenAssistantStateCategory{Match: screenAssistantStateLiteral(key), Label: label})
+		}
+		return result
+	}
+	switch strings.ToLower(strings.TrimSpace(field.Type)) {
+	case "bool", "boolean":
+		on, off := screenAssistantBoolLabels(field, locale)
+		return []screenAssistantStateCategory{{Match: true, Label: on}, {Match: false, Label: off}}
+	}
+	return nil
+}
+
+// Rewrite the distribution plan so every declared state appears once with a
+// readable label and a device count. Static zero rows are unioned in, then
+// re-aggregated, so a state with no reporting device is a real zero rather than
+// a missing category.
+func screenAssistantLabelDistribution(plan *dataquery.Plan, key string, categories []screenAssistantStateCategory) bool {
+	expression := "nil"
+	for index := len(categories) - 1; index >= 0; index-- {
+		expression = fmt.Sprintf("ifelse(%s, %s, %s)", screenAssistantStateMatch(key, categories[index].Match), strconv.Quote(categories[index].Label), expression)
+	}
+	zeros := make([]dataquery.Row, 0, len(categories))
+	for _, category := range categories {
+		zeros = append(zeros, dataquery.Row{"category": category.Label, "value": float64(0)})
+	}
+	plan.Sources = append(plan.Sources, dataquery.Source{ID: "declared", Kind: "static", Rows: zeros})
+	plan.Steps = []dataquery.Step{
+		{ID: "reported", Op: "filter", Input: "raw", Expression: fmt.Sprintf("row[%q] != nil", key)},
+		{ID: "labeled", Op: "derive", Input: "reported", Field: "category", Expression: expression},
+		{ID: "known", Op: "filter", Input: "labeled", Expression: `row["category"] != nil`},
+		{ID: "counted", Op: "aggregate", Input: "known", GroupBy: []string{"category"}, Measures: []dataquery.Measure{{ID: "value", Function: "count_distinct", Field: "device_code"}}},
+		{ID: "merged", Op: "union", Input: "counted", Right: "declared"},
+		{ID: "stats", Op: "aggregate", Input: "merged", GroupBy: []string{"category"}, Measures: []dataquery.Measure{{ID: "value", Function: "sum", Field: "value"}}},
+		{ID: "ordered", Op: "sort", Input: "stats", Orders: []dataquery.Order{{Field: "value", Desc: true}}},
+	}
+	plan.Output = "ordered"
+	return dataquery.Validate(*plan) == nil
 }

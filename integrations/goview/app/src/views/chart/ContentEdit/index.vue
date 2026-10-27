@@ -48,10 +48,10 @@
                 @mouseleave="mouseleaveHandle($event, item)"
                 @contextmenu="handleContextMenu($event, item, optionsHandle)"
               >
-                <component
+                <detached-widget
                   class="edit-content-chart"
                   :class="animationsClass(item.styles.animations)"
-                  :is="item.chartConfig.chartKey"
+                  :widget="item.chartConfig.chartKey"
                   :chartConfig="item"
                   :themeSetting="themeSetting"
                   :themeColor="themeColor"
@@ -60,7 +60,7 @@
                     ...getFilterStyle(item.styles),
                     ...getTransformStyle(item.styles)
                   }"
-                ></component>
+                ></detached-widget>
               </edit-shape-box>
             </div>
           </div>
@@ -72,6 +72,7 @@
 </template>
 
 <script lang="ts" setup>
+import DetachedWidget from '@/noyo/DetachedWidget.vue'
 import { onMounted, computed, provide, watch, ref } from 'vue'
 import { chartColors } from '@/settings/chartThemes/index'
 import { MenuEnum } from '@/enums/editPageEnum'

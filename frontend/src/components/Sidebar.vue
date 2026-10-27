@@ -121,6 +121,9 @@
       <a v-if="authStore.hasPermission('audit:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'AuditLogs' }" @click.prevent="navigate('/settings/audit-logs')">
         <i class="bi bi-journal-text"></i> <span>{{ $t('audit_logs', 'Audit Logs') }}</span>
       </a>
+      <a v-if="authStore.hasPermission('llm_request:list')" href="#" class="nav-link" :class="{ active: currentRouteName === 'LLMRequests' }" @click.prevent="navigate('/settings/llm-requests')">
+        <i class="bi bi-journal-code" aria-hidden="true"></i> <span>{{ $t('llm_requests') }}</span>
+      </a>
       <a v-if="authStore.hasPermission('system:license')" href="#" class="nav-link" :class="{ active: currentRouteName === 'License' }" @click.prevent="navigate('/license')">
         <i class="bi bi-shield-check"></i> <span>{{ $t('license_info', '授权信息') }}</span>
       </a>

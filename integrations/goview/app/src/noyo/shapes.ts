@@ -14,8 +14,60 @@ export interface ShapedBinding {
 const english = (locale: string) => (locale || '').startsWith('en')
 
 function num(value: any) {
-  const parsed = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''))
+  // Do not turn false, an empty string or a partially numeric label into a
+  // measured zero. Older point bindings may still send numeric strings.
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function precisionOf(value: any) {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(12, Math.max(0, Math.round(value))) : undefined
+}
+
+// Display formatting never changes the numeric sample supplied to charts.
+// Keep unconfigured legacy values readable too, without inventing precision
+// or allowing a raw floating-point tail to consume an entire KPI card.
+export function formatScalar(value: any, binding: ShapedBinding, locale: string, defaultDecimals = 6): string {
+  if (value == null) return '—'
+  if (typeof value === 'boolean') return english(locale) ? (value ? 'Yes' : 'No') : (value ? '是' : '否')
+  const amount = num(value)
+  if (amount == null) return typeof value === 'number' ? '—' : String(value)
+  const precision = precisionOf(binding.decimals)
+  const maximumFractionDigits = precision ?? defaultDecimals
+  // Very large integers do not fit even after rounding; retain their magnitude
+  // in scientific notation while the original sample remains a number.
+  const scientific = Math.abs(amount) >= 1e12 || (precision == null && amount !== 0 && Math.abs(amount) < 1e-6)
+  const rounded = Number(amount.toFixed(maximumFractionDigits))
+  const display = new Intl.NumberFormat(english(locale) ? 'en-US' : 'zh-CN', {
+    useGrouping: false,
+    notation: scientific ? 'scientific' : 'standard',
+    minimumFractionDigits: precision ?? 0,
+    maximumFractionDigits
+  }).format(!scientific && rounded === 0 ? 0 : amount)
+  const unit = typeof binding.unit === 'string' ? binding.unit.trim() : ''
+  return `${display}${unit ? `${unit === '%' ? '' : ' '}${unit}` : ''}`
+}
+
+// A unit such as %LEL is a declared percentage, including values below 1.
+// Only bindings without this metadata retain the legacy ratio heuristic.
+function percentRatio(value: any, binding: ShapedBinding) {
+  const amount = num(value)
+  if (amount == null) return null
+  const declaredPercent = typeof binding.unit === 'string' && /[%％]/.test(binding.unit)
+  const ratio = binding.kind === 'deviceSummary' || declaredPercent || amount > 1 ? amount / 100 : amount
+  return Math.min(Math.max(ratio, 0), 1)
+}
+
+export function formatPercent(ratio: any, binding: ShapedBinding, locale: string): string {
+  const amount = num(ratio)
+  return amount == null ? '—' : formatScalar(amount * 100, { ...binding, unit: binding.unit || '%' }, locale, 2)
+}
+
+// Resolve by persisted identity rather than component order, so reordering or
+// replacing the document cannot silently pick a neighbouring widget's unit.
+export function bindingForComponent(document: any, componentId: string): ShapedBinding | undefined {
+  const target = (document?.targets || []).find((item: any) => item.componentId === componentId && document.bindings?.[item.bindingId])
+  return target ? document.bindings[target.bindingId] : undefined
 }
 function rowsOf(value: any) {
   return Array.isArray(value) ? value.filter(row => row && typeof row === 'object') : []
@@ -176,9 +228,10 @@ export function shapeData(value: any, binding: ShapedBinding, shape: WidgetShape
     return rows.map((row, index) => ({ name: labelOf(row, index), value: num(row[keys[0]]) }))
   }
   if (shape === 'number') return num(value)
-  // PieCircle multiplies by 100 itself; accept either a ratio or a percentage.
-  if (shape === 'percent') { const ratio = num(value); return ratio == null ? null : Math.min(Math.max(binding.kind === 'deviceSummary' || binding.unit === '%' || ratio > 1 ? ratio / 100 : ratio, 0), 1) }
-  if (shape === 'progress') { const amount = num(value); return amount == null ? null : Math.min(Math.max(binding.kind !== 'deviceSummary' && binding.unit !== '%' && amount > 0 && amount <= 1 ? amount * 100 : amount, 0), 100) }
+  // PieCircle consumes a ratio; progress consumes the same value on a 0..100
+  // scale. Both must use identical declared-unit semantics.
+  if (shape === 'percent') return percentRatio(value, binding)
+  if (shape === 'progress') { const ratio = percentRatio(value, binding); return ratio == null ? null : ratio * 100 }
   if (shape === 'table') {
     if (binding.kind === 'eventList' && Array.isArray(value)) {
       return value.map((row, index) => { const columns = eventColumns(row, index, en); return { name: `${columns.device} · ${columns.title}`, value: columns.parameters } })
@@ -241,7 +294,7 @@ export function shapeData(value: any, binding: ShapedBinding, shape: WidgetShape
     return rows.map((row, index) => [labelOf(row, index), ...keys.map(key => String(row[key] ?? ''))])
   }
   if (shape === 'map') return value
-  if (shape === 'text') return value == null ? '—' : value
+  if (shape === 'text') return formatScalar(value, binding, locale)
   return value == null ? '—' : value
 }
 
@@ -253,9 +306,9 @@ function shapeDataset(value: any, binding: ShapedBinding, shape: WidgetShape, lo
     if (rows.length > 1) throw new Error(english(locale) ? 'Scalar widgets require one result row' : '单值组件需要一行查询结果')
     const scalar = rows[0]?.[valueKey]
     if (scalar == null) return shape === 'text' ? '—' : null
-    if (shape === 'text') return String(scalar)
+    if (shape === 'text') return formatScalar(scalar, binding, locale)
     if (typeof scalar !== 'number' || !Number.isFinite(scalar)) throw new Error(english(locale) ? 'Mapped value must be numeric' : '映射的数值字段必须为数字')
-    return shapeData(scalar, {kind:'point'}, shape, locale)
+    return shapeData(scalar, {...binding, kind:'point'}, shape, locale)
   }
   const category = (row: any, index: number) => {
     if (!map.category) return String(index+1)
@@ -266,7 +319,11 @@ function shapeDataset(value: any, binding: ShapedBinding, shape: WidgetShape, lo
   if (['chart','vchart','pie','treemap','words','radar','heatmap'].includes(shape) && rows.some(row=>(['pie','treemap','words'].includes(shape)?[valueKey]:columns).some(key=>row[key]!=null&&(typeof row[key]!=='number'||!Number.isFinite(row[key]))))) throw new Error(english(locale) ? 'Chart values must be numeric' : '图表数值字段必须为数字')
   if (shape === 'table-basic') {
     const keys = [...new Set<string>([...(map.category ? [map.category] : []),...columns])]
-    return {dimensions:keys.map(key=>({title:key,key})),source:rows.map((row,index)=>Object.fromEntries(keys.map(key=>[key,key===map.category?category(row,index):row[key]??null])))}
+    // Headers used to be the model key verbatim, so a group of sibling channels
+    // rendered AI_L1_RESIDUAL_CURRENT / AI_L2_RESIDUAL_CURRENT … across the top
+    // row. Table headers follow the same rule as the chart legend.
+    const labels = compactLabels(keys)
+    return {dimensions:keys.map((key,index)=>({title:labels[index],key})),source:rows.map((row,index)=>Object.fromEntries(keys.map(key=>[key,key===map.category?category(row,index):row[key]??null])))}
   }
   if (shape === 'table-grid') return rows.map((row,index)=>[category(row,index),...columns.map(key=>row[key] == null ? '—' : String(row[key]))])
   if (['pie','treemap','words','table'].includes(shape)) {

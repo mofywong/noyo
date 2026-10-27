@@ -1,11 +1,14 @@
 import { onUnmounted } from 'vue'
-import { on, state } from './bridge'
+import { assistantDocumentSignature, on, state } from './bridge'
 import { shapeOf, type WidgetShape } from './widgets'
 import { shapeData } from './shapes'
 
 const callbacks = new Map<string, Set<(value: any) => void>>()
 const statusCallbacks = new Map<string, Set<(status: any) => void>>()
 const latest = new Map<string, any>()
+const latestContracts = new Map<string, string>()
+const targetIndex = new Map<string, any[]>()
+let targetIndexSource: any = null, targetIndexLength = -1
 const versions = new Map<string, number>()
 // componentId -> shape, built once per document instead of once per target.
 const shapeIndex = new Map<string, WidgetShape>()
@@ -14,7 +17,7 @@ let currentEpoch: any = null
 export function subscribeWidget(id: string, callback: (value: any) => void) {
   const set = callbacks.get(id) || new Set()
   set.add(callback); callbacks.set(id, set)
-  if (latest.has(id)) callback(latest.get(id))
+  if (latest.has(id) && latestContracts.get(id) === widgetContract(id)) callback(latest.get(id))
   onUnmounted(() => { set.delete(callback); if (!set.size) callbacks.delete(id) })
 }
 // Quality is delivered on a separate channel: a widget must be able to render
@@ -63,7 +66,19 @@ function shapeFor(componentId: string): WidgetShape {
   return shapeIndex.get(componentId) || 'static'
 }
 
-export function deliverWidget(id: string, value: any) { latest.set(id, value); for (const callback of callbacks.get(id) || []) callback(value) }
+function widgetContract(id: string) {
+  const all = state.document?.targets || []
+  if (all !== targetIndexSource || all.length !== targetIndexLength) {
+    targetIndexSource = all; targetIndexLength = all.length; targetIndex.clear()
+    for (const target of all) { const list = targetIndex.get(target.componentId) || []; list.push(target); targetIndex.set(target.componentId, list) }
+  }
+  const targets = targetIndex.get(id) || []
+  const bindings = Object.fromEntries(targets.map(target => [target.bindingId, state.document?.bindings?.[target.bindingId]]))
+  return assistantDocumentSignature({ shape: shapeFor(id), bindings, targets })
+}
+export function deliverWidget(id: string, value: any) { latest.set(id, value); latestContracts.set(id, widgetContract(id)); for (const callback of callbacks.get(id) || []) callback(value) }
+// Repaint a detached render model after its authored configuration changes.
+export function replayWidget(id: string) { if (latest.has(id) && latestContracts.get(id) === widgetContract(id)) for (const callback of callbacks.get(id) || []) callback(latest.get(id)) }
 function deliverStatus(id: string, status: any) { for (const callback of statusCallbacks.get(id) || []) callback(status) }
 function sampleQuality(quality = 'good', shaped: any, binding: any) {
   if (quality !== 'good') return quality
@@ -92,6 +107,8 @@ export function deliverBinding(bindingId: string, value: any, quality = 'good', 
 }
 on('runtime.batch', batch => {
   if (!state.initialized || batch?.revision !== state.runtimeRevision) return
+  state.transportLost = false
+  state.lastFrameAt = Number(batch.serverTime) || Date.now()
   if (batch.runtimeEpoch !== currentEpoch) { versions.clear(); currentEpoch = batch.runtimeEpoch }
   for (const target of state.document?.targets || []) {
     const binding = state.document.bindings?.[target.bindingId]
@@ -103,7 +120,7 @@ on('runtime.batch', batch => {
     // An identical sample would only make the chart redraw the same picture.
     // The status is delivered anyway: a device can go offline without its
     // telemetry counter moving.
-    const unchanged = version > 0 && version === versions.get(key)
+    const unchanged = version > 0 && version === versions.get(key) && latestContracts.get(target.componentId) === widgetContract(target.componentId)
     if (version) versions.set(key, version)
     if (!unchanged) deliverWidget(target.componentId, dataFor(sample.value, binding, shapeFor(target.componentId)))
     const quality = sampleQuality(sample.quality, latest.get(target.componentId), binding)
@@ -119,7 +136,30 @@ on('runtime.batch', batch => {
   // pretending there is no data.
   for (const bindingId of batch.deniedBindings || []) for (const target of state.document?.targets || []) if (target.bindingId === bindingId) deliverStatus(target.componentId, { quality: 'access_denied', receivedAt: batch.serverTime, bindingId, label: english() ? qualityLabels.access_denied[1] : qualityLabels.access_denied[0] })
 })
-on('host.dispose', () => { callbacks.clear(); statusCallbacks.clear(); latest.clear(); versions.clear(); shapeIndex.clear(); shapeIndexSource = null })
+on('host.dispose', () => { callbacks.clear(); statusCallbacks.clear(); latest.clear(); latestContracts.clear(); versions.clear(); shapeIndex.clear(); shapeIndexSource = null; targetIndex.clear(); targetIndexSource = null; targetIndexLength = -1; state.lastFrameAt = 0; state.transportLost = false })
+// The socket lives in the host page, so this is the only way the canvas can learn
+// that the numbers on it stopped arriving. Without it a dead link renders as a
+// perfectly healthy screen that simply never changes.
+on('host.runtimeState', payload => {
+  // Only "lost" means the feed stopped. "idle" is a deliberate stop (autosave
+  // restarts the stream, unmount, revocation) and "connecting" is the recovery
+  // path itself, so neither may repaint a healthy canvas as stale.
+  const lost = payload?.state === 'lost'
+  if (lost === state.transportLost) return
+  state.transportLost = lost
+  // No frame has ever arrived: the widgets have nothing to be stale about yet.
+  if (!lost || !state.lastFrameAt) return
+  // Values are kept on purpose — an operator needs the last known reading, but
+  // every widget must say that it is no longer current.
+  for (const target of state.document?.targets || []) {
+    deliverStatus(target.componentId, {
+      quality: 'stale',
+      bindingId: target.bindingId,
+      receivedAt: state.lastFrameAt,
+      message: english() ? 'Live connection lost' : '实时连接中断'
+    })
+  }
+})
 on('runtime.revoked', () => {
   for (const bindingId of Object.keys(state.document?.bindings || {})) deliverBinding(bindingId, null, 'access_denied')
   versions.clear()

@@ -296,6 +296,10 @@ func (s *Server) Run() error {
 	if err := s.DeviceManager.StartAll(); err != nil {
 		s.Logger.Error("Failed to start devices", zap.Error(err))
 	}
+	// Published screens read live values from memory, which is empty on a cold
+	// start. Refill the devices they bind in the background; the web server must
+	// not wait for it.
+	go s.warmScreenSamples()
 	if s.RuleEngine != nil {
 		if err := s.RuleEngine.Start(); err != nil {
 			s.Logger.Error("Failed to start rule engine", zap.Error(err))

@@ -9,12 +9,54 @@ const pending = new Map<string, { resolve: (value: any) => void; reject: (error:
 const listeners = new Map<string, Set<(value: any) => void>>()
 let counter = 0
 export const embedded = query.get('embed') === '1' && !!channelId && window.parent !== window
-export const state = reactive({ initialized: false, mode: 'edit', locale: 'zh-CN', theme: 'dark', revision: 0, runtimeRevision: '', document: null as any, error: '', dirty: false, saving: false, capabilities: {} as Record<string, any> })
+export const state = reactive({ initialized: false, mode: 'edit', locale: 'zh-CN', theme: 'dark', revision: 0, runtimeRevision: '', document: null as any, error: '', dirty: false, saving: false, lastFrameAt: 0, transportLost: false, capabilities: {} as Record<string, any> })
 // Go serializes object keys in a different order from the canvas store. Dirty
 // detection compares JSON values rather than incidental key insertion order.
 export function documentSignature(value: any) {
   return JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item)
 }
+// Author identity excludes adapter metadata and selection preferences. Go's
+// omitempty also removes empty optional binding fields without an author edit.
+// Component options remain exact: empty text and numeric zero can be intent.
+export function canonicalAuthorDocument(value: any) {
+  const bindings = Object.fromEntries(Object.entries(value?.bindings || {}).map(([id, source]) => {
+    const binding = { ...(source as Record<string, any>) }
+    for (const key of ['deviceCode', 'key', 'valueType', 'aggregate', 'latitudeKey', 'longitudeKey', 'locationSource', 'coordinateSystem', 'unit']) {
+      if (binding[key] == null || binding[key] === '') delete binding[key]
+    }
+    for (const key of ['staleAfterMs', 'maxPoints', 'windowMs']) {
+      if (binding[key] == null || binding[key] === 0) delete binding[key]
+    }
+    for (const key of ['deviceCodes', 'keys']) {
+      if (binding[key] == null || Array.isArray(binding[key]) && !binding[key].length) delete binding[key]
+    }
+    if (binding.parameters == null || !Object.keys(binding.parameters).length) delete binding.parameters
+    // Pointer values preserve meaningful zeroes, including scale and decimals.
+    for (const key of ['query', 'dataset', 'mapping', 'scale', 'offset', 'decimals']) {
+      if (binding[key] == null) delete binding[key]
+    }
+    if (binding.mapping) {
+      binding.mapping = { ...binding.mapping }
+      for (const key of ['value', 'category', 'series']) {
+        if (binding.mapping[key] == null || binding.mapping[key] === '') delete binding.mapping[key]
+      }
+      if (binding.mapping.columns == null || Array.isArray(binding.mapping.columns) && !binding.mapping.columns.length) delete binding.mapping.columns
+    }
+    return [id, binding]
+  }))
+  const result = { ...value, bindings }
+  if (value?.engine) {
+    result.engine = { ...value.engine }
+    delete result.engine.buildId
+    delete result.engine.upstreamSha
+  }
+  if (value?.content) {
+    result.content = { ...value.content }
+    delete result.content.noyoAssistantContext
+  }
+  return result
+}
+export function assistantDocumentSignature(value: any) { return documentSignature(canonicalAuthorDocument(value)) }
 // Some upstream renderers write live values into their option. Persist the
 // saved placeholder for dataset bindings while retaining the author's styles.
 export function restoreDatasetDefaults(document: any, content: any) {
@@ -43,7 +85,7 @@ export function rpc(type: string, payload: any = {}): Promise<any> {
   if (!embedded) return Promise.reject(new Error('The editor must be opened by Noyo'))
   const requestId = `${Date.now()}-${++counter}`
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(state.locale.startsWith('en') ? 'Noyo request timed out. Please retry.' : 'Noyo 请求超时，请重试。')) }, ['assistant.plan', 'assistant.task.resume'].includes(type) ? 425000 : 20000)
+    const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(state.locale.startsWith('en') ? 'Noyo request timed out. Please retry.' : 'Noyo 请求超时，请重试。')) }, ['assistant.plan', 'assistant.task.resume'].includes(type) ? 780000 : 20000)
     pending.set(requestId, { resolve, reject, timer })
     try { send(type, payload, requestId) }
     catch (error) { clearTimeout(timer); pending.delete(requestId); reject(error) }

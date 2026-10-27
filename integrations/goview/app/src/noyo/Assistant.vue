@@ -1,26 +1,38 @@
 <template>
-  <aside class="ioc-assistant" :class="{ 'is-expanded': expanded }" :aria-label="t('IOC AI 助手', 'IOC AI assistant')" @keydown="onPanelKeydown">
-    <header class="ioc-assistant-heading">
-      <strong>{{ t('IOC AI 助手', 'IOC AI assistant') }}</strong>
+  <aside ref="root" class="ioc-assistant" :class="{ 'is-expanded': expanded }" :style="panelStyle" :aria-label="t('IOC AI 助手', 'IOC AI assistant')" @keydown="onPanelKeydown">
+    <div class="ioc-assistant-resize is-left" role="separator" aria-orientation="vertical" :aria-label="t('调整宽度', 'Resize width')" :aria-valuenow="rect?.w" :aria-valuemin="MIN_WIDTH" tabindex="0" @pointerdown="startResize($event, 'left')" @keydown="onResizeKeydown" />
+    <div class="ioc-assistant-resize is-right" role="separator" aria-orientation="vertical" :aria-label="t('调整宽度', 'Resize width')" :aria-valuenow="rect?.w" :aria-valuemin="MIN_WIDTH" tabindex="0" @pointerdown="startResize($event, 'right')" @keydown="onResizeKeydown" />
+    <div class="ioc-assistant-resize is-bottom" role="separator" aria-orientation="horizontal" :aria-label="t('调整高度', 'Resize height')" :aria-valuenow="rect?.h" :aria-valuemin="MIN_HEIGHT" tabindex="0" @pointerdown="startResize($event, 'bottom')" @keydown="onResizeKeydown" />
+    <div class="ioc-assistant-resize is-corner" role="button" :aria-label="t('调整大小', 'Resize panel')" tabindex="0" @pointerdown="startResize($event, 'corner')" @keydown="onResizeKeydown" />
+    <header class="ioc-assistant-heading" :title="t('拖动移动，双击最大化', 'Drag to move, double-click to maximise')" @pointerdown="startDrag" @dblclick="onHeadingDoubleClick">
+      <svg class="ioc-assistant-grip" viewBox="0 0 10 16" aria-hidden="true"><g fill="currentColor"><circle cx="3" cy="4" r="1.1" /><circle cx="7" cy="4" r="1.1" /><circle cx="3" cy="8" r="1.1" /><circle cx="7" cy="8" r="1.1" /><circle cx="3" cy="12" r="1.1" /><circle cx="7" cy="12" r="1.1" /></g></svg>
+      <span class="ioc-assistant-heading-avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.2 6.8L21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" /></svg></span>
+      <div class="ioc-assistant-heading-title"><strong>{{ t('IOC AI 助手', 'IOC AI assistant') }}</strong><span><i aria-hidden="true" />{{ t('大屏设计与编辑', 'Screen design and editing') }}</span></div>
       <div class="ioc-assistant-actions">
-        <button type="button" :aria-pressed="!!expanded" @click="$emit('expand')">{{ expanded ? t('恢复宽度', 'Restore width') : t('展开', 'Expand') }}</button>
-        <button type="button" :aria-label="t('关闭助手', 'Close assistant')" @click="$emit('close')">×</button>
+        <button type="button" :disabled="sessionLocked || !sessionsLoaded" :aria-label="t('新开对话', 'New conversation')" :title="t('新开对话', 'New conversation')" @click="newConversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg></button>
+        <button ref="historyToggle" type="button" :aria-label="historyOpen ? t('隐藏历史对话', 'Hide conversation history') : t('显示历史对话', 'Show conversation history')" :title="historyOpen ? t('隐藏历史对话', 'Hide conversation history') : t('显示历史对话', 'Show conversation history')" :aria-expanded="historyOpen" :aria-pressed="historyOpen" aria-controls="ioc-assistant-history" @click="historyOpen = !historyOpen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 2 8M4 4v6h6m2-2v5l3 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+        <button type="button" :aria-label="t('复位', 'Reset')" :title="t('放回默认位置', 'Back to the default corner')" @click="resetPosition"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 2 8M4 4v6h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+        <button type="button" :aria-pressed="!!expanded" :aria-label="expanded ? t('还原大小', 'Restore size') : t('最大化', 'Maximise')" :title="expanded ? t('还原大小', 'Restore size') : t('最大化', 'Maximise')" @click="$emit('expand')"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="expanded ? 'M4 9h5V4m11 11h-5v5M9 9 3 3m12 12 6 6' : 'M9 4H4v5m11 11h5v-5M4 4l6 6m10 10-6-6'" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+        <button type="button" class="ioc-assistant-close" :aria-label="t('关闭助手', 'Close assistant')" :title="t('关闭助手', 'Close assistant')" @click="$emit('close')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg></button>
       </div>
     </header>
-    <div class="ioc-assistant-sessions" :aria-busy="sessionsBusy">
-      <label class="ioc-assistant-session-select">
-        <span>{{ t('历史对话', 'Conversation history') }}</span>
-        <select :value="activeConversation" :aria-label="t('历史对话', 'Conversation history')" :disabled="sessionLocked || !sessionsLoaded" @change="onConversationChange">
-          <option v-if="!sessions.length" value="">{{ t('新对话', 'New conversation') }}</option>
-          <option v-for="session in sessions" :key="session.id" :value="session.id">{{ session.title || (session.id === 'legacy' ? t('以前的对话', 'Earlier conversation') : t('新对话', 'New conversation')) }}</option>
-        </select>
-      </label>
-      <button type="button" :disabled="sessionLocked || !sessionsLoaded" @click="newConversation">{{ t('新开对话', 'New conversation') }}</button>
-      <button v-if="sessionsHasMore" type="button" :disabled="sessionLocked" @click="loadSessions(true)">{{ t('更多对话', 'More conversations') }}</button>
-      <span v-if="sessionsBusy" role="status">{{ t('正在读取对话…', 'Loading conversations…') }}</span>
-      <p v-if="sessionsError" class="ioc-assistant-warning" role="alert">{{ t('对话操作失败，原有记录已保留。', 'Conversation action failed. Existing history is preserved.') }} <button type="button" :disabled="sessionLocked" @click="loadSessions()">{{ t('重试', 'Retry') }}</button></p>
-    </div>
-    <p class="ioc-assistant-purpose">{{ t('仅用于 IOC 大屏的设计、生成和编辑；对话自动保存。', 'For IOC screen design, generation and editing only. Conversations save automatically.') }}</p>
+    <div class="ioc-assistant-layout">
+      <aside v-show="historyOpen" id="ioc-assistant-history" class="ioc-assistant-history" :aria-label="t('历史对话', 'Conversation history')" :aria-busy="sessionsBusy" @keydown.esc.stop="hideHistory">
+        <label class="ioc-assistant-history-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg><input v-model.trim="historySearch" type="search" :aria-label="t('搜索历史对话', 'Search conversation history')" :placeholder="t('搜索历史对话', 'Search conversations')" /></label>
+        <nav class="ioc-assistant-history-list" :aria-label="t('历史对话列表', 'Conversation list')">
+          <button v-for="session in filteredSessions" :key="session.id" type="button" class="ioc-assistant-history-session" :class="{ 'is-active': session.id === activeConversation }" :aria-current="session.id === activeConversation ? 'page' : undefined" :disabled="sessionLocked || !sessionsLoaded" @click="selectConversation(session.id)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a1 1 0 0 1 1 1v12H9l-5 4V5a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /><path d="M8 8h8M8 12h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
+            <span><strong :title="conversationTitle(session)">{{ conversationTitle(session) }}</strong><time v-if="conversationTime(session)" :datetime="session.updatedAt || session.createdAt">{{ conversationTime(session) }}</time></span>
+          </button>
+          <p v-if="!filteredSessions.length && sessionsLoaded && !sessionsBusy" class="ioc-assistant-history-empty">{{ historySearch ? t('没有匹配的历史对话', 'No matching conversations') : t('暂无历史对话', 'No conversation history yet') }}</p>
+          <button v-if="sessionsHasMore" type="button" class="ioc-assistant-history-more" :disabled="sessionLocked" @click="loadSessions(true)">{{ t('更多对话', 'More conversations') }}</button>
+        </nav>
+      </aside>
+      <div class="ioc-assistant-main">
+        <div v-if="sessionsBusy || sessionsError" class="ioc-assistant-sessions" :aria-busy="sessionsBusy">
+          <span v-if="sessionsBusy" class="ioc-assistant-spinner" role="status" :aria-label="t('正在读取对话…', 'Loading conversations…')" />
+          <p v-if="sessionsError" class="ioc-assistant-warning" role="alert">{{ t('对话操作失败，原有记录已保留。', 'Conversation action failed. Existing history is preserved.') }} <button type="button" :disabled="sessionLocked" @click="loadSessions()">{{ t('重试', 'Retry') }}</button></p>
+        </div>
     <div ref="conversation" class="ioc-assistant-conversation" :class="{ 'is-empty': !messages.length && !historyBusy }" role="log" :aria-label="t('大屏设计对话', 'Screen design conversation')" aria-live="polite" :aria-busy="busy || historyBusy">
       <button v-if="hasMore" type="button" :disabled="historyBusy" @click="loadHistory(true)">{{ t('加载更早的对话', 'Load earlier messages') }}</button>
       <p v-if="historyBusy" class="ioc-assistant-status" role="status">{{ t('正在读取对话…', 'Loading conversation…') }}</p>
@@ -33,6 +45,7 @@
           <div>
             <h2>{{ t('你想设计怎样的 IOC 大屏？', 'What IOC screen would you like to design?') }}</h2>
             <p>{{ t('描述业务目标即可。AI 会根据产品物模型选择指标、组件与布局，自动绑定数据；尚未上报的设备也可参与设计。', 'Describe your business goal. AI selects metrics, widgets and layout from product models and binds their data, including devices that have not reported yet.') }}</p>
+            <p class="ioc-assistant-welcome-note">{{ t('仅用于 IOC 大屏的设计、生成和编辑；对话自动保存。', 'For IOC screen design, generation and editing only. Conversations save automatically.') }}</p>
           </div>
         </div>
         <div class="ioc-assistant-examples" role="group" :aria-label="t('示例需求', 'Example requests')">
@@ -53,15 +66,7 @@
             <span v-for="item in message.context.items" :key="item.id">{{ contextLabel(item) }}</span>
             <details v-if="message.context.devices?.length"><summary>{{ t('指定设备', 'Specific devices') }} · {{ message.context.devices.length }}</summary><p v-for="device in message.context.devices" :key="device.code">{{ device.name || device.code }} · {{ device.code }}</p></details>
           </div>
-          <details v-if="message.stages?.length" class="ioc-assistant-progress" :open="message.stagesOpen !== false" @toggle="rememberStages(message, $event)">
-            <summary>
-              <span class="ioc-assistant-stage-current">{{ stageLabel(message.stages[message.stages.length - 1]) }}<span v-if="message.status === 'generating'" class="ioc-assistant-dots" role="status">…</span></span>
-              <span class="ioc-assistant-stage-count">{{ message.stages.length }} {{ t('步', 'steps') }}</span>
-            </summary>
-            <ol>
-              <li v-for="(stage, index) in message.stages" :key="stage" :class="{ 'is-done': index < message.stages.length - 1 || message.status !== 'generating' }">{{ stageLabel(stage) }}</li>
-            </ol>
-          </details>
+          <AssistantProgress v-if="message.stages?.length || message.steps?.length" :steps="progressFor(message)" :locale="state.locale" :waiting="message.status === 'waiting'" />
           <div v-if="message.content" class="ioc-assistant-richtext" :class="{ 'is-collapsed': isLong(message.content) && !expandedMessages.has(message.id) }">
             <template v-for="(block, index) in renderBlocks(message.content)" :key="index">
               <p v-if="block.type === 'p'"><template v-for="(span, at) in block.spans" :key="at"><strong v-if="span.type === 'strong'">{{ span.text }}</strong><code v-else-if="span.type === 'code'">{{ span.text }}</code><template v-else>{{ span.text }}</template></template></p>
@@ -69,24 +74,41 @@
             </template>
           </div>
           <button v-if="isLong(message.content)" type="button" class="ioc-assistant-more" @click="toggleExpanded(message.id)">{{ expandedMessages.has(message.id) ? t('收起', 'Show less') : t('展开全文', 'Show more') }}</button>
-          <small v-if="message.status && message.status !== 'generating' && message.role === 'assistant'" class="ioc-assistant-status">{{ statusLabel(message.status) }}<template v-if="message.changeCount"> · {{ message.changeCount }} {{ t('项变更', 'changes') }}</template></small>
+          <small v-if="message.status && message.status !== 'generating' && message.role === 'assistant'" class="ioc-assistant-status">{{ message === currentMessage && candidate ? lifecycleLabel : statusLabel(message.status) }}<template v-if="message.changeCount"> · {{ message.changeCount }} {{ t('项变更', 'changes') }}</template></small>
         </div>
       </article>
       <section v-if="proposal && candidate" class="ioc-assistant-proposal" :aria-label="t('待应用方案', 'Pending proposal')">
-        <AssistantPreview :document="candidate.document" :locale="state.locale" @validated="onPreviewValidated" />
-        <p v-if="proposal.resultStatus === 'structure_only'" class="ioc-assistant-warning" role="status">{{ t('布局草稿已生成，部分数据能力尚未接通。完善数据能力后可应用。', 'The layout draft is ready. Some required data capabilities need to be connected before applying.') }}</p>
+        <AssistantPreview :document="candidate.document" :baseline="baseDocument" :identity="validationIdentity" :recheck="recheckVersion" :highlighted="highlightedComponent" :locale="state.locale" @report="onPreviewValidated" @invalidated="onPreviewInvalidated" />
         <ul v-if="proposal.limitations?.length" class="ioc-assistant-limitations"><li v-for="limitation in proposal.limitations" :key="limitation">{{ limitation }}</li></ul>
-        <p v-if="previewIssues.length" class="ioc-assistant-warning" role="alert">{{ t('预览发现组件越界或文字溢出，请调整后再应用。', 'Preview detected content outside its bounds or overflowing text. Adjust the proposal before applying.') }}</p>
+        <p v-if="!previewIssues.length && previewQuality?.coverage === 'partial'" class="ioc-assistant-warning" role="status">{{ t('部分组件暂无可验证数据，应用后会显示对应的数据状态。仅缺少当前数据不会阻止应用。', 'Some widgets have no data available to validate and will show their data status after applying. Missing current data alone does not prevent applying.') }}</p>
+        <p v-if="repairNotice" role="status">{{ repairNotice }}</p>
+        <ol v-if="previewQuality?.issues.length" class="ioc-assistant-validation" :aria-label="t('校验问题', 'Validation issues')">
+          <li v-for="issue in previewQuality.issues" :key="`${issue.code}:${issue.componentId}`" :class="{ 'is-blocking': issue.severity === 'error' }">
+            <strong>{{ componentTitle(issue.componentId) }} · {{ issueLabel(issue) }}</strong>
+            <span>{{ issueEvidence(issue) }}</span>
+            <small v-if="issue.origin === 'baseline'">{{ t('当前画布已有，方案未改变此组件；不阻止应用。', 'Already present on the canvas; this component is unchanged and does not block applying.') }}</small>
+            <div class="ioc-assistant-issue-actions">
+              <button type="button" @click="highlightedComponent = issue.componentId">{{ t('定位预览', 'Locate in preview') }}</button>
+              <template v-if="issue.severity === 'error'">
+                <button v-if="issue.code === 'text_overflow'" type="button" :disabled="repairing || applying || stale" @click="repairProposal(false)">{{ t('修复换行并校验', 'Repair line breaks and check') }}</button>
+                <button v-if="issue.code === 'text_overflow'" type="button" :disabled="repairing || applying || stale" @click="repairProposal(true)">{{ t('允许增高并校验', 'Allow more height and check') }}</button>
+                <button type="button" :disabled="repairing || applying || stale" @click="revertIssueComponent(issue.componentId)">{{ t('撤销此组件的方案变更', 'Revert this component’s proposal changes') }}</button>
+              </template>
+            </div>
+          </li>
+        </ol>
+        <button v-if="previewValidated && !applying" type="button" :disabled="repairing || stale" @click="recheckProposal">{{ t('重新取样并校验', 'Refresh samples and check') }}</button>
+        <button v-if="repairing" type="button" @click="cancelRepair">{{ t('停止自动修复', 'Stop automatic repair') }}</button>
         <details><summary>{{ t('查看变更', 'Review changes') }} · {{ candidate.changes.length }}</summary>
           <ol><li v-for="change in candidate.changes" :key="change.id">{{ actionLabel(change.type) }} · {{ change.title || widgetLabel(change.key) }}</li></ol>
         </details>
-        <p v-if="stale" class="ioc-assistant-warning" role="status">{{ t('画布已变化，请重新生成。', 'The canvas changed. Generate again.') }}</p>
-        <button type="button" :disabled="busy || applying || stale || !editable || !proposalApplicable || !previewValidated" @click="requestApply">{{ t('应用方案', 'Apply proposal') }}</button>
+        <p v-if="applyDisabledReason" id="ioc-assistant-apply-reason" class="ioc-assistant-warning" :role="previewIssues.length ? 'alert' : 'status'">{{ applyDisabledReason }}</p>
+        <button type="button" :disabled="!!applyDisabledReason" :aria-describedby="applyDisabledReason ? 'ioc-assistant-apply-reason' : undefined" @click="requestApply">{{ t('应用方案', 'Apply proposal') }}</button>
         <button type="button" :disabled="applying" @click="discardProposal">{{ t('放弃方案', 'Discard proposal') }}</button>
       </section>
     </div>
     <div v-if="task" class="ioc-assistant-task" role="status">
-      <span>{{ taskStateLabel(task.state) }}<template v-if="task.stage"> · {{ stageLabel(task.stage) }}</template></span>
+      <span>{{ taskStateLabel(task.state) }}<template v-if="task.stage && !['completed', 'canceled'].includes(task.state)"> · {{ stageLabel(task.stage) }}</template></span>
       <button v-if="['queued', 'running'].includes(task.state)" type="button" :disabled="canceling" @click="cancelTask">{{ t('取消生成', 'Cancel generation') }}</button>
       <button v-if="task.state === 'failed'" type="button" :disabled="busy || applying || !editable || task.attempt >= 3" @click="resumeTask">{{ t('从此步骤继续', 'Continue from this step') }}</button>
       <button v-if="task.state === 'disconnected'" type="button" :disabled="busy" @click="recoverTask">{{ t('重新连接任务', 'Reconnect task') }}</button>
@@ -106,9 +128,9 @@
         <span v-for="item in contextItems" :key="item.id" role="listitem">{{ contextLabel(item) }}<button type="button" :disabled="locked" :aria-label="t('移除上下文组件：', 'Remove context widget: ') + contextLabel(item)" @click="$emit('remove-selection', item.id)">×</button></span>
         <button v-if="contextItems.length || selectionArea" type="button" :disabled="locked" @click="$emit('clear-selection')">{{ t('清空', 'Clear') }}</button>
       </div>
-      <p v-if="selectionMode" class="ioc-assistant-selection-hint" role="status">{{ selectionMode === 'area' ? t('在画布上拖出区域', 'Drag an area on the canvas') : t('点击组件以添加或移除', 'Click widgets to add or remove them') }}<button type="button" @click="$emit('select-context', '')">{{ t('完成', 'Done') }}</button></p>
+      <p v-if="selectionMode" class="ioc-assistant-selection-hint" role="status">{{ selectionMode === 'area' ? t('在画布上拖出区域', 'Drag an area on the canvas') : t('点击组件以添加或移除', 'Click widgets to add or remove them') }}</p>
       <label for="ioc-assistant-prompt" class="ioc-assistant-input-label">{{ t('你的需求', 'Your request') }}</label>
-      <textarea id="ioc-assistant-prompt" ref="promptElement" v-model="prompt" rows="3" maxlength="4000" :disabled="locked || !sessionsLoaded || historyBusy" :placeholder="t('描述 IOC 大屏的设计、生成或编辑需求…', 'Describe an IOC screen design, generation or editing request…')" @keydown.ctrl.enter.prevent="generate" @keydown.meta.enter.prevent="generate" />
+      <textarea id="ioc-assistant-prompt" ref="promptElement" v-model="prompt" rows="2" maxlength="4000" :disabled="locked || !sessionsLoaded || historyBusy" :placeholder="currentMessage?.status === 'waiting' ? t('补充上述信息，继续生成方案…', 'Reply with the requested information to continue…') : t('描述 IOC 大屏的设计、生成或编辑需求…', 'Describe an IOC screen design, generation or editing request…')" @keydown.ctrl.enter.prevent="generate" @keydown.meta.enter.prevent="generate" />
       <div class="ioc-assistant-compose-footer">
         <div class="ioc-assistant-tools">
           <div ref="deviceControl" class="ioc-assistant-device-control">
@@ -134,9 +156,11 @@
           <button type="button" :aria-pressed="selectionMode === 'components'" :aria-label="t('选择多个组件', 'Select multiple widgets')" :disabled="locked" @click="$emit('select-context', selectionMode === 'components' ? '' : 'components')">{{ t('组件', 'Widgets') }}</button>
           <button type="button" :aria-pressed="selectionMode === 'area'" :aria-label="t('框选画布区域', 'Select canvas area')" :disabled="locked" @click="$emit('select-context', selectionMode === 'area' ? '' : 'area')">{{ t('画布选区', 'Canvas selection') }}</button>
         </div>
-        <button type="submit" class="ioc-assistant-primary" :disabled="!prompt.trim() || locked || historyBusy || sessionsBusy || !sessionsLoaded || historyError">{{ busy ? t('生成中…', 'Generating…') : applying ? t('应用中…', 'Applying…') : t('生成方案', 'Generate proposal') }}</button>
+        <button type="submit" class="ioc-assistant-primary" :disabled="!prompt.trim() || locked || historyBusy || sessionsBusy || !sessionsLoaded || historyError">{{ busy ? t('生成中…', 'Generating…') : applying ? t('应用中…', 'Applying…') : currentMessage?.status === 'waiting' ? t('补充并继续', 'Reply and continue') : t('生成方案', 'Generate proposal') }}</button>
       </div>
     </form>
+      </div>
+    </div>
     <n-modal :show="!!confirmation" :closable="false" preset="dialog" :title="confirmation === 'undo' ? t('回退 AI 修改', 'Undo AI change') : t('确认移除内容', 'Confirm removal')" :content="confirmation === 'undo' ? t('恢复到上次 AI 应用前的画布及数据绑定？', 'Restore the canvas and bindings from before the last AI change?') : t('此方案会删除组件或解除数据绑定。确认应用？', 'This proposal removes widgets or data bindings. Apply it?')" :positive-text="t('确认', 'Confirm')" :negative-text="t('取消', 'Cancel')" @update:show="value => { if (!value) confirmation = '' }" @positive-click="confirmAction" @negative-click="confirmation = ''" />
   </aside>
 </template>
@@ -145,32 +169,54 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { createMaterial, materials } from './materials'
 import { kindsOf, targetOf, widgetByKey } from './widgets'
-import { documentSignature, on, rpc, state } from './bridge'
-import { compileAssistantPlan } from './assistantPlan.js'
+import { assistantDocumentSignature as documentSignature, on, rpc, state } from './bridge'
+import { compileAssistantPlan, inferAssistantIntent } from './assistantPlan.js'
 import { applyScreenTheme } from './screenTheme'
 import { expandBlueprint } from './layout'
 import { selectedContext } from './assistantContext.js'
 import { assistantScope, assistantScopeCount, assistantScopeRequest } from './assistantScope.js'
 import AssistantPreview from './AssistantPreview.vue'
+import { proposalDisposition, reportMatches, repairTextOverflow, revertComponent, flattenComponents, type ProposalIssue, type ProposalValidation, type ValidationIdentity } from './proposalSession'
+import AssistantProgress from './AssistantProgress.vue'
+import { assistantProgress, type AssistantStep } from './assistantProgress'
 
 type ContextArea = { x: number; y: number; w: number; h: number }
 type ContextItem = { id: string; key: string; title: string }
-type Message = { id: string; conversationId?: string; role: 'user' | 'assistant'; content: string; status?: string; stages?: string[]; stagesOpen?: boolean; changeCount?: number; taskId?: string; context?: { items: ContextItem[]; area: ContextArea | null; devices: { code: string; name: string }[]; products?: { code: string; name: string }[]; scope?: any } }
+type Message = { id: string; conversationId?: string; role: 'user' | 'assistant'; content: string; status?: string; steps?: AssistantStep[]; stages?: string[]; stagesOpen?: boolean; changeCount?: number; taskId?: string; context?: { items: ContextItem[]; area: ContextArea | null; devices: { code: string; name: string }[]; products?: { code: string; name: string }[]; scope?: any } }
 type Conversation = { id: string; title: string; createdAt: string; updatedAt: string }
-const props = defineProps<{ active: boolean; expanded?: boolean; catalogLoading?: boolean; catalogError?: string; snapshot: () => any; applyDocument: (document: any) => Promise<void>; selectionIds: string[]; selectionArea?: ContextArea | null; selectionMode?: string; catalog: any[]; products?: any[]; catalogMeta?: { deviceCount?: number; truncated?: boolean } }>()
+const props = defineProps<{ active: boolean; expanded?: boolean; inspectorOpen?: boolean; catalogLoading?: boolean; catalogError?: string; snapshot: () => any; applyDocument: (document: any, acceptedVersion?: number) => Promise<void>; settleSaves?: () => Promise<void>; beginApply?: () => () => void; selectionIds: string[]; selectionArea?: ContextArea | null; selectionMode?: string; catalog: any[]; products?: any[]; catalogMeta?: { deviceCount?: number; truncated?: boolean } }>()
 const emit = defineEmits<{ (event: 'close'): void; (event: 'expand'): void; (event: 'refresh-catalog'): void; (event: 'scope-change', scope: any): void; (event: 'select-context', mode: string): void; (event: 'clear-selection'): void; (event: 'remove-selection', id: string): void }>()
 const english = computed(() => state.locale.startsWith('en'))
 const t = (zh: string, en: string) => english.value ? en : zh
 const prompt = ref(''), busy = ref(false), applying = ref(false), error = ref(''), confirmation = ref('')
 const proposal = ref<any>(null), candidate = ref<any>(null), baseSignature = ref('')
-const previewIssues = ref<string[]>([]), previewValidated = ref(false)
+const previewIssues = ref<string[]>([]), previewValidated = ref(false), previewQuality = ref<ProposalValidation>()
+const baseDocument = ref<any>(null), candidateRevision = ref(0), recheckVersion = ref(0), highlightedComponent = ref('')
+const repairing = ref(false), repairNotice = ref(''), repairAttempts = ref(0), autoRepairStopped = ref(false)
+const validationIdentity = computed<ValidationIdentity>(() => ({ candidateRevision: candidateRevision.value, candidateDigest: candidate.value ? documentSignature(candidate.value.document) : '', environmentDigest: state.locale }))
+let repairDeadline = 0, applyKey = ''
 const proposalApplicable = computed(() => !['structure_only', 'blocked'].includes(proposal.value?.resultStatus) && !previewIssues.value.length)
 const task = ref<any>(null), canceling = ref(false)
 const taskDocument = ref<any>(null)
 const messages = ref<Message[]>([]), currentMessage = ref<Message | null>(null)
 const historyBusy = ref(false), historyError = ref(false), hasMore = ref(false), historyLoaded = ref(false)
 const sessions = ref<Conversation[]>([]), activeConversation = ref(''), sessionsBusy = ref(false), sessionsError = ref(false), sessionsLoaded = ref(false), sessionsHasMore = ref(false)
+const HISTORY_VISIBILITY_KEY = 'noyo.assistant.history.visible'
+function savedHistoryVisibility() { try { return localStorage.getItem(HISTORY_VISIBILITY_KEY) !== 'false' } catch { return true } }
+const historyOpen = ref(savedHistoryVisibility()), historySearch = ref(''), historyToggle = ref<HTMLButtonElement>()
+watch(historyOpen, open => { try { localStorage.setItem(HISTORY_VISIBILITY_KEY, String(open)) } catch { /* Optional preference. */ } })
+const conversationTitle = (session: Conversation) => session.title || (session.id === 'legacy' ? t('以前的对话', 'Earlier conversation') : t('新对话', 'New conversation'))
+const filteredSessions = computed(() => {
+  const search = historySearch.value.toLocaleLowerCase()
+  return search ? sessions.value.filter(session => conversationTitle(session).toLocaleLowerCase().includes(search)) : sessions.value
+})
+function conversationTime(session: Conversation) {
+  const date = new Date(session.updatedAt || session.createdAt)
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(english.value ? 'en' : 'zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date) : ''
+}
+async function hideHistory() { historyOpen.value = false; await nextTick(); historyToggle.value?.focus() }
 let historyBefore = 0, sessionsBefore = 0, disposed = false, runId = '', historyVersion = 0
+let titlePoll: ReturnType<typeof setTimeout> | undefined
 const scopePicker = ref<'' | 'products' | 'devices'>(''), scopeSearch = ref('')
 const scope = ref(assistantScope(null))
 const selectedCodes = computed<string[]>(() => scope.value.deviceCodes)
@@ -186,13 +232,205 @@ const catalogSummary = computed(() => {
 const filteredDevices = computed(() => props.catalog.filter(device => `${device.name} ${device.code}`.toLowerCase().includes(scopeSearch.value.trim().toLowerCase())))
 const filteredProducts = computed(() => (props.products || []).filter(product => `${product.name} ${product.code}`.toLowerCase().includes(scopeSearch.value.trim().toLowerCase())))
 const contextItems = computed<ContextItem[]>(() => selectedContext(props.snapshot().content?.componentList || [], props.selectionIds))
-const conversation = ref<HTMLElement>(), errorElement = ref<HTMLElement>(), promptElement = ref<HTMLTextAreaElement>(), deviceControl = ref<HTMLElement>()
+const conversation = ref<HTMLElement>(), errorElement = ref<HTMLElement>(), promptElement = ref<HTMLTextAreaElement>(), deviceControl = ref<HTMLElement>(), root = ref<HTMLElement>()
 const productTrigger = ref<HTMLButtonElement>(), deviceTrigger = ref<HTMLButtonElement>(), scopeDialog = ref<HTMLElement>(), scopeSearchElement = ref<HTMLInputElement>()
+// Panel geometry. The assistant is a free-floating window over the canvas: drag
+// the title bar to move it, drag an edge or the bottom-right corner to resize.
+// A docked column used to cost the canvas 448-560px permanently; more importantly
+// the panel and the inspector no longer exclude each other, because a floating
+// panel can simply be dragged aside instead of being closed.
+const MIN_WIDTH = 360, MIN_HEIGHT = 300, DEFAULT_WIDTH = 744
+const EDGE = 8
+// v2: the coordinate space changed from workspace-relative to viewport-relative
+// when the panel became position:fixed, so the old value would be misread.
+const RECT_STORAGE_KEY = 'noyo.assistant.rect.v2'
+type PanelRect = { x: number; y: number; w: number; h: number }
+type ResizeEdge = 'left' | 'right' | 'bottom' | 'corner'
+// Seeded synchronously, not in onMounted: the panel is position:fixed with
+// inset:auto, so a null rect on the first paint would park it at its static
+// position inside the workspace for one frame.
+const restoredRect = savedRect()
+const rect = ref<PanelRect | null>(restoredRect || defaultRect())
+// Once the user positions the panel we stop moving it for them -- an automatic
+// dodge that overrides a deliberate placement is worse than an overlap.
+let positionChosen = !!restoredRect
+function savedRect(): PanelRect | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECT_STORAGE_KEY) || 'null')
+    if (!parsed || ![parsed.x, parsed.y, parsed.w, parsed.h].every((value: unknown) => Number.isFinite(value))) return null
+    return { x: Math.round(parsed.x), y: Math.round(parsed.y), w: Math.round(parsed.w), h: Math.round(parsed.h) }
+  } catch { return null }
+}
+function saveRect() {
+  try { if (rect.value) localStorage.setItem(RECT_STORAGE_KEY, JSON.stringify(rect.value)) } catch { /* storage can be unavailable */ }
+}
+function workspace(): HTMLElement | null { return (root.value?.parentElement as HTMLElement) || null }
+// The panel is fixed to the editor viewport, not to the workspace grid: the user
+// must be able to park it over the toolbar, the component palette or the status
+// strip, i.e. anywhere on the page. Workspace-relative bounds capped it inside
+// the canvas area, which is exactly the region the screenshot flagged.
+function available() { return { width: window.innerWidth, height: window.innerHeight } }
+function between(value: number, min: number, max: number) { return Math.min(Math.max(value, min), Math.max(min, max)) }
+function fitSize(w: number, h: number) {
+  const area = available()
+  return {
+    w: Math.round(between(w, MIN_WIDTH, area.width ? area.width - EDGE * 2 : 880)),
+    h: Math.round(between(h, MIN_HEIGHT, area.height ? area.height - EDGE * 2 : 900)),
+  }
+}
+// No clamping while moving: the panel can be parked over any part of the page,
+// including flush against an edge or hanging past it. The only guard is on load
+// and on window resize -- if the stored rect ended up completely outside the
+// viewport (smaller window, different monitor) it is pulled back to the default
+// corner, so the panel is never unreachable after a reload.
+function placeRect(x: number, y: number, w: number, h: number): PanelRect {
+  return { x: Math.round(x), y: Math.round(y), w, h }
+}
+// Overlap of the rect with the viewport, in pixels, on each axis.
+function visibleSpan(r: PanelRect) {
+  const area = available()
+  return {
+    w: Math.min(r.x + r.w, area.width) - Math.max(r.x, 0),
+    h: Math.min(r.y + r.h, area.height) - Math.max(r.y, 0),
+  }
+}
+const RECOVER_MIN = 48
+function recoverable(r: PanelRect) { const span = visibleSpan(r); return span.w >= RECOVER_MIN && span.h >= RECOVER_MIN }
+function defaultRect(): PanelRect {
+  const area = available()
+  const size = fitSize(DEFAULT_WIDTH, area.height ? area.height - EDGE * 2 : 640)
+  return placeRect(area.width ? area.width - size.w - EDGE : EDGE, EDGE, size.w, size.h)
+}
+function currentRect(): PanelRect { return rect.value || defaultRect() }
+function applyRect(next: { x: number; y: number; w: number; h: number }, persist = true) {
+  const size = fitSize(next.w, next.h)
+  rect.value = placeRect(next.x, next.y, size.w, size.h)
+  if (persist) saveRect()
+}
+const panelStyle = computed(() => {
+  if (props.expanded || !rect.value) return {}
+  return { left: `${rect.value.x}px`, top: `${rect.value.y}px`, width: `${rect.value.w}px`, height: `${rect.value.h}px` }
+})
+let dragOrigin: { px: number; py: number; rect: PanelRect } | null = null
+let dragMoved = false
+function startDrag(event: PointerEvent) {
+  if (props.expanded || event.button !== 0) return
+  if ((event.target as HTMLElement).closest('button, a, input, select, textarea, [role="separator"]')) return
+  event.preventDefault()
+  dragOrigin = { px: event.clientX, py: event.clientY, rect: currentRect() }
+  dragMoved = false
+  document.body.classList.add('ioc-assistant-moving')
+  document.addEventListener('pointermove', moveDrag)
+  document.addEventListener('pointerup', stopDrag, { once: true })
+  document.addEventListener('pointercancel', stopDrag, { once: true })
+}
+function moveDrag(event: PointerEvent) {
+  if (!dragOrigin) return
+  const dx = event.clientX - dragOrigin.px, dy = event.clientY - dragOrigin.py
+  if (Math.abs(dx) + Math.abs(dy) > 2) dragMoved = true
+  applyRect({ ...dragOrigin.rect, x: dragOrigin.rect.x + dx, y: dragOrigin.rect.y + dy }, false)
+}
+function stopDrag() {
+  if (!dragOrigin) return
+  dragOrigin = null
+  document.removeEventListener('pointermove', moveDrag)
+  document.body.classList.remove('ioc-assistant-moving')
+  if (!dragMoved) return
+  positionChosen = true
+  saveRect()
+}
+let resizeOrigin: { px: number; py: number; rect: PanelRect; edge: ResizeEdge } | null = null
+function startResize(event: PointerEvent, edge: ResizeEdge) {
+  if (props.expanded || event.button !== 0) return
+  event.preventDefault(); event.stopPropagation()
+  resizeOrigin = { px: event.clientX, py: event.clientY, rect: currentRect(), edge }
+  document.body.classList.add('ioc-assistant-resizing')
+  document.body.style.cursor = edge === 'bottom' ? 'row-resize' : edge === 'corner' ? 'nwse-resize' : 'col-resize'
+  document.addEventListener('pointermove', moveResize)
+  document.addEventListener('pointerup', stopResize, { once: true })
+  document.addEventListener('pointercancel', stopResize, { once: true })
+}
+function moveResize(event: PointerEvent) {
+  const origin = resizeOrigin
+  if (!origin) return
+  const dx = event.clientX - origin.px, dy = event.clientY - origin.py
+  const horizontal = origin.edge === 'left' || origin.edge === 'right' || origin.edge === 'corner'
+  // Resizing never pushes against a page edge: the size is only bounded so the
+  // panel cannot become larger than the viewport itself.
+  const size = fitSize(horizontal ? origin.rect.w + (origin.edge === 'left' ? -dx : dx) : origin.rect.w, origin.edge === 'bottom' || origin.edge === 'corner' ? origin.rect.h + dy : origin.rect.h)
+  // The left edge keeps the right edge anchored, so the origin follows the width.
+  applyRect({ x: origin.edge === 'left' ? origin.rect.x + origin.rect.w - size.w : origin.rect.x, y: origin.rect.y, ...size }, false)
+}
+function stopResize() {
+  if (!resizeOrigin) return
+  resizeOrigin = null
+  document.removeEventListener('pointermove', moveResize)
+  document.body.classList.remove('ioc-assistant-resizing')
+  document.body.style.cursor = ''
+  positionChosen = true
+  saveRect()
+}
+function onResizeKeydown(event: KeyboardEvent) {
+  const deltas: Record<string, [number, number]> = { ArrowLeft: [-40, 0], ArrowRight: [40, 0], ArrowUp: [0, -40], ArrowDown: [0, 40] }
+  const delta = deltas[event.key]
+  if (!delta) return
+  event.preventDefault(); event.stopPropagation()
+  const current = currentRect()
+  const size = fitSize(current.w + delta[0], current.h + delta[1])
+  applyRect({ x: delta[0] < 0 ? current.x + current.w - size.w : current.x, y: current.y, ...size })
+  positionChosen = true
+}
+// Escape hatch for a panel dragged out of reach: back to the default corner, and
+// the inspector dodge is re-armed because the placement is no longer the user's.
+function resetPosition() {
+  rect.value = defaultRect()
+  positionChosen = false
+  saveRect()
+  nextTick(avoidInspector)
+}
+function onHeadingDoubleClick(event: MouseEvent) { if ((event.target as HTMLElement).closest('button, [role="separator"]')) return; emit('expand') }
+function onWindowResize() {
+  if (!rect.value) return
+  if (recoverable(rect.value)) { applyRect({ ...rect.value }, false); return }
+  resetPosition()
+}
+// The inspector opens on the right when a widget is selected. Until the user has
+// chosen a position, slide the panel just clear of it; afterwards the overlap is
+// theirs to resolve by dragging.
+function avoidInspector() {
+  if (!props.inspectorOpen || props.expanded || positionChosen || !rect.value || !root.value) return
+  const parent = workspace()
+  const inspector = parent?.querySelector('.inspector') as HTMLElement | null
+  if (!parent || !inspector || !inspector.getClientRects().length) return
+  const panel = root.value.getBoundingClientRect(), pane = inspector.getBoundingClientRect()
+  const overlaps = panel.left < pane.right && panel.right > pane.left && panel.top < pane.bottom && panel.bottom > pane.top
+  if (!overlaps) return
+  applyRect({ ...rect.value, x: rect.value.x - (panel.right - pane.left) - EDGE }, false)
+}
+
 const editable = computed(() => state.mode === 'edit' && state.capabilities.save && !state.saving)
 const locked = computed(() => busy.value || applying.value || !editable.value)
 const sessionLocked = computed(() => locked.value || historyBusy.value || sessionsBusy.value)
 const currentSignature = computed(() => documentSignature(props.snapshot()))
 const stale = computed(() => !!proposal.value && baseSignature.value !== currentSignature.value)
+const disposition = computed(() => proposalDisposition({ candidate: !!candidate.value, awaitingInput: currentMessage.value?.status === 'waiting', generating: busy.value, applying: applying.value, repairing: repairing.value, conflict: stale.value, writable: state.mode === 'edit' && state.capabilities.save, blocked: ['structure_only', 'blocked'].includes(proposal.value?.resultStatus), validated: previewValidated.value && !!previewQuality.value && reportMatches(previewQuality.value, validationIdentity.value), issues: previewQuality.value?.issues, occupied: historyBusy.value || sessionsBusy.value, saving: state.saving }))
+const lifecycleLabel = computed(() => {
+  const labels: Record<string, [string, string]> = { idle: ['本轮处理已结束', 'Request finished'], generating: ['正在生成方案', 'Generating proposal'], awaiting_input: ['等待补充信息', 'Awaiting information'], validating: ['正在校验方案', 'Checking proposal'], repairing: ['正在修复并重新校验', 'Repairing and checking again'], ready: ['方案可应用', 'Proposal ready to apply'], ready_with_warnings: ['方案可应用，有提示项', 'Ready to apply with advisories'], needs_fix: ['方案待修复', 'Proposal needs fixes'], conflict: ['画布已修改，需重新生成', 'Canvas edited; generate again'], applying: ['正在应用方案', 'Applying proposal'] }
+  return t(...(labels[disposition.value.state] || labels.idle))
+})
+const applyDisabledReason = computed(() => {
+  const labels: Record<string, [string, string]> = {
+    conflict: ['方案依据的画布或数据绑定已变化，请重新生成。', 'The canvas or data bindings used by this proposal have changed. Generate again.'],
+    saving: ['正在自动保存画布，完成后可应用。', 'The canvas is being saved. Apply after saving finishes.'],
+    permission: ['当前大屏不可编辑，请检查编辑权限。', 'This screen cannot be edited. Check your edit permissions.'],
+    occupied: ['正在处理当前操作，完成后可应用。', 'An operation is in progress. Apply after it finishes.'],
+    validating: ['正在校验方案预览，校验完成后可应用。', 'The proposal preview is being checked. Apply after validation finishes.'],
+    repairing: ['正在修复并重新校验，完成后可应用。', 'Repairing and checking again. Apply when checks finish.'],
+    applying: ['正在提交方案。', 'Committing proposal.'], generating: ['正在生成方案。', 'Generating proposal.']
+  }
+  if (disposition.value.reason === 'needs_fix') return proposal.value?.resultStatus === 'structure_only' ? t('当前是布局草稿，所需数据能力尚未接通，完善后可应用。', 'This is a layout draft. Connect the required data capabilities before applying.') : t(`还有 ${previewIssues.value.length} 项阻止应用的问题，请处理上方具体原因。`, `${previewIssues.value.length} blocking issues remain. Resolve the specific causes above.`)
+  return labels[disposition.value.reason] ? t(...labels[disposition.value.reason]) : ''
+})
 const undoStack = ref<{ document: any; signature: string; messageId: string }[]>([])
 const undoEntry = computed(() => undoStack.value[undoStack.value.length - 1])
 const undoStale = computed(() => undoEntry.value?.signature !== currentSignature.value)
@@ -202,11 +440,11 @@ const widgetLabel = (key: string) => { const spec = widgetByKey.get(key); return
 const contextLabel = (item: ContextItem) => { const spec = widgetByKey.get(item.key); return !item.title || item.title === spec?.zh || item.title === spec?.en ? widgetLabel(item.key) : item.title }
 const actionLabel = (type: string) => type === 'add' ? t('新增', 'Add') : type === 'update' ? t('修改', 'Update') : t('删除', 'Remove')
 const stageLabel = (stage: string) => {
-  const labels: Record<string, [string, string]> = { context: ['已读取所选上下文', 'Selected context read'], discovering: ['正在整理产品能力', 'Discovering product capabilities'], planning: ['正在分析需求', 'Analyzing request'], intention: ['正在分析关注目标', 'Analyzing monitoring priorities'], metrics: ['正在选择有价值的指标', 'Selecting useful metrics'], generating: ['正在匹配组件与布局', 'Matching widgets and layout'], reviewing: ['正在检查数据与视觉方案', 'Checking data and visual design'], validating: ['正在校验指标与绑定', 'Validating metrics and bindings'], completed: ['方案已生成', 'Proposal generated'], applying: ['正在应用修改', 'Applying changes'], applied: ['已应用到画布', 'Applied to canvas'], undone: ['已回退', 'Undone'] }
+  const labels: Record<string, [string, string]> = { context: ['已读取所选上下文', 'Selected context read'], discovering: ['正在整理产品能力', 'Discovering product capabilities'], planning: ['正在分析需求', 'Analyzing request'], intention: ['正在分析关注目标', 'Analyzing monitoring priorities'], metrics: ['正在选择有价值的指标', 'Selecting useful metrics'], generating: ['正在匹配组件与布局', 'Matching widgets and layout'], reviewing: ['正在检查数据与视觉方案', 'Checking data and visual design'], checking: ['正在检查数据能力', 'Checking data capabilities'], validating: ['正在校验指标与绑定', 'Validating metrics and bindings'], completed: ['方案已生成', 'Proposal generated'], applying: ['正在应用修改', 'Applying changes'], applied: ['已应用到画布', 'Applied to canvas'], undone: ['已回退', 'Undone'] }
   return labels[stage] ? t(...labels[stage]) : ''
 }
 const statusLabel = (status: string) => {
-  const labels: Record<string, [string, string]> = { done: ['已完成', 'Completed'], ready: ['方案待预览和应用', 'Proposal ready to review and apply'], waiting: ['等待确认', 'Awaiting confirmation'], applied: ['已应用到画布', 'Applied to canvas'], undone: ['已回退', 'Undone'], failed: ['此步骤未完成，可继续生成', 'This step is incomplete; generation can continue'], interrupted: ['正在检查上次任务状态', 'Checking previous task status'], canceled: ['生成已取消', 'Generation canceled'], discarded: ['方案已放弃', 'Proposal discarded'] }
+  const labels: Record<string, [string, string]> = { done: ['已完成', 'Completed'], ready: ['方案待预览和应用', 'Proposal ready to review and apply'], waiting: ['等待补充信息', 'Awaiting information'], applied: ['已应用到画布', 'Applied to canvas'], undone: ['已回退', 'Undone'], failed: ['此步骤未完成，可继续生成', 'This step is incomplete; generation can continue'], interrupted: ['正在检查上次任务状态', 'Checking previous task status'], canceled: ['生成已取消', 'Generation canceled'], discarded: ['方案已放弃', 'Proposal discarded'] }
   return labels[status] ? t(...labels[status]) : ''
 }
 const getWidget = (key: string) => { const spec = widgetByKey.get(key); return spec && { ...spec, target: targetOf(key), kinds: kindsOf(key) } }
@@ -326,18 +564,37 @@ async function loadSessions(older = false) {
   finally { if (!disposed) sessionsBusy.value = false }
   if (resume && !disposed) { resetConversation(resume); await loadHistory() }
 }
+// The server titles a conversation with the model right after the first proposal
+// lands (see api_screen_assistant_title.go). Until then the list shows a
+// truncated placeholder, so poll briefly instead of opening a second channel:
+// the title is cosmetic and must never delay or fail the transcript.
+function watchTitle(previous: string) {
+  clearTimeout(titlePoll)
+  const id = activeConversation.value
+  if (!id) return
+  let attempt = 0
+  const tick = async () => {
+    if (disposed || id !== activeConversation.value) return
+    try {
+      const result = await rpc('assistant.conversations', {})
+      if (disposed || id !== activeConversation.value) return
+      const items = (result.items || []) as Conversation[]
+      const known = new Set(items.map(item => item.id))
+      sessions.value = [...items.map(item => ({ ...(sessions.value.find(cached => cached.id === item.id) || item), title: item.title })), ...sessions.value.filter(item => !known.has(item.id))]
+      if (items.find(item => item.id === id)?.title !== previous) return
+    } catch { /* a title refresh failure is not worth reporting */ }
+    if (++attempt < 5) titlePoll = setTimeout(tick, 1500)
+  }
+  titlePoll = setTimeout(tick, 1500)
+}
 async function selectConversation(id: string) {
   if (!id || id === activeConversation.value || sessionLocked.value) return
   sessionsBusy.value = true
   try {
     if (!await flushSaves()) return
     resetConversation(id); await loadHistory()
+    if (!historyError.value && root.value && root.value.clientWidth < 600) historyOpen.value = false
   } finally { if (!disposed) sessionsBusy.value = false }
-}
-function onConversationChange(event: Event) {
-  const target = event.target as HTMLSelectElement, id = target.value
-  target.value = activeConversation.value
-  selectConversation(id)
 }
 async function newConversation() {
   if (sessionLocked.value || !sessionsLoaded.value) return
@@ -371,8 +628,8 @@ function addStage(message: Message, stage: string) { if (!message.stages?.includ
 const stopProgress = on('assistant.progress', payload => {
   const message = currentMessage.value
   if (!message || payload.runId !== runId || !busy.value) return
-  if (payload.event === 'task' && payload.taskId) { task.value = { ...task.value, ...payload }; message.taskId = payload.taskId }
-  if (payload.event === 'stage' && ['discovering', 'planning', 'intention', 'metrics', 'generating', 'reviewing', 'validating', 'completed'].includes(payload.stage)) addStage(message, payload.stage)
+  if (payload.event === 'task' && payload.taskId) { task.value = { ...task.value, ...payload }; message.taskId = payload.taskId; if (Array.isArray(payload.steps)) message.steps = payload.steps }
+  if (payload.event === 'stage' && ['discovering', 'planning', 'intention', 'metrics', 'checking', 'generating', 'reviewing', 'validating', 'completed'].includes(payload.stage)) addStage(message, payload.stage)
   if (payload.event === 'summary' && typeof payload.content === 'string') { addStage(message, 'generating'); message.content = payload.content.slice(0, 16000) }
   schedulePartialSave(); scroll()
 })
@@ -413,8 +670,21 @@ function onPickerKeydown(event: KeyboardEvent) {
   else if (!event.shiftKey && document.activeElement === controls[controls.length - 1]) { event.preventDefault(); controls[0].focus() }
 }
 function outsideDevices(event: PointerEvent) { if (scopePicker.value && !deviceControl.value?.contains(event.target as Node)) scopePicker.value = '' }
-onMounted(() => document.addEventListener('pointerdown', outsideDevices))
-onUnmounted(() => { disposed = true; stopProgress(); clearTimeout(partialSave); document.removeEventListener('pointerdown', outsideDevices) })
+onMounted(() => {
+  // Seeded in setup, so this only handles a rect restored from a larger window:
+  // if it is now entirely out of reach the panel goes back to the default corner
+  // (not persisted -- a first-visit placement must still be free to dodge).
+  if (!rect.value || !recoverable(rect.value)) { rect.value = defaultRect(); positionChosen = false }
+  else applyRect({ ...rect.value }, false)
+  nextTick(avoidInspector)
+  document.addEventListener('pointerdown', outsideDevices)
+  window.addEventListener('resize', onWindowResize)
+})
+// Opening the panel after the inspector is already up must also dodge it, and so
+// must a late inspector (the layout settles a frame later).
+watch(() => props.active, open => { if (open) nextTick(avoidInspector) })
+watch(() => props.inspectorOpen, () => nextTick(avoidInspector))
+onUnmounted(() => { disposed = true; stopProgress(); clearTimeout(partialSave); clearTimeout(titlePoll); document.removeEventListener('pointerdown', outsideDevices); document.removeEventListener('pointermove', moveResize); document.removeEventListener('pointermove', moveDrag); window.removeEventListener('resize', onWindowResize) })
 function onPanelKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape' || confirmation.value) return
   event.preventDefault(); event.stopPropagation()
@@ -424,7 +694,14 @@ function onPanelKeydown(event: KeyboardEvent) {
 }
 
 function taskStateLabel(value: string) {
-  const labels: Record<string, [string, string]> = { queued: ['等待生成', 'Queued'], running: ['正在生成', 'Generating'], completed: ['方案已生成', 'Proposal generated'], failed: ['此步骤未完成', 'Step incomplete'], canceled: ['生成已取消', 'Generation canceled'], disconnected: ['连接中断，任务仍保留', 'Disconnected; task retained'] }
+  if (value === 'completed') {
+    const status = currentMessage.value?.status
+    if (['waiting', 'applied', 'undone', 'discarded'].includes(status || '')) return statusLabel(status!)
+    if (task.value?.result?.clarification || task.value?.result?.resultStatus === 'blocked') return statusLabel('waiting')
+    if (proposal.value && candidate.value) return lifecycleLabel.value
+    return t('本轮处理已结束', 'Request finished')
+  }
+  const labels: Record<string, [string, string]> = { queued: ['等待生成', 'Queued'], running: ['正在生成', 'Generating'], failed: ['此步骤未完成', 'Step incomplete'], canceled: ['生成已取消', 'Generation canceled'], disconnected: ['连接中断，任务仍保留', 'Disconnected; task retained'] }
   return labels[value] ? t(...labels[value]) : ''
 }
 function taskErrorLabel(code: string) {
@@ -444,15 +721,71 @@ function recordTaskFailure(answer: Message, code: string) {
   answer.status = task.value?.state === 'canceled' ? 'canceled' : 'failed'
   answer.content = answer.status === 'canceled' ? taskStateLabel('canceled') : taskErrorLabel(code)
 }
-function onPreviewValidated(issues: string[]) { previewIssues.value = issues; previewValidated.value = true }
+function progressFor(message: Message) {
+  return assistantProgress(message, candidate.value && message === currentMessage.value ? { validated: previewValidated.value, issues: previewIssues.value } : undefined)
+}
+function onPreviewInvalidated(identity: ValidationIdentity) {
+  if (reportMatches(identity, validationIdentity.value)) previewValidated.value = false
+}
+function onPreviewValidated(report: ProposalValidation) {
+  if (!candidate.value || !reportMatches(report, validationIdentity.value)) return
+  if (repairing.value) repairNotice.value = report.issues.some(issue => issue.severity === 'error')
+    ? t('修复已完成，仍有以下问题需要处理。', 'Repair finished; the following issues still need attention.')
+    : t('已完成修复与校验，方案可应用。', 'Repair and validation finished. The proposal is ready to apply.')
+  previewQuality.value = report; previewIssues.value = report.issues.filter(issue => issue.severity === 'error').map(issue => `${issue.code}:${issue.componentId}`); previewValidated.value = true; repairing.value = false
+  if (currentMessage.value) { currentMessage.value.steps = progressFor(currentMessage.value); schedulePartialSave() }
+  if (previewIssues.value.length && !autoRepairStopped.value && repairAttempts.value < 2 && Date.now() < repairDeadline) repairProposal(false, true)
+}
+function replaceCandidate(document: any) {
+  candidate.value = { ...candidate.value, document }; ++candidateRevision.value; previewValidated.value = false; previewQuality.value = undefined; previewIssues.value = []; applyKey = ''
+  if (currentMessage.value) currentMessage.value.changeCount = candidate.value.changes.length
+}
+function cancelRepair() { autoRepairStopped.value = true; repairing.value = false; repairNotice.value = t('自动修复已停止；仍可逐项处理问题。', 'Automatic repair stopped. You can still resolve individual issues.') }
+function repairProposal(allowLayout = false, automatic = false) {
+  if (!candidate.value || applying.value || stale.value || !previewQuality.value) return
+  if (automatic && (repairAttempts.value >= 2 || Date.now() >= repairDeadline || autoRepairStopped.value)) return
+  if (!automatic) { autoRepairStopped.value = true; repairDeadline = Date.now() + 10000 }
+  ++repairAttempts.value
+  const repaired = repairTextOverflow(candidate.value.document, previewQuality.value.issues, { allowLayout })
+  if (!repaired.changed) { repairing.value = false; repairNotice.value = t('在当前约束内无法安全自动修复。可撤销此组件的方案变更，或调整内容后重新生成。', 'No safe automatic repair is available within these constraints. Revert this component’s proposal changes or revise the content and generate again.'); return }
+  repairing.value = true
+  repairNotice.value = allowLayout ? t('已按允许范围修复说明文本或高度，正在重新校验。', 'Repaired the note text or height within the allowed scope; checking again.') : t('已移除不必要的硬换行，文字、字号、绑定和布局保持原意，正在重新校验。', 'Removed unnecessary hard line breaks without changing wording, font size, bindings or layout; checking again.')
+  replaceCandidate(repaired.document)
+}
+function recheckProposal() { if (candidate.value && !applying.value && !stale.value) { previewValidated.value = false; ++recheckVersion.value } }
+function revertIssueComponent(id: string) {
+  if (!candidate.value || applying.value || stale.value) return
+  const document = revertComponent(candidate.value.document, baseDocument.value, id)
+  if (!document) { repairNotice.value = t('此组件是本次新增内容，请调整需求后重新生成。', 'This component was added by this proposal. Revise the request and generate again.'); return }
+  candidate.value = { ...candidate.value, changes: candidate.value.changes.filter((change: any) => change.id !== id) }
+  autoRepairStopped.value = true; repairing.value = true; replaceCandidate(document)
+  repairNotice.value = t('已撤销此组件的方案变更，正在重新校验其余变更。', 'Reverted this component’s proposal changes; checking the remaining changes.')
+}
+function componentTitle(id: string) { if (id === 'proposal') return t('方案', 'Proposal'); const node = flattenComponents(candidate.value?.document).find(item => item.id === id); return node?.chartConfig?.title || node?.title || id }
+function issueLabel(issue: ProposalIssue) {
+  const labels: Record<string, [string, string]> = { text_overflow: ['文字超出组件边界', 'Text exceeds component bounds'], chart_text_overflow: ['图表文字超出边界', 'Chart text exceeds bounds'], render_failed: ['组件渲染失败', 'Widget failed to render'], render_missing: ['组件未正常显示', 'Widget is not visible'], chart_empty: ['图表没有渲染内容', 'Chart has no rendered content'], bounds: ['组件超出画布', 'Widget exceeds canvas bounds'], data_error: ['数据查询失败或无权访问', 'Data query failed or access denied'], data_waiting: ['等待可用数据', 'Awaiting available data'], data_unchecked: ['数据尚未验证', 'Data is not checked'] }
+  return t(...(labels[issue.code] || ['校验问题', 'Validation issue']))
+}
+function issueEvidence(issue: ProposalIssue) {
+  const expected: any = issue.expected, actual: any = issue.actual
+  if (issue.code === 'text_overflow') return t(`可用 ${expected.width} × ${expected.height}px；内容至少需要 ${actual.requiredWidth ?? actual.width} × ${actual.requiredHeight ?? actual.height}px。`, `Available ${expected.width} × ${expected.height}px; content needs at least ${actual.requiredWidth ?? actual.width} × ${actual.requiredHeight ?? actual.height}px.`)
+  if (issue.code === 'data_unchecked') return t('本次预览未能验证此数据源；应用后仍会显示真实数据状态。', 'This preview could not check the source; the applied widget will show its actual data status.')
+  if (issue.code === 'data_waiting') return t('绑定保留，缺少当前样本不会阻止应用。', 'The binding is preserved. Missing current samples do not block applying.')
+  return issue.code === 'data_error' ? t('请检查数据源、字段和读取权限，再重新取样校验。', 'Check the source, fields and read permissions, then refresh samples.') : t('请定位组件，调整或撤销此组件的方案变更后重新校验。', 'Locate the widget, adjust or revert its proposal changes, then check again.')
+}
 function acceptResult(result: any, document: any, answer: Message) {
-  previewValidated.value = false; previewIssues.value = []
+  previewValidated.value = false; previewIssues.value = []; previewQuality.value = undefined
+  baseDocument.value = JSON.parse(JSON.stringify(document)); repairAttempts.value = 0; autoRepairStopped.value = false; repairing.value = false; repairNotice.value = ''; highlightedComponent.value = ''; repairDeadline = Date.now() + 15000
+  if (task.value) task.value = { ...task.value, state: 'completed', stage: 'completed', result }
   answer.content = String(result.summary || result.clarification || '')
-  if (result.resultStatus === 'blocked' || result.clarification) { answer.status = 'done'; proposal.value = null; candidate.value = null; return }
-  const compiled = compileAssistantPlan(document, result, { getWidget, createComponent: createMaterial, applyTheme: applyScreenTheme, expandBlueprint, locale: state.locale })
+  if (messages.value.filter(message => message.role === 'user').length <= 1) watchTitle(sessions.value.find(item => item.id === activeConversation.value)?.title || '')
+  if (result.resultStatus === 'blocked' || result.clarification) { answer.status = 'waiting'; answer.steps = assistantProgress(answer); proposal.value = null; candidate.value = null; return }
+  const input = [...messages.value].reverse().find(message => message.role === 'user')?.content || ''
+  const compiled = compileAssistantPlan(document, result, { getWidget, createComponent: createMaterial, applyTheme: applyScreenTheme, expandBlueprint, locale: state.locale, intent: inferAssistantIntent(input, result) })
   baseSignature.value = documentSignature(document)
-  proposal.value = result; candidate.value = compiled
+  proposal.value = result; candidate.value = compiled; ++candidateRevision.value; applyKey = ''
   answer.changeCount = compiled.changes.length; answer.status = 'ready'; addStage(answer, 'completed')
+  answer.steps = assistantProgress({ ...answer, steps: undefined }).filter(step => step.id !== 'preview').map(step => ({ ...answer.steps?.find(existing => existing.id === step.id), ...step }))
 }
 async function cancelTask() {
   if (!task.value?.taskId || canceling.value) return
@@ -489,8 +822,8 @@ async function recoverTask() {
     answer ||= [...messages.value].reverse().find(message => message.role === 'assistant' && message.status === 'interrupted')
     if (answer?.status === 'applied' || answer?.status === 'undone' || answer?.status === 'discarded') return
     answer ||= newMessage('assistant', '', { status: 'generating', taskId: retained.taskId })
-    answer.taskId = retained.taskId; currentMessage.value = answer; runId = answer.id
-    if (retained.state === 'completed') { acceptResult(retained.result, retained.baseDocument || props.snapshot(), answer); await saveMessage(answer); return }
+    answer.taskId = retained.taskId; answer.steps = retained.steps; currentMessage.value = answer; runId = answer.id
+    if (retained.state === 'completed') { baseDocument.value = retained.baseDocument; if (await recoverCommitted()) return; acceptResult(retained.result, retained.baseDocument || props.snapshot(), answer); await saveMessage(answer); return }
     if (['failed', 'canceled'].includes(retained.state)) { answer.status = retained.state; answer.content = retained.state === 'canceled' ? taskStateLabel('canceled') : taskErrorLabel(retained.errorKey); await saveMessage(answer); return }
     await resumeTask()
   } catch { if (!disposed) { if (task.value) task.value.state = 'disconnected'; error.value = t('暂时无法读取任务，可重新连接。', 'Task status is unavailable. Reconnect to try again.') } }
@@ -552,54 +885,122 @@ async function generate() {
   // A new proposal remains detached for visual review before it changes the canvas.
 }
 function requestApply() {
-  if (!candidate.value || !previewValidated.value || !proposalApplicable.value || !editable.value || busy.value || applying.value || sessionsBusy.value || historyBusy.value) return
-  if (stale.value) { showError(t('画布已变化，请重新生成方案。', 'The canvas changed. Generate a new proposal.')); return }
-  if (candidate.value.destructive) { confirmation.value = 'apply'; if (currentMessage.value) { currentMessage.value.status = 'waiting'; saveMessage(currentMessage.value) } }
+  if (!disposition.value.canApply) return
+  if (candidate.value.destructive) confirmation.value = 'apply'
   else apply()
 }
 function discardProposal() { proposal.value = null; candidate.value = null; if (currentMessage.value) { currentMessage.value.status = 'discarded'; saveMessage(currentMessage.value) } }
+const commitStorageKey = () => `noyo.assistant.commit.${task.value?.taskId || currentMessage.value?.id || ''}`
+function rememberCommit(key: string) { try { if (key) localStorage.setItem(commitStorageKey(), key); else localStorage.removeItem(commitStorageKey()) } catch {} }
+async function recoverCommitted(heldBarrier = false) {
+  let key = applyKey
+  try { key ||= localStorage.getItem(commitStorageKey()) || '' } catch {}
+  if (!key) return false
+  try {
+    const receipt = await rpc('screen.apply.status', { idempotencyKey: key })
+    if (!receipt.committed || disposed) return false
+    if (receipt.currentDraftVersion === receipt.draftVersion) {
+      const previous = baseDocument.value || taskDocument.value
+      const release = heldBarrier ? undefined : props.beginApply?.()
+      try {
+        const current = documentSignature(props.snapshot()), accepted = documentSignature(receipt.document)
+        if (heldBarrier || current === accepted || previous && current === documentSignature(previous)) {
+          await props.applyDocument(receipt.document, receipt.draftVersion)
+          if (previous && !undoStack.value.some(entry => entry.messageId === currentMessage.value?.id)) undoStack.value.push({ document: previous, signature: documentSignature(props.snapshot()), messageId: currentMessage.value?.id || '' })
+        } else await showError(t('方案此前已应用；保留了当前尚未保存的画布修改。', 'The proposal was applied previously. Current unsaved canvas edits have been preserved.'))
+      } finally { release?.() }
+    }
+    if (currentMessage.value) { currentMessage.value.status = 'applied'; addStage(currentMessage.value, 'applied'); await saveMessage(currentMessage.value) }
+    candidate.value = null; proposal.value = null; rememberCommit('')
+    if (receipt.currentDraftVersion !== receipt.draftVersion) repairNotice.value = t('方案此前已应用，之后画布又有修改。', 'The proposal was applied previously and the canvas was edited afterwards.')
+    return true
+  } catch { return false }
+}
 async function confirmAction() { const action = confirmation.value; confirmation.value = ''; if (action === 'undo') await undo(); else if (action === 'apply') await apply() }
 async function apply() {
-  if (!candidate.value || !previewValidated.value || !proposalApplicable.value || stale.value || !editable.value || busy.value || applying.value || sessionsBusy.value || historyBusy.value) return
+  if (!disposition.value.canApply) return
   applying.value = true; error.value = ''
   const previous = props.snapshot(), expected = currentSignature.value, next = candidate.value.document, answer = currentMessage.value
+  let release: (() => void) | undefined
   try {
+    release = props.beginApply?.()
     if (answer) addStage(answer, 'validating')
-    await rpc('screen.validate', { document: next })
+    await props.settleSaves?.()
     if (disposed) return
     if (expected !== documentSignature(props.snapshot())) throw new Error('STALE_PLAN')
+    if (!state.capabilities.atomicApply) throw new Error(t('编辑器版本不匹配，请刷新页面后重新校验。', 'Editor versions do not match. Refresh the page and check again.'))
     if (answer) addStage(answer, 'applying')
-    await props.applyDocument(next)
+    if (!applyKey) applyKey = `apply-${answer?.id || Date.now()}-${candidateRevision.value}-${Math.random().toString(36).slice(2)}`
+    rememberCommit(applyKey)
+    const accepted = await rpc('screen.apply', { document: next, baseDocument: previous, baseDraftVersion: state.revision, idempotencyKey: applyKey })
+    if (disposed) return
+    await props.applyDocument(accepted.document, accepted.draftVersion)
     undoStack.value.push({ document: previous, signature: documentSignature(props.snapshot()), messageId: answer?.id || '' })
     if (undoStack.value.length > 10) undoStack.value.shift()
     proposal.value = null; candidate.value = null
     if (answer) { answer.status = 'applied'; addStage(answer, 'applied'); await saveMessage(answer) }
+    rememberCommit('')
   } catch (err) {
-    if (!disposed) { if (answer) { answer.status = 'failed'; await saveMessage(answer) }; await showError((err as Error).message === 'STALE_PLAN' ? t('画布已变化，请重新生成方案。', 'The canvas changed. Generate a new proposal.') : (err as Error).message) }
-  } finally { if (!disposed) { applying.value = false; scroll() } }
+    if (!disposed) {
+      if (applyKey && await recoverCommitted(true)) return
+      await showError((err as Error).message === 'STALE_PLAN' ? t('画布已变化，请重新生成方案。', 'The canvas changed. Generate a new proposal.') : (err as Error).message)
+    }
+  } finally { release?.(); if (!disposed) { applying.value = false; scroll() } }
 }
 async function undo() {
   if (!undoEntry.value || undoStale.value || !editable.value || busy.value || applying.value || sessionsBusy.value || historyBusy.value) return
   applying.value = true; error.value = ''
   const entry = undoEntry.value
+  let release: (() => void) | undefined
   try {
-    await rpc('screen.validate', { document: entry.document })
+    release = props.beginApply?.()
+    await props.settleSaves?.()
     if (disposed) return
     if (entry.signature !== documentSignature(props.snapshot())) throw new Error('STALE_PLAN')
-    await props.applyDocument(entry.document)
+    const accepted = await rpc('screen.apply', { document: entry.document, baseDocument: props.snapshot(), baseDraftVersion: state.revision, idempotencyKey: `undo-${entry.messageId}-${entry.signature.length}` })
+    await props.applyDocument(accepted.document, accepted.draftVersion)
     undoStack.value.pop(); proposal.value = null; candidate.value = null
     const answer = messages.value.find(message => message.id === entry.messageId)
     if (answer) { answer.status = 'undone'; addStage(answer, 'undone'); await saveMessage(answer) }
   } catch (err) { if (!disposed) await showError((err as Error).message === 'STALE_PLAN' ? t('画布已变化，无法回退。', 'The canvas changed; undo is unavailable.') : (err as Error).message) }
-  finally { if (!disposed) applying.value = false }
+  finally { release?.(); if (!disposed) applying.value = false }
 }
 </script>
 
 <style scoped>
-.ioc-assistant{display:flex;flex-direction:column;min-width:0;min-height:0;height:100%;background:var(--bg-surface);border-left:1px solid var(--border-color);overflow:hidden}
-.ioc-assistant-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;flex-shrink:0;border-bottom:1px solid var(--border-color)}.ioc-assistant-heading strong{font-size:16px}.ioc-assistant-actions{display:flex;gap:8px;flex-shrink:0}
-.ioc-assistant-sessions{display:flex;align-items:flex-end;flex-wrap:wrap;gap:8px;padding:16px 24px 8px;flex-shrink:0}.ioc-assistant-session-select{display:flex;flex:1;flex-direction:column;gap:8px;min-width:160px;color:var(--text-secondary);font-size:12px}.ioc-assistant-session-select select{width:100%;min-height:32px;padding:4px 8px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-body);color:var(--text-primary);font:inherit;text-overflow:ellipsis}.ioc-assistant-session-select select:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.ioc-assistant-sessions>p{flex-basis:100%;margin:0}.ioc-assistant-purpose{margin:0;padding:8px 24px 16px;border-bottom:1px solid var(--border-color);font-size:12px;line-height:1.5;color:var(--text-secondary)}
-.ioc-assistant-conversation{flex:1;min-height:0;overflow:auto;padding:24px;overflow-wrap:anywhere;overscroll-behavior:contain}
+/* Geometry (position:fixed, left/top/width/height) is owned by style.css plus the
+   inline style, so the panel can be parked anywhere in the editor viewport. This
+   block only owns the internal column layout. */
+.ioc-assistant{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;height:100%;background:var(--noyo-float-bg,var(--bg-surface));overflow:hidden;border-radius:12px}
+.ioc-assistant-validation{display:flex;flex-direction:column;gap:16px;padding:16px 24px;border:1px solid var(--border-color);border-radius:8px}.ioc-assistant-validation li{padding:8px}.ioc-assistant-validation strong,.ioc-assistant-validation span,.ioc-assistant-validation small{display:block;margin-bottom:8px}.ioc-assistant-validation .is-blocking{border-inline-start:3px solid var(--warning-color,var(--primary-color))}.ioc-assistant-issue-actions{display:flex;flex-wrap:wrap;gap:8px}
+/* Four affordances: both vertical edges, the bottom edge, and the corner. A free
+   floating window needs them; a docked column only ever needed its inner edge. */
+.ioc-assistant-resize{position:absolute;z-index:6;touch-action:none;background:transparent;transition:background-color var(--transition-fast)}
+.ioc-assistant-resize.is-left,.ioc-assistant-resize.is-right{inset-block:12px;width:8px;cursor:col-resize}
+.ioc-assistant-resize.is-left{inset-inline-start:0}
+.ioc-assistant-resize.is-right{inset-inline-end:0}
+.ioc-assistant-resize.is-bottom{inset-block-end:0;inset-inline:12px;height:8px;cursor:row-resize}
+.ioc-assistant-resize.is-corner{inset-block-end:0;inset-inline-end:0;width:16px;height:16px;cursor:nwse-resize;border-end-end-radius:12px;background-image:linear-gradient(135deg,transparent 52%,var(--border-color) 52%,var(--border-color) 59%,transparent 59%),linear-gradient(135deg,transparent 71%,var(--border-color) 71%,var(--border-color) 78%,transparent 78%)}
+.ioc-assistant-resize:hover,.ioc-assistant-resize:focus-visible{background-color:color-mix(in srgb,var(--primary-color) 20%,transparent)}
+.ioc-assistant-heading{display:flex;align-items:center;gap:10px;padding:0 16px;min-height:48px;flex-shrink:0;border-bottom:1px solid var(--border-color);cursor:move;touch-action:none;user-select:none}
+.ioc-assistant-grip{flex:none;width:10px;height:16px;color:var(--text-secondary);opacity:.6}
+.ioc-assistant-heading strong{flex:1;min-width:0;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ioc-assistant-actions{display:flex;gap:8px;flex-shrink:0}
+.ioc-assistant-heading button{cursor:pointer}
+body.ioc-assistant-moving,body.ioc-assistant-moving *{cursor:move!important;user-select:none!important}
+body.ioc-assistant-resizing{user-select:none}
+/* One 32px row: the current title, a new-conversation icon, and (only when there
+   are more than 50 threads) a paging icon. The old label + select + button stack
+   cost 84px of a 740px panel, which is transcript space. */
+.ioc-assistant-sessions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 24px;flex-shrink:0;border-bottom:1px solid var(--border-color)}
+.ioc-assistant-sessions>select{flex:1;min-width:0;min-height:32px;padding:4px 8px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-body);color:var(--text-primary);font:inherit;font-size:12px;text-overflow:ellipsis}
+.ioc-assistant-sessions>select:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+.ioc-assistant-sessions>p{flex-basis:100%;margin:0}
+.ioc-assistant .ioc-assistant-icon{display:inline-flex;flex:none;align-items:center;justify-content:center;width:32px;height:32px;padding:0}
+.ioc-assistant-icon svg{width:16px;height:16px}
+.ioc-assistant-spinner{flex:none;width:14px;height:14px;border-radius:50%;border:2px solid var(--border-color);border-top-color:var(--primary-color);animation:ioc-assistant-spin 800ms linear infinite}
+@keyframes ioc-assistant-spin{to{transform:rotate(360deg)}}
+.ioc-assistant-conversation{flex:1;min-height:0;overflow:auto;padding:16px 24px;overflow-wrap:anywhere;overscroll-behavior:contain}
 /* The empty state is centred in the panel instead of sitting under a 96px void:
    the old top padding read as a rendering gap above "what would you like to
    create". Centring keeps the same breathing room on both sides. */
@@ -610,7 +1011,7 @@ async function undo() {
 .ioc-assistant-welcome-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:12px;background:color-mix(in srgb,var(--primary-color) 12%,var(--bg-body));border:1px solid color-mix(in srgb,var(--primary-color) 28%,var(--border-color));color:var(--primary-color)}
 .ioc-assistant-welcome-mark svg{width:20px;height:20px}
 .ioc-assistant-welcome h2{font-size:17px;line-height:1.4;margin:0}
-.ioc-assistant-welcome-intro p{margin:8px 0 0;font-size:13px;line-height:1.7;color:var(--text-secondary)}
+.ioc-assistant-welcome-intro p{margin:8px 0 0;font-size:13px;line-height:1.7;color:var(--text-secondary)}.ioc-assistant-welcome-intro .ioc-assistant-welcome-note{font-size:12px;opacity:.85}
 .ioc-assistant-examples{display:flex;flex-direction:column;gap:8px}
 .ioc-assistant .ioc-assistant-examples button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;margin:0;padding:12px 16px;border:1px solid var(--border-color);border-radius:12px;background:var(--bg-body);color:var(--text-primary);font-size:13px;text-align:left;white-space:normal}
 .ioc-assistant .ioc-assistant-examples button:hover{border-color:var(--primary-color);background:color-mix(in srgb,var(--primary-color) 6%,var(--bg-body))}
@@ -619,7 +1020,7 @@ async function undo() {
 .ioc-assistant-message{display:flex;align-items:flex-start;gap:8px;margin-bottom:16px}.ioc-assistant-message.user{flex-direction:row-reverse}.ioc-assistant-avatar{flex:none;width:28px;height:28px;padding:5px;border-radius:50%;background:var(--bg-body);border:1px solid var(--border-color);color:var(--text-secondary)}.ioc-assistant-message.user .ioc-assistant-avatar{background:color-mix(in srgb,var(--primary-color) 14%,var(--bg-body));border-color:color-mix(in srgb,var(--primary-color) 40%,var(--border-color));color:var(--primary-color)}.ioc-assistant-bubble{display:flex;flex-direction:column;gap:8px;max-width:calc(100% - 44px);min-width:0;padding:12px 16px;border:1px solid var(--border-color);border-radius:12px;background:color-mix(in srgb,var(--text-primary) 4%,var(--bg-surface))}.ioc-assistant-message.user .ioc-assistant-bubble{background:color-mix(in srgb,var(--primary-color) 10%,var(--bg-surface));border-color:color-mix(in srgb,var(--primary-color) 30%,var(--border-color))}.ioc-assistant-richtext{font-size:13px;line-height:1.7;color:var(--text-primary);overflow-wrap:anywhere}.ioc-assistant-richtext p{margin:0 0 8px}.ioc-assistant-richtext p:last-child,.ioc-assistant-richtext ul:last-child{margin-bottom:0}.ioc-assistant-richtext ul{margin:0 0 8px;padding-left:20px}.ioc-assistant-richtext li{margin:2px 0}.ioc-assistant-richtext code{padding:1px 4px;border-radius:4px;background:var(--bg-body);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.ioc-assistant-richtext.is-collapsed{max-height:168px;overflow:hidden;-webkit-mask-image:linear-gradient(180deg,#000 80%,transparent);mask-image:linear-gradient(180deg,#000 80%,transparent)}.ioc-assistant-more{align-self:flex-start;margin:0!important;padding:4px 8px;font-size:12px}.ioc-assistant-message-context{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--text-secondary)}.ioc-assistant-message-context>span{padding:8px;background:var(--bg-body);border-radius:8px}.ioc-assistant-message-context details{flex-basis:100%;max-height:160px;overflow:auto}
 .ioc-assistant-status{color:var(--text-secondary);font-size:12px}.ioc-assistant-progress{padding:8px 12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-body);color:var(--text-secondary);font-size:12px}.ioc-assistant-progress summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;color:var(--text-secondary)}.ioc-assistant-progress summary::-webkit-details-marker{display:none}.ioc-assistant-progress summary::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--primary-color)}.ioc-assistant-stage-current{color:var(--text-primary)}.ioc-assistant-stage-count{margin-left:auto;font-variant-numeric:tabular-nums;opacity:.75}.ioc-assistant-dots{color:var(--primary-color)}.ioc-assistant-progress ol{margin:8px 0 0;padding-left:20px}.ioc-assistant-progress li{margin-top:4px}.ioc-assistant-progress li.is-done{color:var(--text-primary)}summary{cursor:pointer}
 .ioc-assistant-proposal{padding:16px;border:1px solid var(--primary-color);border-radius:8px}.ioc-assistant-proposal ol{padding-left:24px}.ioc-assistant-proposal button{margin:8px 8px 0 0}.ioc-assistant-warning{color:var(--warning-color)}.ioc-assistant-error,.ioc-assistant-sync{padding:8px 24px;max-height:128px;overflow:auto;font-size:12px}.ioc-assistant-error{color:var(--danger-color)}.ioc-assistant-undo{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:8px 24px;font-size:12px;color:var(--text-secondary)}
-.ioc-assistant-compose{position:relative;flex-shrink:0;padding:16px 24px 24px;border-top:1px solid var(--border-color)}.ioc-assistant-input-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.ioc-assistant-compose textarea,.ioc-assistant-device-picker input[type=search]{box-sizing:border-box;width:100%;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-body);color:var(--text-primary);font:inherit;padding:8px}.ioc-assistant-compose textarea{display:block;resize:vertical;min-height:96px;max-height:192px}.ioc-assistant-compose-footer,.ioc-assistant-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ioc-assistant-compose-footer{justify-content:space-between;margin-top:8px}.ioc-assistant-selection-chips{display:flex;gap:8px;flex-wrap:wrap;max-height:96px;overflow:auto;margin-bottom:8px;font-size:12px}.ioc-assistant-selection-chips>span{display:inline-flex;align-items:center;gap:8px;padding:8px;background:var(--bg-body);border:1px solid var(--border-color);border-radius:8px;max-width:100%;overflow-wrap:anywhere}.ioc-assistant-selection-chips button{padding:0 8px}.ioc-assistant-selection-hint{font-size:12px;color:var(--text-secondary);margin:0 0 8px}.ioc-assistant-selection-hint button{margin-left:8px}
+.ioc-assistant-compose{position:relative;flex-shrink:0;padding:16px 24px 24px;border-top:1px solid var(--border-color)}.ioc-assistant-input-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.ioc-assistant-compose textarea,.ioc-assistant-device-picker input[type=search]{box-sizing:border-box;width:100%;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-body);color:var(--text-primary);font:inherit;padding:8px}.ioc-assistant-compose textarea{display:block;resize:vertical;min-height:72px;max-height:192px}.ioc-assistant-compose-footer,.ioc-assistant-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ioc-assistant-compose-footer{justify-content:space-between;margin-top:8px}.ioc-assistant-selection-chips{display:flex;gap:8px;flex-wrap:wrap;max-height:96px;overflow:auto;margin-bottom:8px;font-size:12px}.ioc-assistant-selection-chips>span{display:inline-flex;align-items:center;gap:8px;padding:8px;background:var(--bg-body);border:1px solid var(--border-color);border-radius:8px;max-width:100%;overflow-wrap:anywhere}.ioc-assistant-selection-chips button{padding:0 8px}.ioc-assistant-selection-hint{font-size:12px;color:var(--text-secondary);margin:0 0 8px}.ioc-assistant-selection-hint button{margin-left:8px}
 .ioc-assistant-device-picker{position:absolute;bottom:72px;left:24px;right:24px;z-index:10;padding:16px;max-height:min(480px,65vh);overflow:auto;background:var(--bg-body);isolation:isolate;border:1px solid var(--border-color);border-radius:8px;box-shadow:0 16px 48px color-mix(in srgb,var(--text-primary) 16%,transparent)}.ioc-assistant-scope{display:flex;flex-wrap:wrap;gap:8px 16px;margin:8px 0;padding:8px 16px;border-radius:8px;background:var(--bg-body);color:var(--text-secondary);font-size:12px;line-height:1.6}.ioc-assistant-scope strong{color:var(--text-primary);font-weight:500}.ioc-assistant-scope.is-thin{color:var(--warning-color)}.ioc-assistant-hint{margin:0 0 8px;font-size:12px;line-height:1.6;color:var(--warning-color)}.ioc-assistant-picker-heading,.ioc-assistant-picker-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}.ioc-assistant-picker-actions{margin-top:8px}.ioc-assistant-device-options{max-height:240px;overflow:auto}.ioc-assistant-device-options label{display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;border-radius:8px}.ioc-assistant-device-options label:hover{background:var(--bg-body)}.ioc-assistant-device-options small{display:block;color:var(--text-secondary);margin-top:8px}.ioc-assistant-device-options input{accent-color:var(--primary-color)}
 .ioc-assistant button{border:1px solid var(--border-color);background:var(--bg-body);color:var(--text-primary);border-radius:8px;padding:8px;font:inherit;font-size:12px;cursor:pointer;transition:background var(--transition-fast),border-color var(--transition-fast)}.ioc-assistant button:hover,.ioc-assistant button[aria-pressed=true]{border-color:var(--primary-color)}.ioc-assistant button:disabled{opacity:.5;cursor:not-allowed}.ioc-assistant button.ioc-assistant-primary{background:var(--primary-color);border-color:var(--primary-color);color:var(--bg-body)}.ioc-assistant :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){.ioc-assistant button{transition:none}}

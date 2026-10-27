@@ -89,7 +89,7 @@ function themeAxis(axis: any, splitLine: boolean, screenPalette: ScreenPalette) 
 // fixed colours (white labels and per-series fills). Dropping
 // the literal lets the top-level palette own the colour, so a screen never
 // mixes white labels with a dark panel.
-function themeSeries(series: any[], screenPalette: ScreenPalette) {
+function themeSeries(series: any[], screenPalette: ScreenPalette, horizontal = false) {
   for (const item of series) {
     if (!isObject(item)) continue
     const type = String(item.type || '')
@@ -104,8 +104,8 @@ function themeSeries(series: any[], screenPalette: ScreenPalette) {
       item.itemStyle = { ...(item.itemStyle || {}), color: null }
     } else if (type === 'bar') {
       item.barWidth = item.barWidth && item.barWidth < 28 ? item.barWidth : 14
-      item.itemStyle = { ...(item.itemStyle || {}), borderRadius: [3, 3, 0, 0], color: null }
-      item.label = { ...(item.label || {}), show: true, position: 'top', color: screenPalette.text2, fontSize: 11 }
+      item.itemStyle = { ...(item.itemStyle || {}), borderRadius: horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0], color: null }
+      item.label = { ...(item.label || {}), show: true, position: horizontal ? 'right' : 'top', color: screenPalette.text2, fontSize: 11 }
     } else if (type === 'pie') {
       item.label = { ...(item.label || {}), color: screenPalette.text2, fontSize: 11 }
       item.itemStyle = { ...(item.itemStyle || {}), borderColor: screenPalette.canvas, borderWidth: 2 }
@@ -142,9 +142,10 @@ function themeCartesian(option: any, screenPalette: ScreenPalette) {
     padding: [8, 12],
     textStyle: { ...(option.tooltip?.textStyle || {}), color: screenPalette.text1, fontSize: 12 }
   }
-  themeAxis(option.xAxis, false, screenPalette)
-  themeAxis(option.yAxis, true, screenPalette)
-  if (Array.isArray(option.series)) themeSeries(option.series, screenPalette)
+  const horizontal = axisList(option.xAxis).some(item => item.type === 'value') && axisList(option.yAxis).some(item => item.type === 'category')
+  themeAxis(option.xAxis, horizontal, screenPalette)
+  themeAxis(option.yAxis, !horizontal, screenPalette)
+  if (Array.isArray(option.series)) themeSeries(option.series, screenPalette, horizontal)
   // Trend lines must not start at zero: a level that moves between 3.9 and 4.4
   // renders as a flat line when the axis is pinned to the origin. Bars keep the
   // zero baseline because their height is the measurement.

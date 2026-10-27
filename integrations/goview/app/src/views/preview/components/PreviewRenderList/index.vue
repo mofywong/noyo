@@ -24,9 +24,9 @@
     ></preview-render-group>
 
     <!-- 单组件 -->
-    <component
+    <detached-widget
       v-else
-      :is="item.chartConfig.chartKey"
+      :widget="item.chartConfig.chartKey"
       :id="item.id"
       :chartConfig="item"
       :themeSetting="themeSetting"
@@ -36,11 +36,12 @@
         ...getFilterStyle(item.styles)
       }"
       v-on="useLifeHandler(item)"
-    ></component>
+    ></detached-widget>
   </div>
 </template>
 
 <script setup lang="ts">
+import DetachedWidget from '@/noyo/DetachedWidget.vue'
 import { PropType, computed, onMounted } from 'vue'
 import { useChartDataPondFetch } from '@/hooks'
 import { ChartEditStorageType } from '../../index.d'

@@ -14,6 +14,7 @@ import (
 	"github.com/gogf/gf/v2/net/ghttp"
 	"gorm.io/gorm/clause"
 	"noyo/core/assistant"
+	"noyo/core/llmlog"
 	"noyo/core/screen"
 	"noyo/core/store"
 )
@@ -140,7 +141,7 @@ func (s *Server) screenAssistantProvider() (assistant.ProviderConfig, error) {
 	}
 	for _, provider := range configured {
 		if strings.TrimSpace(provider.APIKey) != "" && strings.TrimSpace(provider.Model) != "" {
-			return assistant.ProviderConfig{BaseURL: provider.BaseURL, APIKey: provider.APIKey, Model: provider.Model, Timeout: 75 * time.Second}, nil
+			return assistant.ProviderConfig{BaseURL: provider.BaseURL, APIKey: provider.APIKey, Model: provider.Model, Timeout: 210 * time.Second, StructuredReasoning: true}, nil
 		}
 	}
 	return assistant.ProviderConfig{}, missing
@@ -597,6 +598,14 @@ func (s *Server) handleScreenAssistantPlan(r *ghttp.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
+	sessionID := request.ConversationID
+	if sessionID == "" {
+		sessionID = request.RequestID
+	}
+	if sessionID == "" {
+		sessionID, _ = screenAssistantTaskToken()
+	}
+	ctx = llmlog.WithMetadata(ctx, llmlog.Metadata{TenantID: row.TenantID, ProjectID: row.ProjectID, UserID: requestAuthContext(r).UserID, SessionID: sessionID, Source: "ioc_screen_assistant"})
 	runtime, err := assistant.NewRuntime(ctx, assistant.RuntimeConfig{Provider: provider})
 	if err != nil {
 		screenAssistantWriteError(r, screenFail(503, "Screen AI service unavailable / 大屏 AI 服务暂不可用"), "aiUnavailable")
@@ -625,6 +634,11 @@ func (s *Server) handleScreenAssistantPlan(r *ghttp.Request) {
 		}
 		screenAssistantWriteError(r, screenFail(status, message), errorKey)
 		return
+	}
+	// The list shows a truncated placeholder until this lands; see
+	// api_screen_assistant_title.go for why it is detached from the response.
+	if request.ConversationID != "" {
+		s.screenAssistantTitleAsync(provider, row.TenantID, row.ProjectID, row.ID, requestAuthContext(r).UserID, request.ConversationID, request.Prompt, plan.Summary, request.Locale)
 	}
 	screenWriteData(r, plan)
 }

@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 export const SCREEN_PROTOCOL = 'noyo.screen/1'
-export const SCREEN_ENGINE = 'goview-5ab05b4-noyo19'
+export const SCREEN_ENGINE = 'goview-5ab05b4-noyo21'
 export const screenId = (value) => String(value?.id ?? value?.ID ?? value ?? '')
 export const draftVersion = (value) => Number(value?.draftVersion ?? value?.draft_version ?? 0)
 export const metadataVersion = (value) => Number(value?.metadataVersion ?? value?.metadata_version ?? 0)
@@ -52,6 +52,8 @@ export const screensApi = {
     ? screenRequest('get', `/${encodeURIComponent(id)}/releases/${encodeURIComponent(releaseId)}`)
     : screenRequest('get', `/${encodeURIComponent(id)}/${mode === 'view' ? 'published' : 'draft'}`),
   save: (id, document, version) => screenRequest('put', `/${encodeURIComponent(id)}/draft`, { document }, { headers: revisionHeaders(version) }),
+  apply: (id, payload) => screenRequest('post', `/${encodeURIComponent(id)}/apply`, payload, { headers: revisionHeaders(payload.baseDraftVersion) }),
+  applyStatus: (id, key) => screenRequest('get', `/${encodeURIComponent(id)}/apply/${encodeURIComponent(key)}`),
   validate: (id, document) => screenRequest('post', `/${encodeURIComponent(id)}/validate`, { document }),
   publish: (id, version) => screenRequest('post', `/${encodeURIComponent(id)}/publish`, { draftVersion: version, requestId: requestId() }),
   unpublish: (id) => screenRequest('post', `/${encodeURIComponent(id)}/unpublish`, { requestId: requestId() }),

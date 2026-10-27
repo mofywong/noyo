@@ -1,5 +1,6 @@
 import { createI18n } from 'vue-i18n'
 import screenMessages from './screens/messages.js'
+import { llmRequestMessages } from './llmRequestMessages.js'
 import { brandMessages } from './config/brand'
 
 const messages = {
@@ -3228,6 +3229,10 @@ const i18n = createI18n({
 })
 
 for (const [language, message] of Object.entries(screenMessages)) {
+    i18n.global.mergeLocaleMessage(language, message)
+}
+
+for (const [language, message] of Object.entries(llmRequestMessages)) {
     i18n.global.mergeLocaleMessage(language, message)
 }
 

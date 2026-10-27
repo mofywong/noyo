@@ -55,7 +55,7 @@ export async function pollAssistantTask(taskUrl, initial, { headers, signal, onP
   let status = initial, failures = 0, lastStage = '', lastSummary = '', lastVersion = ''
   while (true) {
     if (!status?.taskId || !['queued', 'running', 'completed', 'failed', 'canceled'].includes(status.state)) throw new Error('Invalid assistant task')
-    const progressVersion = `${status.version}:${status.state}:${status.stage}:${status.summary}`
+    const progressVersion = `${status.version}:${status.state}:${status.stage}:${status.summary}:${JSON.stringify(status.steps || [])}`
     if (progressVersion !== lastVersion) { onProgress({ event: 'task', ...status, result: undefined }); lastVersion = progressVersion }
     if (status.stage && status.stage !== lastStage) { onProgress({ event: 'stage', stage: status.stage }); lastStage = status.stage }
     if (status.summary && status.summary !== lastSummary) { onProgress({ event: 'summary', content: status.summary }); lastSummary = status.summary }

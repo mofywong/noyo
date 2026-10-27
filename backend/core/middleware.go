@@ -9,6 +9,7 @@ import (
 
 	"github.com/gogf/gf/v2/net/ghttp"
 
+	"noyo/core/llmlog"
 	"noyo/core/store"
 	"noyo/core/utils"
 )
@@ -135,6 +136,7 @@ func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 		r.SetCtxVar("username", authCtx.Username)
 		r.SetCtxVar("role", authCtx.Role)
 		r.SetCtxVar("app_id", authCtx.AppID)
+		r.SetCtx(llmlog.WithMetadata(r.Context(), llmlog.Metadata{TenantID: authCtx.TenantID, ProjectID: authCtx.ProjectID, UserID: authCtx.UserID}))
 		return authCtx
 	}
 
@@ -179,6 +181,7 @@ func authenticateRequest(r *ghttp.Request, secret string) *AuthContext {
 	r.SetCtxVar("user_id", authCtx.UserID)
 	r.SetCtxVar("tenant_id", authCtx.TenantID)
 	r.SetCtxVar("project_id", authCtx.ProjectID)
+	r.SetCtx(llmlog.WithMetadata(r.Context(), llmlog.Metadata{TenantID: authCtx.TenantID, ProjectID: authCtx.ProjectID, UserID: authCtx.UserID}))
 	r.SetCtxVar("username", authCtx.Username)
 	r.SetCtxVar("role", authCtx.Role)
 	r.SetCtxVar("app_id", "")

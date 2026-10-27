@@ -161,6 +161,16 @@ export const QUICK_MODE_MODULES = [
     full: ['system:logs_delete']
   },
   {
+    module: 'llm_request',
+    group: 'business',
+    icon: 'bi-journal-code',
+    nameKey: 'llm_requests',
+    levels: ['none', 'readonly'],
+    readonly: ['llm_request:list'],
+    edit: [],
+    full: []
+  },
+  {
     module: 'user',
     group: 'business',
     icon: 'bi-people',

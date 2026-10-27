@@ -15,6 +15,9 @@ import { onBeforeUnmount, ref } from 'vue'
 const IDLE_TIMEOUT_MS = 45000
 const BASE_BACKOFF_MS = 1000
 const MAX_BACKOFF_MS = 30000
+// A renewed access token is worth an immediate retry; the display should not
+// sit dark for a whole backoff cycle because a 2h token quietly aged out.
+const AUTH_RETRY_MS = 300
 
 export function parseScreenStream(packet) {
   const lines = packet.split('\n')
@@ -69,6 +72,18 @@ export function useScreenRuntime() {
     state.value = 'lost'
     retryTimer = setTimeout(() => { retryTimer = null; if (alive()) connect(current) }, nextScreenBackoff(attempt++))
   }
+  // Headers may be a live getter: an access token that was renewed between
+  // connections must be read again, not replayed from the first attempt.
+  function headersOf(options) {
+    try { return typeof options.headers === 'function' ? options.headers() : options.headers } catch { return {} }
+  }
+  // The stream uses fetch, so the axios 401 interceptor never sees it. Without
+  // this hop an expiring token freezes a wall display permanently: every later
+  // reconnect answers 401 and the transport stops for good.
+  async function renew(options, alive) {
+    if (typeof options.onAuthExpired !== 'function') return false
+    try { return (await options.onAuthExpired()) === true && alive() } catch { return false }
+  }
   async function connect(options) {
     if (stopped) return
     const mine = ++generation
@@ -78,9 +93,22 @@ export function useScreenRuntime() {
     const signal = local.signal
     state.value = 'connecting'
     try {
-      const response = await fetch(options.url, { headers: options.headers, signal, cache: 'no-store', credentials: 'same-origin' })
+      const response = await fetch(options.url, { headers: headersOf(options), signal, cache: 'no-store', credentials: 'same-origin' })
       if (!alive()) return
       if (!response.ok || !response.body) {
+        if (response.status === 401) {
+          const renewed = await renew(options, alive)
+          // The await may have outlived this connection; only its owner may
+          // decide to stop the transport.
+          if (!alive()) return
+          if (renewed) {
+            // Quiet retry: no error is surfaced and no backoff is burned.
+            attempt = 0
+            state.value = 'connecting'
+            retryTimer = setTimeout(() => { retryTimer = null; if (alive()) connect(current) }, AUTH_RETRY_MS)
+            return
+          }
+        }
         if ([401, 403, 404, 410, 412].includes(response.status)) {
           stopped = true
           state.value = 'idle'

@@ -10,7 +10,7 @@ import (
 
 const screenAssistantValueContract = `Generate for the declared thing-model capabilities and user goals across any industry. Do not assume a fire-safety scene. Profile opportunities are possible questions, not proof that history, coordinates, thresholds or events exist. Field role/counter labels with name_heuristic provenance are suggestions, not verified operational meaning. Respect physical quantities, exact units and field aggregations. Never sum temperatures, pressures, percentages or numeric state codes. A cumulative reading is not interval consumption; do not invent deltas, reset handling, health scores, utilization, thresholds or causal diagnoses.
 In the metrics stage include questionId, question, reason and priority (0..3, higher is more important) for each metric. Choose nonredundant questions about current conditions, meaningful changes, device states, connectivity, events or location according to declared capabilities and the application scenario. Use deviceSummary for actual scoped connectivity statistics: no keys, explicit deviceCodes, aggregate total|online|offline|unknown|onlineRate; onlineRate is percent of all scoped devices, with unknown states retained in the denominator. Numeric aggregate.count counts reporting samples, not devices or events. Keep important unknowns visible. Choose the scope from readable project devices, never just the first device.
-In presentation use only the final metricPlan and selected trials. metricEvidence explains current quality, scope, distinct historical points and observed span. This evidence only determines ready/waiting/stale display states. Preserve all selected schema-supported views and bindings even before the device first reports, including history and location views. Do not replace a meaningful trend with a latest-value widget because history is currently empty. Keep valid zeroes and stable series meaningful. Do not impose KPI/panel quotas or make empty charts to fill space. A current value and its schema-supported trend can answer distinct questions; repeated views of the same current value add no information.
+In presentation use only the final metricPlan and selected trials. metricEvidence explains current quality, scope, status/reason, distinct historical points and observed span. An unresolved scope has deviceCount=-1, not zero. empty_scope means no eligible devices, awaiting_observations means a resolved scope has not supplied usable observations, and query_error means execution failed; never describe these as a normal zero. Scope alternatives are not permission to expand a binding. This evidence only determines ready/waiting/stale display states. Preserve all selected schema-supported views and bindings even before the device first reports, including history and location views. Do not replace a meaningful trend with a latest-value widget because history is currently empty. Keep valid zeroes and stable series meaningful. Do not impose KPI/panel quotas or make empty charts to fill space. A current value and its schema-supported trend can answer distinct questions; repeated views of the same current value add no information.
 Use optional top-level composition overview|equipment|compact: overview for multiple operational questions with a dominant main condition view, equipment for comparable assets/states, compact for sparse profiles. Each semantic section should state question and priority (0..3). Omit section.span unless the user explicitly requests a manual layout, so the host can apply the chosen composition. Main questions deserve visual emphasis; keep units, time windows, coverage and important unknowns understandable. deviceSummary counts use default/count/text forms without a unit; only onlineRate may use percent/progress and its value is always 0..100, with optional unit %. The host compiles geometry, decorative frames and themes. All generated prose follows locale. Review remains JSON-only and must preserve all frozen data bindings; never claim to have inspected a rendered screenshot.`
 
 type screenAssistantSeriesEvidence struct {
@@ -28,6 +28,69 @@ type screenAssistantHistoryEvidence struct {
 	WindowMs      int64                           `json:"windowMs"`
 	MinimumSpanMs int64                           `json:"minimumSpanMs"`
 	Series        []screenAssistantSeriesEvidence `json:"series"`
+}
+
+func screenAssistantEvidenceStatus(quality, scopeState string) (string, string) {
+	switch quality {
+	case "good":
+		return "good", "observations_available"
+	case "stale":
+		return "stale", "observations_expired"
+	case "error", "query_error":
+		return "query_error", "query_execution_failed"
+	case "not_evaluated":
+		return "not_evaluated", "preview_not_executed"
+	case "no_data":
+		if scopeState == "empty" {
+			return "no_data", "empty_scope"
+		}
+		if scopeState == "unresolved" {
+			return "no_data", "scope_unresolved"
+		}
+		return "no_data", "awaiting_observations"
+	}
+	return quality, "quality_unclassified"
+}
+
+// Only claim an exact count for scopes whose membership can be established.
+// Compound/parameterized scopes stay unresolved instead of becoming zero.
+func screenAssistantEvidenceScope(ctx context.Context, row *store.IOCScreen, metric screenAssistantMetric, counts map[string]int64) (screenAssistantMetricScope, error) {
+	scope := screenAssistantMetricScope{State: "resolved", DeviceCount: int64(len(metric.DeviceCodes)), SourceRef: metric.ID}
+	if metric.Binding != nil && metric.Binding.Query != nil {
+		scope.State, scope.DeviceCount = "unresolved", -1
+		sources := metric.Binding.Query.Sources
+		if len(sources) != 1 {
+			return scope, nil
+		}
+		selector := sources[0].Selector
+		if len(selector.TagIDs) != 0 || selector.ProductParameter != "" {
+			return scope, nil
+		}
+		if selector.ProductCode != "" {
+			scope.ProductCode = selector.ProductCode
+			if row.TenantID == 0 || row.ProjectID == 0 || len(selector.DeviceCodes) != 0 {
+				return scope, nil
+			}
+			count, ok := counts[selector.ProductCode]
+			if !ok {
+				if err := store.DB.WithContext(ctx).Model(&store.Device{}).Where("tenant_id = ? AND project_id = ? AND product_code = ?", row.TenantID, row.ProjectID, selector.ProductCode).Count(&count).Error; err != nil {
+					return scope, err
+				}
+				counts[selector.ProductCode] = count
+			}
+			scope.State, scope.DeviceCount = "resolved", count
+		} else if len(selector.DeviceCodes) > 0 {
+			unique := map[string]bool{}
+			for _, code := range selector.DeviceCodes {
+				unique[code] = true
+			}
+			scope.State, scope.DeviceCount = "resolved", int64(len(unique))
+		}
+	}
+	if scope.DeviceCount == 0 {
+		scope.State = "empty"
+	}
+	return scope, nil
 }
 
 // This is a declared presentation policy for the bounded preview, not a claim
@@ -135,7 +198,8 @@ func (s *Server) screenAssistantSelectMetrics(ctx context.Context, row *store.IO
 	now := time.Now().UnixMilli()
 	waiting, references := 0, 0
 	finalTrials := map[string]interface{}{}
-	add := func(metric screenAssistantMetric, trial screenRuntimeSample) bool {
+	scopeCounts := map[string]int64{}
+	add := func(metric screenAssistantMetric, trial screenRuntimeSample, scope screenAssistantMetricScope) bool {
 		signature := screenAssistantBindingSignature(metric.binding())
 		if seen[signature] {
 			return true
@@ -148,6 +212,8 @@ func (s *Server) screenAssistantSelectMetrics(ctx context.Context, row *store.IO
 		seen[signature] = true
 		references += len(metric.DeviceCodes)
 		detail := map[string]interface{}{"questionId": metric.QuestionID, "question": metric.Question, "selectionReason": metric.Reason, "sourceKind": metric.Kind, "eligibleDevices": len(metric.DeviceCodes), "asOf": now, "quality": trial.Quality, "receivedAt": trial.ReceivedAt, "selected": true}
+		detail["eligibleDevices"], detail["scope"] = scope.DeviceCount, scope
+		detail["status"], detail["reason"] = screenAssistantEvidenceStatus(trial.Quality, scope.State)
 		if metric.Kind == "history" && metric.Binding == nil {
 			detail["history"] = screenAssistantAssessHistory(metric, screenAssistantHistoryRows(trial.Value))
 		}
@@ -199,7 +265,11 @@ func (s *Server) screenAssistantSelectMetrics(ctx context.Context, row *store.IO
 		if trial.Quality != "good" && trial.Quality != "not_evaluated" {
 			waiting++
 		}
-		if !add(metric, trial) {
+		scope, err := screenAssistantEvidenceScope(ctx, row, metric, scopeCounts)
+		if err != nil {
+			return selected, nil, nil, err
+		}
+		if !add(metric, trial, scope) {
 			return selected, nil, nil, errScreenAssistantInvalid
 		}
 	}

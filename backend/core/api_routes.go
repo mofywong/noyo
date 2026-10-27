@@ -123,6 +123,13 @@ func (s *Server) registerAPIRoutes() {
 			auditGroup := protected.Group("/audit-logs")
 			permissionGET(auditGroup, "/", "audit:list", s.handleListAuditLogs)
 
+			llmRequests := protected.Group("/llm-requests")
+			permissionGET(llmRequests, "/", "llm_request:list", s.handleListLLMRequests)
+			permissionGET(llmRequests, "/summary", "llm_request:list", s.handleLLMRequestSummary)
+			permissionGET(llmRequests, "/stats", "llm_request:list", s.handleLLMRequestStats)
+			permissionGET(llmRequests, "/facets", "llm_request:list", s.handleLLMRequestFacets)
+			permissionGET(llmRequests, "/:id", "llm_request:list", s.handleGetLLMRequest)
+
 			protected.Group("/tenants", func(tenantGroup *ghttp.RouterGroup) {
 				permissionGET(tenantGroup, "/permission-options", "tenant:create", s.handleGetTenantPermissionOptions)
 				permissionGET(tenantGroup, "/", "tenant:list", s.handleGetTenants)

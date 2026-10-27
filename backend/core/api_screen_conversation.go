@@ -15,15 +15,16 @@ import (
 )
 
 type screenConversationMessage struct {
-	ID             string          `json:"id"`
-	ConversationID string          `json:"conversationId,omitempty"`
-	Role           string          `json:"role"`
-	Content        string          `json:"content"`
-	Context        json.RawMessage `json:"context,omitempty"`
-	Status         string          `json:"status,omitempty"`
-	Stages         []string        `json:"stages,omitempty"`
-	ChangeCount    int             `json:"changeCount,omitempty"`
-	TaskID         string          `json:"taskId,omitempty"`
+	ID             string                      `json:"id"`
+	ConversationID string                      `json:"conversationId,omitempty"`
+	Role           string                      `json:"role"`
+	Content        string                      `json:"content"`
+	Context        json.RawMessage             `json:"context,omitempty"`
+	Status         string                      `json:"status,omitempty"`
+	Stages         []string                    `json:"stages,omitempty"`
+	Steps          []screenAssistantStepStatus `json:"steps,omitempty"`
+	ChangeCount    int                         `json:"changeCount,omitempty"`
+	TaskID         string                      `json:"taskId,omitempty"`
 }
 
 type screenConversationItem struct {
@@ -240,8 +241,26 @@ func (s *Server) handleScreenAssistantMessage(r *ghttp.Request) {
 	}
 	for _, stage := range message.Stages {
 		switch stage {
-		case "context", "discovering", "planning", "intention", "metrics", "generating", "reviewing", "validating", "completed", "applying", "applied", "undone":
+		case "context", "discovering", "planning", "intention", "metrics", "checking", "generating", "reviewing", "validating", "completed", "applying", "applied", "undone":
 		default:
+			valid = false
+		}
+	}
+	if len(message.Steps) > 6 {
+		valid = false
+	}
+	for _, step := range message.Steps {
+		switch step.ID {
+		case "intention", "metrics", "checking", "generating", "reviewing", "preview":
+		default:
+			valid = false
+		}
+		switch step.State {
+		case "pending", "running", "succeeded", "failed", "canceled", "skipped":
+		default:
+			valid = false
+		}
+		if step.Count < 0 || step.Count > 201 || len(step.Detail) > 1000 {
 			valid = false
 		}
 	}

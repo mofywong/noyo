@@ -18,8 +18,8 @@
       ...getBlendModeStyle(item.styles) as any
     }"
     >
-      <component
-        :is="item.chartConfig.chartKey"
+      <detached-widget
+        :widget="item.chartConfig.chartKey"
         :id="item.id"
         :chartConfig="item"
         :themeSetting="themeSetting"
@@ -30,12 +30,13 @@
           ...getTransformStyle(item.styles)
         }"
         v-on="useLifeHandler(item)"
-      ></component>
+      ></detached-widget>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import DetachedWidget from '@/noyo/DetachedWidget.vue'
 import { PropType } from 'vue'
 import { CreateComponentGroupType } from '@/packages/index.d'
 import { animationsClass, getFilterStyle, getTransformStyle, getBlendModeStyle } from '@/utils'

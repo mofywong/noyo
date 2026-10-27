@@ -163,14 +163,20 @@ func screenPrepareData(r *ghttp.Request, row *store.IOCScreen, plan dataquery.Pl
 			if !canAccessDevice(r, &device) {
 				continue
 			}
-			readable[device.Code] = true
 			if source.Kind == "telemetry" || source.Kind == "latest" {
 				fields, known := productFields[device.ProductCode]
 				if !known {
 					fields = map[string]bool{}
 					var product store.Product
 					if err := store.DB.Where("code = ?", device.ProductCode).First(&product).Error; err != nil || !canAccessProduct(r, &product) {
-						return nil, "", screenFail(403, "Product is outside readable scope / 产品不在可读范围")
+						if len(selector.DeviceCodes) > 0 {
+							return nil, "", screenFail(403, "Product is outside readable scope / 产品不在可读范围")
+						}
+						// A broad selector spans a whole product or the whole project.
+						// A device whose product definition is missing or unreadable
+						// cannot contribute a declared field, so it is excluded instead
+						// of failing every other device in the same query.
+						continue
 					}
 					for _, property := range loadProductTSLProperties(device.ProductCode) {
 						fields[propertyStringField(property, "identifier")] = true
@@ -187,6 +193,7 @@ func screenPrepareData(r *ghttp.Request, row *store.IOCScreen, plan dataquery.Pl
 					}
 				}
 			}
+			readable[device.Code] = true
 			item.devices = append(item.devices, device)
 			fingerprint = append(fingerprint, device.Code, device.UpdatedAt)
 		}

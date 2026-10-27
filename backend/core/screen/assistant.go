@@ -46,19 +46,22 @@ type AssistantSectionItem struct {
 	Placeholder bool `json:"placeholder,omitempty"`
 	// Binding is filled by the workflow compiler from an approved metric ID.
 	// It lets product selectors remain dynamic without expanding device IDs.
-	Binding   *Binding `json:"binding,omitempty"`
-	Label     string   `json:"label,omitempty"`
-	Device    string   `json:"device,omitempty"`
-	Devices   []string `json:"devices,omitempty"`
-	Key       string   `json:"key,omitempty"`
-	Keys      []string `json:"keys,omitempty"`
-	Unit      string   `json:"unit,omitempty"`
-	Precision *float64 `json:"precision,omitempty"`
-	Tone      string   `json:"tone,omitempty"`
-	Form      string   `json:"form,omitempty"`
-	Viz       string   `json:"viz,omitempty"`
-	Aggregate string   `json:"aggregate,omitempty"`
-	Kind      string   `json:"kind,omitempty"`
+	Binding       *Binding `json:"binding,omitempty"`
+	Label         string   `json:"label,omitempty"`
+	Device        string   `json:"device,omitempty"`
+	Devices       []string `json:"devices,omitempty"`
+	Key           string   `json:"key,omitempty"`
+	Keys          []string `json:"keys,omitempty"`
+	Unit          string   `json:"unit,omitempty"`
+	Precision     *float64 `json:"precision,omitempty"`
+	Tone          string   `json:"tone,omitempty"`
+	Form          string   `json:"form,omitempty"`
+	Viz           string   `json:"viz,omitempty"`
+	Task          string   `json:"task,omitempty"`
+	Priority      int      `json:"priority"`
+	CategoryCount int      `json:"categoryCount,omitempty"`
+	Aggregate     string   `json:"aggregate,omitempty"`
+	Kind          string   `json:"kind,omitempty"`
 }
 
 // AssistantSection is a semantic request ("show alarm counts, then a 24h level
@@ -70,6 +73,7 @@ type AssistantSection struct {
 	Role     string                 `json:"role"`
 	Question string                 `json:"question,omitempty"`
 	Priority int                    `json:"priority,omitempty"`
+	Task     string                 `json:"task,omitempty"`
 	Title    string                 `json:"title,omitempty"`
 	Subtitle string                 `json:"subtitle,omitempty"`
 	Span     *float64               `json:"span,omitempty"`
@@ -513,6 +517,26 @@ var assistantItemForms = map[string]bool{"": true, "count": true, "percent": tru
 var assistantItemViz = map[string]bool{"": true, "line": true, "area": true, "bar": true, "pie": true, "donut": true}
 var assistantItemTones = map[string]bool{"": true, "primary": true, "danger": true, "warning": true, "success": true, "info": true, "neutral": true}
 
+// Tasks describe the reading goal, never a query or a new data capability.
+func AssistantTaskAllowed(role, task string) bool {
+	if task == "" {
+		return true // Older saved plans have no task metadata.
+	}
+	switch assistantSectionRole(role) {
+	case "kpi", "statuswall":
+		return task == "current"
+	case "trend":
+		return task == "change" || task == "compare" || task == "diagnose"
+	case "distribution":
+		return task == "compare" || task == "composition"
+	case "alarmtable", "eventtable", "list":
+		return task == "respond"
+	case "map":
+		return task == "locate"
+	}
+	return false
+}
+
 // Section roles arrive in whatever casing or separator style the model favours,
 // so they are normalised the same way the client compiler does it: strip
 // everything but letters, then resolve a documented synonym.
@@ -551,6 +575,9 @@ func validateAssistantSections(sections []AssistantSection, catalog AssistantCat
 		}
 		if section.Priority < 0 || section.Priority > 3 {
 			return errors.New("assistant section priority is out of range")
+		}
+		if !AssistantTaskAllowed(section.Role, section.Task) {
+			return errors.New("assistant section task is incompatible with its role")
 		}
 		if err := assistantSafeText(section.Question, "sectionQuestion"); err != nil {
 			return err
@@ -605,6 +632,9 @@ func validateAssistantSections(sections []AssistantSection, catalog AssistantCat
 		}
 		needsKeys := role == "kpi" || role == "trend" || role == "distribution"
 		for _, item := range section.Items {
+			if item.Priority < 0 || item.Priority > 3 || item.CategoryCount < 0 || !AssistantTaskAllowed(section.Role, item.Task) {
+				return errors.New("unsupported assistant item design metadata")
+			}
 			if item.Placeholder {
 				if item.Binding != nil || item.Device != "" || len(item.Devices) > 0 || item.Key != "" || len(item.Keys) > 0 {
 					return errors.New("placeholder cannot bind data")

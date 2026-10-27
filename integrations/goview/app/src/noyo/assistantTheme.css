@@ -1,0 +1,123 @@
+/* Shared host tokens are forwarded by ScreenHost. Both themes also work in the
+   standalone editor harness, where the host's glass tokens are unavailable. */
+:root {
+  --ioc-ai-brand: var(--color-brand, #3b82f6);
+  --ioc-ai-on-accent: var(--bs-white, #fff);
+  --ioc-ai-clear: transparent;
+  --ioc-ai-panel: var(--noyo-glass-island-fallback, #edf4fb);
+  --ioc-ai-reading: var(--noyo-glass-island-reading-strong, rgba(249, 252, 255, .44));
+  --ioc-ai-action: var(--noyo-glass-island-action, rgba(255, 255, 255, .22));
+  --ioc-ai-action-hover: var(--noyo-glass-island-action-hover, rgba(255, 255, 255, .38));
+  --ioc-ai-divider: var(--noyo-glass-island-divider, rgba(65, 88, 119, .16));
+  --ioc-ai-shadow: var(--noyo-glass-island-shadow, 0 24px 56px -32px rgba(25, 47, 78, .52), 0 5px 16px rgba(25, 47, 78, .1));
+  --ioc-ai-header-start: #f5f3ff;
+  --ioc-ai-header-end: #ede9fe;
+  --ioc-ai-gradient-start: #6366f1;
+  --ioc-ai-gradient-end: #a855f7;
+  --ioc-ai-fab-tint: var(--noyo-glass-regular-tint, #fff);
+  --ioc-ai-fab-border: var(--noyo-glass-regular-border, #d7deea);
+}
+:root[data-theme=dark] {
+  --ioc-ai-brand: var(--color-brand, #0a84ff);
+  --ioc-ai-on-accent: var(--bs-white, #fff);
+  --ioc-ai-clear: transparent;
+  --ioc-ai-panel: var(--noyo-glass-island-fallback, #151e2a);
+  --ioc-ai-reading: var(--noyo-glass-island-reading-strong, rgba(13, 21, 33, .48));
+  --ioc-ai-action: var(--noyo-glass-island-action, rgba(255, 255, 255, .08));
+  --ioc-ai-action-hover: var(--noyo-glass-island-action-hover, rgba(255, 255, 255, .14));
+  --ioc-ai-divider: var(--noyo-glass-island-divider, rgba(255, 255, 255, .14));
+  --ioc-ai-shadow: var(--noyo-glass-island-shadow, 0 30px 68px -32px rgba(0, 0, 0, .92), 0 7px 20px rgba(0, 0, 0, .38));
+  --ioc-ai-header-start: #1e1b4b;
+  --ioc-ai-header-end: #312e81;
+  --ioc-ai-gradient-start: #6366f1;
+  --ioc-ai-gradient-end: #a855f7;
+  --ioc-ai-fab-tint: var(--noyo-glass-regular-tint, #192235);
+  --ioc-ai-fab-border: var(--noyo-glass-regular-border, #33425c);
+}
+
+.noyo-editor .ioc-assistant .ioc-assistant-heading {
+  gap: 8px;
+  min-height: 64px;
+  padding: 8px 16px;
+  border-color: var(--ioc-ai-divider);
+  background: linear-gradient(135deg, var(--ioc-ai-header-start), var(--ioc-ai-header-end));
+}
+.noyo-editor .ioc-assistant .ioc-assistant-grip { width: 8px; }
+.ioc-assistant-heading-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--ioc-ai-gradient-start), var(--ioc-ai-gradient-end));
+  color: var(--ioc-ai-on-accent);
+}
+.ioc-assistant-heading-avatar svg { width: 24px; height: 24px; }
+.ioc-assistant-heading-title { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.ioc-assistant-heading-title > span { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 11px; }
+.ioc-assistant-heading-title i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--success-color); }
+.noyo-editor .ioc-assistant .ioc-assistant-actions { gap: 0; }
+.noyo-editor .ioc-assistant .ioc-assistant-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 8px;
+  border: 0;
+  background: var(--ioc-ai-clear);
+  color: var(--text-secondary);
+}
+.ioc-assistant-actions svg { width: 16px; height: 16px; }
+.noyo-editor .ioc-assistant .ioc-assistant-actions button:hover { background: var(--ioc-ai-action-hover); color: var(--ioc-ai-brand); }
+.noyo-editor .ioc-assistant .ioc-assistant-actions .ioc-assistant-close { color: var(--danger-color); }
+.noyo-editor .ioc-assistant .ioc-assistant-sessions,
+.noyo-editor .ioc-assistant .ioc-assistant-compose { border-color: var(--ioc-ai-divider); background: var(--ioc-ai-reading); }
+.noyo-editor .ioc-assistant .ioc-assistant-conversation { padding: 24px; background: var(--ioc-ai-reading); }
+.noyo-editor .ioc-assistant .ioc-assistant-welcome { gap: 24px; max-width: 100%; padding: 48px 0; }
+.noyo-editor .ioc-assistant .ioc-assistant-welcome-intro { flex-direction: column; align-items: center; text-align: center; }
+.noyo-editor .ioc-assistant .ioc-assistant-welcome-mark {
+  width: 72px;
+  height: 72px;
+  border: 0;
+  border-radius: 24px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ioc-ai-gradient-start) 12%, var(--ioc-ai-clear)), color-mix(in srgb, var(--ioc-ai-gradient-end) 12%, var(--ioc-ai-clear)));
+  color: var(--ioc-ai-gradient-start);
+}
+.noyo-editor .ioc-assistant .ioc-assistant-welcome-mark svg { width: 40px; height: 40px; }
+.noyo-editor .editor-workspace .ioc-assistant .ioc-assistant-examples button { padding: 8px 16px; border-color: var(--ioc-ai-divider); border-radius: 16px; background: var(--ioc-ai-action); }
+.noyo-editor .editor-workspace .ioc-assistant .ioc-assistant-examples button:hover { background: var(--ioc-ai-action-hover); border-color: var(--ioc-ai-brand); }
+.noyo-editor .ioc-assistant .ioc-assistant-avatar { width: 32px; height: 32px; padding: 8px; border: 0; border-radius: 8px; background: linear-gradient(135deg, var(--ioc-ai-gradient-start), var(--ioc-ai-gradient-end)); color: var(--ioc-ai-on-accent); }
+.noyo-editor .editor-workspace .ioc-assistant .user .ioc-assistant-avatar { background: var(--ioc-ai-brand); }
+.noyo-editor .ioc-assistant .ioc-assistant-bubble { max-width: calc(100% - 40px); padding: 16px; border-color: var(--ioc-ai-divider); border-radius: 16px; background: var(--ioc-ai-reading); }
+.noyo-editor .editor-workspace .ioc-assistant .user .ioc-assistant-bubble { background: color-mix(in srgb, var(--ioc-ai-brand) 12%, var(--ioc-ai-panel)); border-color: color-mix(in srgb, var(--ioc-ai-brand) 24%, var(--ioc-ai-divider)); }
+.noyo-editor .ioc-assistant .ioc-assistant-compose textarea { padding: 16px; border-color: var(--ioc-ai-divider); border-radius: 16px; background: var(--ioc-ai-action); }
+.noyo-editor .editor-workspace .ioc-assistant button.ioc-assistant-primary { padding: 8px 16px; border: 0; border-radius: 16px; background: linear-gradient(135deg, var(--ioc-ai-gradient-start), var(--ioc-ai-gradient-end)); color: var(--ioc-ai-on-accent); }
+.noyo-editor .ioc-assistant :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--ioc-ai-brand); outline-offset: 2px; }
+
+.noyo-editor .ioc-assistant { container-type: inline-size; }
+.ioc-assistant-layout { position: relative; display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.ioc-assistant-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.ioc-assistant-history { display: flex; flex: 0 0 224px; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--ioc-ai-divider); background: var(--ioc-ai-reading); }
+.ioc-assistant-history-search { display: flex; align-items: center; gap: 8px; padding: 16px; color: var(--text-secondary); }
+.ioc-assistant-history-search svg { flex: none; width: 16px; height: 16px; }
+.ioc-assistant-history-search input { width: 100%; min-width: 0; min-height: 32px; padding: 8px; border: 1px solid var(--ioc-ai-divider); border-radius: 8px; background: var(--ioc-ai-action); color: var(--text-primary); font: inherit; font-size: 12px; }
+.ioc-assistant-history-search input::placeholder { color: var(--text-secondary); opacity: 1; }
+.ioc-assistant-history-list { display: flex; flex: 1; flex-direction: column; gap: 8px; min-height: 0; padding: 0 8px 16px; overflow: auto; overscroll-behavior: contain; }
+.noyo-editor .editor-workspace .ioc-assistant .ioc-assistant-history-session { position: relative; display: flex; flex: none; align-items: center; gap: 8px; width: 100%; padding: 8px; border: 1px solid var(--ioc-ai-clear); border-radius: 8px; background: var(--ioc-ai-clear); color: var(--text-primary); text-align: start; }
+.ioc-assistant-history-session svg { flex: none; width: 16px; height: 16px; color: var(--text-secondary); }
+.ioc-assistant-history-session > span { display: grid; gap: 8px; min-width: 0; }
+.ioc-assistant-history-session strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; }
+.ioc-assistant-history-session time { color: var(--text-secondary); font-size: 11px; }
+.noyo-editor .editor-workspace .ioc-assistant .ioc-assistant-history-session:is(:hover, :focus-visible, .is-active) { border-color: var(--ioc-ai-divider); background: var(--ioc-ai-action-hover); }
+.noyo-editor .editor-workspace .ioc-assistant .ioc-assistant-history-session.is-active { border-left-color: var(--ioc-ai-brand); }
+.ioc-assistant-history-empty { margin: 0; padding: 48px 8px; color: var(--text-secondary); text-align: center; font-size: 12px; }
+.ioc-assistant-history-more { margin-top: 8px; }
+.noyo-editor .ioc-assistant .ioc-assistant-actions button[aria-pressed=true] { background: var(--ioc-ai-action-hover); color: var(--ioc-ai-brand); }
+@container (max-width: 600px) {
+  .ioc-assistant-history { position: absolute; inset: 0 auto 0 0; z-index: 8; width: min(224px, calc(100% - 48px)); background: var(--ioc-ai-panel); box-shadow: var(--ioc-ai-shadow); }
+}
+

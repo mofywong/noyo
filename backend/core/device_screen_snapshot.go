@@ -38,6 +38,44 @@ func recordScreenSamplesLocked(rt *DeviceRuntime, data map[string]interface{}) m
 	return updates
 }
 
+// SeedScreenSamples restores the last known values after a restart so published
+// screens are not blank until every device happens to report again. The stored
+// timestamp is the record's own, never "now": an old value must be reported as
+// stale, not offered as current. A value already in memory always wins, because
+// it arrived from a live report after the warm-up query was issued.
+func (dm *DeviceManager) SeedScreenSamples(deviceCode string, values map[string]interface{}, receivedAt int64) bool {
+	if len(values) == 0 || receivedAt <= 0 {
+		return false
+	}
+	value, ok := dm.runtimes.Load(deviceCode)
+	if !ok {
+		return false
+	}
+	rt, ok := value.(*DeviceRuntime)
+	if !ok || rt == nil {
+		return false
+	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.ScreenSamples == nil {
+		rt.ScreenSamples = make(map[string]ScreenSample, len(values))
+	}
+	pending := make(map[string]interface{}, len(values))
+	for key, item := range values {
+		if _, exists := rt.ScreenSamples[key]; !exists {
+			pending[key] = item
+		}
+	}
+	if len(pending) == 0 {
+		return false
+	}
+	rt.ScreenVersion++
+	for key, item := range pending {
+		rt.ScreenSamples[key] = ScreenSample{Value: item, SampleVersion: rt.ScreenVersion, ReceivedAt: receivedAt}
+	}
+	return true
+}
+
 func (dm *DeviceManager) GetLatestSnapshot(deviceCode string) ScreenDeviceSnapshot {
 	result := ScreenDeviceSnapshot{Samples: map[string]ScreenSample{}}
 	value, ok := dm.runtimes.Load(deviceCode)

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -37,8 +38,9 @@ func screenAssistantStageInput(payload map[string]interface{}, stage string) map
 			if candidates := screenAssistantReadCandidates(payload); len(candidates) > 0 {
 				// Rebuild the compact projection for persisted tasks as well as new
 				// requests, so a resumed task benefits from projection fixes.
-				input["metricCandidates"] = screenAssistantCandidateProjection(candidates)
+				input["metricCandidates"], input["metricFields"] = screenAssistantSelectionProjection(candidates)
 			}
+			input["repair"] = payload["repair"]
 		} else {
 			input["selectedMetrics"] = payload["selectedMetrics"]
 		}
@@ -78,6 +80,38 @@ func screenAssistantStageInput(payload map[string]interface{}, stage string) map
 		input["repair"] = payload["repair"]
 	}
 	return input
+}
+
+// Aggregation alternatives share the same field evidence. Send that evidence
+// once while retaining every candidate ID, unit, shape and execution boundary.
+func screenAssistantSelectionProjection(candidates []screenAssistantMetricCandidate) ([]map[string]interface{}, map[string]interface{}) {
+	projected := screenAssistantCandidateProjection(candidates)
+	fields := map[string]interface{}{}
+	refs := map[string]string{}
+	for _, item := range projected {
+		if field, ok := item["field"].(map[string]interface{}); ok {
+			identity := item["group"].(string) + ":" + field["key"].(string)
+			ref, exists := refs[identity]
+			if !exists {
+				ref = "f" + strconv.Itoa(len(refs)+1)
+				refs[identity] = ref
+				evidence := map[string]interface{}{"field": field}
+				if values, exists := item["values"]; exists {
+					evidence["values"] = values
+				}
+				fields[ref] = evidence
+			}
+			item["fieldRef"] = ref
+			delete(item, "field")
+			delete(item, "values")
+		}
+		if label, ok := item["label"].(string); ok {
+			if _, short, found := strings.Cut(label, " · "); found {
+				item["label"] = short
+			}
+		}
+	}
+	return projected, fields
 }
 
 func screenAssistantStageEncoding(payload map[string]interface{}, stage, instruction string) ([]byte, string, error) {

@@ -96,6 +96,7 @@ func InitDB(dsn string) error {
 	// AutoMigrate models
 	err = DB.AutoMigrate(
 		&IOCScreen{},
+		&IOCScreenApplyReceipt{},
 		&IOCScreenMessage{},
 		&IOCScreenConversation{},
 		&IOCScreenAssistantJob{},
@@ -144,6 +145,7 @@ func InitDB(dsn string) error {
 		&AppPermission{},
 		&AppDeviceTagPermission{},
 		&AuditLog{},
+		&LLMRequest{},
 		&ModelHistory{},
 		&TokenBlacklist{},
 		&AuthSession{},
@@ -158,6 +160,9 @@ func InitDB(dsn string) error {
 	}
 	if err := MigrateWorkOrderModels(DB); err != nil {
 		return fmt.Errorf("failed to migrate work order database: %w", err)
+	}
+	if err := recoverInterruptedLLMRequests(DB); err != nil {
+		return fmt.Errorf("failed to recover interrupted LLM request records: %w", err)
 	}
 	_ = DB.Migrator().DropIndex(&AppRole{}, "idx_app_role")
 	_ = DB.Migrator().DropIndex(&RoleDeviceTagPermission{}, "idx_role_tag")
@@ -231,6 +236,7 @@ var superAdminDefaultPermissionCodes = map[string]bool{
 	"tenant:delete":          true,
 	"dashboard:view":         true,
 	"audit:list":             true,
+	"llm_request:list":       true,
 	"system:logs":            true,
 	"system:license":         true,
 	"rule:list":              true,
@@ -429,6 +435,7 @@ func InitPermissions() {
 		{Code: "history:delete", Name: "删除历史记录", Module: "history", Type: "button"},
 		// Audit
 		{Code: "audit:list", Name: "审计日志", Module: "audit", Type: "menu"},
+		{Code: "llm_request:list", Name: "LLM请求记录 / LLM requests", Module: "llm_request", Type: "menu"},
 		// System Config & Log
 		{Code: "system:config", Name: "系统配置", Module: "system", Type: "menu"},
 		{Code: "system:logs", Name: "系统日志", Module: "system", Type: "menu"},

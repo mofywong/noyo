@@ -13,7 +13,11 @@ export default defineConfig({
   resolve: { alias: { '@': resolve(__dirname, 'src'), 'vue-i18n': 'vue-i18n/dist/vue-i18n.cjs.js' }, dedupe: ['vue'] },
   css: { preprocessorOptions: { scss: { additionalData: '@import "src/styles/common/style.scss";' } } },
   define: { __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false },
-  server: { host: '127.0.0.1', port: 3002, open: false },
+  server: {
+    host: '127.0.0.1', port: 3002, open: false,
+    // The editor shares the global assistant's glass button and icon assets.
+    fs: { allow: [__dirname, resolve(__dirname, '../../../frontend/src'), resolve(__dirname, '../../../frontend/node_modules/bootstrap-icons')] }
+  },
   build: {
     outDir: 'dist',
     // The harness awaits its module imports at the top level, which the shipping

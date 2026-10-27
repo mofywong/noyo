@@ -2,8 +2,9 @@
   <main class="noyo-editor" :class="{ viewer: readonly }" :style="readonly ? viewerShell : null">
     <p v-if="!state.initialized" class="empty" role="status">{{ t('正在连接 Noyo…', 'Connecting to Noyo…') }}</p>
     <template v-else>
-      <header v-if="!readonly" class="editor-toolbar">
-        <strong>{{ t('画布编辑器', 'Canvas editor') }}</strong>
+      <header v-if="!readonly" class="editor-toolbar" :inert="authorWriteLocked || undefined">
+        <button v-if="chromeState" type="button" class="editor-back" :aria-label="t('返回大屏列表', 'Back to screens')" :title="t('返回大屏列表', 'Back to screens')" @click="chromeAction('back')">←</button>
+        <strong>{{ chromeState?.name || t('画布编辑器', 'Canvas editor') }}</strong>
         <div class="toolbar-group" role="group" :aria-label="t('侧栏', 'Side panel')">
           <button type="button" :aria-pressed="showPalette && !showLayers" @click="togglePalette(false)">{{ t('组件', 'Components') }}</button>
           <button type="button" :aria-pressed="showPalette && showLayers" @click="togglePalette(true)">{{ t('图层', 'Layers') }}</button>
@@ -17,10 +18,15 @@
           <button type="button" @click="canvas?.reset()">{{ t('适应', 'Fit') }}</button>
           <button type="button" @click="canvas?.zoomIn()" :aria-label="t('放大', 'Zoom in')">+</button>
         </div>
-        <button type="button" :aria-pressed="showInspector && !showAssistant" @click="showAssistant = false; showInspector = !showInspector">{{ t('属性', 'Properties') }}</button>
+        <button type="button" :aria-pressed="showInspector" @click="showInspector = !showInspector">{{ t('属性', 'Properties') }}</button>
         <button type="button" :aria-pressed="!showPalette && !showInspector && !showAssistant" @click="focusCanvas">{{ t('专注画布', 'Focus canvas') }}</button>
-        <span class="save-state">{{ state.dirty ? t('有未保存更改', 'Unsaved changes') : t('已同步', 'Synced') }}</span>
-        <button v-if="state.capabilities.save && !embedded" ref="assistantTrigger" class="assistant-trigger" type="button" :aria-pressed="showAssistant" @click="showAssistant = !showAssistant">{{ t('IOC AI 助手', 'IOC AI assistant') }}</button>
+        <span class="save-state" :class="{ 'is-conflict': chromeState?.conflict }">{{ saveLabel }}</span>
+        <div v-if="chromeState" class="toolbar-group" role="group" :aria-label="t('保存与发布', 'Save and publish')">
+          <button v-if="chromeState.canSave" type="button" :disabled="!chromeState.ready || chromeState.saving || chromeState.conflict" @click="chromeAction('save')">{{ t('保存', 'Save') }}</button>
+          <button v-if="chromeState.canPreview" type="button" @click="chromeAction('preview')">{{ t('预览草稿', 'Preview draft') }}</button>
+          <button v-if="chromeState.canPublish" type="button" class="is-primary" :disabled="!chromeState.ready || chromeState.dirty || chromeState.saving || chromeState.conflict" @click="chromeAction('publish')">{{ t('发布', 'Publish') }}</button>
+          <button type="button" @click="chromeAction('fullscreen')">{{ chromeState.fullscreen ? t('退出全屏', 'Exit fullscreen') : t('全屏', 'Fullscreen') }}</button>
+        </div>
       </header>
       <p v-if="state.error" class="editor-error" role="alert">{{ state.error }}</p>
       <div v-if="!readonly && degradedBindings.length" class="editor-data-status" role="status">
@@ -45,23 +51,34 @@
           <span v-for="item in qualityComponents" :key="item.id" class="canvas-quality-badge" :class="`is-${item.quality}`" :style="{ left: `${item.attr.x + item.attr.w - 8}px`, top: `${item.attr.y + 8}px` }">{{ item.label }}</span>
         </div>
       </section>
+      <p v-if="readonly" class="viewer-updated" :class="{ 'is-lost': state.transportLost }" role="status">{{ transportLabel }}</p>
       <ul v-if="readonly && degradedBindings.length" class="viewer-status" role="status">
         <li v-for="item in degradedBindings" :key="item.componentId">{{ screenComponents(store.componentList).find(component => component.id === item.componentId)?.chartConfig.title || item.componentId }} · {{ statusText(item) }}</li>
       </ul>
-      <div v-if="!readonly" class="editor-workspace" :class="{ 'with-palette': showPalette, 'with-inspector': showInspector && !showAssistant, 'with-assistant': showAssistant, 'assistant-expanded': showAssistant && assistantExpanded }">
-        <aside v-show="showPalette" class="editor-left" :aria-label="showLayers ? t('图层', 'Layers') : t('组件', 'Components')">
+      <div v-if="!readonly" class="editor-workspace" :class="{ 'with-palette': showPalette, 'with-inspector': showInspector, 'with-assistant': showAssistant, 'assistant-expanded': showAssistant && assistantExpanded }">
+        <aside v-show="showPalette" class="editor-left" :inert="authorWriteLocked || undefined" :aria-label="showLayers ? t('图层', 'Layers') : t('组件', 'Components')">
           <content-charts v-if="!showLayers" />
           <content-layers v-else @back="showLayers = false" />
         </aside>
-        <section ref="canvasStage" class="canvas-stage" :class="{ 'is-context-picking': contextSelection }" tabindex="-1" :aria-label="t('拖拽画布', 'Drag and resize canvas')" @pointerdown.capture="startContextSelection" @pointermove="moveContextSelection" @pointerup="finishContextSelection" @pointercancel="cancelContextSelection" @mousedown.capture="suppressContextMouse" @click.capture="handleCanvasClick" @keydown.esc="stopContextSelection">
+        <section ref="canvasStage" class="canvas-stage" :inert="authorWriteLocked || undefined" :class="{ 'is-context-picking': contextSelection }" tabindex="-1" :aria-label="t('拖拽画布', 'Drag and resize canvas')" @pointerdown.capture="startContextSelection" @pointermove="moveContextSelection" @pointerup="finishContextSelection" @pointercancel="cancelContextSelection" @mousedown.capture="suppressContextMouse" @click.capture="handleCanvasClick" @keydown.esc="stopContextSelection">
           <content-edit :key="canvasLayoutKey" ref="canvas" />
           <div v-if="emptyBadges.length" class="canvas-quality-layer" aria-hidden="true">
             <span v-for="badge in emptyBadges" :key="badge.id" class="canvas-quality-badge" :class="`is-${badge.quality}`" :style="badge.style">{{ badge.label }}</span>
           </div>
           <div v-if="contextDrag" class="canvas-context-region" :style="contextRegionStyle" aria-hidden="true" />
         </section>
-        <ioc-assistant v-show="showAssistant" :active="showAssistant" :expanded="assistantExpanded" :snapshot="snapshot" :apply-document="applyAssistantDocument" :selection-ids="store.targetChart.selectId" :selection-area="selectionArea" :selection-mode="contextSelection" :catalog="catalog" :products="catalogProducts" :catalog-meta="catalogMeta" :catalog-loading="catalogLoading" :catalog-error="catalogError" @scope-change="setAssistantScope" @select-context="beginContextSelection" @clear-selection="clearContextSelection" @remove-selection="removeContextSelection" @refresh-catalog="loadCatalog" @expand="assistantExpanded = !assistantExpanded" @close="closeAssistant" />
-        <aside v-show="showInspector && !showAssistant" class="inspector">
+        <!-- The assistant now covers the canvas instead of sitting beside it, so it
+             steps out of the way while contexts are being picked. The prompt and its
+             Done button move onto the canvas; keeping them inside the panel would
+             leave the user unable to finish (and the panel would hide the region
+             they are dragging). -->
+        <p v-if="contextSelection" class="canvas-pick-hint" role="status">
+          <span>{{ contextSelection === 'area' ? t('在画布上拖出区域', 'Drag an area on the canvas') : t('点击组件以添加或移除', 'Click widgets to add or remove them') }}</span>
+          <button type="button" @click="stopContextSelection()">{{ t('完成', 'Done') }}</button>
+        </p>
+        <AssistantLauncher v-if="state.capabilities.save" v-show="!showAssistant" ref="assistantTrigger" :label="t('IOC AI 助手', 'IOC AI assistant')" :open="showAssistant" @activate="showAssistant = true" />
+        <ioc-assistant id="ioc-assistant-panel" v-show="showAssistant && !contextSelection" :active="showAssistant" :expanded="assistantExpanded" :inspector-open="showInspector" :snapshot="snapshot" :apply-document="applyAssistantDocument" :settle-saves="settleAssistantSaves" :begin-apply="beginAssistantApply" :selection-ids="store.targetChart.selectId" :selection-area="selectionArea" :selection-mode="contextSelection" :catalog="catalog" :products="catalogProducts" :catalog-meta="catalogMeta" :catalog-loading="catalogLoading" :catalog-error="catalogError" @scope-change="setAssistantScope" @select-context="beginContextSelection" @clear-selection="clearContextSelection" @remove-selection="removeContextSelection" @refresh-catalog="loadCatalog" @expand="assistantExpanded = !assistantExpanded" @close="closeAssistant" />
+        <aside v-show="showInspector" class="inspector" :inert="authorWriteLocked || undefined">
           <n-tabs v-if="!selected" class="inspector-tabs" size="small" type="segment" :value="'page'">
             <n-tab-pane name="page" :tab="t('页面配置', 'Page')"><canvas-page /></n-tab-pane>
           </n-tabs>
@@ -92,6 +109,22 @@
                   <label v-else-if="!['deviceStatus', 'deviceSummary', 'alarmList', 'eventList'].includes(bindingForm.kind)">{{ t('属性', 'Property') }}<input v-model="bindingForm.key" :placeholder="shape === 'table-basic' ? t('属性键，逗号分隔可多列', 'Property keys, comma separated for extra columns') : t('属性键', 'Property key')" /></label>
                   <label v-if="bindingForm.kind === 'deviceSummary'">{{ t('设备统计', 'Device summary') }}<select v-model="bindingForm.aggregate"><option v-for="option in summaryChoices" :key="option.value" :value="option.value">{{ t(option.zh, option.en) }}</option></select></label>
                   <label v-if="bindingForm.kind === 'aggregate'">{{ t('聚合方法', 'Aggregate') }}<select v-model="bindingForm.aggregate"><option value="avg">{{ t('平均', 'Average') }}</option><option value="min">{{ t('最小值', 'Minimum') }}</option><option value="max">{{ t('最大值', 'Maximum') }}</option><option value="sum">{{ t('求和', 'Sum') }}</option><option value="count">{{ t('计数', 'Count') }}</option><option value="median">{{ t('中位数', 'Median') }}</option></select></label>
+                  <details v-if="shape !== 'map'" class="binding-format">
+                    <summary>{{ t('显示格式', 'Display format') }}</summary>
+                    <label>{{ t('单位', 'Unit') }}<input v-model="bindingForm.unit" maxlength="16" placeholder="MPa / %LEL" /></label>
+                    <label>{{ t('小数位', 'Decimal places') }}<input v-model="bindingForm.decimals" type="number" min="0" max="12" :placeholder="t('留空自适应', 'Auto when empty')" /></label>
+                    <template v-if="!['deviceSummary', 'eventList', 'alarmList', 'location', 'deviceStatus'].includes(bindingForm.kind)">
+                      <label>{{ t('换算倍率', 'Scale') }}<input v-model="bindingForm.scale" type="number" step="any" placeholder="1" /></label>
+                      <label>{{ t('换算偏移', 'Offset') }}<input v-model="bindingForm.offset" type="number" step="any" placeholder="0" /></label>
+                    </template>
+                  </details>
+                  <label v-if="bindingForm.kind === 'history'">{{ t('聚合方法', 'Aggregation') }}<select v-model="bindingForm.aggregate"><option value="avg">{{ t('平均', 'Average') }}</option><option value="min">{{ t('最小值', 'Minimum') }}</option><option value="max">{{ t('最大值', 'Maximum') }}</option><option value="median">{{ t('中位数', 'Median') }}</option></select></label>
+                  <details v-if="bindingForm.kind === 'history' || bindingForm.kind === 'eventList'" class="binding-format">
+                    <summary>{{ t('时间窗', 'Time window') }}</summary>
+                    <label>{{ t('窗口（小时）', 'Window (hours)') }}<input v-model="bindingForm.windowHours" type="number" min="0" max="744" step="0.5" placeholder="1" /></label>
+                    <label>{{ t('最大点数', 'Max points') }}<input v-model="bindingForm.maxPoints" type="number" min="0" max="1000" placeholder="120" /></label>
+                  </details>
+                  <label v-if="bindingForm.kind === 'point' || bindingForm.kind === 'aggregate'">{{ t('过期阈值（秒）', 'Stale after (seconds)') }}<input v-model="bindingForm.staleSeconds" type="number" min="0" max="86400" placeholder="60" /></label>
                   <button type="button" :disabled="!canBind" @click="bind">{{ t('应用数据绑定', 'Apply binding') }}</button>
                   <p v-if="deviceError" class="hint" role="alert">{{ t('最新值、历史趋势与在线状态只能绑定单台设备，请只填一个设备编码。', 'Latest value, history and online status bind exactly one device; enter a single device code.') }}</p>
                   </template>
@@ -130,21 +163,43 @@ import { sanitizeComponent } from './materials'
 import { kindsOf, shapeOf, targetOf } from './widgets'
 import AssetLibrary from './AssetLibrary.vue'
 import IocAssistant from './Assistant.vue'
+import AssistantLauncher from './AssistantLauncher.vue'
 import { areaBetween, canvasPoint, componentAtPoint, componentsInArea } from './assistantContext.js'
 import DataQueryEditor from './DataQueryEditor.vue'
 import { importOutline } from './mapGeometry'
-import { connect, documentSignature, restoreDatasetDefaults, embedded, markDirty, on, rpc, send, state } from './bridge'
+import { connect, documentSignature, assistantDocumentSignature as authorSignature, embedded, markDirty, on, rpc, send, state } from './bridge'
 import { deliverBinding, deliverWidget, qualityLabel, screenComponents, subscribeWidgetStatus } from './runtime'
 const store = useChartEditStore(), history = useChartHistoryStore()
 const canvas = ref<any>(), confirmDelete = ref(false)
+const authorWriteLocked = ref(false)
+const pendingAuthorWrites = ref(0)
 const english = computed(() => state.locale.startsWith('en'))
 const t = (zh: string, en: string) => english.value ? en : zh
+// A wall display needs one unambiguous "is this current" answer. Widget badges
+// cover degraded bindings; this line covers "the whole feed stopped".
+const transportLabel = computed(() => {
+  if (state.transportLost) return t('实时连接中断 · 数据已停止更新', 'Live connection lost · data stopped updating')
+  if (!state.lastFrameAt) return t('等待实时数据…', 'Waiting for live data…')
+  return `${t('最后更新', 'Updated')} ${new Date(state.lastFrameAt).toLocaleTimeString()}`
+})
 const readonly = computed(() => state.mode !== 'edit')
 const selected = computed<any>(() => store.componentList.find(item => item.id === store.targetChart.selectId[0]))
 const boundTarget = computed(() => state.document?.targets?.find((target: any) => target.componentId === selected.value?.id))
-const bindingForm = reactive({ kind: 'point', deviceCode: '', key: '', aggregate: 'avg', latitudeKey: '', longitudeKey: '' })
+const bindingForm = reactive({ kind: 'point', deviceCode: '', key: '', aggregate: 'avg', latitudeKey: '', longitudeKey: '', unit: '', decimals: '', scale: '', offset: '', windowHours: '', maxPoints: '', staleSeconds: '' })
 const showAssets = ref(false)
 const showAssistant = ref(false)
+// The host hands its chrome to the editor in edit mode. Without that the layout
+// keeps a ~88px band at the top (host toolbar + padding) and 24px on the other
+// sides outside the iframe, and a floating panel can never be dragged there -- an
+// iframe child cannot paint above its parent's siblings. Claiming the chrome makes
+// the iframe fill the viewport, so "anywhere on the page" becomes reachable.
+const chromeState = ref<any>(null)
+function chromeAction(action: string) { send('editor.action', { action }) }
+const saveLabel = computed(() => {
+  const host = chromeState.value
+  if (host) return host.conflict ? t('保存冲突', 'Save conflict') : host.dirty ? t('有未保存更改', 'Unsaved changes') : t('已保存', 'Saved')
+  return state.dirty ? t('有未保存更改', 'Unsaved changes') : t('已同步', 'Synced')
+})
 type ContextArea = { x: number; y: number; w: number; h: number }
 const canvasStage = ref<HTMLElement>(), contextSelection = ref('')
 const selectionArea = ref<ContextArea | null>(null)
@@ -156,7 +211,7 @@ const contextRegionStyle = computed(() => {
   const scaleX = drag.rect.width / store.editCanvasConfig.width, scaleY = drag.rect.height / store.editCanvasConfig.height
   return { left: `${drag.rect.left - drag.stage.left + drag.area.x * scaleX}px`, top: `${drag.rect.top - drag.stage.top + drag.area.y * scaleY}px`, width: `${drag.area.w * scaleX}px`, height: `${drag.area.h * scaleY}px` }
 })
-function beginContextSelection(mode: string) { if (!mode) { stopContextSelection(); return }; contextSelection.value = mode; assistantExpanded.value = false }
+function beginContextSelection(mode: string) { if (!mode) { stopContextSelection(); return } contextSelection.value = mode; assistantExpanded.value = false }
 function stopContextSelection(event?: KeyboardEvent) {
   if (!contextSelection.value) return
   event?.preventDefault(); event?.stopPropagation()
@@ -201,14 +256,19 @@ function handleCanvasClick(event: MouseEvent) {
   const surface = contextSurface()
   if (!surface?.contains(event.target as Node)) return
   const point = canvasPoint(event.clientX, event.clientY, surface.getBoundingClientRect(), store.editCanvasConfig)
-  if (point && componentAtPoint(store.componentList, point)) { selectionArea.value = null; showAssistant.value = false; showInspector.value = true }
+  // Selecting a widget reveals the inspector but keeps the assistant open. The
+  // assistant is a free-floating window now, so it no longer competes with the
+  // inspector for a grid column -- the user drags it aside if it overlaps.
+  if (point && componentAtPoint(store.componentList, point)) { selectionArea.value = null; showInspector.value = true }
 }
-const assistantExpanded = ref(false), assistantTrigger = ref<HTMLButtonElement>()
+const assistantExpanded = ref(false), assistantTrigger = ref<InstanceType<typeof AssistantLauncher>>()
 const showPalette = ref(innerWidth >= 1440), showInspector = ref(false)
 function togglePalette(layers: boolean) { showPalette.value = !showPalette.value || showLayers.value !== layers; showLayers.value = layers }
 function focusCanvas() { showPalette.value = false; showInspector.value = false; closeAssistant() }
-async function closeAssistant() { showAssistant.value = false; await nextTick(); if (embedded) send('assistant.focus'); else assistantTrigger.value?.focus() }
-watch(showAssistant, open => { if (open) showPalette.value = false; else stopContextSelection(); send('assistant.state', { open }) })
+async function closeAssistant() { showAssistant.value = false; await nextTick(); if (assistantTrigger.value) assistantTrigger.value.focus(); else send('assistant.focus') }
+// Opening the floating assistant no longer collapses the palette: a floating
+// window does not compete for width, so it must not rearrange the workspace.
+watch(showAssistant, open => { if (!open) stopContextSelection(); send('assistant.state', { open }) })
 const confirmCRS = ref(false), pendingCRS = ref('wgs84')
 const catalog = ref<any[]>([]), catalogProducts = ref<any[]>([]), catalogMeta = ref({ deviceCount: 0, truncated: false })
 const catalogLoading = ref(false), catalogError = ref('')
@@ -216,7 +276,10 @@ const viewport = reactive({ width: innerWidth, height: innerHeight })
 const resize = () => { viewport.width = innerWidth; viewport.height = innerHeight }
 // Recreate the ruler when the usable stage changes so its auto-fit uses the
 // actual canvas area, instead of retaining the old tiny scale and pan offset.
-const canvasLayoutKey = computed(() => [viewport.width, viewport.height, showPalette.value, showInspector.value && !showAssistant.value, showAssistant.value && !assistantExpanded.value].join(':'))
+// The assistant floats, so opening it no longer changes the canvas size and must
+// not remount the canvas (that would throw away the current zoom and scroll).
+// Only the palette and the inspector still trade width with the canvas.
+const canvasLayoutKey = computed(() => [viewport.width, viewport.height, showPalette.value, showInspector.value].join(':'))
 // The published canvas paints the configured background; without it a dark-themed
 // screen sits on the host page colour instead of its own.
 // Playback letterboxes the canvas around its centre: pinning it to the top-left
@@ -266,7 +329,7 @@ const summaryChoices = computed(() => summaryOptions.filter(option => !['percent
 const bindable = computed(() => !!targetOf(selected.value?.chartConfig.key))
 // Only the kinds a family can actually render are offered; anything else would
 // store a binding that never shows up on screen.
-const visibleKinds = computed(() => [...kindsOf(selected.value?.chartConfig.key).map(value => kindLabels.get(value)!), ...(bindable.value && shape.value !== 'map' ? [{value:'dataset',zh:'数据集 / 自定义统计',en:'Dataset / custom query'}] : [])])
+const visibleKinds = computed(() => [...kindsOf(selected.value?.chartConfig.key).map(value => kindLabels.get(value)!), ...(bindable.value && shape.value !== 'map' ? [{value:'dataset',zh:'按条件汇总设备数据',en:'Summarise device data'}] : [])])
 // The host only accepts a single device for point / history / deviceStatus
 // bindings (backend validateBinding); reject it here instead of failing the save.
 const singleDeviceKinds = ['point', 'history', 'deviceStatus']
@@ -280,9 +343,11 @@ const canBind = computed(() => {
 })
 let loading = true, initialContent = '', stopConnect: (() => void) | undefined, stopStatus: (() => void) | undefined
 let autosaveTimer: ReturnType<typeof setTimeout> | undefined
+let saveOperation: Promise<void> | null = null
+let saveFailure: Error | undefined
 function scheduleAutosave() {
   clearTimeout(autosaveTimer)
-  if (state.dirty && state.capabilities.save && !readonly.value) autosaveTimer = setTimeout(save, 2000)
+  if (state.dirty && state.capabilities.save && !readonly.value && !authorWriteLocked.value) autosaveTimer = setTimeout(save, 2000)
 }
 const blobUrls = new Set<string>()
 const clone = (value: any) => JSON.parse(JSON.stringify(value))
@@ -375,7 +440,7 @@ async function loadCatalog() {
 }
 function appearance(payload: any) {
   if (payload.locale) { state.locale = payload.locale; useLangStore().$patch({ lang: payload.locale.startsWith('en') ? 'EN' : 'ZH' } as any) }
-  if (payload.theme) { state.theme = payload.theme; useDesignStore().$patch({ darkTheme: payload.theme === 'dark', themeName: payload.theme } as any); document.documentElement.dataset.theme = payload.theme }
+  if (payload.theme) { state.theme = payload.theme; useDesignStore().$patch({ darkTheme: payload.theme === 'dark', themeName: payload.theme } as any); document.documentElement.dataset.theme = payload.theme; document.documentElement.dataset.bsTheme = payload.theme }
   for (const [key, value] of Object.entries(payload.tokens || {})) if (/^--[a-z0-9-]+$/.test(key) && typeof value === 'string') document.documentElement.style.setProperty(key, value)
 }
 async function load(documentValue: any, revision: number) {
@@ -392,20 +457,22 @@ async function load(documentValue: any, revision: number) {
   resetNativeHistory()
   store.requestGlobalConfig = { ...store.requestGlobalConfig, requestOriginUrl: '', requestDataPond: [], requestParams: { Header: {}, Params: {}, Body: {} } } as any
   store.projectInfo.projectId = String(documentValue.id || '')
-  await nextTick(); initialContent = documentSignature(snapshot()); loading = false; markDirty(false)
+  await nextTick(); initialContent = authorSignature(snapshot()); loading = false; markDirty(false)
   watchStatuses()
   for (const item of screenComponents(store.componentList)) if (item.option?.assetId) resolveAsset(item)
 }
 function snapshot() {
-  const content = clone(store.getStorageInfo())
+  const content = { ...clone(state.document?.content || {}), ...clone(store.getStorageInfo()) }
   if (state.document?.content?.noyoAssistantContext) content.noyoAssistantContext = clone(state.document.content.noyoAssistantContext)
   content.componentList = content.componentList.map(sanitizeComponent)
-  return { ...clone(state.document), content:restoreDatasetDefaults(state.document,content) }
+  // Renderers only receive DetachedWidget models. The chart store is now the
+  // authored source; restoring selected runtime fields would discard real edits.
+  return { ...clone(state.document), content }
 }
 function setAssistantScope(scope: any) {
-  if (readonly.value || !state.capabilities.save) return
+  if (readonly.value || !state.capabilities.save || authorWriteLocked.value) return
   state.document.content.noyoAssistantContext = clone(scope)
-  markDirty(documentSignature(snapshot()) !== initialContent)
+  markDirty(authorSignature(snapshot()) !== initialContent)
   scheduleAutosave()
 }
 function resetNativeHistory() {
@@ -414,7 +481,25 @@ function resetNativeHistory() {
   history.$patch({ backStack: [], forwardStack: [] })
   history.canvasInit(clone(store.editCanvasConfig))
 }
-async function applyAssistantDocument(documentValue: any) {
+function beginAssistantApply() {
+  if (authorWriteLocked.value || readonly.value || !state.capabilities.save) throw new Error(t('当前无法编辑大屏。', 'The screen cannot be edited right now.'))
+  if (pendingAuthorWrites.value) throw new Error(t('请等待当前编辑操作完成后再应用方案。', 'Wait for the current edit to finish before applying the proposal.'))
+  authorWriteLocked.value = true
+  clearTimeout(autosaveTimer)
+  let released = false
+  return () => { if (released) return; released = true; authorWriteLocked.value = false; scheduleAutosave() }
+}
+async function settleAssistantSaves() {
+  clearTimeout(autosaveTimer)
+  clearTimeout(dirtyTimer)
+  await nextTick()
+  if (saveOperation) await saveOperation
+  markDirty(authorSignature(snapshot()) !== initialContent)
+  if (state.dirty) await save(true)
+  await nextTick()
+  if (state.dirty || state.saving) throw saveFailure || new Error(t('编辑尚未保存，请重试。', 'Edits are not saved yet. Please retry.'))
+}
+async function applyAssistantDocument(documentValue: any, acceptedVersion?: number) {
   if (readonly.value || !state.capabilities.save || state.saving) throw new Error(t('当前无法编辑大屏。', 'The screen cannot be edited right now.'))
   // Prepare every component before mutating live state so a failed factory or
   // sanitizer cannot leave a partially applied proposal behind.
@@ -432,15 +517,26 @@ async function applyAssistantDocument(documentValue: any) {
     resetNativeHistory()
     await nextTick()
   } finally { loading = false }
-  markDirty(documentSignature(snapshot()) !== initialContent)
+  if (acceptedVersion != null) {
+    state.revision = acceptedVersion
+    state.runtimeRevision = `draft-${acceptedVersion}`
+    initialContent = authorSignature(snapshot())
+    markDirty(false)
+    refreshRuntime()
+  } else markDirty(authorSignature(snapshot()) !== initialContent)
   watchStatuses()
   for (const item of screenComponents(components)) if (item.option?.assetId) resolveAsset(item)
-  scheduleAutosave()
+  if (acceptedVersion == null) scheduleAutosave()
 }
-async function save() {
-  if (readonly.value || state.saving) return
+function save(forAssistant = false): Promise<void> {
+  if (saveOperation) return saveOperation
+  if (readonly.value || authorWriteLocked.value && forAssistant !== true) return Promise.resolve()
+  saveOperation = performSave().finally(() => { saveOperation = null })
+  return saveOperation
+}
+async function performSave() {
   clearTimeout(autosaveTimer)
-  state.error = ''; state.saving = true
+  state.error = ''; saveFailure = undefined; state.saving = true
   const wiring = wiringSignature()
   try {
     const submitted = snapshot()
@@ -455,28 +551,76 @@ async function save() {
     state.document = { ...accepted,
       bindings: documentSignature(current.bindings) === documentSignature(submitted.bindings) ? accepted.bindings : current.bindings,
       targets: documentSignature(current.targets) === documentSignature(submitted.targets) ? accepted.targets : current.targets }
-    initialContent = documentSignature(result.document || submitted)
-    markDirty(documentSignature(snapshot()) !== initialContent)
+    initialContent = authorSignature(result.document || submitted)
+    markDirty(authorSignature(snapshot()) !== initialContent)
     refreshRuntime(wiring !== wiringSignature())
   }
-  catch (error) { state.error = (error as Error).message }
+  catch (error) { saveFailure = error as Error; state.error = saveFailure.message }
   finally { state.saving = false; if (state.dirty && !state.error) scheduleAutosave() }
 }
-function remove() { if (!selected.value) return; const id = selected.value.id; unbind(); store.removeComponentList(id); confirmDelete.value = false }
+function remove() { if (!selected.value || authorWriteLocked.value) return; const id = selected.value.id; unbind(); store.removeComponentList(id); confirmDelete.value = false }
+function optionalNumber(value: string) {
+  const text = String(value ?? '').trim()
+  if (!text) return undefined
+  const number = Number(text)
+  return Number.isFinite(number) ? number : undefined
+}
+// The document schema carries display metadata the panel never wrote, and every
+// one of those fields changes what the operator sees: no `decimals`/`unit` means
+// six decimals and no unit, no `windowMs` means a trend is always one hour, and
+// no `staleAfterMs` means a minute-reporting device is permanently "stale".
+// Each kind only receives what the server accepts — deviceSummary and eventList
+// have strict shapes that reject scale/offset/window fields.
+function applyFormat(binding: any) {
+  const kind = binding.kind
+  const unit = bindingForm.unit.trim()
+  if (unit) binding.unit = unit; else delete binding.unit
+  const decimals = optionalNumber(bindingForm.decimals)
+  if (decimals != null) binding.decimals = Math.round(Math.min(Math.max(decimals, 0), 12)); else delete binding.decimals
+  if (!['deviceStatus', 'deviceSummary', 'eventList', 'alarmList', 'location'].includes(kind)) {
+    const scale = optionalNumber(bindingForm.scale)
+    if (scale != null) binding.scale = scale; else delete binding.scale
+    const offset = optionalNumber(bindingForm.offset)
+    if (offset != null) binding.offset = offset; else delete binding.offset
+  }
+  if (kind === 'history' || kind === 'eventList') {
+    const hours = optionalNumber(bindingForm.windowHours)
+    if (hours != null && hours > 0) binding.windowMs = Math.round(Math.min(hours, 744) * 3600000); else delete binding.windowMs
+    const points = optionalNumber(bindingForm.maxPoints)
+    if (points != null && points > 0) binding.maxPoints = Math.round(Math.min(points, 1000)); else delete binding.maxPoints
+  }
+  if (kind === 'point' || kind === 'aggregate') {
+    const seconds = optionalNumber(bindingForm.staleSeconds)
+    if (seconds != null && seconds > 0) binding.staleAfterMs = Math.round(Math.min(seconds, 86400) * 1000); else delete binding.staleAfterMs
+  }
+}
 async function bind() {
-  if (!selected.value || deviceError.value) return
+  if (!selected.value || deviceError.value || authorWriteLocked.value) return
   const target = targetOf(selected.value.chartConfig.key)
   if (!target) return
+  const kind = bindingForm.kind
   const id = boundTarget.value?.bindingId || `binding-${selected.value.id}`
   const devices = bindingForm.deviceCode.split(',').map((code: string) => code.trim()).filter(Boolean)
   const keys = bindingForm.key.split(',').map((key: string) => key.trim()).filter(Boolean)
-  const binding: any = { ...bindingForm, ...(bindingForm.kind === 'history' && keys.length ? { keys } : {}) }
-  if (['aggregate', 'deviceSummary', 'alarmList', 'eventList', 'location'].includes(bindingForm.kind)) { binding.deviceCodes = devices; delete binding.deviceCode }
-  if (!['aggregate', 'deviceSummary'].includes(bindingForm.kind)) delete binding.aggregate
-  if (['deviceStatus', 'deviceSummary', 'alarmList', 'eventList', 'eventList', 'location'].includes(bindingForm.kind)) delete binding.key
-  if (bindingForm.kind === 'deviceSummary' && binding.aggregate === 'onlineRate') binding.unit = '%'
-  if (bindingForm.kind === 'location') binding.coordinateSystem = selected.value.option.coordinateSystem
-  else { delete binding.latitudeKey; delete binding.longitudeKey }
+  // Written field by field: spreading the form used to store "a,b" as a single
+  // `key`, which the server rejects for multi-series history.
+  const binding: any = { kind }
+  if (['aggregate', 'deviceSummary', 'alarmList', 'eventList', 'location'].includes(kind)) binding.deviceCodes = devices
+  else binding.deviceCode = devices[0] || ''
+  if (!['deviceStatus', 'deviceSummary', 'alarmList', 'eventList', 'location'].includes(kind)) {
+    if (kind === 'history' && keys.length) binding.keys = keys
+    else binding.key = keys[0] || ''
+  }
+  if (kind === 'aggregate' || kind === 'deviceSummary') binding.aggregate = bindingForm.aggregate
+  // History accepts only the aggregations the time-series query can answer.
+  if (kind === 'history') binding.aggregate = ['avg', 'min', 'max', 'median'].includes(bindingForm.aggregate) ? bindingForm.aggregate : 'avg'
+  if (kind === 'location') {
+    binding.latitudeKey = bindingForm.latitudeKey
+    binding.longitudeKey = bindingForm.longitudeKey
+    binding.coordinateSystem = selected.value.option.coordinateSystem
+  }
+  applyFormat(binding)
+  if (kind === 'deviceSummary' && binding.aggregate === 'onlineRate') binding.unit = '%'
   if (binding.kind === 'eventList' && Array.isArray(selected.value.option.header)) {
     selected.value.option.header = [t('时间', 'Time'), t('设备', 'Device'), t('事件', 'Event'), t('类型', 'Type'), t('参数', 'Parameters')]
     selected.value.option.align = ['left', 'left', 'left', 'center', 'left']
@@ -487,7 +631,7 @@ async function bind() {
   markDirty(); watchStatuses(); await save()
 }
 async function applyDataset(binding: any) {
-  if (!selected.value || readonly.value) return
+  if (!selected.value || readonly.value || authorWriteLocked.value) return
   const target = targetOf(selected.value.chartConfig.key)
   if (!target) return
   const id = boundTarget.value?.bindingId || `binding-${selected.value.id}`
@@ -508,18 +652,38 @@ async function refreshRuntime(reloadSeries = true) {
   if (reloadSeries) await refreshHistories()
   watchStatuses()
 }
+// A 30s timer is shorter than one slow round: ten bindings of serial awaits, each
+// with a 20s RPC timeout, let rounds overlap and stack without bound. One round at
+// a time, four in flight, and a skipped tick is re-run once the round finishes.
+let historiesBusy = false, historiesQueued = false
 async function refreshHistories() {
   if (!state.initialized) return
-  await refreshDatasets()
-  const revision = state.runtimeRevision
-  const bindings = Object.entries(state.document?.bindings || {}).filter(([, binding]: any) => ['history', 'alarmList', 'eventList'].includes(binding.kind))
-  for (const [bindingId, binding] of bindings as [string, any][]) {
-    try {
-      const result = await rpc(binding.kind === 'alarmList' ? 'runtime.alarms' : 'runtime.history', { bindingId, maxPoints: 120 })
-      if (state.initialized && revision === state.runtimeRevision) deliverBinding(bindingId, result.value, result.quality)
-    } catch (error) {
-      if (state.initialized && revision === state.runtimeRevision) deliverBinding(bindingId, null, 'error', { message: (error as Error).message })
+  if (historiesBusy) { historiesQueued = true; return }
+  historiesBusy = true
+  try {
+    await refreshDatasets()
+    const revision = state.runtimeRevision
+    const queue = Object.entries(state.document?.bindings || {})
+      .filter(([, binding]: any) => ['history', 'alarmList', 'eventList'].includes(binding.kind)) as [string, any][]
+    const alive = () => state.initialized && revision === state.runtimeRevision
+    const worker = async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        const [bindingId, binding] = next
+        if (!alive()) return
+        try {
+          // The binding owns its point budget; 120 is only a floor for documents
+          // written before the inspector exposed `maxPoints`.
+          const result = await rpc(binding.kind === 'alarmList' ? 'runtime.alarms' : 'runtime.history', { bindingId, maxPoints: binding.maxPoints || 120 })
+          if (alive()) deliverBinding(bindingId, result.value, result.quality, { receivedAt: result.receivedAt })
+        } catch (error) {
+          if (alive()) deliverBinding(bindingId, null, 'error', { message: (error as Error).message })
+        }
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(4, queue.length) }, worker))
+  } finally {
+    historiesBusy = false
+    if (historiesQueued) { historiesQueued = false; refreshHistories() }
   }
 }
 let queryBusy = false, queryQueued = false
@@ -543,17 +707,19 @@ async function refreshDatasets() {
     if (queryQueued) { queryQueued = false; refreshDatasets() }
   }
 }
-function unbind() { if (!selected.value) return; const target = boundTarget.value; if (target) { state.document.targets = state.document.targets.filter((item: any) => item !== target); if (!state.document.targets.some((item: any) => item.bindingId === target.bindingId)) delete state.document.bindings[target.bindingId]; deliverWidget(selected.value.id, selected.value.option.dataset); delete statuses[selected.value.id]; watchStatuses(); markDirty() } }
+function unbind() { if (!selected.value || authorWriteLocked.value) return; const target = boundTarget.value; if (target) { state.document.targets = state.document.targets.filter((item: any) => item !== target); if (!state.document.targets.some((item: any) => item.bindingId === target.bindingId)) delete state.document.bindings[target.bindingId]; deliverWidget(selected.value.id, selected.value.option.dataset); delete statuses[selected.value.id]; watchStatuses(); markDirty() } }
 async function resolveAsset(item: any) { try { const result = await rpc('asset.resolve', { assetId: item.option.assetId }); if (result.url && /^blob:/.test(result.url)) { blobUrls.add(result.url); deliverWidget(item.id, result.url) } } catch(error) { state.error = (error as Error).message } }
 async function uploadImage(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0], item = selected.value
-  if (!file || !item) return
+  if (!file || !item || authorWriteLocked.value) return
+  pendingAuthorWrites.value++
   try { const result = await rpc('asset.upload', { file, name: file.name }); item.option.assetId = result.assetId || result.asset?.id; await resolveAsset(item); markDirty() }
   catch(error) { state.error = (error as Error).message }
+  finally { pendingAuthorWrites.value-- }
 }
-async function chooseAsset(assetId: string) { const item = selected.value; if (!item || item.chartConfig.key !== 'Image') return; item.option.assetId = assetId; await resolveAsset(item); markDirty() }
+async function chooseAsset(assetId: string) { const item = selected.value; if (!item || item.chartConfig.key !== 'Image' || authorWriteLocked.value) return; item.option.assetId = assetId; await resolveAsset(item); markDirty() }
 function changeCRS(event: Event) { pendingCRS.value = (event.target as HTMLSelectElement).value; if (boundTarget.value || selected.value?.option.geoLines?.length) confirmCRS.value = true; else applyCRS() }
-function applyCRS() { if (!selected.value || selected.value.chartConfig.key !== 'LocationMap') return; selected.value.option.coordinateSystem = pendingCRS.value; selected.value.option.geoLines = []; unbind(); markDirty(); confirmCRS.value = false }
+function applyCRS() { if (!selected.value || selected.value.chartConfig.key !== 'LocationMap' || authorWriteLocked.value) return; selected.value.option.coordinateSystem = pendingCRS.value; selected.value.option.geoLines = []; unbind(); markDirty(); confirmCRS.value = false }
 async function uploadOutline(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0], item = selected.value
   if (!file || !item) return
@@ -567,13 +733,28 @@ watch(selected, () => {
   const binding = state.document?.bindings?.[boundTarget.value?.bindingId]
   const kinds = kindsOf(selected.value?.chartConfig.key)
   const kind = binding?.kind === 'dataset' ? 'dataset' : binding?.kind && kinds.includes(binding.kind) ? binding.kind : kinds[0] || 'point'
-  Object.assign(bindingForm, { kind, deviceCode: (binding?.deviceCodes || [binding?.deviceCode]).filter(Boolean).join(',') || '', key: binding?.key || binding?.keys?.join(',') || '', aggregate: binding?.aggregate || 'avg', latitudeKey: binding?.latitudeKey || '', longitudeKey: binding?.longitudeKey || '' })
+  Object.assign(bindingForm, {
+    kind,
+    deviceCode: (binding?.deviceCodes || [binding?.deviceCode]).filter(Boolean).join(',') || '',
+    key: binding?.key || binding?.keys?.join(',') || '',
+    aggregate: binding?.aggregate || 'avg',
+    latitudeKey: binding?.latitudeKey || '',
+    longitudeKey: binding?.longitudeKey || '',
+    unit: binding?.unit || '',
+    decimals: binding?.decimals ?? '',
+    scale: binding?.scale ?? '',
+    offset: binding?.offset ?? '',
+    windowHours: binding?.windowMs ? String(binding.windowMs / 3600000) : '',
+    maxPoints: binding?.maxPoints ?? '',
+    staleSeconds: binding?.staleAfterMs ? String(binding.staleAfterMs / 1000) : ''
+  })
 })
 watch(() => [store.editCanvasConfig, store.componentList, state.document?.bindings, state.document?.targets], scheduleDirtyCheck, { deep: true })
 const disposers = [
-  on('host.init', async payload => { try { appearance(payload); state.mode = payload.mode || 'edit'; state.capabilities = { ...payload.capabilities, editorBuildId: payload.editorBuildId }; showAssistant.value = state.mode === 'edit' && state.capabilities.save && payload.assistantOpen === true; state.runtimeRevision = payload.runtimeRevision || (state.mode === 'edit' ? `draft-${payload.revision || 0}` : ''); await load(payload.document, payload.revision || 0); state.initialized = true; send('child.initialized'); if (state.mode === 'edit') loadCatalog(); refreshRuntime() } catch(error) { state.error = (error as Error).message } }),
+  on('host.init', async payload => { try { appearance(payload); state.mode = payload.mode || 'edit'; state.capabilities = { ...payload.capabilities, editorBuildId: payload.editorBuildId }; showAssistant.value = state.mode === 'edit' && state.capabilities.save && payload.assistantOpen === true; state.runtimeRevision = payload.runtimeRevision || (state.mode === 'edit' ? `draft-${payload.revision || 0}` : ''); await load(payload.document, payload.revision || 0); state.initialized = true; if (state.mode === 'edit') send('editor.chrome', { mode: 'edit' }); send('child.initialized'); if (state.mode === 'edit') loadCatalog(); refreshRuntime() } catch(error) { state.error = (error as Error).message } }),
   on('host.theme', appearance), on('host.locale', appearance), on('host.save', save),
   on('host.assistant', () => { if (!readonly.value && state.capabilities.save) showAssistant.value = !showAssistant.value }),
+  on('host.chrome', payload => { chromeState.value = payload && payload.mode === 'edit' ? payload : null }),
   on('host.dispose', () => { clearTimeout(autosaveTimer); for (const url of blobUrls) URL.revokeObjectURL(url); blobUrls.clear() })
 ]
 let historyTimer: ReturnType<typeof setInterval> | undefined
@@ -586,7 +767,7 @@ function scheduleDirtyCheck() {
   dirtyTimer = setTimeout(() => {
     dirtyTimer = undefined
     if (loading || !state.initialized || readonly.value || state.saving) return
-    markDirty(documentSignature(snapshot()) !== initialContent)
+    markDirty(authorSignature(snapshot()) !== initialContent)
     scheduleAutosave()
   }, 200)
 }
@@ -597,10 +778,13 @@ function onVisibilityChange() { if (document.visibilityState === 'visible') refr
 // Ctrl/Cmd+S is what an operator actually presses; without it the browser save
 // dialog appears and the autosave looks like it did nothing.
 function onKeydown(event: KeyboardEvent) {
+  // Upstream editor shortcuts are registered on window. Stop them during the
+  // short commit barrier while telemetry keeps painting detached widgets.
+  if (authorWriteLocked.value) { event.preventDefault(); event.stopImmediatePropagation(); return }
   if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 's') return
   event.preventDefault()
   if (!readonly.value) save()
 }
-onMounted(() => { historyTimer = setInterval(refreshHistoriesIfVisible, 30000); document.addEventListener('visibilitychange', onVisibilityChange); window.addEventListener('keydown', onKeydown); window.addEventListener('resize', resize); if (!embedded) state.error = t('请从 Noyo 大屏页面打开编辑器。', 'Open this editor from the Noyo screens page.'); stopConnect = connect() })
-onUnmounted(() => { clearTimeout(autosaveTimer); clearTimeout(dirtyTimer); clearInterval(historyTimer); document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('keydown', onKeydown); window.removeEventListener('resize', resize); stopConnect?.(); stopStatus?.(); disposers.forEach(dispose => dispose()); for (const url of blobUrls) URL.revokeObjectURL(url) })
+onMounted(() => { historyTimer = setInterval(refreshHistoriesIfVisible, 30000); document.addEventListener('visibilitychange', onVisibilityChange); window.addEventListener('keydown', onKeydown, true); window.addEventListener('resize', resize); if (!embedded) state.error = t('请从 Noyo 大屏页面打开编辑器。', 'Open this editor from the Noyo screens page.'); stopConnect = connect() })
+onUnmounted(() => { clearTimeout(autosaveTimer); clearTimeout(dirtyTimer); clearInterval(historyTimer); document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('keydown', onKeydown, true); window.removeEventListener('resize', resize); stopConnect?.(); stopStatus?.(); disposers.forEach(dispose => dispose()); for (const url of blobUrls) URL.revokeObjectURL(url) })
 </script>

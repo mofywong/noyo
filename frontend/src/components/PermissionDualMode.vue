@@ -142,7 +142,7 @@ const activeModules = computed(() => {
 })
 
 const MODULE_ORDER = [
-  'dashboard', 'plugin', 'product', 'gateway', 'device', 'topology', 'device_tag', 'rule', 'alarm', 'work_order', 'ai_scene', 'semantic_review', 'ai_model', 'ai_assistant', 'audit', 'system_logs', 'user', 'tenant', 'project', 'role', 'app', 'system'
+  'dashboard', 'plugin', 'product', 'gateway', 'device', 'topology', 'device_tag', 'rule', 'alarm', 'work_order', 'ai_scene', 'semantic_review', 'ai_model', 'ai_assistant', 'audit', 'llm_request', 'system_logs', 'user', 'tenant', 'project', 'role', 'app', 'system'
 ]
 
 const normalizedPermissions = computed(() => {
@@ -315,6 +315,7 @@ const translateModule = (module) => {
     'project': 'perm_mod_project',
     'system': 'perm_mod_system',
     'audit': 'perm_mod_audit',
+    'llm_request': 'llm_requests',
     'system_logs': 'system_logs',
     'device': 'perm_mod_device',
     'topology': 'perm_mod_topology',
@@ -334,6 +335,7 @@ const translateModule = (module) => {
     'role': 'perm_mod_role',
     'plugin': 'perm_mod_plugin',
     'audit': 'perm_mod_audit',
+    'llm_request': 'llm_requests',
     'app': 'perm_mod_app',
     'dashboard': 'perm_mod_dashboard'
   }

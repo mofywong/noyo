@@ -15,11 +15,12 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"noyo/core/assistant"
+	"noyo/core/llmlog"
 	"noyo/core/screen"
 	"noyo/core/store"
 )
 
-const screenAssistantJobBudget = 5 * time.Minute
+const screenAssistantJobBudget = 12 * time.Minute
 const screenAssistantJobLease = 45 * time.Second
 
 var errScreenAssistantLeaseLost = errors.New("screen assistant task lease lost")
@@ -33,21 +34,24 @@ type screenAssistantTaskInput struct {
 }
 
 type screenAssistantTaskStatus struct {
-	TaskID       string                `json:"taskId"`
-	State        string                `json:"state"`
-	Stage        string                `json:"stage,omitempty"`
-	Summary      string                `json:"summary,omitempty"`
-	ErrorKey     string                `json:"errorKey,omitempty"`
-	Version      uint64                `json:"version"`
-	Attempt      uint                  `json:"attempt"`
-	Result       *screen.AssistantPlan `json:"result,omitempty"`
-	BaseDocument *screen.Envelope      `json:"baseDocument,omitempty"`
-	UpdatedAt    time.Time             `json:"updatedAt"`
+	TaskID       string                      `json:"taskId"`
+	State        string                      `json:"state"`
+	Stage        string                      `json:"stage,omitempty"`
+	Summary      string                      `json:"summary,omitempty"`
+	ErrorKey     string                      `json:"errorKey,omitempty"`
+	Version      uint64                      `json:"version"`
+	Attempt      uint                        `json:"attempt"`
+	Result       *screen.AssistantPlan       `json:"result,omitempty"`
+	BaseDocument *screen.Envelope            `json:"baseDocument,omitempty"`
+	UpdatedAt    time.Time                   `json:"updatedAt"`
+	Steps        []screenAssistantStepStatus `json:"steps"`
 }
 
 func screenAssistantTaskView(job store.IOCScreenAssistantJob) screenAssistantTaskStatus {
 	view := screenAssistantTaskStatus{TaskID: job.TaskID, State: job.State, Stage: job.Stage, Summary: job.Summary, ErrorKey: job.ErrorKey, Version: job.Version, Attempt: job.Attempt, UpdatedAt: job.UpdatedAt}
+	view.Steps = screenAssistantTaskSteps(job)
 	if job.State == "completed" {
+		view.Stage = "completed"
 		var plan screen.AssistantPlan
 		if json.Unmarshal([]byte(job.Result), &plan) == nil {
 			view.Result = &plan
@@ -346,6 +350,11 @@ func (s *Server) screenAssistantRunTask(taskID string) {
 	_ = json.Unmarshal([]byte(job.Checkpoints), &j.checkpoints)
 	ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), screenAssistantJobContextKey{}, j), screenAssistantJobBudget-time.Duration(job.SpentMs)*time.Millisecond)
 	defer cancel()
+	sessionID := job.ConversationID
+	if sessionID == "" {
+		sessionID = job.TaskID
+	}
+	ctx = llmlog.WithMetadata(ctx, llmlog.Metadata{TenantID: job.TenantID, ProjectID: job.ProjectID, UserID: job.UserID, SessionID: sessionID, Source: "ioc_screen_assistant"})
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -371,7 +380,7 @@ func (s *Server) screenAssistantRunTask(taskID string) {
 		if plan != nil {
 			encoded, err := json.Marshal(plan)
 			if err == nil {
-				updates["state"], updates["result"], updates["error_key"] = "completed", string(encoded), ""
+				updates["state"], updates["stage"], updates["result"], updates["error_key"] = "completed", "completed", string(encoded), ""
 			}
 		}
 		j.fence().Updates(updates)

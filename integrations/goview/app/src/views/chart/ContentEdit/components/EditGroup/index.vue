@@ -28,10 +28,10 @@
         :item="item"
         :hiddenPoint="true"
       >
-        <component
+        <detached-widget
           class="edit-content-chart"
           :class="animationsClass(item.styles.animations)"
-          :is="item.chartConfig.chartKey"
+          :widget="item.chartConfig.chartKey"
           :chartConfig="item"
           :themeSetting="themeSetting"
           :themeColor="themeColor"
@@ -40,13 +40,14 @@
             ...getFilterStyle(item.styles),
             ...getTransformStyle(item.styles)
           }"
-        ></component>
+        ></detached-widget>
       </edit-shape-box>
     </edit-shape-box>
   </div>
 </template>
 
 <script setup lang="ts">
+import DetachedWidget from '@/noyo/DetachedWidget.vue'
 import { computed, PropType } from 'vue'
 import { MenuEnum } from '@/enums/editPageEnum'
 import { chartColors } from '@/settings/chartThemes/index'

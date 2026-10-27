@@ -1,25 +1,51 @@
 @import './screenTokens.css';
-:root{--bg-body:#f4f6fa;--bg-surface:#fff;--text-primary:#172033;--text-secondary:#526079;--border-color:#d7deea;--primary-color:#2563eb;--danger-color:#c73545;--warning-color:#b45309;--success-color:#15803d;--noyo-canvas-bg:#e8edf5;--screen-panel:#ffffff;--screen-panel-border:#d7deea;--screen-text-1:#172033;--screen-text-2:#526079;--screen-text-3:#7c8aa0;--screen-grid:#e2e8f2;--screen-accent:#0e7490;--transition-fast:160ms ease}
-:root[data-theme=dark]{--bg-body:#101726;--bg-surface:#192235;--text-primary:#eef3fb;--text-secondary:#a6b2c8;--border-color:#33425c;--primary-color:#74a5ff;--danger-color:#ff8791;--warning-color:#fbbf24;--success-color:#4ade80;--noyo-canvas-bg:#070b14;--screen-panel:#0e1728;--screen-panel-border:#1c2a42;--screen-text-1:#e8eefc;--screen-text-2:#9aabc4;--screen-text-3:#63728a;--screen-grid:#17233a;--screen-accent:#22d3ee}
+@import './assistantTheme.css';
+:root{--bg-body:#f4f6fa;--bg-surface:#fff;--text-primary:#172033;--text-secondary:#526079;--border-color:#d7deea;--primary-color:#2563eb;--danger-color:#c73545;--warning-color:#b45309;--success-color:#15803d;--noyo-canvas-bg:#e8edf5;--screen-panel:#ffffff;--screen-panel-border:#d7deea;--screen-text-1:#172033;--screen-text-2:#526079;--screen-text-3:#7c8aa0;--screen-grid:#e2e8f2;--screen-accent:#0e7490;--assistant-progress-duration:1200ms;--transition-fast:160ms ease;--noyo-float-bg:#ffffff;--noyo-float-inset:#f4f6fa}
+:root[data-theme=dark]{--bg-body:#101726;--bg-surface:#192235;--text-primary:#eef3fb;--text-secondary:#a6b2c8;--border-color:#33425c;--primary-color:#74a5ff;--danger-color:#ff8791;--warning-color:#fbbf24;--success-color:#4ade80;--noyo-canvas-bg:#070b14;--screen-panel:#0e1728;--screen-panel-border:#1c2a42;--screen-text-1:#e8eefc;--screen-text-2:#9aabc4;--screen-text-3:#63728a;--screen-grid:#17233a;--screen-accent:#22d3ee;--noyo-float-bg:#192235;--noyo-float-inset:#101726}
 .dataset-filters{position:fixed;right:24px;top:24px;z-index:20;max-width:320px;max-height:calc(100vh - 48px);overflow:auto;padding:24px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-surface);color:var(--text-primary)}.dataset-filters summary{cursor:pointer}.dataset-filters label{display:grid;gap:8px;margin:16px 0}.dataset-filters input,.dataset-filters select{max-width:100%;padding:8px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-body);color:var(--text-primary)}.dataset-filters p{color:var(--danger-color)}
 html,body,#app,.n-config-provider{width:100%;height:100%;margin:0;background:var(--bg-body);color:var(--text-primary)}
 *{box-sizing:border-box}.noyo-editor{height:100vh;display:flex;flex-direction:column;font:14px/1.5 system-ui,sans-serif;background:var(--bg-body);color:var(--text-primary)}
 .editor-toolbar{display:flex;align-items:center;gap:8px;min-height:48px;padding:8px 24px;border-bottom:1px solid var(--border-color);background:var(--bg-surface);flex-shrink:0;flex-wrap:nowrap;overflow-x:auto}.editor-toolbar>*{flex-shrink:0}.editor-toolbar button{white-space:nowrap}.save-state,.palette p,.hint,.inspector small{color:var(--text-secondary)}.save-state{margin-left:auto}
 .editor-workspace{--palette-width:0px;--tools-width:0px;position:relative;display:grid;grid-template-columns:var(--palette-width) minmax(0,1fr) var(--tools-width);min-height:0;flex:1;overflow:hidden}
-.editor-workspace.with-palette{--palette-width:330px}.editor-workspace.with-inspector{--tools-width:384px}.editor-workspace.with-assistant{--tools-width:clamp(448px,34vw,560px)}.editor-workspace.assistant-expanded{--tools-width:0px}
+.editor-workspace.with-palette{--palette-width:330px}.editor-workspace.with-inspector{--tools-width:384px}
 .editor-left{grid-column:1;grid-row:1;display:flex;min-width:0;overflow:hidden;background:var(--bg-surface);border-right:1px solid var(--border-color)}
 .inspector{grid-column:3;grid-row:1;display:flex;flex-direction:column;gap:16px;min-width:0;padding:24px;overflow:auto;background:var(--bg-surface);border-left:1px solid var(--border-color)}
-.editor-workspace>.ioc-assistant{grid-column:3;grid-row:1;min-height:0}.editor-workspace.assistant-expanded>.ioc-assistant{position:absolute;grid-column:auto;grid-row:auto;height:auto;inset:24px 24px 24px auto;width:min(880px,calc(100% - 48px));z-index:40;border:1px solid var(--border-color);border-radius:16px;box-shadow:0 16px 48px color-mix(in srgb,var(--text-primary) 16%,transparent)}
+/* position:fixed, not absolute inside the workspace: the panel must be parkable
+   over the toolbar, the component palette and the status strip -- anywhere on the
+   page. Inside the workspace grid its drag bounds stopped at the canvas edge, so
+   the top-left/top-right corners of the page were unreachable. The editor page
+   has no transformed ancestor, so the viewport is the containing block and the
+   workspace's overflow:hidden does not clip it. Geometry lives in inline
+   left/top/width/height (LocalStorage backed).
+   Two variables are re-declared on the panel because the host pushes its own
+   liquid-glass tokens into the iframe (Editor.vue appearance()), and the host's
+   --bg-surface is a 55%-alpha tint: every nested control would let the canvas
+   show through and the transcript would be unreadable. Re-declaring on this
+   element overrides everything inherited from :root, inline or not. */
+.noyo-editor>.editor-workspace>.ioc-assistant{position:fixed;z-index:60;inset:auto;height:auto;min-width:360px;min-height:300px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);border:1px solid var(--ioc-ai-divider);border-radius:var(--radius-modal,24px);box-shadow:var(--ioc-ai-shadow);background:var(--ioc-ai-panel);--bg-surface:var(--noyo-float-bg);--bg-body:var(--noyo-float-inset)}
+/* "Maximise" fills the whole editor viewport within the 8px inset; "Restore"
+   goes back to the remembered geometry. */
+.noyo-editor>.editor-workspace.assistant-expanded>.ioc-assistant{inset:8px;width:auto;height:auto;max-width:none;max-height:none;box-shadow:var(--ioc-ai-shadow)}
 .canvas-stage{grid-column:2;grid-row:1;position:relative;display:flex;min-width:0;min-height:0;overflow:hidden;background:var(--noyo-canvas-bg)}.canvas-stage>*{flex:1;min-width:0}
 .canvas-stage.is-context-picking,.canvas-stage.is-context-picking *{cursor:crosshair!important}.canvas-stage>.canvas-context-region{position:absolute;flex:none;pointer-events:none;border:2px solid var(--primary-color);background:color-mix(in srgb,var(--primary-color) 16%,transparent);z-index:30}
+/* Lives outside .canvas-stage on purpose: the stage cancels pointer events in
+   capture phase while picking, which would swallow this button's clicks. */
+.canvas-pick-hint{position:absolute;z-index:31;inset-block-end:16px;inset-inline-start:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;margin:0;padding:8px 8px 8px 16px;border:1px solid var(--primary-color);border-radius:999px;background:var(--bg-surface);box-shadow:0 8px 24px color-mix(in srgb,var(--text-primary) 18%,transparent);font-size:12px;color:var(--text-primary);white-space:nowrap}
+.canvas-pick-hint button{padding:4px 12px;border-radius:999px}
 .canvas-quality-layer{position:absolute;inset:0;pointer-events:none;z-index:12;overflow:hidden}
 .canvas-quality-badge{position:absolute;transform:translateX(-100%);padding:2px 8px;border-radius:4px;background:var(--bg-surface);border:1px solid var(--border-color);color:var(--text-secondary);font-size:11px;line-height:16px;white-space:nowrap;box-shadow:0 2px 8px color-mix(in srgb,var(--text-primary) 8%,transparent)}
 .canvas-quality-badge.is-no_data,.canvas-quality-badge.is-stale{color:var(--warning-color);border-color:color-mix(in srgb,var(--warning-color) 40%,transparent)}
 .canvas-quality-badge.is-error,.canvas-quality-badge.is-access_denied{color:var(--danger-color);border-color:color-mix(in srgb,var(--danger-color) 40%,transparent)}
 .viewer-quality-layer .canvas-quality-badge{padding:4px 8px;font-size:16px;line-height:24px}
-.assistant-trigger{border-color:var(--primary-color)!important;color:var(--primary-color)!important}
 .editor-data-status{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:8px 24px;border-bottom:1px solid var(--border-color);color:var(--warning-color);background:var(--bg-surface);max-height:160px;overflow:auto;flex-shrink:0}.editor-data-status summary{cursor:pointer}.editor-data-status ul{margin:8px 0;padding-left:24px}.editor-data-status button{flex-shrink:0}
 .toolbar-group{display:flex;gap:4px}.toolbar-group button{padding:4px 10px}
+/* The host's save / publish / fullscreen actions move into this toolbar in edit
+   mode (see Editor.vue chromeState), so they need the same visual weight they had
+   in the host: a plain button for save/preview/fullscreen, filled for publish. */
+.editor-back{padding:4px 10px}
+.editor-toolbar .is-primary{border-color:var(--primary-color);background:var(--primary-color);color:var(--bg-surface)}
+.editor-toolbar .is-primary:disabled{opacity:.55}
+.save-state.is-conflict{color:var(--danger-color)}
 .asset-block{display:grid;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--border-color)}
 .noyo-editor h2{font-size:14px;margin:0 0 16px}.palette h2:not(:first-child),.inspector h2:not(:first-child){margin-top:24px}.palette button{display:block;width:100%;text-align:left;margin-bottom:8px}.noyo-editor button:not([class^=n-]){border:1px solid var(--border-color);border-radius:8px;background:var(--bg-surface);color:var(--text-primary);padding:8px 12px;cursor:pointer;transition:border-color var(--transition-fast)}.noyo-editor button:not([class^=n-]):hover,.noyo-editor button:not([class^=n-])[aria-pressed=true]{border-color:var(--primary-color)}.noyo-editor button:not([class^=n-]):disabled{opacity:.5;cursor:default}.noyo-editor button:not([class^=n-]):focus-visible,.noyo-editor input:focus-visible,.noyo-editor select:focus-visible,.noyo-editor textarea:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
 .inspector label:not([class^=n-]){display:block;margin-bottom:16px;font-size:13px}.inspector :is(input,select,textarea):not([class^=n-]){display:block;margin-top:8px;width:100%;min-width:0;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-body);color:var(--text-primary);padding:8px}.inspector button:not([class^=n-]){margin-bottom:8px;width:100%}.inspector small{display:block;margin:8px 0 24px}.field-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.noyo-editor .danger,.editor-error{color:var(--danger-color)}.editor-error{padding:8px 24px;margin:0}.empty{padding:96px 24px;margin:auto;max-width:640px}.viewer{overflow:hidden}
@@ -44,6 +70,16 @@ html,body,#app,.n-config-provider{width:100%;height:100%;margin:0;background:var
 .inspector :is(.n-input-number,.n-input,.n-select,.n-color-picker,.n-slider){min-width:0;max-width:100%}
 .inspector .go-setting-item .name{overflow-wrap:anywhere}
 .viewer-status{display:flex;flex-wrap:wrap;gap:8px 16px;margin:0;padding:8px 24px;list-style:none;border-top:1px solid var(--border-color);background:var(--bg-surface);color:var(--warning-color);font-size:12px}.viewer-status:empty{display:none}.canvas-stage .go-content-box{background:var(--noyo-canvas-bg)!important}.canvas-stage .go-content-box-top,.canvas-stage .go-content-box-bottom{display:none}.canvas-stage .go-content-box-main{background:var(--noyo-canvas-bg)!important}
-@media(max-width:1100px){.editor-workspace.with-assistant,.editor-workspace.with-inspector{--tools-width:0px}.editor-workspace.with-assistant>.ioc-assistant,.editor-workspace.with-inspector>.inspector{position:absolute;grid-column:auto;grid-row:auto;height:auto;inset:24px 24px 24px auto;width:min(560px,calc(100% - 48px));z-index:40;border:1px solid var(--border-color);border-radius:16px;box-shadow:0 16px 48px color-mix(in srgb,var(--text-primary) 16%,transparent)}.editor-workspace.assistant-expanded>.ioc-assistant{inset:8px;width:calc(100% - 16px)}}
+@media(max-width:1100px){.editor-workspace.with-inspector{--tools-width:0px}.editor-workspace.with-inspector>.inspector{position:absolute;grid-column:auto;grid-row:auto;height:auto;inset:24px 24px 24px auto;width:min(560px,calc(100% - 48px));z-index:40;border:1px solid var(--border-color);border-radius:16px;box-shadow:0 16px 48px color-mix(in srgb,var(--text-primary) 16%,transparent)}}
 @media(max-width:720px){.editor-toolbar{flex-wrap:wrap;overflow-x:visible}.editor-toolbar>strong,.editor-toolbar .save-state{display:none}.editor-workspace.with-palette{--palette-width:0px}.editor-left{position:absolute;inset:0 auto 0 0;width:min(330px,100%);z-index:30}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* "Is this current?" must be answerable at a glance on a wall display. The widget
+   badges cover degraded bindings; this covers a feed that stopped entirely. */
+.viewer-updated{position:absolute;inset-block-start:0;inset-inline-end:0;z-index:22;margin:0;padding:4px 12px;border-end-start-radius:8px;background:color-mix(in srgb,var(--bg-surface) 86%,transparent);color:var(--text-secondary);font-size:12px;font-variant-numeric:tabular-nums}
+.viewer-updated.is-lost{color:var(--danger-color);font-weight:600}
+/* Binding inspector groups: display format and time window are rarely changed but
+   decide what every number on the screen looks like. */
+.binding-format{margin:0 0 16px;padding:8px 12px;border:1px solid var(--border-color);border-radius:8px}
+.binding-format>summary{cursor:pointer;font-size:13px;color:var(--text-secondary)}
+.binding-format[open]>summary{margin-bottom:12px}
+.binding-format label:last-child{margin-bottom:0}

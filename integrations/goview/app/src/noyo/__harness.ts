@@ -152,7 +152,8 @@ const source = fixtureDocument
     }
   : synthetic()
 
-const screenDocument = JSON.parse(JSON.stringify(source.document))
+let screenDocument = JSON.parse(JSON.stringify(source.document)), draftVersion = 1
+const applyReceipts = new Map<string, any>()
 if (assistant) { screenDocument.content.componentList = []; screenDocument.bindings = {}; screenDocument.targets = [] }
 if (assistant && params.get('context') === '1') {
   screenDocument.content.componentList = [0, 1].map(index => {
@@ -163,6 +164,16 @@ if (assistant && params.get('context') === '1') {
     item.option.dataset = item.chartConfig.title
     return item
   })
+}
+if (assistant && host.__LIFECYCLE_FIXTURE__) {
+  const note = createMaterial('TextCommon', locale); note.id = 'id_note'; Object.assign(note.attr, { x: 24, y: 24, w: 600, h: 180 }); Object.assign(note.option, { dataset: '原始说明', fontSize: 18, paddingX: 0, paddingY: 0 }); note.chartConfig.title = locale === 'en' ? 'Data notes' : '数据说明'
+  const dial = createMaterial('Dial', locale); dial.id = 'id_dial'; Object.assign(dial.attr, { x: 664, y: 24, w: 280, h: 240 })
+  const ring = createMaterial('PieCircle', locale); ring.id = 'id_ring'; Object.assign(ring.attr, { x: 24, y: 256, w: 280, h: 200 })
+  screenDocument.content.componentList = [note, dial, ring]
+  screenDocument.bindings = { dial: { kind: 'point', deviceCode: 'DEV-001', key: 'temperature' }, ring: { kind: 'point', deviceCode: 'DEV-001', key: 'temperature' } }
+  screenDocument.targets = [{ componentId: 'id_dial', bindingId: 'dial' }, { componentId: 'id_ring', bindingId: 'ring' }]
+  host.__ASSISTANT_RESULT__ = { summary: locale === 'en' ? 'Update data notes.' : '完善数据说明。', resultStatus: 'ready', intent: 'copy_style', operations: [{ type: 'update', id: 'id_note', option: { dataset: Array.from({ length: 9 }, (_, index) => `${index + 1}、${locale === 'en' ? 'Preserve the existing binding.' : '保留现有数据绑定。'}`).join('\n') } }] }
+  host.__ASSISTANT_PROGRESS__ = [{ event: 'task', taskId: 'lifecycle-fixture', state: 'running', stage: 'reviewing', steps: ['intention', 'metrics', 'checking', 'generating', 'reviewing'].map(id => ({ id, state: 'succeeded' })) }]
 }
 const liveSamples = source.samples
 const failures = source.failures
@@ -185,6 +196,8 @@ if (!dump) stage.appendChild(frame)
 const status = { ready: false, initialized: false, rpcCalls: {} as Record<string, number> }
 host.__HARNESS_ASSISTANT_REQUESTS__ = []
 host.__HARNESS_RPC_CALLS__ = status.rpcCalls
+host.__HARNESS_APPLIED__ = []
+host.__HARNESS_SEND_RUNTIME__ = (value: number) => post({ protocol: PROTOCOL, channelId: CHANNEL, type: 'runtime.batch', payload: { revision: `draft-${draftVersion}`, runtimeEpoch: 'verify-epoch-1', serverTime: Date.now(), bindings: { dial: { value, quality: 'good', sampleVersion: Date.now() }, ring: { value, quality: 'good', sampleVersion: Date.now() } } } })
 
 function post(message: any) {
   frame.contentWindow?.postMessage(message, location.origin)
@@ -234,7 +247,11 @@ function handleRequest(message: any) {
   }
   if (assistant && type === 'assistant.plan') {
     host.__HARNESS_ASSISTANT_REQUESTS__.push(message.payload)
-    if (host.__ASSISTANT_RESULT__) return reply(requestId, { ok: true, data: host.__ASSISTANT_RESULT__ })
+    if (host.__ASSISTANT_RESULT__) {
+      const packets = host.__ASSISTANT_PROGRESS__ || []
+      packets.forEach((payload: any, index: number) => setTimeout(() => post({ protocol: PROTOCOL, channelId: CHANNEL, type: 'assistant.progress', payload: { runId: message.payload.runId, ...payload } }), index * 350))
+      return setTimeout(() => reply(requestId, { ok: true, data: host.__ASSISTANT_RESULT__ }), packets.length * 350)
+    }
     if (host.__ASSISTANT_REFUSE__) return reply(requestId, { ok: false, error: { message: 'aiOutOfScope' } })
     const exists = message.payload.document.content.componentList.some((item: any) => item.id === 'assistant-fixture')
     const title = locale === 'en' ? 'Cooling temperature' : '冷机温度'
@@ -251,8 +268,50 @@ function handleRequest(message: any) {
       { code: 'DEV-002', name: '二号冷却塔', online: true, fields: [{ key: 'temperature', name: '温度', nameZh: '温度', nameEn: 'Temperature' }] }
     ] } })
   }
+  if (type === 'binding.preview') {
+    const bindings: Record<string, any> = {}
+    for (const [id, binding] of Object.entries<any>(message.payload.document.bindings || {})) bindings[id] = binding.kind === 'dataset' ? { quality: 'good', value: [{ value: 24.6, state: 'Running', ts: Date.now() }], timezone: 'UTC' } : { quality: 'good', value: 24.6 }
+    return reply(requestId, { ok: true, data: { bindings, serverTime: Date.now() } })
+  }
+  if (type === 'screen.apply') {
+    const payload = message.payload, previous = applyReceipts.get(payload.idempotencyKey)
+    if (previous) return reply(requestId, { ok: true, data: { ...previous, replayed: true } })
+    if (payload.baseDraftVersion !== draftVersion) return reply(requestId, { ok: false, error: { code: 'conflict', message: 'Draft changed / 草稿已变化' } })
+    screenDocument = JSON.parse(JSON.stringify(payload.document)); ++draftVersion
+    const receipt = { document: screenDocument, draftVersion, currentDraftVersion: draftVersion, idempotencyKey: payload.idempotencyKey, committed: true }
+    applyReceipts.set(payload.idempotencyKey, receipt); host.__HARNESS_APPLIED__.push({ ...payload, accepted: receipt })
+    return reply(requestId, { ok: true, data: receipt })
+  }
+  if (type === 'screen.apply.status') return reply(requestId, { ok: true, data: applyReceipts.get(message.payload.idempotencyKey) || { committed: false } })
+  // The guided dataset panel is only exercised end to end if preview answers,
+  // and the shape of the answer drives the field mapping, so the mock honours
+  // the grouping the caller asked for instead of returning a fixed table.
+  if (type === 'dataset.preview') {
+    const plan = message.payload?.plan || {}
+    const aggregate = [...(plan.steps || [])].reverse().find((step: any) => step.op === 'aggregate') || {}
+    const groupBy: string[] = aggregate.groupBy || []
+    const to = Date.now(), from = to - (plan.windowMs || 86400000)
+    const rows: any[] = []
+    if (groupBy.includes('ts')) {
+      for (let index = 0; index < 12; index += 1) rows.push({ ts: from + index * Math.round((to - from) / 12), value: Math.round((20 + Math.sin(index / 2) * 6) * 10) / 10 })
+    } else if (groupBy.includes('device_code')) {
+      rows.push({ device_code: 'DEV-001', value: 23.4 }, { device_code: 'DEV-002', value: 25.1 })
+    } else if (groupBy.includes('severity')) {
+      rows.push({ severity: 'critical', value: 3 }, { severity: 'warning', value: 12 }, { severity: 'info', value: 27 })
+    } else if (groupBy.includes('online')) {
+      rows.push({ online: true, value: 18 }, { online: false, value: 3 }, { online: null, value: 1 })
+    } else {
+      rows.push({ value: 24.6 })
+    }
+    const typeOf = (value: any) => typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : 'string'
+    const fields = Object.keys(rows[0] || { value: 0 }).map(id => ({ id, type: typeOf(rows[0][id]) }))
+    return reply(requestId, { ok: true, data: {
+      schemaVersion: 'noyo.dataset/1', fields, rows,
+      meta: { quality: 'good', completeness: 'complete', generatedAt: to, from, to, timezone: plan.timezone || 'Asia/Shanghai', scannedRows: 1480, cacheHit: false, warnings: [] }
+    } })
+  }
   if (type === 'runtime.subscribe') return reply(requestId, { ok: true, data: { revision: 'draft-1' } })
-  if (type === 'screen.save') return reply(requestId, { ok: true, data: { document: message.payload?.document || screenDocument, draftVersion: 1 } })
+  if (type === 'screen.save') { screenDocument = JSON.parse(JSON.stringify(message.payload?.document || screenDocument)); ++draftVersion; return reply(requestId, { ok: true, data: { document: screenDocument, draftVersion } }) }
   if (type === 'runtime.history' || type === 'runtime.alarms') {
     const bindingId = message.payload?.bindingId
     if (fixtureHistory?.[bindingId]) return reply(requestId, { ok: true, data: { bindingId, ...fixtureHistory[bindingId] } })
@@ -275,7 +334,7 @@ window.addEventListener('message', event => {
       theme,
       revision: 1,
       runtimeRevision: 'draft-1',
-      capabilities: assistant ? { save: true } : {},
+      capabilities: assistant ? { save: true, atomicApply: true, bindingPreview: true, proposalValidationV2: true } : {},
       assistantOpen: assistant,
       // The host speaks JSON only: upstream option defaults contain formatter
       // functions, which postMessage cannot clone.

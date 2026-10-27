@@ -27,7 +27,7 @@
           <div class="screen-card-meta"><span>{{ t('screens.draftLabel', { version: draftVersion(screen) }) }}</span><time>{{ formatDate(screen.updatedAt || screen.updated_at || screen.UpdatedAt) }}</time></div>
           <div class="screen-card-actions">
             <RouterLink v-if="can('edit')" class="btn btn-primary btn-sm" :to="`/screens/${screenId(screen)}/edit`">{{ t('screens.edit') }}</RouterLink>
-            <RouterLink v-if="can('view')" class="btn btn-outline-secondary btn-sm" :to="`/screens/${screenId(screen)}/preview`">{{ t('screens.preview') }}</RouterLink>
+            <RouterLink v-if="can('edit')" class="btn btn-outline-secondary btn-sm" :to="`/screens/${screenId(screen)}/preview`">{{ t('screens.preview') }}</RouterLink>
             <RouterLink v-if="can('view') && publishedReleaseId(screen)" class="btn btn-outline-secondary btn-sm" :to="`/screens/${screenId(screen)}/view`">{{ t('screens.play') }}</RouterLink>
             <div v-if="hasMenu()" class="screen-card-more">
               <button

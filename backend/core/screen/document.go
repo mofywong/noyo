@@ -22,7 +22,7 @@ const (
 	// adapter version rises whenever the child app changes, and the previous
 	// generation stays loadable: its assets are retained and its drafts keep
 	// validating, so an upgrade never strands an open editor.
-	EngineBuildID    = "goview-5ab05b4-noyo19"
+	EngineBuildID    = "goview-5ab05b4-noyo21"
 	UpstreamSHA      = "5ab05b439703ffda6d050e5626969459b3e3c1cf"
 	MaxDocumentBytes = 5 << 20
 	MaxComponents    = 200
@@ -31,7 +31,7 @@ const (
 
 // LegacyEngineBuildIDs are adapter generations that shipped and may still be
 // referenced by drafts and release snapshots.
-var LegacyEngineBuildIDs = map[string]bool{"goview-5ab05b4-noyo1": true, "goview-5ab05b4-noyo2": true, "goview-5ab05b4-noyo3": true, "goview-5ab05b4-noyo4": true, "goview-5ab05b4-noyo5": true, "goview-5ab05b4-noyo6": true, "goview-5ab05b4-noyo7": true, "goview-5ab05b4-noyo8": true, "goview-5ab05b4-noyo9": true, "goview-5ab05b4-noyo10": true, "goview-5ab05b4-noyo11": true, "goview-5ab05b4-noyo12": true, "goview-5ab05b4-noyo13": true, "goview-5ab05b4-noyo14": true, "goview-5ab05b4-noyo15": true, "goview-5ab05b4-noyo16": true, "goview-5ab05b4-noyo17": true, "goview-5ab05b4-noyo18": true}
+var LegacyEngineBuildIDs = map[string]bool{"goview-5ab05b4-noyo1": true, "goview-5ab05b4-noyo2": true, "goview-5ab05b4-noyo3": true, "goview-5ab05b4-noyo4": true, "goview-5ab05b4-noyo5": true, "goview-5ab05b4-noyo6": true, "goview-5ab05b4-noyo7": true, "goview-5ab05b4-noyo8": true, "goview-5ab05b4-noyo9": true, "goview-5ab05b4-noyo10": true, "goview-5ab05b4-noyo11": true, "goview-5ab05b4-noyo12": true, "goview-5ab05b4-noyo13": true, "goview-5ab05b4-noyo14": true, "goview-5ab05b4-noyo15": true, "goview-5ab05b4-noyo16": true, "goview-5ab05b4-noyo17": true, "goview-5ab05b4-noyo18": true, "goview-5ab05b4-noyo19": true, "goview-5ab05b4-noyo20": true}
 
 func knownEngineBuildID(id string) bool {
 	return id == EngineBuildID || LegacyEngineBuildIDs[id]

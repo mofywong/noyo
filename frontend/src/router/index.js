@@ -50,10 +50,13 @@ const routes = [
     component: () => import('../views/ScreenList.vue'),
     meta: { requiresAuth: true, permission: 'screen:list' }
   },
+  // Preview mounts the draft and its live stream, both of which the backend only
+  // serves to `screen:edit`. Guarding it as `screen:view` produced a link that
+  // every read-only user could click and every one of them got 403.
   ...['edit', 'preview', 'view'].map((mode) => ({
     path: `/screens/:id/${mode}`, name: `Screen-${mode}`,
     component: () => import('../views/ScreenHost.vue'),
-    meta: { requiresAuth: true, permission: mode === 'edit' ? 'screen:edit' : 'screen:view', screenMode: mode }
+    meta: { requiresAuth: true, permission: mode === 'view' ? 'screen:view' : 'screen:edit', screenMode: mode }
   })),
   {
     path: '/ai/model-center',
@@ -176,6 +179,12 @@ const routes = [
     name: 'AuditLogs',
     component: AuditLogs,
     meta: { requiresAuth: true, permission: 'audit:list' }
+  },
+  {
+    path: '/settings/llm-requests',
+    name: 'LLMRequests',
+    component: () => import('../views/LLMRequests.vue'),
+    meta: { requiresAuth: true, permission: 'llm_request:list' }
   },
   {
     path: '/license',

@@ -11,6 +11,7 @@
 //   - rows always fill the width, so no unpainted gutter column appears
 //   - every binding kind is legal for the chosen widget shape
 import { kindsOf } from './widgets'
+import { selectPresentation, type PresentationTask } from './presentationMatcher'
 import { applyScreenTheme, type ThemeOptions } from './screenTheme'
 
 export const GRID = { columns: 12, padding: 24, gutter: 24 }
@@ -19,6 +20,9 @@ export type SectionRole = 'header' | 'kpi' | 'trend' | 'distribution' | 'statusW
 export type Composition = 'overview' | 'equipment' | 'compact'
 
 export interface BlueprintItem {
+  task?: PresentationTask
+  priority?: number
+  categoryCount?: number
   binding?: Record<string, any>
   placeholder?: boolean
   label?: string
@@ -36,6 +40,7 @@ export interface BlueprintItem {
 }
 
 export interface BlueprintSection {
+  task?: PresentationTask
   binding?: Record<string, any>
   role?: string
   title?: string
@@ -139,6 +144,30 @@ function statusLabel(text: string, width: number) {
   return { text: lines.join('\n'), height: lines.length * 24 }
 }
 
+// Budget static copy before mounting the renderer. Explicit wrapping is stable
+// across CJK/Latin labels; excess copy gets an ellipsis and its full title stays
+// available in the component metadata/tooltip. Bound readings are never cut.
+export function fitStaticText(text: string, width: number, height: number, fontSize: number, spacing = 0, paddingX = 0, paddingY = 0) {
+  const available = Math.max(1, width - paddingX * 2 - 8)
+  const maxLines = Math.max(1, Math.floor((height - paddingY * 2) / (fontSize * 1.6)))
+  const lines: string[] = []
+  let line = '', used = 0
+  for (const char of String(text)) {
+    const size = (/[\x20-\x7e]/.test(char) ? fontSize * 0.7 : fontSize * 1.1) + spacing
+    if (char === '\n' || line && used + size > available) {
+      lines.push(line); line = ''; used = 0
+      if (lines.length === maxLines) {
+        lines[maxLines - 1] = [...lines[maxLines - 1]].slice(0, -2).join('') + '…'
+        return lines.join('\n')
+      }
+      if (char === '\n') continue
+    }
+    line += char; used += size
+  }
+  lines.push(line)
+  return lines.join('\n')
+}
+
 function spanOf(section: BlueprintSection) {
   const span = Number(section?.span)
   return Number.isFinite(span) ? clamp(Math.round(span), 1, GRID.columns) : GRID.columns
@@ -171,12 +200,13 @@ function itemKeys(item: BlueprintItem): string[] {
 }
 
 function decimalsOf(item: BlueprintItem) {
-  const value = Number(item?.precision)
-  if (Number.isFinite(value)) return clamp(Math.round(value), 0, 6)
+  const declared = item?.binding?.decimals ?? item?.precision
+  const value = declared == null ? NaN : Number(declared)
+  if (Number.isFinite(value)) return clamp(Math.round(value), 0, 12)
   const form = String(item?.form || '').toLowerCase()
   // Counts and percentages read wrong with a forced decimal: "2.0 alarms".
   if (form === 'count' || form === 'percent' || form === 'progress' || form === 'text') return 0
-  return item?.unit ? 1 : 0
+  return (item?.binding?.unit ?? item?.unit) ? 1 : 0
 }
 
 function maxPointsFor(width: number) {
@@ -185,7 +215,7 @@ function maxPointsFor(width: number) {
 
 function bindingFor(kind: string, device: string, keys: string[], section: BlueprintSection, item: BlueprintItem, width: number) {
   if (item.placeholder) return null
-  if (item.binding) return { ...JSON.parse(JSON.stringify(item.binding)), decimals: decimalsOf(item) }
+  if (item.binding) return { ...JSON.parse(JSON.stringify(item.binding)), decimals: decimalsOf(item), unit: item.binding.unit ?? item.unit }
   kind = item.kind || kind
   const devices = itemDevices(item)
   if (devices.length > 1 && kind !== 'aggregate' && kind !== 'deviceSummary') throw new Error('INVALID_METRIC_SCOPE')
@@ -240,29 +270,6 @@ function groupByDevice(items: BlueprintItem[]) {
   return [...groups.values()].map(list => [itemDevices(list[0])[0], list] as [string, BlueprintItem[]])
 }
 
-function widgetFor(role: SectionRole, shapeHint: string, seriesCount: number): string {
-  const viz = String(shapeHint || '').toLowerCase()
-  if (role === 'kpi') {
-    const form = String(shapeHint || '').toLowerCase()
-    if (form === 'percent') return 'PieCircle'
-    if (form === 'progress') return 'Process'
-    if (form === 'text') return 'TextCommon'
-    return 'Number'
-  }
-  if (role === 'trend') {
-    if (viz === 'bar') return 'BarCommon'
-    if (viz === 'area' || seriesCount > 1) return 'LineGradients'
-    return 'LineCommon'
-  }
-  if (role === 'distribution') {
-    if (viz === 'bar') return 'BarCrossrange'
-    return 'PieCommon'
-  }
-  if (role === 'alarmTable' || role === 'eventTable') return 'TableScrollBoard'
-  if (role === 'list') return 'TableList'
-  if (role === 'map') return 'LocationMap'
-  return 'TextCommon'
-}
 
 interface Rect { x: number; y: number; w: number; h: number }
 
@@ -353,7 +360,7 @@ function compositionSections(sections: BlueprintSection[], composition: Composit
     const fit = role === 'trend' || role === 'map' ? 5 : ['alarmTable', 'eventTable'].includes(role) ? 4 : 2
     return priorityOf(section) * 10 + fit
   }
-  const ordered = composition === 'compact' ? [...sections] : [...sections].sort((a, b) => rank(b) - rank(a))
+  const ordered = [...sections].sort((a, b) => composition === 'compact' ? priorityOf(b) - priorityOf(a) : rank(b) - rank(a))
   return ordered.map((section, index) => {
     const remaining = ordered.length - index
     const span = composition === 'overview'
@@ -416,17 +423,25 @@ export function expandBlueprint(sections: BlueprintSection[], canvas: { width: n
   // overlapping or off-canvas. Everything below is derived from one number, so
   // the sum of band heights plus gutters never exceeds the usable height.
   // Sparse status bands leave intentional whitespace outside their borders.
-  type Band = { kind: 'header' } | { kind: 'kpi' } | { kind: 'row'; row: (typeof rows)[number] }
-  const allKpis = kpis.flatMap(section => Array.isArray(section.items) ? section.items : [])
   const kpiColumns = Math.min(6, Math.max(1, Math.floor((width - GRID.padding * 2 + GRID.gutter) / 224)))
-  const kpiRows = Math.ceil(allKpis.length / kpiColumns)
-  const kpiHeight = kpiBandHeight * kpiRows + GRID.gutter * Math.max(0, kpiRows - 1)
+  const kpiGroups = kpis.map(section => {
+    const items = (Array.isArray(section.items) ? section.items : []).map(item => ({ ...item, priority: item.priority ?? section.priority ?? 0 }))
+    if (!authored) items.sort((a, b) => (b.priority || 0) - (a.priority || 0))
+    const rowCount = Math.ceil(items.length / kpiColumns)
+    const title = String(section.title || section.question || '')
+    const titleHeight = title ? 32 : 0
+    return { items, title, titleHeight, height: titleHeight + rowCount * kpiBandHeight + GRID.gutter * Math.max(0, rowCount - 1), priority: section.priority ?? Math.max(0, ...items.map(item => item.priority || 0)) }
+  }).filter(group => group.items.length)
+  if (!authored) kpiGroups.sort((a, b) => b.priority - a.priority)
+  const rankedKpis = kpiGroups.flatMap(group => group.items).slice().sort((a, b) => (b.priority || 0) - (a.priority || 0))
+  const focalKpi = !authored && rankedKpis.length > 1 && (rankedKpis[0].priority || 0) > (rankedKpis[1].priority || 0) ? rankedKpis[0] : undefined
+  type Band = { kind: 'header' } | { kind: 'kpi'; group: (typeof kpiGroups)[number] } | { kind: 'row'; row: (typeof rows)[number] }
   const bands: Band[] = []
   if (header) bands.push({ kind: 'header' })
-  if (allKpis.length) bands.push({ kind: 'kpi' })
+  for (const group of kpiGroups) bands.push({ kind: 'kpi', group })
   for (const row of rows) bands.push({ kind: 'row', row })
 
-  const fixedOf = (list: Band[]) => list.reduce((sum, band) => sum + (band.kind === 'header' ? HEADER_H : band.kind === 'kpi' ? kpiHeight : 0), 0)
+  const fixedOf = (list: Band[]) => list.reduce((sum, band) => sum + (band.kind === 'header' ? HEADER_H : band.kind === 'kpi' ? band.group.height : 0), 0)
   const flexOf = (list: Band[]) => height - GRID.padding * 2 - GRID.gutter * Math.max(0, list.length - 1) - fixedOf(list)
   const bodyRows = (list: Band[]) => list.filter(band => band.kind === 'row').length
 
@@ -439,7 +454,7 @@ export function expandBlueprint(sections: BlueprintSection[], canvas: { width: n
   const weights = plannedRows.map((row, index) => {
     const weight = Math.max(...row.sections.map(section => ROLE_WEIGHT[roleOf(section) || 'trend'] + clamp(Number(section.priority) || 0, 0, 3) * 2), 1)
     if (authored) return weight
-    if (composition === 'compact') return 1
+    if (composition === 'compact') return 1 + Math.max(...row.sections.map(section => clamp(Number(section.priority) || 0, 0, 3)))
     return index === 0 ? weight * (composition === 'overview' ? 1.5 : 1.25) : weight
   })
   const heights: number[] = []
@@ -538,13 +553,13 @@ export function expandBlueprint(sections: BlueprintSection[], canvas: { width: n
     y += HEADER_H + GRID.gutter
   }
 
-  if (planned.some(band => band.kind === 'kpi')) {
-    const visible = allKpis
-    // One shared caption for the strip: several kpi sections collapse into a
-    // single row, so only the first title survives rather than stacking headers.
-    const stripTitle = String(kpis[0]?.title || '').slice(0, 60)
-    let bodyY = y
-    let bodyH = kpiBandHeight
+  for (const group of kpiGroups) {
+    const visible = group.items
+    // Business groups retain their captions and row boundaries. A high-priority
+    // item may move within its group, never into another question's strip.
+    const stripTitle = group.title
+    const bodyY = y + group.titleHeight
+    const bodyH = kpiBandHeight
     if (stripTitle) {
       operations.push({
         type: 'add',
@@ -557,28 +572,43 @@ export function expandBlueprint(sections: BlueprintSection[], canvas: { width: n
         title: stripTitle,
         theme: { variant: 'label', option: { dataset: stripTitle, fontSize: 12, letterSpacing: 1, textAlign: 'left', paddingX: 0 } }
       })
-      bodyY += 24
-      bodyH -= 24
     }
     const count = Math.min(kpiColumns, visible.length) || 1
-    const cellW = Math.floor((fullWidth - GRID.gutter * (count - 1)) / count)
-    const labelH = 24
+    const cells: { x: number; w: number }[] = []
+    for (let start = 0; start < visible.length; start += count) {
+      const rowItems = visible.slice(start, start + count)
+      const available = fullWidth - GRID.gutter * (rowItems.length - 1)
+      // Enlarge a unique primary metric only as far as peer labels stay readable.
+      const focalWeight = Math.max(1, Math.min(2, available / 208 - (rowItems.length - 1)))
+      const weights = rowItems.map(item => item === focalKpi ? focalWeight : 1)
+      const total = weights.reduce((sum, weight) => sum + weight, 0)
+      let consumed = 0
+      rowItems.forEach((_, at) => {
+        const left = Math.round(available * consumed / total / 8) * 8
+        consumed += weights[at]
+        const right = at === rowItems.length - 1 ? available : Math.round(available * consumed / total / 8) * 8
+        cells.push({ x: GRID.padding + left + GRID.gutter * at, w: right - left })
+      })
+    }
+    const labelH = 48
     visible.forEach((item, index) => {
       const device = itemDevices(item)[0]
       const keys = itemKeys(item)
-      const title = String(item?.label || '').slice(0, 40)
-      const unit = String(item?.unit || '').slice(0, 12)
+      const title = String(item?.label || '')
+      const caption = title.includes(' · ') ? title.split(' · ').slice(1).join(' · ') : title
+      const unit = String(item?.binding?.unit ?? item?.unit ?? '')
       if (!item.binding && !item.placeholder && (!device || !keys.length && item.kind !== 'deviceSummary')) {
         notes.push(`KPI "${title}" has no device/key and was skipped`)
         return
       }
-      const key = item.placeholder ? 'TextCommon' : widgetFor('kpi', String(item.form || ''), 1)
-      const kind = item.binding?.kind || item.kind || (itemDevices(item).length > 1 || item.aggregate ? 'aggregate' : kindsOf(key).includes('point') ? 'point' : kindsOf(key)[0])
+      const cellX = cells[index].x
+      const cellWidth = cells[index].w
+      const valueH = bodyH - labelH - 32
+      const kind = item.binding?.kind || item.kind || (itemDevices(item).length > 1 || item.aggregate ? 'aggregate' : 'point')
+      const key = item.placeholder ? 'TextCommon' : selectPresentation({ role: 'kpi', task: item.task, hint: item.form, width: cellWidth - 32, height: valueH, kind })
+      if (item.form === 'percent' && key !== 'PieCircle') notes.push(english ? `"${title}" uses a number because the ring would be too small.` : `“${title}”改用数字显示，当前区域不足以清晰显示环图。`)
       if (!item.placeholder && kind !== 'dataset' && !kindsOf(key).includes(kind)) throw new Error('INVALID_METRIC_KIND')
-      const column = index % count
       const cellY = bodyY + Math.floor(index / count) * (kpiBandHeight + GRID.gutter)
-      const cellX = GRID.padding + column * (cellW + GRID.gutter)
-      const cellWidth = column === count - 1 ? width - GRID.padding - cellX : cellW
       operations.push({ type: 'add', id: nextId('kpicard', taken), key: 'Border06', x: cellX, y: cellY, w: cellWidth, h: bodyH, title, theme: { tone: item?.tone } })
       // The caption is its own element: folding it into the widget's prefixText
       // renders it at the value's size, which turns a KPI strip into a wall of
@@ -592,9 +622,9 @@ export function expandBlueprint(sections: BlueprintSection[], canvas: { width: n
         w: cellWidth - 32,
         h: labelH,
         title,
-        theme: { variant: 'metricLabel', option: { dataset: title, fontSize: 13, letterSpacing: 1, textAlign: 'center', paddingX: 0 } }
+        theme: { variant: 'metricLabel', option: { dataset: caption, fontSize: 13, letterSpacing: 1, textAlign: 'center', paddingX: 0 } }
       })
-      const valueH = bodyH - labelH - 32
+      const emphasis = !focalKpi || item === focalKpi ? 1 : 0.8
       operations.push({
         type: 'add',
         id: nextId('kpi', taken),
@@ -605,14 +635,14 @@ export function expandBlueprint(sections: BlueprintSection[], canvas: { width: n
         h: valueH,
         title,
         option: key === 'Number'
-          ? { prefixText: '', suffixText: unit ? ` ${unit}` : '', precision: decimalsOf(item), numberSize: clamp(Math.round(valueH * 0.62), 36, 72) }
+          ? { prefixText: '', suffixText: unit ? ` ${unit}` : '', precision: decimalsOf(item), numberSize: Math.round(clamp(Math.round(valueH * 0.62), 36, 72) * emphasis) }
           : key === 'Process' ? { type: 'line', indicatorPlacement: 'inside' }
           : { dataset: item.placeholder ? '—' : title },
-        binding: bindingFor(kind, device, keys, item as any, item, cellW),
-        theme: { tone: item?.tone, variant: key === 'TextCommon' ? 'value' : 'metricLabel', ...(key === 'TextCommon' ? { option: { fontSize: clamp(Math.round(valueH * 0.6), 28, 48), fontWeight: '600', textAlign: 'center', paddingX: 0 } } : {}) }
+        binding: bindingFor(kind, device, keys, item as any, item, cellWidth),
+        theme: { tone: item?.tone, variant: key === 'TextCommon' ? 'value' : 'metricLabel', ...(key === 'TextCommon' ? { option: { fontSize: Math.round(clamp(Math.round(valueH * 0.6), 28, 48) * emphasis), fontWeight: '600', textAlign: 'center', paddingX: 0 } } : {}) }
       })
     })
-    y += kpiHeight + GRID.gutter
+    y += group.height + GRID.gutter
   }
 
   plannedRows.forEach((row, index) => {
@@ -636,7 +666,7 @@ export function expandBlueprint(sections: BlueprintSection[], canvas: { width: n
           w: rect.w,
           h: TITLE_H - 8,
           title: sectionTitle,
-          theme: { variant: 'title', option: { dataset: sectionTitle, fontSize: 16, letterSpacing: 0.5, textAlign: 'left', paddingX: 0 } }
+          theme: { variant: 'title', option: { dataset: sectionTitle, fontSize: (section.priority || 0) >= 3 ? 20 : 16, letterSpacing: 0.5, textAlign: 'left', paddingX: 0 } }
         })
         operations.push({ type: 'add', id: nextId('sectionrule', taken), key: 'Decorates02', x: rect.x, y: rect.y + TITLE_H - 4, w: rect.w, h: 4, title: '', theme: { tone: role === 'alarmTable' ? 'warning' : role === 'statusWall' ? 'success' : 'primary' } })
         bodyY += TITLE_H
@@ -754,7 +784,7 @@ export function expandBlueprint(sections: BlueprintSection[], canvas: { width: n
       }
 
       if (role === 'alarmTable' || role === 'eventTable' || role === 'list') {
-        const key = widgetFor(role, '', 1)
+        const key = selectPresentation({ role, task: section.task, width: rect.w, height: bodyH, kind: section.binding?.kind })
         const supportsAlarms = kindsOf(key).includes('alarmList')
         const sectionDevices = uniqBy([...(section.devices || []), ...items.flatMap(itemDevices)])
         const keys = uniqBy(items.flatMap(itemKeys))
@@ -852,7 +882,7 @@ export function expandBlueprint(sections: BlueprintSection[], canvas: { width: n
           return
         }
         const viz = String(group[0]?.viz || section.viz || '').toLowerCase()
-        const key = group[0]?.placeholder ? 'TextCommon' : widgetFor(role, viz, keys.length)
+        const key = group[0]?.placeholder ? 'TextCommon' : selectPresentation({ role, task: group[0]?.task || section.task, hint: viz, seriesCount: keys.length, categoryCount: group[0]?.categoryCount, width: rect.w, height: sliceH, kind: group[0]?.binding?.kind || group[0]?.kind })
         const kind = group[0]?.binding?.kind || group[0]?.kind || (group[0]?.aggregate ? 'aggregate' : kindsOf(key).includes('history') ? 'history' : kindsOf(key)[0])
         if (!group[0]?.placeholder && kind !== 'dataset' && !kindsOf(key).includes(kind)) throw new Error('INVALID_METRIC_KIND')
         if (kind === 'aggregate' && keys.length !== 1) throw new Error('INVALID_METRIC_SCOPE')
@@ -881,6 +911,10 @@ export function expandBlueprint(sections: BlueprintSection[], canvas: { width: n
   // colliding elements is dropped and reported instead of rejecting everything.
   const kept: LayoutOperation[] = []
   for (const operation of operations) {
+    if (operation.key === 'TextCommon' && !operation.binding) {
+      const option = operation.theme?.option
+      if (option?.dataset != null) option.dataset = fitStaticText(option.dataset, operation.w, operation.h, option.fontSize || 14, option.letterSpacing || 0, option.paddingX || 0, option.paddingY || 0)
+    }
     if (operation.key !== 'Border06' && kept.some(other => other.key !== 'Border06' && Math.min(other.x + other.w, operation.x + operation.w) - Math.max(other.x, operation.x) > 2 && Math.min(other.y + other.h, operation.y + operation.h) - Math.max(other.y, operation.y) > 2)) throw new Error('LAYOUT_OVERLAP')
     kept.push(operation)
   }

@@ -21,7 +21,7 @@ func screenAssistantComposeApproved(doc screen.Envelope, selected []screenAssist
 	}
 	sections := []interface{}{map[string]interface{}{"role": "header", "title": title}}
 	ordered := append([]screenAssistantMetricCandidate(nil), selected...)
-	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Metric.Priority < ordered[j].Metric.Priority })
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Metric.Priority > ordered[j].Metric.Priority })
 	var kpi map[string]interface{}
 	for _, c := range ordered {
 		if !c.Supported {
@@ -44,9 +44,6 @@ func screenAssistantComposeApproved(doc screen.Envelope, selected []screenAssist
 				items = nil
 			}
 			form := "count"
-			if c.Unit == "%" {
-				form = "percent"
-			}
 			kpi["items"] = append(items, map[string]interface{}{"metricId": c.ID, "label": c.Label, "form": form, "precision": 2})
 			continue
 		}
