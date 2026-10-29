@@ -194,17 +194,7 @@
     <!-- SubDevice/Self Point Mapping (Requires available polling groups) -->
     <div v-if="(strategy === 'GatewayPolling' && (availablePollingGroups.length > 0 || localCollectionMode === 'auto')) || strategy === 'DirectAccess'">
       
-      <ul class="nav nav-tabs mb-3">
-        <li class="nav-item">
-          <a class="nav-link" :class="{ active: activeTab === 'properties' }" href="#" @click.prevent="activeTab = 'properties'">{{ $t('tsl_properties') }}</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" :class="{ active: activeTab === 'events' }" href="#" @click.prevent="activeTab = 'events'">{{ $t('tsl_events') }}</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" :class="{ active: activeTab === 'online' }" href="#" @click.prevent="activeTab = 'online'">{{ $t('online_status_config') }}</a>
-        </li>
-      </ul>
+      <AppTabs v-model="activeTab" :label="$t('tsl_properties')" :items="[{ value: 'properties', label: $t('tsl_properties') }, { value: 'events', label: $t('tsl_events') }, { value: 'online', label: $t('online_status_config') }]" />
 
       <!-- Properties Tab -->
       <div v-if="activeTab === 'properties'">
@@ -1067,6 +1057,7 @@
 </template>
 
 <script setup>
+import AppTabs from '@/components/AppTabs.vue';
 import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import SchemaForm from '../SchemaForm.vue';

@@ -10,17 +10,7 @@
           </div>
           <div class="modal-body d-flex flex-column device-data-modal__body">
             <!-- Tabs -->
-            <ul class="nav nav-tabs mb-3">
-              <li class="nav-item">
-                <a class="nav-link" :class="{ active: activeTab === 'realtime' }" href="#" @click.prevent="activeTab = 'realtime'">{{ $t('dev_data_realtime') }}</a>
-              </li>
-              <li class="nav-item">
-                <a class="nav-link" :class="{ active: activeTab === 'history' }" href="#" @click.prevent="activeTab = 'history'">{{ $t('dev_data_history') }}</a>
-              </li>
-              <li class="nav-item">
-                <a class="nav-link" :class="{ active: activeTab === 'services' }" href="#" @click.prevent="activeTab = 'services'">服务调用</a>
-              </li>
-            </ul>
+            <AppTabs v-model="activeTab" :label="$t('dev_data_title')" :items="[{ value: 'realtime', label: $t('dev_data_realtime') }, { value: 'history', label: $t('dev_data_history') }, { value: 'services', label: $t('tsl_services') }]" />
 
             <!-- Realtime Tab -->
             <div v-if="activeTab === 'realtime'" class="flex-grow-1 device-data-modal__realtime">
@@ -276,6 +266,7 @@
 </template>
 
 <script setup>
+import AppTabs from '@/components/AppTabs.vue';
 import { ref, computed, watch, onUnmounted } from 'vue';
 import axios from 'axios';
 import { useI18n } from 'vue-i18n';

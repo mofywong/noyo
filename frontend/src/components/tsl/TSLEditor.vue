@@ -1,27 +1,8 @@
 <template>
   <div class="d-flex flex-column h-100">
-    <ul class="nav nav-tabs mb-3">
-      <li class="nav-item">
-        <button class="nav-link" :class="{ active: activeTab === 'properties' }" @click="activeTab = 'properties'">
-          {{ $t('tsl_properties') }}
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" :class="{ active: activeTab === 'events' }" @click="activeTab = 'events'">
-          {{ $t('tsl_events') }}
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" :class="{ active: activeTab === 'services' }" @click="activeTab = 'services'">
-          {{ $t('tsl_services') }}
-        </button>
-      </li>
-      <li class="nav-item ms-auto">
-        <button data-dialog-confirm class="btn btn-sm btn-outline-primary" @click="$emit('save')">
-          <i class="bi bi-save me-1"></i> {{ $t('tsl_save') }}
-        </button>
-      </li>
-    </ul>
+    <AppTabs v-model="activeTab" :label="$t('tsl_properties')" :items="[{ value: 'properties', label: $t('tsl_properties') }, { value: 'events', label: $t('tsl_events') }, { value: 'services', label: $t('tsl_services') }]">
+      <template #actions><button data-dialog-confirm type="button" class="btn btn-sm btn-outline-primary" @click="$emit('save')"><i class="bi bi-save me-1" aria-hidden="true"></i>{{ $t('tsl_save') }}</button></template>
+    </AppTabs>
 
     <div class="flex-grow-1 overflow-auto">
       <div v-if="activeTab === 'properties'">
@@ -43,6 +24,7 @@
 </template>
 
 <script setup>
+import AppTabs from '@/components/AppTabs.vue';
 import { ref } from 'vue';
 import TSLPropertyEditor from './TSLPropertyEditor.vue';
 import TSLEventEditor from './TSLEventEditor.vue';

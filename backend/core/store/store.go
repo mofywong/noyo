@@ -235,6 +235,12 @@ var superAdminDefaultPermissionCodes = map[string]bool{
 	"tenant:edit":            true,
 	"tenant:delete":          true,
 	"dashboard:view":         true,
+	"screen:list":            true,
+	"screen:view":            true,
+	"screen:create":          true,
+	"screen:edit":            true,
+	"screen:publish":         true,
+	"screen:delete":          true,
 	"audit:list":             true,
 	"llm_request:list":       true,
 	"system:logs":            true,
@@ -264,6 +270,13 @@ var superAdminDefaultPermissionCodes = map[string]bool{
 	"alarm:manage":           true,
 	"alarm:export":           true,
 	"ai_scene:list":          true,
+	"inspection:list":        true,
+	"inspection:manage":      true,
+	"inspection:execute":     true,
+	"inspection:order":       true,
+	"inspection:export":      true,
+	"inspection:review":      true,
+	"inspection:archive":     true,
 	"ai_scene:edit":          true,
 	"semantic_review:list":   true,
 	"ai_model:list":          true,
@@ -393,6 +406,13 @@ func InitPermissions() {
 		{Code: "plugin:config", Name: "配置插件", Module: "plugin", Type: "button"},
 		// Independent AI capabilities; custom roles and custom scope limits opt in.
 		{Code: "ai_scene:list", Name: "AI场景 / AI scenes", Module: "ai_scene", Type: "menu"},
+		{Code: "inspection:list", Name: "视频巡检 / Video inspection", Module: "inspection", Type: "menu"},
+		{Code: "inspection:manage", Name: "管理巡检计划 / Manage inspection plans", Module: "inspection", Type: "button"},
+		{Code: "inspection:execute", Name: "执行巡检 / Execute inspections", Module: "inspection", Type: "button"},
+		{Code: "inspection:order", Name: "巡检建单 / Create inspection work orders", Module: "inspection", Type: "button"},
+		{Code: "inspection:export", Name: "导出巡检报告 / Export inspection reports", Module: "inspection", Type: "button"},
+		{Code: "inspection:review", Name: "复核巡检发现 / Review inspection findings", Module: "inspection", Type: "button"},
+		{Code: "inspection:archive", Name: "归档巡检报告 / Archive inspection reports", Module: "inspection", Type: "button"},
 		{Code: "ai_scene:edit", Name: "配置AI场景 / Configure AI scenes", Module: "ai_scene", Type: "button"},
 		{Code: "semantic_review:list", Name: "语义复核记录 / Semantic reviews", Module: "semantic_review", Type: "menu"},
 		{Code: "ai_model:list", Name: "模型中心 / Model center", Module: "ai_model", Type: "menu"},
@@ -627,7 +647,7 @@ func shouldGrantProjectAdminPermission(perm Permission) bool {
 		return false
 	}
 	switch perm.Module {
-	case "user", "role", "product", "device", "device_tag", "gateway", "alarm", "rule", "work_order", "plugin", "ai_brain", "ai_scene", "semantic_review", "ai_model", "ai_assistant", "device_map", "geofence":
+	case "user", "role", "product", "device", "device_tag", "gateway", "alarm", "rule", "work_order", "plugin", "ai_brain", "ai_scene", "inspection", "semantic_review", "ai_model", "ai_assistant", "device_map", "geofence", "screen":
 		return true
 	default:
 		return false

@@ -569,7 +569,10 @@ func (e *platformEngineImpl) handleCommandReply(client mqtt.Client, msg mqtt.Mes
 		return
 	}
 	if ch, ok := e.pendingCmds.Load(id); ok {
-		ch.(chan map[string]interface{}) <- reply
+		select {
+		case ch.(chan map[string]interface{}) <- reply:
+		default:
+		}
 	}
 }
 

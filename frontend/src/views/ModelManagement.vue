@@ -5,9 +5,7 @@
       <LiquidGlassButton variant="outline-secondary" size="sm" icon="bi bi-arrow-clockwise" :loading="loading" :disabled="loading || !!busy" @click="refreshCatalog">{{ copy.refresh }}</LiquidGlassButton>
     </div>
     <div class="model-content">
-      <nav class="model-tabs" :aria-label="copy.tabs">
-        <button v-for="tab in visibleTabs" :key="tab.id" type="button" class="model-tab" :class="{ 'model-tab--active': activeTab === tab.id }" :aria-pressed="activeTab === tab.id" @click="switchTab(tab.id)">{{ copy[tab.key] }}</button>
-      </nav>
+      <AppTabs :model-value="activeTab" :label="copy.tabs" :items="visibleTabs.map(tab => ({ value: tab.id, label: copy[tab.key] }))" @update:model-value="switchTab" />
       <div v-if="error" class="model-feedback model-feedback--danger" role="alert">{{ errorText }}</div>
 
       <template v-if="activeTab === 'capabilities'">
@@ -21,7 +19,7 @@
       <template v-else>
         <div class="model-library-tools">
           <div class="model-filters" role="group" :aria-label="copy.colState">
-            <button v-for="filter in libraryFilters" :key="filter" type="button" class="model-tab" :class="{ 'model-tab--active': libraryFilter === filter }" :aria-pressed="libraryFilter === filter" @click="libraryFilter = filter">{{ copy[filter] }}</button>
+            <button v-for="filter in libraryFilters" :key="filter" type="button" class="btn btn-sm btn-outline-secondary" :class="{ active: libraryFilter === filter }" :aria-pressed="libraryFilter === filter" @click="libraryFilter = filter">{{ copy[filter] }}</button>
           </div>
           <input v-model.trim="search" class="form-control form-control-sm model-search" type="search" :placeholder="copy.libSearch" :aria-label="copy.libSearch">
           <LiquidGlassButton v-if="catalog.canManage" variant="primary" size="sm" icon="bi bi-box-arrow-in-down" :disabled="!!busy" :aria-expanded="updateOpen" aria-controls="model-update" @click="updateOpen = !updateOpen">{{ updateOpen ? copy.closeUpdate : copy.updateModels }}</LiquidGlassButton>
@@ -51,6 +49,7 @@
 </template>
 
 <script setup>
+import AppTabs from '@/components/AppTabs.vue';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
@@ -387,12 +386,7 @@ onUnmounted(() => {
 .model-center-page { padding: 24px; min-width: 0; }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
 .model-content { flex: 1; min-height: 0; min-width: 0; overflow-y: auto; padding-bottom: 24px; }
-.model-tabs, .model-filters { display: flex; flex-wrap: wrap; gap: 8px; }
-.model-tabs { margin-bottom: 24px; }
-.model-tab { padding: 8px 16px; border: 1px solid var(--border-color); border-radius: var(--radius-control); background: var(--bg-surface); color: var(--text-secondary); cursor: pointer; }
-.model-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
-.model-tab--active { background: var(--color-brand-subtle); color: var(--color-brand); border-color: var(--color-brand); }
-.model-tab:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.model-filters { display: flex; flex-wrap: wrap; gap: 8px; }
 .model-capability-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 16px; }
 .model-library-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
 .model-search { flex: 1 1 240px; width: auto; min-width: 0; }

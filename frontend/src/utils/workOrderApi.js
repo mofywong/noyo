@@ -26,6 +26,13 @@ function getWorkOrder(url, config) {
   return requestWorkOrderRead(() => axios.get(url, config))
 }
 
+export function checkedWorkOrderResponse(response) {
+  if (response.data?.code !== 0) throw new Error(response.data?.message || 'Work order operation failed')
+  return response
+}
+
+const operation = request => request.then(checkedWorkOrderResponse)
+
 export const workOrderApi = {
   list(params) { return getWorkOrder('/api/work-orders', { params }) },
   detail(id) { return Promise.all([getWorkOrder(`/api/work-orders/${id}`), getWorkOrder(`/api/work-orders/${id}/events`), getWorkOrder(`/api/work-orders/${id}/approval-tasks`), getWorkOrder(`/api/work-orders/${id}/tasks`)]) },
@@ -33,6 +40,23 @@ export const workOrderApi = {
   template(id) { return getWorkOrder(`/api/work-order-templates/${id}`) },
 	copyTemplate(id) { return axios.post(`/api/work-order-templates/${id}/copy`) },
   participants(params = { page: 1, page_size: 100 }) { return getWorkOrder('/api/work-order-participants', { params }) },
+  policies() { return operation(getWorkOrder('/api/work-order-policies')) },
+  policyVersion(id) { return operation(getWorkOrder(`/api/work-order-policy-versions/${id}`)) },
+  publishPolicy(id, payload) { return operation(axios.post(id ? `/api/work-order-policies/${id}/publish` : '/api/work-order-policies', payload)) },
+  enablePolicy(id,payload) { return operation(axios.post(`/api/work-order-policies/${id}/enabled`,payload)) },
+  previewPolicy(id,payload) { return operation(axios.post(`/api/work-order-policy-versions/${id}/preview`,payload)) },
+  executionGrants() { return operation(getWorkOrder('/api/work-order-execution-grants')) },
+  createExecutionGrant(payload) { return operation(axios.post('/api/work-order-execution-grants',payload)) },
+  revokeExecutionGrant(id,reason) { return operation(axios.post(`/api/work-order-execution-grants/${id}/revoke`,{reason})) },
+  operationsSummary() { return operation(getWorkOrder('/api/work-order-operations/summary')) },
+  failedDeliveries() { return operation(getWorkOrder('/api/work-order-operations/failed-deliveries')) },
+  recoverDelivery(id,payload) { return operation(axios.post(`/api/work-order-operations/deliveries/${id}/recover`,payload)) },
+  claimTask(id,taskID,version) { return operation(axios.post(`/api/work-orders/${id}/tasks/${taskID}/claim`,{expected_version:version})) },
+  sla(id) { return operation(getWorkOrder(`/api/work-orders/${id}/sla`)) },
+  pauseSLA(id,payload) { return operation(axios.post(`/api/work-orders/${id}/sla/pause`,payload)) },
+  assignmentRoles() { return getWorkOrder('/api/work-order-assignment-roles') },
+  assignmentBlocks(id) { return getWorkOrder(`/api/work-orders/${id}/assignment-blocks`) },
+  dispatchNode(id, instanceID, payload) { return axios.post(`/api/work-orders/${id}/assignment-blocks/${instanceID}/dispatch`, payload) },
   createTemplate(payload) { return axios.post('/api/work-order-templates', payload) },
   publishForm(id, definition) { return axios.post(`/api/work-order-templates/${id}/form-versions`, { definition }) },
   publishWorkflow(id, definition) { return axios.post(`/api/work-order-templates/${id}/workflow-versions`, { definition }) },

@@ -13,6 +13,9 @@ import (
 func pluginHTTPPermissions(route, method string) ([]string, []string) {
 	route = path.Clean(route)
 	switch {
+	case strings.HasPrefix(route, "/api/plugins/video_inspection/"):
+		// The inspection plugin enforces action, project and per-camera scope.
+		return nil, nil
 	case strings.HasPrefix(route, "/api/extension/cascade/") || strings.HasPrefix(route, "/api/plugins/ai_brain/"):
 		return nil, nil
 	case strings.HasPrefix(route, "/api/plugins/yolo_pro/"):

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"noyo/core"
+	"noyo/core/inspection"
 	"noyo/core/platform"
 	"noyo/core/store"
 	"noyo/core/system"
@@ -670,6 +671,26 @@ func (e *gatewayEngineImpl) handleCommand(client mqtt.Client, msg mqtt.Message) 
 		defer e.configMutationMu.Unlock()
 		reply["code"] = 409
 		reply["message"] = "Configuration writes require durable synchronization"
+		goto SEND_REPLY
+	}
+	if cmd.Method == "video_inspection" {
+		var request inspection.RemoteCommand
+		body, err := json.Marshal(cmd.Params)
+		if err != nil || len(body) > 512*1024 || json.Unmarshal(body, &request) != nil || request.Gateway != e.gatewayCode || !e.isRegistered.Load() {
+			reply["code"], reply["message"] = 403, "inspection_gateway_denied"
+			goto SEND_REPLY
+		}
+		handler, ok := e.ctx.GetPlugin("video_inspection").(inspection.RemoteHandler)
+		if !ok {
+			reply["code"], reply["message"] = 503, "inspection_unavailable"
+			goto SEND_REPLY
+		}
+		data, err := handler.HandleInspectionCommand(request)
+		if err != nil {
+			reply["code"], reply["message"] = 409, err.Error()
+		} else {
+			reply["data"] = data
+		}
 		goto SEND_REPLY
 	}
 

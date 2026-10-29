@@ -20,14 +20,14 @@
                 <div class="graph-node__title d-flex align-items-center gap-2">
                   <i :class="nodeIcon(props.data)"></i> {{ props.data.name || nodeTypeLabel(props.data.type) }}
                 </div>
-                <button v-if="!readonly && !['start','end'].includes(props.data.type)" class="graph-node__delete" type="button" title="删除节点" aria-label="删除节点" @click.stop="removeNodeById(props.id)">
+                <button v-if="!readonly && !['start','end'].includes(props.data.type)" class="graph-node__delete" type="button" :title="tr('删除节点', 'Delete node')" :aria-label="tr('删除节点', 'Delete node')" @click.stop="removeNodeById(props.id)">
                   <i class="bi bi-trash"></i>
                 </button>
               </div>
               <div class="graph-node__detail">{{ nodeMeta(props.data) || '-' }}</div>
               <div class="graph-node__badges">
                 <span class="graph-badge">{{ nodeTypeLabel(props.data.type) }}</span>
-                <span v-if="props.data.type === 'user_task'" class="graph-badge">{{ props.data.completion_mode === 'all' ? '会签' : '或签' }}</span>
+                <span v-if="props.data.type === 'user_task'" class="graph-badge">{{ props.data.completion_mode === 'all' ? tr('全部完成', 'All must complete') : tr('任一人完成', 'Any one completes') }}</span>
               </div>
               
               <Handle v-if="props.data.type !== 'start'" type="target" :position="Position.Top" />
@@ -55,13 +55,13 @@
                 }"
                 class="edge-insert-wrapper"
               >
-                <button class="btn btn-sm btn-light rounded-circle shadow-sm edge-insert-btn" @click.stop="toggleEdgeDropdown(props.id)">
+                <button class="btn btn-sm btn-light rounded-circle shadow-sm edge-insert-btn" :aria-label="tr('添加节点', 'Add node')" @click.stop="toggleEdgeDropdown(props.id)">
                   <i class="bi bi-plus"></i>
                 </button>
                 <ul class="dropdown-menu shadow-sm" :class="{ show: activeEdgeDropdown === props.id }" style="position:absolute; top: 100%; left: 50%; transform: translateX(-50%); z-index: 1000;">
-                  <li><a class="dropdown-item" href="#" @click.prevent="insertNodeOnEdge(props, 'user_task')"><i class="bi bi-person-gear me-2 text-primary"></i>添加处理任务</a></li>
-                  <li><a class="dropdown-item" href="#" @click.prevent="insertNodeOnEdge(props, 'cc_task')"><i class="bi bi-send me-2 text-info"></i>添加抄送节点</a></li>
-                  <li v-if="canInsertParallelOnEdge(props.id)"><a class="dropdown-item" href="#" @click.prevent="insertNodeOnEdge(props, 'parallel_split')"><i class="bi bi-diagram-3 me-2 text-purple"></i>添加并行分支</a></li>
+                  <li><a class="dropdown-item" href="#" @click.prevent="insertNodeOnEdge(props, 'user_task')"><i class="bi bi-person-gear me-2 text-primary"></i>{{ tr('添加处理任务', 'Add handling task') }}</a></li>
+                  <li><a class="dropdown-item" href="#" @click.prevent="insertNodeOnEdge(props, 'cc_task')"><i class="bi bi-send me-2 text-info"></i>{{ tr('添加抄送节点', 'Add CC node') }}</a></li>
+                  <li v-if="canInsertParallelOnEdge(props.id)"><a class="dropdown-item" href="#" @click.prevent="insertNodeOnEdge(props, 'parallel_split')"><i class="bi bi-diagram-3 me-2 text-primary"></i>{{ tr('添加并行分支', 'Add parallel branches') }}</a></li>
                 </ul>
               </div>
             </EdgeLabelRenderer>
@@ -75,71 +75,87 @@
       <aside v-if="showProperties" class="workflow-properties" :class="{ 'is-empty': !selectedNode }">
         <template v-if="selectedNode">
           <div class="d-flex justify-content-between align-items-center mb-3">
-            <h6 class="mb-0">节点设置</h6>
+            <h6 class="mb-0">{{ tr('节点设置', 'Node settings') }}</h6>
             <span class="badge text-bg-light">{{ nodeTypeLabel(selectedNode.type) }}</span>
           </div>
           
           <div v-if="!['start', 'end', 'parallel_split', 'parallel_join'].includes(selectedNode.type)" class="mb-3">
-            <label class="form-label small">节点名称</label>
+            <label class="form-label small">{{ tr('节点名称', 'Node name') }}</label>
             <input v-model.trim="selectedNode.name" class="form-control form-control-sm" :disabled="readonly">
           </div>
 
           <template v-if="selectedNode.type === 'user_task' || selectedNode.type === 'cc_task'">
             <template v-if="selectedNode.type === 'user_task'">
               <div class="mb-3">
-                <label class="form-label small">任务类型</label>
+                <label class="form-label small">{{ tr('任务类型', 'Task type') }}</label>
                 <select v-model="selectedNode.task_kind" class="form-select form-select-sm" :disabled="readonly" @change="ensureRejectTarget">
-                  <option value="handle">处理任务</option>
-                  <option value="approve">审批任务</option>
+                  <option value="handle">{{ tr('处理任务', 'Handling task') }}</option>
+                  <option value="approve">{{ tr('审批任务', 'Approval task') }}</option>
                 </select>
               </div>
               <div class="mb-3">
-                <label class="form-label small">完成方式</label>
+                <label class="form-label small">{{ tr('完成方式', 'Completion mode') }}</label>
                 <select v-model="selectedNode.completion_mode" class="form-select form-select-sm" :disabled="readonly">
-                  <option value="any">任一人完成（或签）</option>
-                  <option value="all">全部完成（会签）</option>
+                  <option value="any">{{ tr('任一人完成（或签）', 'Any one member completes') }}</option>
+                  <option value="all">{{ tr('全部完成（会签）', 'All members must complete') }}</option>
                 </select>
               </div>
               <div v-if="selectedNode.task_kind === 'approve'" class="mb-3">
-                <label class="form-label small">驳回后返回节点</label>
+                <label class="form-label small">{{ tr('驳回后返回节点', 'Return node on rejection') }}</label>
                 <select v-model="selectedNode.reject_target_node_id" class="form-select form-select-sm" :disabled="readonly">
-                  <option value="">无可返回的前置任务</option>
+                  <option value="">{{ tr('无可返回的前置任务', 'No previous task available') }}</option>
                   <option v-for="node in rejectTargetNodes" :key="node.id" :value="node.id">{{ node.name || node.id }}</option>
                 </select>
               </div>
             </template>
-            <div>
+            <div v-if="selectedNode.type === 'user_task'" class="mb-3">
+              <label class="form-label small">{{ tr('分派方式', 'Assignment mode') }}</label>
+              <select :value="selectedNode.assignment?.kind || 'fixed_users'" class="form-select form-select-sm" :disabled="readonly" @change="setWorkOrderAssignmentMode(selectedNode, $event.target.value)">
+                <option value="fixed_users">{{ tr('指定项目成员', 'Fixed project members') }}</option>
+                <option value="project_role">{{ tr('按项目角色', 'Project role') }}</option>
+              </select>
+            </div>
+            <div v-if="selectedNode.type === 'user_task' && selectedNode.assignment?.kind === 'project_role'">
+              <label class="form-label small">{{ tr('处理角色', 'Assignee role') }}</label>
+              <select v-model.number="selectedNode.assignment.role_id" class="form-select form-select-sm" :disabled="readonly || participantsLoading">
+                <option :value="0" disabled>{{ tr('请选择角色', 'Select a role') }}</option>
+                <option v-for="role in assignmentRoles" :key="role.id" :value="role.id">{{ role.name }} · {{ role.code }}</option>
+                <option v-if="selectedNode.assignment.role_id && !assignmentRoles.some(role => role.id === selectedNode.assignment.role_id)" :value="selectedNode.assignment.role_id">{{ tr('历史角色', 'Saved role') }} #{{ selectedNode.assignment.role_id }}</option>
+              </select>
+              <p class="small text-body-secondary mt-2 mb-0">{{ tr('节点激活时解析该角色的有效成员；无人可派时进入待分派。成员变化不会改动已分派任务。', 'Active role members are resolved when this node starts. No available member leaves it pending assignment. Membership changes do not alter assigned tasks.') }}</p>
+            </div>
+            <div v-else>
               <label class="form-label small d-flex justify-content-between">
-                <span>{{ selectedNode.type === 'cc_task' ? '抄送给' : '项目成员' }}</span>
+                <span>{{ selectedNode.type === 'cc_task' ? tr('抄送给', 'CC recipients') : tr('项目成员', 'Project members') }}</span>
                 <span v-if="participantsLoading" class="spinner-border spinner-border-sm"></span>
               </label>
               <div class="participant-picker">
                 <div class="p-2 border-bottom sticky-top bg-body" style="z-index: 10;">
-                  <input v-model.trim="participantSearchKeyword" type="text" class="form-control form-control-sm" placeholder="搜索成员名称或账号...">
+                  <input v-model.trim="participantSearchKeyword" type="text" class="form-control form-control-sm" :placeholder="tr('搜索成员名称或账号…', 'Search name or username…')">
                 </div>
                 <label v-for="participant in filteredParticipants" :key="participant.id" class="participant-option">
                   <input type="checkbox" :checked="participantSelected(participant.id)" :disabled="readonly" @change="toggleParticipant(participant.id)">
                   <span>{{ participant.display_name || participant.username }}</span>
                   <small>{{ participant.username }}</small>
                 </label>
-                <div v-if="!participantsLoading && filteredParticipants.length === 0" class="text-muted small py-3 text-center">没有找到匹配的成员。</div>
+                <div v-if="!participantsLoading && filteredParticipants.length === 0" class="text-muted small py-5 text-center">{{ tr('没有找到匹配的成员。', 'No matching members.') }}</div>
               </div>
             </div>
           </template>
 
           <template v-else-if="selectedNode.type === 'end'">
             <div class="mb-3">
-              <label class="form-label small">结束结果</label>
+              <label class="form-label small">{{ tr('结束结果', 'End result') }}</label>
               <select v-model="selectedNode.result" class="form-select form-select-sm" :disabled="readonly">
-                <option value="completed">已解决</option>
-                <option value="closed">已关闭</option>
-                <option value="cancelled">已取消</option>
+                <option value="completed">{{ tr('已解决', 'Resolved') }}</option>
+                <option value="closed">{{ tr('已关闭', 'Closed') }}</option>
+                <option value="cancelled">{{ tr('已取消', 'Cancelled') }}</option>
               </select>
             </div>
           </template>
         </template>
         <div v-else class="text-muted small text-center py-5">
-          <i class="bi bi-cursor fs-4 d-block mb-2"></i>选择画布中的节点以配置属性。
+          <i class="bi bi-cursor fs-4 d-block mb-2"></i>{{ tr('选择画布中的节点以配置属性。', 'Select a node to configure its properties.') }}
         </div>
       </aside>
     </div>
@@ -152,6 +168,7 @@
 import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue'
 import { VueFlow, useVueFlow, Position, Handle, BaseEdge, EdgeLabelRenderer, getSmoothStepPath, addEdge } from '@vue-flow/core'
 import { canInsertWorkOrderParallelOnEdge, normalizeWorkOrderWorkflowGraph, removeWorkOrderWorkflowNode, workOrderWorkflowRejectTargetNodes } from '../../utils/workOrderWorkflow.js'
+import { setWorkOrderAssignmentMode } from '../../utils/workOrderAssignment.js'
 
 
 import '@vue-flow/core/dist/style.css'
@@ -162,12 +179,15 @@ const props = defineProps({
   modelValue: { type: Object, default: () => ({ schema_version: 2, start_node_id: 'start', nodes: [], edges: [] }) },
   participants: { type: Array, default: () => [] },
   participantsLoading: { type: Boolean, default: false },
+  assignmentRoles: { type: Array, default: () => [] },
+  locale: { type: String, default: 'zh' },
   readonly: { type: Boolean, default: false },
   showProperties: { type: Boolean, default: true },
   saving: { type: Boolean, default: false },
   error: { type: String, default: '' }
 })
 const emit = defineEmits(['update:modelValue'])
+function tr(zh, en) { return props.locale.startsWith('zh') ? zh : en }
 const { fitView } = useVueFlow()
 
 const nodes = ref([])
@@ -296,9 +316,9 @@ function defaultWorkflowGraph() {
     schema_version: 2,
     start_node_id: 'start',
     nodes: [
-      { id: 'start', type: 'start', name: '开始' },
-      { id: 'handle', type: 'user_task', name: '处理任务', task_kind: 'handle', completion_mode: 'all', participant_user_ids: [] },
-      { id: 'end', type: 'end', name: '结束', result: 'completed' }
+      { id: 'start', type: 'start', name: '' },
+      { id: 'handle', type: 'user_task', name: tr('处理任务', 'Handling task'), task_kind: 'handle', completion_mode: 'all', participant_user_ids: [] },
+      { id: 'end', type: 'end', name: '', result: 'completed' }
     ],
     edges: [{ id: 'edge-start-handle', source: 'start', target: 'handle' }, { id: 'edge-handle-end', source: 'handle', target: 'end' }],
     layout: { nodes: [
@@ -353,6 +373,7 @@ function isParallelGateway(node) {
 function removeNodeById(id) {
   const node = nodes.value.find(n => n.id === id)
   if (!node || props.readonly || ['start', 'end'].includes(node.data.type)) return
+  if (!window.confirm(tr('确认删除此节点及其连接？', 'Delete this node and its connections?'))) return
   const graph = removeWorkOrderWorkflowNode(flattenToGraph(), id)
   loadFromFlatGraph(graph)
   selectedNodeId.value = ''
@@ -399,12 +420,12 @@ function insertNodeOnEdge(edgeProps, type) {
     if (type === 'cc_task') {
       newNodes.push({
         id: taskId, type: 'custom', position: { x: newX, y: newY },
-        data: { id: taskId, type: 'cc_task', name: '抄送节点', participant_user_ids: [] }
+        data: { id: taskId, type: 'cc_task', name: tr('抄送节点', 'CC node'), participant_user_ids: [] }
       })
     } else {
       newNodes.push({
         id: taskId, type: 'custom', position: { x: newX, y: newY },
-        data: { id: taskId, type: 'user_task', name: '新任务', task_kind: 'handle', completion_mode: 'all', participant_user_ids: [] }
+        data: { id: taskId, type: 'user_task', name: tr('新任务', 'New task'), task_kind: 'handle', completion_mode: 'all', participant_user_ids: [] }
       })
     }
     newEdges.push(
@@ -426,15 +447,15 @@ function insertNodeOnEdge(edgeProps, type) {
     const joinId = getNextId('join')
     
     newNodes.push(
-      { id: splitId, type: 'custom', position: { x: newX, y: newY }, data: { id: splitId, type: 'parallel_split', name: '并行分支', pair_id: splitId } },
-      { id: joinId, type: 'custom', position: { x: newX, y: newY + 300 }, data: { id: joinId, type: 'parallel_join', name: '并行汇聚', pair_id: splitId } }
+      { id: splitId, type: 'custom', position: { x: newX, y: newY }, data: { id: splitId, type: 'parallel_split', name: tr('并行分支', 'Parallel split'), pair_id: splitId } },
+      { id: joinId, type: 'custom', position: { x: newX, y: newY + 300 }, data: { id: joinId, type: 'parallel_join', name: tr('并行汇聚', 'Parallel join'), pair_id: splitId } }
     )
 
     const branchA = getNextId('task')
     const branchB = getNextId('task')
     newNodes.push(
-      { id: branchA, type: 'custom', position: { x: newX - 150, y: newY + 150 }, data: { id: branchA, type: 'user_task', name: '分支A任务', task_kind: 'handle', completion_mode: 'all', participant_user_ids: [] } },
-      { id: branchB, type: 'custom', position: { x: newX + 150, y: newY + 150 }, data: { id: branchB, type: 'user_task', name: '分支B任务', task_kind: 'handle', completion_mode: 'all', participant_user_ids: [] } }
+      { id: branchA, type: 'custom', position: { x: newX - 150, y: newY + 150 }, data: { id: branchA, type: 'user_task', name: tr('分支A任务', 'Branch A task'), task_kind: 'handle', completion_mode: 'all', participant_user_ids: [] } },
+      { id: branchB, type: 'custom', position: { x: newX + 150, y: newY + 150 }, data: { id: branchB, type: 'user_task', name: tr('分支B任务', 'Branch B task'), task_kind: 'handle', completion_mode: 'all', participant_user_ids: [] } }
     )
 
     newEdges.push(
@@ -455,7 +476,7 @@ function insertNodeOnEdge(edgeProps, type) {
 }
 
 function nodeTypeLabel(type) {
-  return ({ start: '开始', user_task: '用户任务', cc_task: '抄送节点', parallel_split: '并行分流', parallel_join: '并行合流', end: '结束' })[type] || type
+  return ({ start: tr('开始', 'Start'), user_task: tr('用户任务', 'User task'), cc_task: tr('抄送节点', 'CC node'), parallel_split: tr('并行分流', 'Parallel split'), parallel_join: tr('并行合流', 'Parallel join'), end: tr('结束', 'End') })[type] || type
 }
 
 function nodeIcon(node) {
@@ -469,13 +490,13 @@ function nodeIcon(node) {
 
 function nodeMeta(node) {
   if (node.type === 'user_task') {
-    return `${node.task_kind === 'approve' ? '审批' : '处理'} · ${node.completion_mode === 'all' ? '会签' : '或签'}`
+    return `${node.task_kind === 'approve' ? tr('审批', 'Approval') : tr('处理', 'Handling')} · ${node.assignment ? tr('按角色分派', 'By role') : tr('指定成员', 'Fixed members')}`
   }
   if (node.type === 'cc_task') {
-    return `抄送 ${(node.participant_user_ids || []).length} 人`
+    return `${tr('抄送成员', 'CC recipients')}: ${(node.participant_user_ids || []).length}`
   }
-  if (node.type === 'start') return '流程起点'
-  if (node.type === 'end') return node.result === 'completed' ? '已解决' : node.result === 'closed' ? '已关闭' : '已取消'
+  if (node.type === 'start') return tr('流程起点', 'Workflow start')
+  if (node.type === 'end') return node.result === 'completed' ? tr('已解决', 'Resolved') : node.result === 'closed' ? tr('已关闭', 'Closed') : tr('已取消', 'Cancelled')
   return ''
 }
 
@@ -505,13 +526,13 @@ function toggleParticipant(userID) {
 }
 
 :global([data-bs-theme='dark']) .work-order-workflow-editor {
-  --workflow-canvas-bg: #111827;
-  --workflow-grid-line: rgba(148, 163, 184, 0.08);
-  --workflow-grid-line-strong: rgba(148, 163, 184, 0.12);
-  --workflow-node-bg: #1f2937;
-  --workflow-node-hover-bg: #243044;
-  --workflow-edge-color: rgba(203, 213, 225, 0.74);
-  --workflow-delete-bg: #111827;
+  --workflow-canvas-bg: var(--bs-body-bg);
+  --workflow-grid-line: rgba(var(--bs-body-color-rgb), 0.08);
+  --workflow-grid-line-strong: rgba(var(--bs-body-color-rgb), 0.12);
+  --workflow-node-bg: var(--bs-tertiary-bg);
+  --workflow-node-hover-bg: var(--bs-secondary-bg);
+  --workflow-edge-color: var(--bs-secondary-color);
+  --workflow-delete-bg: var(--bs-body-bg);
 }
 
 .workflow-editor-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(232px, 264px); flex: 1 1 auto; gap: 0.75rem; height: min(78vh, 900px); min-height: 620px; }
@@ -546,7 +567,7 @@ function toggleParticipant(userID) {
   min-width: 220px;
   width: auto;
   cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+  box-shadow: var(--bs-box-shadow-sm);
   transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
 }
 
@@ -557,9 +578,9 @@ function toggleParticipant(userID) {
   background: var(--workflow-node-hover-bg);
 }
 
-.graph-node--start, .graph-node--end { border-left-color: #198754; }
-.graph-node--user_task { border-left-color: #fd7e14; }
-.graph-node--parallel_split, .graph-node--parallel_join { border-left-color: #6f42c1; }
+.graph-node--start, .graph-node--end { border-left-color: var(--bs-success); }
+.graph-node--user_task { border-left-color: var(--bs-warning); }
+.graph-node--parallel_split, .graph-node--parallel_join { border-left-color: var(--bs-info); }
 .parallel-gateway { width: 220px; height: 1px; pointer-events: none; }
 .parallel-gateway :deep(.vue-flow__handle) { opacity: 0; pointer-events: none; }
 
@@ -651,11 +672,10 @@ function toggleParticipant(userID) {
 
 .edge-insert-btn:hover {
   background-color: var(--bs-primary);
-  color: white;
+  color: var(--bs-body-bg);
   border-color: var(--bs-primary);
 }
 
-.text-purple { color: #6f42c1; }
 
 .participant-picker { border: 1px solid var(--bs-border-color); border-radius: 0.375rem; max-height: 300px; overflow: auto; background: var(--bs-body-bg); }
 .participant-option { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.5rem; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--bs-border-color); cursor: pointer; margin: 0; align-items: center; }

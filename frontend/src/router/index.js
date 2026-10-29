@@ -259,8 +259,10 @@ async function getSetupStatus(force = false) {
 }
 
 function getFallbackRoute(authStore) {
-  for (const r of routes) {
-    if (r.meta?.requiresAuth && r.meta?.permission) {
+  // Keep the existing landing order and include pages registered by plugins.
+  // Routes requiring an entity ID cannot serve as a login landing page.
+  for (const r of [...routes, ...router.getRoutes()]) {
+    if (!r.path.includes(':') && r.name && r.meta?.requiresAuth && r.meta?.permission) {
       if (authStore.hasPermission(r.meta.permission)) {
         return { name: r.name }
       }

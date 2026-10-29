@@ -23,6 +23,19 @@ import (
 
 func (s *Server) RegisterWorkOrderRoutes(group *ghttp.RouterGroup) {
 	permissionGET(group, "/work-order-participants", "work_order:list", s.handleListWorkOrderParticipants)
+	permissionGET(group, "/work-order-assignment-roles", "work_order:list", s.handleListWorkOrderAssignmentRoles)
+	permissionGET(group, "/work-order-policies", "work_order:list", s.handleListWorkOrderPolicies)
+	permissionPOST(group, "/work-order-policies", "work_order:manage", s.handlePublishWorkOrderPolicy)
+	permissionPOST(group, "/work-order-policies/:id/publish", "work_order:manage", s.handlePublishWorkOrderPolicy)
+	permissionPOST(group, "/work-order-policies/:id/enabled", "work_order:manage", s.handleEnableWorkOrderPolicy)
+	permissionPOST(group, "/work-order-policy-versions/:version_id/preview", "work_order:list", s.handlePreviewWorkOrderPolicy)
+	permissionGET(group, "/work-order-policy-versions/:version_id", "work_order:list", s.handleWorkOrderPolicyVersion)
+	permissionGET(group, "/work-order-execution-grants", "work_order:manage", s.handleListWorkOrderExecutionGrants)
+	permissionPOST(group, "/work-order-execution-grants", "work_order:manage", s.handleCreateWorkOrderExecutionGrant)
+	permissionPOST(group, "/work-order-execution-grants/:id/revoke", "work_order:manage", s.handleRevokeWorkOrderExecutionGrant)
+	permissionGET(group, "/work-order-operations/summary", "work_order:list", s.handleWorkOrderOperationsSummary)
+	permissionGET(group, "/work-order-operations/failed-deliveries", "work_order:manage", s.handleFailedWorkOrderDeliveries)
+	permissionPOST(group, "/work-order-operations/deliveries/:id/recover", "work_order:manage", s.handleRecoverWorkOrderDelivery)
 	permissionGET(group, "/work-order-templates", "work_order:list", s.handleListWorkOrderTemplates)
 	permissionPOST(group, "/work-order-templates", "work_order:manage", s.handleCreateWorkOrderTemplate)
 	permissionPOST(group, "/work-order-templates/:id/copy", "work_order:manage", s.handleCopyWorkOrderTemplate)
@@ -55,6 +68,11 @@ func (s *Server) RegisterWorkOrderRoutes(group *ghttp.RouterGroup) {
 	permissionGET(group, "/work-orders/:id/events", "work_order:list", s.handleListWorkOrderEvents)
 	permissionGET(group, "/work-orders/:id/approval-tasks", "work_order:list", s.handleListWorkOrderApprovalTasks)
 	permissionGET(group, "/work-orders/:id/tasks", "work_order:list", s.handleListWorkOrderTasks)
+	permissionGET(group, "/work-orders/:id/assignment-blocks", "work_order:list", s.handleListWorkOrderAssignmentBlocks)
+	permissionPOST(group, "/work-orders/:id/tasks/:task_id/claim", "work_order:process", s.handleClaimWorkOrderCandidateTask)
+	permissionGET(group, "/work-orders/:id/sla", "work_order:list", s.handleGetWorkOrderSLA)
+	permissionPOST(group, "/work-orders/:id/sla/pause", "work_order:manage", s.handlePauseWorkOrderSLA)
+	permissionPOST(group, "/work-orders/:id/assignment-blocks/:instance_id/dispatch", "work_order:manage", s.handleDispatchWorkOrderNode)
 	permissionPOST(group, "/work-orders/:id/tasks/:task_public_id/complete", "work_order:process", s.handleCompleteWorkOrderTask)
 	permissionPOST(group, "/work-orders/:id/tasks/:task_public_id/reject", "work_order:approve", s.handleRejectWorkOrderTask)
 	permissionGET(group, "/work-order-notifications", "work_order:list", s.handleListMyWorkOrderNotifications)
@@ -519,12 +537,14 @@ func (s *Server) handleCreateWorkOrder(r *ghttp.Request) {
 		return
 	}
 	var payload struct {
-		TemplateID uint            `json:"template_id"`
-		Title      string          `json:"title"`
-		Summary    string          `json:"summary"`
-		Priority   string          `json:"priority"`
-		Source     WorkOrderSource `json:"source"`
-		FormData   map[string]any  `json:"form_data"`
+		PolicyVersionID uint                     `json:"policy_version_id"`
+		RoutingContext  workorder.RoutingContext `json:"routing_context"`
+		TemplateID      uint                     `json:"template_id"`
+		Title           string                   `json:"title"`
+		Summary         string                   `json:"summary"`
+		Priority        string                   `json:"priority"`
+		Source          WorkOrderSource          `json:"source"`
+		FormData        map[string]any           `json:"form_data"`
 	}
 	if !decodeWorkOrderRequest(r, &payload) {
 		return
@@ -535,7 +555,8 @@ func (s *Server) handleCreateWorkOrder(r *ghttp.Request) {
 	}
 	payload.Source = normalizeHTTPWorkOrderSource(r, scope, payload.Source)
 	commandResult, err := s.workOrderCommandPort().Create(r.Context(), workorder.CreateCommand{
-		Scope:        workOrderCommandScope(scope),
+		Scope:           workOrderCommandScope(scope),
+		PolicyVersionID: payload.PolicyVersionID, RoutingContext: payload.RoutingContext,
 		Meta:         workorder.CommandMeta{IdempotencyKey: payload.Source.IdempotencyKey, CorrelationID: r.Header.Get("X-Correlation-ID")},
 		TemplateCode: strconv.FormatUint(uint64(payload.TemplateID), 10), Title: payload.Title, Summary: payload.Summary,
 		Priority: payload.Priority, SourceType: payload.Source.Type, SourceRef: payload.Source.ID,
@@ -1364,8 +1385,13 @@ func (s *Server) workOrderListResponses(orders []store.WorkOrder) ([]g.Map, erro
 	if err != nil {
 		return nil, err
 	}
+	blockedCounts, err := loadWorkOrderAssignmentBlockCounts(s.workOrderService().db, orders)
+	if err != nil {
+		return nil, err
+	}
 	for index, order := range orders {
 		responses[index]["responsibility"] = responsibilities[order.ID]
+		responses[index]["pending_assignment_count"] = blockedCounts[order.ID]
 	}
 	return responses, nil
 }

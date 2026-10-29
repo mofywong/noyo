@@ -25,7 +25,7 @@
           {{ tx('newWorkOrder') }}
         </LiquidGlassButton>
         <LiquidGlassButton
-          v-else-if="authStore.hasPermission('work_order:manage')"
+          v-else-if="activeTab === 'templates' && authStore.hasPermission('work_order:manage')"
           variant="primary"
           size="sm"
           icon="bi bi-file-earmark-plus"
@@ -36,24 +36,10 @@
       </div>
     </div>
 
-    <ul class="nav nav-tabs mb-3" role="tablist">
-      <li class="nav-item">
-        <button class="nav-link" :class="{ active: activeTab === 'orders' }" @click="switchTab('orders')">
-          <i class="bi bi-ticket-detailed me-1"></i>{{ tx('ordersTab') }}
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" :class="{ active: activeTab === 'templates' }" @click="switchTab('templates')">
-          <i class="bi bi-ui-checks-grid me-1"></i>{{ tx('templatesTab') }}
-        </button>
-      </li>
-      <li v-if="workOrderIntegrationsVisible && authStore.hasPermission('work_order:integration')" class="nav-item">
-        <button class="nav-link" :class="{ active: activeTab === 'integrations' }" @click="switchTab('integrations')">
-          <i class="bi bi-plug me-1"></i>{{ tx('integrations') }}
-        </button>
-      </li>
-    </ul>
+    <AppTabs :model-value="activeTab" :label="tx('pageTitle')" :items="[{ value: 'orders', label: tx('ordersTab'), icon: 'bi bi-ticket-detailed' }, { value: 'templates', label: tx('templatesTab'), icon: 'bi bi-ui-checks-grid' }, {value: 'policies', label:opText('policies'),icon:'bi bi-diagram-3'}, {value:'operations',label:opText('operations'),icon:'bi bi-activity'}, ...(workOrderIntegrationsVisible && authStore.hasPermission('work_order:integration') ? [{ value: 'integrations', label: tx('integrations'), icon: 'bi bi-plug' }] : [])]" @update:model-value="switchTab" />
 
+    <WorkOrderPolicyPanel v-if="activeTab === 'policies'" :locale="currentLang" :can-manage="authStore.hasPermission('work_order:manage')" />
+    <WorkOrderOperationsPanel v-if="activeTab === 'operations'" :locale="currentLang" :can-manage="authStore.hasPermission('work_order:manage')" @filter="openOperationsFilter" />
     <!-- Tab 1: 工单列表（一体化卡片，融合关系范围与条件检索） -->
     <section v-if="activeTab === 'orders'" class="orders-section flex-grow-1 d-flex flex-column min-h-0">
       <div class="card border-0 shadow-sm table-glass-card work-order-list-card flex-grow-1 overflow-hidden d-flex flex-column">
@@ -89,6 +75,7 @@
                   <option value="alarm">{{ tx('sourceAlarm') }}</option>
                   <option value="ai">{{ tx('sourceAI') }}</option>
                   <option value="external">{{ tx('sourceExternal') }}</option>
+                  <option value="inspection">{{ tx('sourceInspection') }}</option>
                 </select>
               </div>
               <div style="min-width: 160px; max-width: 240px;">
@@ -126,6 +113,7 @@
                 <tr v-for="entry in orders" :key="workOrderId(entry.work_order)" role="button" tabindex="0" class="work-order-row" :class="{ 'work-order-row--selected': workOrderId(selectedOrder?.work_order) === workOrderId(entry.work_order) }" @click="selectOrder(workOrderId(entry.work_order))" @keydown.enter.prevent="selectOrder(workOrderId(entry.work_order))" @keydown.space.prevent="selectOrder(workOrderId(entry.work_order))">
                   <td class="work-order-main-cell">
                     <div class="fw-semibold text-truncate" style="max-width: 320px;" :title="serverText(entry.work_order.title)">{{ serverText(entry.work_order.title) }}</div>
+                    <span v-if="entry.pending_assignment_count" class="badge border text-warning-emphasis bg-warning-subtle mt-1">{{ currentLang === 'zh' ? '待分派' : 'Pending assignment' }} · {{ entry.pending_assignment_count }}</span>
                   </td>
                   <td :data-label="tx('columnSource')"><span class="badge border work-order-source-badge">{{ sourceLabel(entry.work_order.source_type) }}</span></td>
                   <td :data-label="tx('columnPriority')"><span class="badge" :class="priorityClass(entry.work_order.priority)">{{ priorityLabel(entry.work_order.priority) }}</span></td>
@@ -217,7 +205,7 @@
               <div class="fw-bold small text-secondary"><i class="bi bi-shield-exclamation me-1"></i>{{ tx('alarmEvidence') }}</div>
               <span class="badge bg-danger-subtle text-danger-emphasis">{{ tx('sourceAlarm') }}</span>
             </div>
-            
+
             <figure v-if="alarmSnapshotUrl" class="work-order-alarm-section__snapshot mb-3">
               <a :href="alarmSnapshotUrl" target="_blank" rel="noopener noreferrer" class="d-inline-block">
                 <img :src="alarmSnapshotUrl" :alt="tx('alarmEvidence')" class="img-fluid rounded border shadow-sm" style="max-height: 180px; object-fit: contain; background: var(--bs-body-bg);">
@@ -298,6 +286,9 @@
             </div>
           </div>
 
+          <WorkOrderExecutionPanel :key="'execution-'+workOrderId(selectedOrder.work_order)" :order-id="workOrderId(selectedOrder.work_order)" :version="selectedOrder.work_order.version" :cycle="selectedOrder.work_order.workflow_cycle" :actor-id="currentUserId" :workflow="selectedOrder.workflow" :locale="currentLang" :can-manage="authStore.hasPermission('work_order:manage')" :can-process="authStore.hasPermission('work_order:process')" @refresh="refreshAssignedOrder" />
+          <WorkOrderAssignmentPanel :key="workOrderId(selectedOrder.work_order)" :order-id="workOrderId(selectedOrder.work_order)" :version="selectedOrder.work_order.version" :workflow="selectedOrder.workflow" :locale="currentLang" :can-manage="authStore.hasPermission('work_order:manage')" :participants="projectParticipants" @refresh="refreshAssignedOrder" />
+
           <div v-if="selectedOrder.resolution?.actual_problem" class="mb-4 border rounded p-3 bg-body-tertiary">
             <div class="fw-bold small mb-2 text-secondary"><i class="bi bi-clipboard2-check me-1"></i>{{ tx('resolution') }}</div>
             <dl class="row small mb-0 g-2">
@@ -315,7 +306,7 @@
       <div v-if="templateDetail" class="offcanvas-backdrop fade show" @click="closeTemplateDetail"></div>
       <aside v-if="templateDetail" ref="templateDetailDialog" class="template-detail-drawer shadow-lg" aria-modal="true" role="dialog" tabindex="-1" aria-labelledby="template-detail-title" @keydown.esc.stop="closeTemplateDetail">
         <div class="template-detail-drawer__head"><div><h2 id="template-detail-title" class="h5 mb-1">{{ templateDetail.template.name }}</h2><p class="small text-body-secondary mb-0">{{ templateDetail.template.code }}</p></div><button type="button" class="btn-close" :aria-label="tx('close')" @click="closeTemplateDetail"></button></div>
-        <div class="template-detail-drawer__body"><p v-if="templateDetail.template.description" class="text-body-secondary">{{ templateDetail.template.description }}</p><section class="template-detail-workflow"><h3 class="section-title">{{ tx('workflowConfig') }}</h3><WorkOrderWorkflowEditor :model-value="templateDetailWorkflow" :participants="projectParticipants" :participants-loading="participantsLoading" :show-properties="false" readonly /></section></div>
+        <div class="template-detail-drawer__body"><p v-if="templateDetail.template.description" class="text-body-secondary">{{ templateDetail.template.description }}</p><section class="template-detail-workflow"><h3 class="section-title">{{ tx('workflowConfig') }}</h3><WorkOrderWorkflowEditor :model-value="templateDetailWorkflow" :participants="projectParticipants" :assignment-roles="projectAssignmentRoles" :locale="currentLang" :participants-loading="participantsLoading" :show-properties="false" readonly /></section></div>
       </aside>
 
       <div v-if="showTemplateEditor && selectedTemplate" class="modal fade show d-block work-order-template-editor-modal" tabindex="-1" @click.self="closeTemplateEditor">
@@ -327,7 +318,7 @@
             </div>
             <div class="modal-body">
               <div class="template-editor-tabs border-bottom px-3 py-2">
-                <div class="nav nav-pills flex-shrink-0" :aria-label="tx('templateConfigType')"><button class="nav-link" :class="{ active: templateEditorTab === 'workflow' }" @click="templateEditorTab = 'workflow'"><i class="bi bi-diagram-3 me-1"></i>{{ tx('workflowConfig') }}</button><button class="nav-link" :class="{ active: templateEditorTab === 'form' }" @click="templateEditorTab = 'form'"><i class="bi bi-ui-checks-grid me-1"></i>{{ tx('formConfig') }}</button></div>
+                <AppTabs v-model="templateEditorTab" class="template-config-tabs" :label="tx('templateConfigType')" :items="[{ value: 'workflow', label: tx('workflowConfig'), icon: 'bi bi-diagram-3' }, { value: 'form', label: tx('formConfig'), icon: 'bi bi-ui-checks-grid' }]" />
                 <p v-if="selectedTemplate.template.description" class="template-editor-description text-muted small" :title="selectedTemplate.template.description">{{ selectedTemplate.template.description }}</p>
                 <div v-if="selectedTemplate.template.system_managed && templateEditorTab === 'form'" class="template-editor-readonly small text-info"><i class="bi bi-lock me-1"></i>{{ tx('managedFormReadonly') }}</div>
                 <div v-else-if="isAIManagedTemplate" class="template-editor-readonly small text-info"><i class="bi bi-diagram-3 me-1"></i>{{ tx('managedWorkflowEditable') }}</div>
@@ -352,7 +343,7 @@
 
               <div v-else class="template-editor-workflow-panel p-2">
                 <h6 class="visually-hidden">{{ tx('visualWorkflow') }}</h6>
-                <WorkOrderWorkflowEditor ref="workflowEditorRef" v-model="workflowDraft" :participants="projectParticipants" :participants-loading="participantsLoading" :readonly="workflowEditorReadonly" :saving="actionLoading" :error="errorMessage" />
+                <WorkOrderWorkflowEditor ref="workflowEditorRef" v-model="workflowDraft" :participants="projectParticipants" :assignment-roles="projectAssignmentRoles" :locale="currentLang" :participants-loading="participantsLoading" :readonly="workflowEditorReadonly" :saving="actionLoading" :error="errorMessage" />
               </div>
             </div>
           </div>
@@ -361,9 +352,10 @@
 
       <div v-if="showOrderModal" class="modal fade show d-block" style="background: rgba(0,0,0,.45)" @click.self="showOrderModal = false">
         <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">{{ tx('newManualOrder') }}</h5><button type="button" class="btn-close" :aria-label="tx('close')" @click="showOrderModal = false"></button></div><div class="modal-body">
-          <div class="row g-3 mb-3"><div class="col-md-6"><label class="form-label">{{ tx('workOrderTemplate') }} *</label><select v-model.number="createOrder.templateId" class="form-select" @change="loadCreateTemplate"><option :value="0">{{ tx('selectTemplate') }}</option><option v-for="template in templates" :key="template.ID" :value="template.ID">{{ template.name }}</option></select></div><div class="col-md-3"><label class="form-label">{{ tx('priority') }}</label><select v-model="createOrder.priority" class="form-select"><option value="low">{{ tx('low') }}</option><option value="normal">{{ tx('normal') }}</option><option value="high">{{ tx('high') }}</option><option value="urgent">{{ tx('urgent') }}</option></select></div><div class="col-12"><label class="form-label">{{ tx('title') }} *</label><input v-model.trim="createOrder.title" class="form-control"></div><div class="col-12"><label class="form-label">{{ tx('summary') }}</label><textarea v-model.trim="createOrder.summary" class="form-control" rows="2"></textarea></div></div>
+          <WorkOrderManualPolicyFields v-if="showOrderModal" v-model="createOrder.policyVersionId" v-model:routing-context="createOrder.routingContext" :locale="currentLang" @resolved="applyManualPolicy" @loading="createPolicyLoading = $event" />
+          <div class="row g-3 mb-3"><div class="col-md-6"><label class="form-label">{{ tx('workOrderTemplate') }} *</label><select v-model.number="createOrder.templateId" :disabled="!!createOrder.policyVersionId" class="form-select" @change="loadCreateTemplate"><option :value="0">{{ tx('selectTemplate') }}</option><option v-for="template in templates" :key="template.ID" :value="template.ID">{{ template.name }}</option></select></div><div class="col-md-3"><label class="form-label">{{ tx('priority') }}</label><select v-model="createOrder.priority" class="form-select"><option value="low">{{ tx('low') }}</option><option value="normal">{{ tx('normal') }}</option><option value="high">{{ tx('high') }}</option><option value="urgent">{{ tx('urgent') }}</option></select></div><div class="col-12"><label class="form-label">{{ tx('title') }} *</label><input v-model.trim="createOrder.title" class="form-control"></div><div class="col-12"><label class="form-label">{{ tx('summary') }}</label><textarea v-model.trim="createOrder.summary" class="form-control" rows="2"></textarea></div></div>
           <WorkOrderFormFields v-if="createTemplateDetail" v-model="createOrder.formData" :definition="createTemplateDetail.form_definition" id-prefix="manual-work-order" :locale="currentLang" />
-        </div><div class="modal-footer"><button class="btn btn-outline-secondary" @click="showOrderModal = false">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading" @click="createManualOrder"><span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ tx('createWorkOrder') }}</button></div></div></div>
+        </div><div class="modal-footer"><button class="btn btn-outline-secondary" @click="showOrderModal = false">{{ tx('cancel') }}</button><button class="btn btn-primary" :disabled="actionLoading || createPolicyLoading || !createTemplateDetail" @click="createManualOrder"><span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>{{ tx('createWorkOrder') }}</button></div></div></div>
       </div>
 
       <!-- Edit Order Modal -->
@@ -533,12 +525,19 @@
 </template>
 
 <script setup>
+import AppTabs from '@/components/AppTabs.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import axios from 'axios'
 import WorkOrderAuditTimeline from '../components/work-order/WorkOrderAuditTimeline.vue'
+import WorkOrderAssignmentPanel from '../components/work-order/WorkOrderAssignmentPanel.vue'
+import WorkOrderManualPolicyFields from '../components/work-order/WorkOrderManualPolicyFields.vue'
+import WorkOrderExecutionPanel from '../components/work-order/WorkOrderExecutionPanel.vue'
+import WorkOrderPolicyPanel from '../components/work-order/WorkOrderPolicyPanel.vue'
+import WorkOrderOperationsPanel from '../components/work-order/WorkOrderOperationsPanel.vue'
+import { operationText } from '../components/work-order/workOrderOperations.js'
 import WorkOrderFormDesigner from '../components/work-order/WorkOrderFormDesigner.vue'
 import WorkOrderFormFields from '../components/work-order/WorkOrderFormFields.vue'
 import WorkOrderWorkflowEditor from '../components/work-order/WorkOrderWorkflowEditor.vue'
@@ -557,10 +556,10 @@ const router = useRouter()
 const currentLang = computed(() => String(locale.value || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh')
 const workOrderCopy = {
   zh: {
-    pageTitle: '工单中心', pageSubtitle: '统一处理人工、规则、告警、AI 与外部业务工单', refresh: '刷新', newWorkOrder: '新建工单', newTemplate: '新建模板', ordersTab: '工单列表', all: '全部工单', templatesTab: '表单与流程模板', relatedViews: '与当前用户相关的工单视图', relatedToMe: '与我相关', searchPlaceholder: '搜索工单编号、标题或摘要', allStatuses: '全部状态', allSources: '全部来源', sourceManual: '人工创建', sourceRule: '规则引擎', sourceAlarm: '告警', sourceAI: 'AI 大脑', sourceExternal: '外部业务', query: '查询', columnWorkOrder: '工单', columnSource: '来源', columnPriority: '优先级', columnStatus: '状态', columnAssignee: '负责人', columnCreatedAt: '创建时间', columnActions: '操作', loading: '加载中', noOrders: '暂无匹配工单', editOrder: '编辑工单', deleteOrder: '删除工单', edit: '编辑', delete: '删除', loadMore: '加载更多', claim: '领取', formContent: '表单内容', workOrderActions: '工单操作', actionHint: '处理动作将在弹窗中完成，并写入必填处理意见。', cc: '抄送', transfer: '转交', transferTitle: '转交工单', transferHint: '转交后，当前待处理事项将交由所选成员继续处理，并保留完整的流转记录。审批任务不能转交。', transferTask: '待处理任务', transferRecipient: '转交给', selectMember: '请选择成员', transferReason: '转交说明', transferReasonPlaceholder: '请说明转交原因或已完成的工作', confirmTransfer: '确认转交', transferSuccess: '工单已转交给指定成员。', myTasks: '分配给我的流程任务', approval: '审批', task: '处理', selectOrder: '选择一张工单查看详情', templateName: '模板名称', noTemplates: '暂无模板，请先创建', configureTemplate: '配置模板', configureWorkflowForm: '配置流程与表单', editTemplate: '编辑模板', editBasicInfo: '编辑基础信息', deleteTemplate: '删除模板', integrationInfo: '连接凭据仅在保存时提交；页面不会回显密钥。绑定用于收件幂等与版本顺序，映射用于声明外部字段转换。', name: '名称', exampleCMMS: '例如 CMMS', remoteIdentity: '远端身份标识', secretSaveOnly: '仅保存时提交', saveConnector: '保存连接', enabled: '已启用', disabled: '已停用', noConnectors: '尚未配置连接。', bindingID: '绑定标识', exampleBinding: '例如 cmms-main', selectConnector: '选择连接', direction: '方向', inbound: '入站', outbound: '出站', bidirectional: '双向', saveBinding: '保存绑定', noBindings: '先创建一个连接和绑定。', mappingID: '映射标识', exampleMapping: '例如 incident-v1', externalMapping: '外部事件映射', mappingJSON: '字段映射 JSON', mappingExample: '示例：{"title":"summary","priority":"severity"}', saveMapping: '保存映射', selectBinding: '选择左侧绑定后即可配置字段映射。', visualWorkflow: '图形化工单流程', newManualOrder: '新建人工工单', workOrderTemplate: '工单模板', selectTemplate: '请选择模板', priority: '优先级', low: '低', normal: '普通', high: '高', urgent: '紧急', title: '标题', summary: '摘要', createWorkOrder: '创建工单', editOrderTitle: '编辑工单基础信息', save: '保存', editTemplateTitle: '编辑模板基础信息', templateNameHint: '提示：模板编码和结构需保持稳定，仅支持修改名称。若需修改编码，请新建模板。', newTemplateTitle: '新建工单模板', description: '说明', createTemplateHint: '创建后会自动生成可编辑的初始表单与基础处理流程。', create: '创建', ccTitle: '抄送工单', selectCC: '选择抄送人', searchMembers: '搜索成员...', noMembers: '没有找到匹配的成员。', additionalMessage: '附言', optional: '（选填）', ccMessagePlaceholder: '给抄送人的留言...', send: '发送', start: '开始', handleTask: '处理任务', end: '结束', templateConfigType: '模板配置类型', workflowConfig: '流程配置', formConfig: '表单配置', managedReadonly: 'AI 托管模板，不能修改', workflowActions: '流程配置操作', formActions: '表单配置操作', saveWorkflowDraft: '保存流程草稿', publishWorkflow: '发布流程', fullscreenWorkflow: '全屏展开流程图', saveFormDraft: '保存表单草稿', publishForm: '发布表单', resolution: '解决结论', actualProblem: '实际问题', rootCause: '根因', handlingProcess: '处理过程', handlingResult: '处理结果', processTitle: '处理工单', processSubtitle: '选择动作并填写本次处理意见', close: '关闭', processAction: '处理动作', resolutionHint: '解决前请完整记录实际问题、根因、处理过程和处理结果；这些内容将写入不可变的工单事件。', processOpinion: '处理意见', processOpinionPlaceholder: '请填写本次处理判断、过程或结论', processOpinionHint: '处理意见将进入工单操作记录，提交后不可省略。', cancel: '取消', submitProcess: '确认处理', statusAction: '状态动作', approve: '通过审批', reject: '驳回审批', pass: '通过', complete: '完成', unavailableUser: '已删除或不可用用户', unclaimed: '未领取', integrations: '集成配置', connector: '连接', binding: '绑定', mapping: '映射', statusOpen: '待处理', statusInProgress: '处理中', statusPaused: '已暂停', statusResolved: '已解决', statusClosed: '已关闭', statusCancelled: '已取消', yes: '是', no: '否', copiedSuccess: '工单已成功抄送', connectorSaved: '集成连接已保存。', bindingSaved: '集成绑定已保存。', invalidMappingJSON: '字段映射必须是有效 JSON。', mappingSaved: '字段映射已保存。', noTemplateConfigured: '请先创建并配置一个工单模板。', orderCreated: '工单已创建。', existingOrderReturned: '已返回同一来源的既有工单。', orderClaimed: '已领取工单。', orderResolved: '工单已解决，等待验收关闭。', orderStatusUpdated: '工单状态已更新。', approvalPassed: '审批已通过。', approvalRejected: '审批已驳回。', taskCompleted: '任务已完成，流程已继续。', taskRejected: '审批已驳回，流程已退回指定节点。', versionConflict: '工单已被其他用户更新，已刷新为最新状态。', orderUpdated: '工单基础信息已更新', confirmDeleteOrder: '确定要删除未处理工单“{name}”吗？删除后将无法恢复。', orderDeleted: '工单已删除', templateUpdated: '模板名称已更新', confirmDeleteTemplate: '确定要删除工单模板“{name}”？\n注意：如果已有工单使用了此模板，强制删除可能会导致相关工单数据显示异常！', templateDeleted: '模板已删除', templateCreated: '模板已创建，并已生成初始表单与流程。', formPublishedReloadFailed: '表单已发布，但重新加载模板详情失败：{message}', formPublished: '表单已发布；既有工单继续使用原始快照。', formDraftReloadFailed: '表单草稿已保存，但重新加载模板详情失败：{message}', formDraftSaved: '表单草稿已保存，尚未发布。', workflowPublishedReloadFailed: '流程已发布，但重新加载模板详情失败：{message}', workflowPublished: '流程已发布；既有工单继续使用原始快照。', workflowDraftReloadFailed: '流程草稿已保存，但重新加载模板详情失败：{message}', workflowDraftSaved: '流程草稿已保存，尚未发布。'
+    pageTitle: '工单中心', pageSubtitle: '统一处理人工、规则、告警、AI 与外部业务工单', refresh: '刷新', newWorkOrder: '新建工单', newTemplate: '新建模板', ordersTab: '工单列表', all: '全部工单', templatesTab: '表单与流程模板', relatedViews: '与当前用户相关的工单视图', relatedToMe: '与我相关', searchPlaceholder: '搜索工单编号、标题或摘要', allStatuses: '全部状态', allSources: '全部来源', sourceManual: '人工创建', sourceRule: '规则引擎', sourceAlarm: '告警', sourceAI: 'AI 大脑', sourceExternal: '外部业务', sourceInspection: '视频巡检', query: '查询', columnWorkOrder: '工单', columnSource: '来源', columnPriority: '优先级', columnStatus: '状态', columnAssignee: '负责人', columnCreatedAt: '创建时间', columnActions: '操作', loading: '加载中', noOrders: '暂无匹配工单', editOrder: '编辑工单', deleteOrder: '删除工单', edit: '编辑', delete: '删除', loadMore: '加载更多', claim: '领取', formContent: '表单内容', workOrderActions: '工单操作', actionHint: '处理动作将在弹窗中完成，并写入必填处理意见。', cc: '抄送', transfer: '转交', transferTitle: '转交工单', transferHint: '转交后，当前待处理事项将交由所选成员继续处理，并保留完整的流转记录。审批任务不能转交。', transferTask: '待处理任务', transferRecipient: '转交给', selectMember: '请选择成员', transferReason: '转交说明', transferReasonPlaceholder: '请说明转交原因或已完成的工作', confirmTransfer: '确认转交', transferSuccess: '工单已转交给指定成员。', myTasks: '分配给我的流程任务', approval: '审批', task: '处理', selectOrder: '选择一张工单查看详情', templateName: '模板名称', noTemplates: '暂无模板，请先创建', configureTemplate: '配置模板', configureWorkflowForm: '配置流程与表单', editTemplate: '编辑模板', editBasicInfo: '编辑基础信息', deleteTemplate: '删除模板', integrationInfo: '连接凭据仅在保存时提交；页面不会回显密钥。绑定用于收件幂等与版本顺序，映射用于声明外部字段转换。', name: '名称', exampleCMMS: '例如 CMMS', remoteIdentity: '远端身份标识', secretSaveOnly: '仅保存时提交', saveConnector: '保存连接', enabled: '已启用', disabled: '已停用', noConnectors: '尚未配置连接。', bindingID: '绑定标识', exampleBinding: '例如 cmms-main', selectConnector: '选择连接', direction: '方向', inbound: '入站', outbound: '出站', bidirectional: '双向', saveBinding: '保存绑定', noBindings: '先创建一个连接和绑定。', mappingID: '映射标识', exampleMapping: '例如 incident-v1', externalMapping: '外部事件映射', mappingJSON: '字段映射 JSON', mappingExample: '示例：{"title":"summary","priority":"severity"}', saveMapping: '保存映射', selectBinding: '选择左侧绑定后即可配置字段映射。', visualWorkflow: '图形化工单流程', newManualOrder: '新建人工工单', workOrderTemplate: '工单模板', selectTemplate: '请选择模板', priority: '优先级', low: '低', normal: '普通', high: '高', urgent: '紧急', title: '标题', summary: '摘要', createWorkOrder: '创建工单', editOrderTitle: '编辑工单基础信息', save: '保存', editTemplateTitle: '编辑模板基础信息', templateNameHint: '提示：模板编码和结构需保持稳定，仅支持修改名称。若需修改编码，请新建模板。', newTemplateTitle: '新建工单模板', description: '说明', createTemplateHint: '创建后会自动生成可编辑的初始表单与基础处理流程。', create: '创建', ccTitle: '抄送工单', selectCC: '选择抄送人', searchMembers: '搜索成员...', noMembers: '没有找到匹配的成员。', additionalMessage: '附言', optional: '（选填）', ccMessagePlaceholder: '给抄送人的留言...', send: '发送', start: '开始', handleTask: '处理任务', end: '结束', templateConfigType: '模板配置类型', workflowConfig: '流程配置', formConfig: '表单配置', managedReadonly: 'AI 托管模板，不能修改', workflowActions: '流程配置操作', formActions: '表单配置操作', saveWorkflowDraft: '保存流程草稿', publishWorkflow: '发布流程', fullscreenWorkflow: '全屏展开流程图', saveFormDraft: '保存表单草稿', publishForm: '发布表单', resolution: '解决结论', actualProblem: '实际问题', rootCause: '根因', handlingProcess: '处理过程', handlingResult: '处理结果', processTitle: '处理工单', processSubtitle: '选择动作并填写本次处理意见', close: '关闭', processAction: '处理动作', resolutionHint: '解决前请完整记录实际问题、根因、处理过程和处理结果；这些内容将写入不可变的工单事件。', processOpinion: '处理意见', processOpinionPlaceholder: '请填写本次处理判断、过程或结论', processOpinionHint: '处理意见将进入工单操作记录，提交后不可省略。', cancel: '取消', submitProcess: '确认处理', statusAction: '状态动作', approve: '通过审批', reject: '驳回审批', pass: '通过', complete: '完成', unavailableUser: '已删除或不可用用户', unclaimed: '未领取', integrations: '集成配置', connector: '连接', binding: '绑定', mapping: '映射', statusOpen: '待处理', statusInProgress: '处理中', statusPaused: '已暂停', statusResolved: '已解决', statusClosed: '已关闭', statusCancelled: '已取消', yes: '是', no: '否', copiedSuccess: '工单已成功抄送', connectorSaved: '集成连接已保存。', bindingSaved: '集成绑定已保存。', invalidMappingJSON: '字段映射必须是有效 JSON。', mappingSaved: '字段映射已保存。', noTemplateConfigured: '请先创建并配置一个工单模板。', orderCreated: '工单已创建。', existingOrderReturned: '已返回同一来源的既有工单。', orderClaimed: '已领取工单。', orderResolved: '工单已解决，等待验收关闭。', orderStatusUpdated: '工单状态已更新。', approvalPassed: '审批已通过。', approvalRejected: '审批已驳回。', taskCompleted: '任务已完成，流程已继续。', taskRejected: '审批已驳回，流程已退回指定节点。', versionConflict: '工单已被其他用户更新，已刷新为最新状态。', orderUpdated: '工单基础信息已更新', confirmDeleteOrder: '确定要删除未处理工单“{name}”吗？删除后将无法恢复。', orderDeleted: '工单已删除', templateUpdated: '模板名称已更新', confirmDeleteTemplate: '确定要删除工单模板“{name}”？\n注意：如果已有工单使用了此模板，强制删除可能会导致相关工单数据显示异常！', templateDeleted: '模板已删除', templateCreated: '模板已创建，并已生成初始表单与流程。', formPublishedReloadFailed: '表单已发布，但重新加载模板详情失败：{message}', formPublished: '表单已发布；既有工单继续使用原始快照。', formDraftReloadFailed: '表单草稿已保存，但重新加载模板详情失败：{message}', formDraftSaved: '表单草稿已保存，尚未发布。', confirmFormKeyRename: '本次发布会更改以下字段标识：\n{detail}\n\n历史工单按旧标识存储数据，改名后这些值将不再显示。确定继续？', workflowPublishedReloadFailed: '流程已发布，但重新加载模板详情失败：{message}', workflowPublished: '流程已发布；既有工单继续使用原始快照。', workflowDraftReloadFailed: '流程草稿已保存，但重新加载模板详情失败：{message}', workflowDraftSaved: '流程草稿已保存，尚未发布。'
   },
   en: {
-    pageTitle: 'Work Order Center', pageSubtitle: 'Manage manual, rule, alarm, AI, and external work orders in one place', refresh: 'Refresh', newWorkOrder: 'New work order', newTemplate: 'New template', ordersTab: 'Work Orders', all: 'All Orders', templatesTab: 'Form & workflow templates', relatedViews: 'Work orders related to the current user', relatedToMe: 'Related to me', searchPlaceholder: 'Search by code, title, or summary', allStatuses: 'All statuses', allSources: 'All sources', sourceManual: 'Manual', sourceRule: 'Rule engine', sourceAlarm: 'Alarm', sourceAI: 'AI Brain', sourceExternal: 'External', query: 'Search', columnWorkOrder: 'Work order', columnSource: 'Source', columnPriority: 'Priority', columnStatus: 'Status', columnAssignee: 'Assignee', columnCreatedAt: 'Created at', columnActions: 'Actions', loading: 'Loading', noOrders: 'No matching work orders', editOrder: 'Edit work order', deleteOrder: 'Delete work order', edit: 'Edit', delete: 'Delete', loadMore: 'Load more', claim: 'Claim', formContent: 'Form data', workOrderActions: 'Work order actions', actionHint: 'Processing opens in a dialog and requires an opinion.', cc: 'Copy', transfer: 'Transfer', transferTitle: 'Transfer work order', transferHint: 'The current handling item moves to the selected member and the complete routing history is preserved. Approval tasks cannot be transferred.', transferTask: 'Handling task', transferRecipient: 'Transfer to', selectMember: 'Select a member', transferReason: 'Transfer reason', transferReasonPlaceholder: 'Explain the reason or work already completed', confirmTransfer: 'Confirm transfer', transferSuccess: 'Work order transferred to the selected member.', myTasks: 'Workflow tasks assigned to me', approval: 'Approval', task: 'Task', selectOrder: 'Select a work order to view details', templateName: 'Template name', noTemplates: 'No templates yet. Create one first.', configureTemplate: 'Configure template', configureWorkflowForm: 'Configure workflow and form', editTemplate: 'Edit template', editBasicInfo: 'Edit basic information', deleteTemplate: 'Delete template', integrationInfo: 'Credentials are submitted only when saved and are never displayed again. Bindings control inbound idempotency and revision order; mappings define external field conversion.', name: 'Name', exampleCMMS: 'For example, CMMS', remoteIdentity: 'Remote identity', secretSaveOnly: 'Submitted only when saved', saveConnector: 'Save connector', enabled: 'Enabled', disabled: 'Disabled', noConnectors: 'No connectors configured.', bindingID: 'Binding ID', exampleBinding: 'For example, cmms-main', selectConnector: 'Select connector', direction: 'Direction', inbound: 'Inbound', outbound: 'Outbound', bidirectional: 'Bidirectional', saveBinding: 'Save binding', noBindings: 'Create a connector and binding first.', mappingID: 'Mapping ID', exampleMapping: 'For example, incident-v1', externalMapping: 'External event mapping', mappingJSON: 'Field mapping JSON', mappingExample: 'Example: {"title":"summary","priority":"severity"}', saveMapping: 'Save mapping', selectBinding: 'Select a binding on the left to configure field mapping.', visualWorkflow: 'Visual work-order workflow', newManualOrder: 'New manual work order', workOrderTemplate: 'Work order template', selectTemplate: 'Select a template', priority: 'Priority', low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent', title: 'Title', summary: 'Summary', createWorkOrder: 'Create work order', editOrderTitle: 'Edit work order details', save: 'Save', editTemplateTitle: 'Edit template details', templateNameHint: 'Template codes and structures must remain stable. Only the name can be changed; create a new template to use another code.', newTemplateTitle: 'New work-order template', description: 'Description', createTemplateHint: 'An editable initial form and basic workflow are generated after creation.', create: 'Create', ccTitle: 'Copy work order', selectCC: 'Select recipients', searchMembers: 'Search members...', noMembers: 'No matching members found.', additionalMessage: 'Message', optional: '(optional)', ccMessagePlaceholder: 'Add a message for the recipients...', send: 'Send', start: 'Start', handleTask: 'Handle task', end: 'End', templateConfigType: 'Template configuration', workflowConfig: 'Workflow', formConfig: 'Form design', managedReadonly: 'This AI-managed template is read-only', workflowActions: 'Workflow actions', formActions: 'Form actions', saveWorkflowDraft: 'Save workflow draft', publishWorkflow: 'Publish workflow', fullscreenWorkflow: 'Open workflow in full screen', saveFormDraft: 'Save form draft', publishForm: 'Publish form', resolution: 'Resolution', actualProblem: 'Actual issue', rootCause: 'Root cause', handlingProcess: 'Handling process', handlingResult: 'Result', processTitle: 'Process work order', processSubtitle: 'Choose an action and record your processing opinion', close: 'Close', processAction: 'Action', resolutionHint: 'Record the actual issue, root cause, handling process, and result before resolving. These details become immutable work-order events.', processOpinion: 'Processing opinion', processOpinionPlaceholder: 'Describe the decision, process, or result', processOpinionHint: 'The opinion is recorded in the activity log and cannot be omitted.', cancel: 'Cancel', submitProcess: 'Submit', statusAction: 'Status action', approve: 'Approve', reject: 'Reject', pass: 'Approve', complete: 'Complete', unavailableUser: 'Deleted or unavailable user', unclaimed: 'Unclaimed', integrations: 'Integrations', connector: 'Connector', binding: 'Binding', mapping: 'Mapping', statusOpen: 'Open', statusInProgress: 'In progress', statusPaused: 'Paused', statusResolved: 'Resolved', statusClosed: 'Closed', statusCancelled: 'Cancelled', yes: 'Yes', no: 'No', copiedSuccess: 'Work order copied successfully.', connectorSaved: 'Connector saved.', bindingSaved: 'Binding saved.', invalidMappingJSON: 'Field mapping must be valid JSON.', mappingSaved: 'Mapping saved.', noTemplateConfigured: 'Create and configure a work-order template first.', orderCreated: 'Work order created.', existingOrderReturned: 'Returned the existing work order for the same source.', orderClaimed: 'Work order claimed.', orderResolved: 'Work order resolved and awaiting acceptance and closure.', orderStatusUpdated: 'Work-order status updated.', approvalPassed: 'Approval passed.', approvalRejected: 'Approval rejected.', taskCompleted: 'Task completed and workflow continued.', taskRejected: 'Approval rejected and workflow returned to the configured step.', versionConflict: 'Another user updated this work order. The latest version has been loaded.', orderUpdated: 'Work-order details updated.', confirmDeleteOrder: 'Delete the unprocessed work order “{name}”? This cannot be undone.', orderDeleted: 'Work order deleted.', templateUpdated: 'Template name updated.', confirmDeleteTemplate: 'Delete work-order template “{name}”?\nIf existing work orders use it, forced deletion may make their data display incorrectly.', templateDeleted: 'Template deleted.', templateCreated: 'Template created with an initial form and workflow.', formPublishedReloadFailed: 'The form was published, but template details could not be reloaded: {message}', formPublished: 'Form published. Existing work orders keep their original snapshot.', formDraftReloadFailed: 'The form draft was saved, but template details could not be reloaded: {message}', formDraftSaved: 'Form draft saved but not published.', workflowPublishedReloadFailed: 'The workflow was published, but template details could not be reloaded: {message}', workflowPublished: 'Workflow published. Existing work orders keep their original snapshot.', workflowDraftReloadFailed: 'The workflow draft was saved, but template details could not be reloaded: {message}', workflowDraftSaved: 'Workflow draft saved but not published.'
+    pageTitle: 'Work Order Center', pageSubtitle: 'Manage manual, rule, alarm, AI, and external work orders in one place', refresh: 'Refresh', newWorkOrder: 'New work order', newTemplate: 'New template', ordersTab: 'Work Orders', all: 'All Orders', templatesTab: 'Form & workflow templates', relatedViews: 'Work orders related to the current user', relatedToMe: 'Related to me', searchPlaceholder: 'Search by code, title, or summary', allStatuses: 'All statuses', allSources: 'All sources', sourceManual: 'Manual', sourceRule: 'Rule engine', sourceAlarm: 'Alarm', sourceAI: 'AI Brain', sourceExternal: 'External', sourceInspection: 'Video inspection', query: 'Search', columnWorkOrder: 'Work order', columnSource: 'Source', columnPriority: 'Priority', columnStatus: 'Status', columnAssignee: 'Assignee', columnCreatedAt: 'Created at', columnActions: 'Actions', loading: 'Loading', noOrders: 'No matching work orders', editOrder: 'Edit work order', deleteOrder: 'Delete work order', edit: 'Edit', delete: 'Delete', loadMore: 'Load more', claim: 'Claim', formContent: 'Form data', workOrderActions: 'Work order actions', actionHint: 'Processing opens in a dialog and requires an opinion.', cc: 'Copy', transfer: 'Transfer', transferTitle: 'Transfer work order', transferHint: 'The current handling item moves to the selected member and the complete routing history is preserved. Approval tasks cannot be transferred.', transferTask: 'Handling task', transferRecipient: 'Transfer to', selectMember: 'Select a member', transferReason: 'Transfer reason', transferReasonPlaceholder: 'Explain the reason or work already completed', confirmTransfer: 'Confirm transfer', transferSuccess: 'Work order transferred to the selected member.', myTasks: 'Workflow tasks assigned to me', approval: 'Approval', task: 'Task', selectOrder: 'Select a work order to view details', templateName: 'Template name', noTemplates: 'No templates yet. Create one first.', configureTemplate: 'Configure template', configureWorkflowForm: 'Configure workflow and form', editTemplate: 'Edit template', editBasicInfo: 'Edit basic information', deleteTemplate: 'Delete template', integrationInfo: 'Credentials are submitted only when saved and are never displayed again. Bindings control inbound idempotency and revision order; mappings define external field conversion.', name: 'Name', exampleCMMS: 'For example, CMMS', remoteIdentity: 'Remote identity', secretSaveOnly: 'Submitted only when saved', saveConnector: 'Save connector', enabled: 'Enabled', disabled: 'Disabled', noConnectors: 'No connectors configured.', bindingID: 'Binding ID', exampleBinding: 'For example, cmms-main', selectConnector: 'Select connector', direction: 'Direction', inbound: 'Inbound', outbound: 'Outbound', bidirectional: 'Bidirectional', saveBinding: 'Save binding', noBindings: 'Create a connector and binding first.', mappingID: 'Mapping ID', exampleMapping: 'For example, incident-v1', externalMapping: 'External event mapping', mappingJSON: 'Field mapping JSON', mappingExample: 'Example: {"title":"summary","priority":"severity"}', saveMapping: 'Save mapping', selectBinding: 'Select a binding on the left to configure field mapping.', visualWorkflow: 'Visual work-order workflow', newManualOrder: 'New manual work order', workOrderTemplate: 'Work order template', selectTemplate: 'Select a template', priority: 'Priority', low: 'Low', normal: 'Normal', high: 'High', urgent: 'Urgent', title: 'Title', summary: 'Summary', createWorkOrder: 'Create work order', editOrderTitle: 'Edit work order details', save: 'Save', editTemplateTitle: 'Edit template details', templateNameHint: 'Template codes and structures must remain stable. Only the name can be changed; create a new template to use another code.', newTemplateTitle: 'New work-order template', description: 'Description', createTemplateHint: 'An editable initial form and basic workflow are generated after creation.', create: 'Create', ccTitle: 'Copy work order', selectCC: 'Select recipients', searchMembers: 'Search members...', noMembers: 'No matching members found.', additionalMessage: 'Message', optional: '(optional)', ccMessagePlaceholder: 'Add a message for the recipients...', send: 'Send', start: 'Start', handleTask: 'Handle task', end: 'End', templateConfigType: 'Template configuration', workflowConfig: 'Workflow', formConfig: 'Form design', managedReadonly: 'This AI-managed template is read-only', workflowActions: 'Workflow actions', formActions: 'Form actions', saveWorkflowDraft: 'Save workflow draft', publishWorkflow: 'Publish workflow', fullscreenWorkflow: 'Open workflow in full screen', saveFormDraft: 'Save form draft', publishForm: 'Publish form', resolution: 'Resolution', actualProblem: 'Actual issue', rootCause: 'Root cause', handlingProcess: 'Handling process', handlingResult: 'Result', processTitle: 'Process work order', processSubtitle: 'Choose an action and record your processing opinion', close: 'Close', processAction: 'Action', resolutionHint: 'Record the actual issue, root cause, handling process, and result before resolving. These details become immutable work-order events.', processOpinion: 'Processing opinion', processOpinionPlaceholder: 'Describe the decision, process, or result', processOpinionHint: 'The opinion is recorded in the activity log and cannot be omitted.', cancel: 'Cancel', submitProcess: 'Submit', statusAction: 'Status action', approve: 'Approve', reject: 'Reject', pass: 'Approve', complete: 'Complete', unavailableUser: 'Deleted or unavailable user', unclaimed: 'Unclaimed', integrations: 'Integrations', connector: 'Connector', binding: 'Binding', mapping: 'Mapping', statusOpen: 'Open', statusInProgress: 'In progress', statusPaused: 'Paused', statusResolved: 'Resolved', statusClosed: 'Closed', statusCancelled: 'Cancelled', yes: 'Yes', no: 'No', copiedSuccess: 'Work order copied successfully.', connectorSaved: 'Connector saved.', bindingSaved: 'Binding saved.', invalidMappingJSON: 'Field mapping must be valid JSON.', mappingSaved: 'Mapping saved.', noTemplateConfigured: 'Create and configure a work-order template first.', orderCreated: 'Work order created.', existingOrderReturned: 'Returned the existing work order for the same source.', orderClaimed: 'Work order claimed.', orderResolved: 'Work order resolved and awaiting acceptance and closure.', orderStatusUpdated: 'Work-order status updated.', approvalPassed: 'Approval passed.', approvalRejected: 'Approval rejected.', taskCompleted: 'Task completed and workflow continued.', taskRejected: 'Approval rejected and workflow returned to the configured step.', versionConflict: 'Another user updated this work order. The latest version has been loaded.', orderUpdated: 'Work-order details updated.', confirmDeleteOrder: 'Delete the unprocessed work order “{name}”? This cannot be undone.', orderDeleted: 'Work order deleted.', templateUpdated: 'Template name updated.', confirmDeleteTemplate: 'Delete work-order template “{name}”?\nIf existing work orders use it, forced deletion may make their data display incorrectly.', templateDeleted: 'Template deleted.', templateCreated: 'Template created with an initial form and workflow.', formPublishedReloadFailed: 'The form was published, but template details could not be reloaded: {message}', formPublished: 'Form published. Existing work orders keep their original snapshot.', formDraftReloadFailed: 'The form draft was saved, but template details could not be reloaded: {message}', formDraftSaved: 'Form draft saved but not published.', confirmFormKeyRename: 'Publishing renames these field keys:\n{detail}\n\nExisting work orders stored their data under the old keys, so those values will no longer be displayed. Continue?', workflowPublishedReloadFailed: 'The workflow was published, but template details could not be reloaded: {message}', workflowPublished: 'Workflow published. Existing work orders keep their original snapshot.', workflowDraftReloadFailed: 'The workflow draft was saved, but template details could not be reloaded: {message}', workflowDraftSaved: 'Workflow draft saved but not published.'
   }
 }
 Object.assign(workOrderCopy.zh, {
@@ -659,6 +658,10 @@ const serverText = value => resolveServerText(value, currentLang.value)
 const txf = (key, values = {}) => Object.entries(values).reduce((message, [name, value]) => message.replaceAll(`{${name}}`, String(value)), tx(key))
 const relationFilters = computed(() => workOrderRelationFiltersForLocale(currentLang.value))
 const orderRelationFilters = computed(() => [
+  {key:'claimable',label:opText('claimable')},
+  {key:'blocked',label:opText('blocked')},
+  {key:'sla_breached',label:opText('breached')},
+  {key:'delivery_failed',label:opText('failedDelivery')},
   { key: '', label: tx('all') || '全部工单' },
   { key: 'pending', label: tx('pendingMyAction') || '待我处理' },
   { key: 'pending_approval', label: tx('pendingMyApproval') || '待我审批' },
@@ -666,6 +669,8 @@ const orderRelationFilters = computed(() => [
   { key: 'created', label: tx('myCreated') || '我创建的' },
   { key: 'cc', label: tx('myCC') || '抄送我的' }
 ])
+const opText = key => operationText(currentLang.value,key)
+function openOperationsFilter(relation){activeTab.value='orders';applyOrderRelation(relation)}
 const workOrderIntegrationsVisible = false
 const activeTab = ref('orders')
 
@@ -740,6 +745,7 @@ const formDraft = ref({ fields: [] })
 const workflowDraft = ref(defaultGraphWorkflow())
 const workflowEditorRef = ref(null)
 const projectParticipants = ref([])
+const projectAssignmentRoles = ref([])
 const participantsLoading = ref(false)
 
 const showCCModal = ref(false)
@@ -830,10 +836,13 @@ const showTemplateModal = ref(false)
 const showTemplateEditor = ref(false)
 const templateEditorTab = ref('workflow')
 const createTemplateDetail = ref(null)
+const createPolicyLoading = ref(false)
+let createTemplateGeneration = 0
+function applyManualPolicy(detail) { ++createTemplateGeneration; createOrder.value.formData = {}; if (detail) { createOrder.value.templateId = detail.definition.template_id; createTemplateDetail.value = detail } else { createTemplateDetail.value = null; if (!createOrder.value.policyVersionId) loadCreateTemplate() } }
 const isAIManagedTemplate = computed(() => selectedTemplate.value?.template?.system_managed === true && selectedTemplate.value.template.code === 'ai_device_maintenance')
 const workflowEditorReadonly = computed(() => selectedTemplate.value?.template?.system_managed === true && !isAIManagedTemplate.value)
 
-const createOrder = ref({ templateId: 0, title: '', summary: '', priority: 'normal', formData: {} })
+const createOrder = ref({ templateId: 0, title: '', summary: '', priority: 'normal', formData: {}, policyVersionId: 0, routingContext: {} })
 const createTemplate = ref({ code: '', name: '', description: '' })
 const showEditOrderModal = ref(false)
 const showEditTemplateModal = ref(false)
@@ -1135,7 +1144,10 @@ async function loadTemplates() {
 async function loadProjectParticipants() {
   participantsLoading.value = true
   try {
-    projectParticipants.value = await loadAllWorkOrderParticipants()
+    const [participants, roles] = await Promise.all([loadAllWorkOrderParticipants(), workOrderApi.assignmentRoles()])
+    if (roles.data.code !== 0) throw new Error(roles.data.message)
+    projectParticipants.value = participants
+    projectAssignmentRoles.value = roles.data.data || []
   } catch (error) {
     errorMessage.value = apiError(error)
   } finally {
@@ -1203,7 +1215,7 @@ function applyRouteOrderFilters() {
   const relation = String(route.query.relation || '').trim()
   if (relation) orderFilters.value.relation = relation
   const tab = String(route.query.tab || '').trim()
-  if (tab && ['orders', 'my_orders', 'all_orders', 'templates', 'integrations'].includes(tab)) {
+  if (tab && ['orders', 'my_orders', 'all_orders', 'templates', 'policies', 'operations', 'integrations'].includes(tab)) {
     activeTab.value = (tab === 'my_orders' || tab === 'all_orders') ? 'orders' : tab
   }
 }
@@ -1225,6 +1237,11 @@ async function selectOrder(id, { openDrawer = true } = {}) {
   } finally {
     loading.value = false
   }
+}
+
+async function refreshAssignedOrder(id) {
+  await selectOrder(id)
+  await loadOrders()
 }
 
 function closeOrderDetail() {
@@ -1323,33 +1340,37 @@ function closeTemplateEditor() {
 }
 
 function openCreateOrder() {
+  createPolicyLoading.value = false
   if (templates.value.length === 0) {
     activeTab.value = 'templates'
     errorMessage.value = tx('noTemplateConfigured')
     return
   }
-  createOrder.value = { templateId: templates.value[0].ID, title: '', summary: '', priority: 'normal', formData: {} }
+  createOrder.value = { templateId: templates.value[0].ID, title: '', summary: '', priority: 'normal', formData: {}, policyVersionId: 0, routingContext: {} }
   createTemplateDetail.value = null
   showOrderModal.value = true
   loadCreateTemplate()
 }
 
 async function loadCreateTemplate() {
+  const stamp = ++createTemplateGeneration
+  createTemplateDetail.value = null
   createOrder.value.formData = {}
   if (!createOrder.value.templateId) return
   try {
     const response = await workOrderApi.template(createOrder.value.templateId)
     if (response.data.code !== 0) throw new Error(response.data.message)
-    createTemplateDetail.value = response.data.data
+    if (stamp === createTemplateGeneration) createTemplateDetail.value = response.data.data
   } catch (error) {
     errorMessage.value = apiError(error)
   }
 }
 
 async function createManualOrder() {
+  if (actionLoading.value || createPolicyLoading.value || !createTemplateDetail.value) return
   actionLoading.value = true
   try {
-    const payload = { template_id: createOrder.value.templateId, title: createOrder.value.title, summary: createOrder.value.summary, priority: createOrder.value.priority, form_data: createOrder.value.formData }
+    const payload = { policy_version_id: createOrder.value.policyVersionId, routing_context: createOrder.value.routingContext, template_id: createOrder.value.templateId, title: createOrder.value.title, summary: createOrder.value.summary, priority: createOrder.value.priority, form_data: createOrder.value.formData }
     const response = await axios.post('/api/work-orders', payload)
     if (response.data.code !== 0) throw new Error(response.data.message)
     showOrderModal.value = false
@@ -1668,6 +1689,28 @@ function normalizeFieldOptions(field) {
   if (field.type === 'select' && field.default_value !== undefined && !field.options.includes(field.default_value)) delete field.default_value
 }
 
+// A renamed key leaves previously persisted form_data pointing at a key the new
+// version no longer declares, so the stored value silently stops rendering in the
+// order detail. Detect label-matched renames and force an explicit confirmation.
+function renamedFormFieldKeys(publishedDefinition, nextDefinition) {
+  const publishedFields = Array.isArray(publishedDefinition?.fields) ? publishedDefinition.fields : []
+  const nextFields = Array.isArray(nextDefinition?.fields) ? nextDefinition.fields : []
+  if (!publishedFields.length) return []
+  const nextKeys = new Set(nextFields.map(field => field.key))
+  const nextKeyByLabel = new Map()
+  nextFields.forEach(field => {
+    const label = String(field.label || '').trim()
+    if (label && !nextKeyByLabel.has(label)) nextKeyByLabel.set(label, field.key)
+  })
+  const renamed = []
+  publishedFields.forEach(field => {
+    if (!field.key || nextKeys.has(field.key)) return
+    const nextKey = nextKeyByLabel.get(String(field.label || '').trim())
+    if (nextKey && nextKey !== field.key) renamed.push({ label: field.label, from: field.key, to: nextKey })
+  })
+  return renamed
+}
+
 function formDefinitionForSave() {
   const definition = cloneDefinition(formDraft.value)
   const seenKeys = new Set()
@@ -1677,6 +1720,11 @@ function formDefinitionForSave() {
     normalized.label = String(normalized.label || '').trim()
     if (!normalized.key || seenKeys.has(normalized.key)) {
       throw new Error(currentLang.value === 'en' ? 'Every form field must have a unique key.' : '每个表单字段都必须具有唯一标识。')
+    }
+    if (!/^[a-z0-9_-]{2,64}$/.test(normalized.key)) {
+      throw new Error(currentLang.value === 'en'
+        ? `Field “${normalized.label || normalized.key}” needs a key of 2-64 lowercase letters, digits, underscores, or hyphens.`
+        : `字段“${normalized.label || normalized.key}”的标识只能包含小写字母、数字、下划线或连字符，长度 2–64。`)
     }
     if (!normalized.label || [...normalized.label].length > 128) {
       throw new Error(currentLang.value === 'en' ? 'Every field needs a label of no more than 128 characters.' : '每个字段都必须填写名称，且名称不能超过 128 个字符。')
@@ -1708,6 +1756,11 @@ async function publishForm() {
   successMessage.value = ''
   try {
     const definition = formDefinitionForSave()
+    const renamedKeys = renamedFormFieldKeys(selectedTemplate.value.form_definition, definition)
+    if (renamedKeys.length) {
+      const detail = renamedKeys.map(item => `· ${item.label}：${item.from} → ${item.to}`).join('\n')
+      if (!confirm(txf('confirmFormKeyRename', { detail }))) return
+    }
     formDraft.value = normalizeFormDraft(definition)
     const response = await axios.post(`/api/work-order-templates/${templateID}/form-versions`, { definition })
     if (response.data.code !== 0) throw new Error(response.data.message)
@@ -1796,7 +1849,7 @@ function toggleWorkflowFullscreen() {
 }
 
 function sourceLabel(value) {
-  return ({ manual: tx('sourceManual'), rule: tx('sourceRule'), alarm: tx('sourceAlarm'), ai: tx('sourceAI'), external: tx('sourceExternal') })[value] || value || '-'
+  return ({ manual: tx('sourceManual'), rule: tx('sourceRule'), alarm: tx('sourceAlarm'), ai: tx('sourceAI'), external: tx('sourceExternal'), inspection: tx('sourceInspection') })[value] || value || '-'
 }
 function priorityLabel(value) { return ({ low: tx('low'), normal: tx('normal'), high: tx('high'), urgent: tx('urgent') })[value] || value || '-' }
 function priorityClass(value) { return ({ low: 'text-bg-secondary', normal: 'text-bg-info', high: 'text-bg-warning', urgent: 'text-bg-danger' })[value] || 'text-bg-secondary' }
@@ -2087,7 +2140,7 @@ watch(() => route.query.template, async () => {
 .work-order-template-editor-dialog .modal-content { height: calc(100vh - 2rem); max-height: calc(100vh - 2rem); }
 .work-order-template-editor-dialog .modal-body { display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: 0; }
 .template-editor-tabs { display: flex; align-items: center; gap: 0.75rem; flex: 0 0 auto; min-width: 0; background: var(--bs-body-bg); }
-.template-editor-tabs .nav-link { padding: 0.35rem 0.65rem; }
+.template-config-tabs { flex: 1 1 auto; margin-bottom: 0; border-bottom: 0; }
 .template-editor-description { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .template-editor-readonly { white-space: nowrap; }
 .template-editor-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem; margin-left: auto; }
@@ -2098,7 +2151,7 @@ watch(() => route.query.template, async () => {
 .template-editor-workflow-panel :deep(.workflow-editor-content) { height: 100%; min-height: 0; }
 @media (max-width: 767.98px) { .work-order-drawer, .template-detail-drawer { width: 100vw; } .template-detail-workflow, .template-detail-workflow :deep(.work-order-workflow-editor) { min-height: 34rem; } }
 @media (max-width: 991px) { .work-order-template-editor-dialog { margin: 0; max-width: 100vw; min-height: 100vh; } .work-order-template-editor-dialog .modal-content { height: 100vh; max-height: 100vh; } .template-editor-tabs { align-items: flex-start; flex-wrap: wrap; } .template-editor-description { flex: 1 0 100%; order: 3; } .template-editor-readonly { order: 2; } .template-editor-actions { margin-left: auto; order: 1; } .template-editor-workflow-panel { overflow: auto; } .work-order-template-editor-dialog :deep(.workflow-editor-content) { height: auto; min-height: 0; } }
-@media (max-width: 767.98px) { .work-order-center .nav-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; border-bottom: 0; } .work-order-center .nav-item, .work-order-center .nav-link { width: 100%; margin: 0; border: 1px solid var(--bs-border-color); border-radius: .45rem; text-align: center; } .work-order-filter-card .row > [class*='col-'] { width: 100%; } .work-order-relation-filter { align-items: stretch !important; } .work-order-relation-filter > span { flex-basis: 100%; } .work-order-relation-filter .btn { flex: 1 1 calc(50% - .5rem); } .work-order-table thead { display: none; } .work-order-table, .work-order-table tbody, .work-order-table tr, .work-order-table td { display: block; width: 100%; } .work-order-row { margin: .65rem; width: calc(100% - 1.3rem); border: 1px solid var(--bs-border-color); border-radius: .65rem; overflow: hidden; } .work-order-row > td { padding: .65rem .8rem; border: 0; } .work-order-row--selected > td:first-child { box-shadow: inset 3px 0 0 var(--wo-selected-accent); } .work-order-row > td[data-label] { display: flex; align-items: center; justify-content: space-between; gap: 1rem; } .work-order-row > td[data-label]::before { content: attr(data-label); color: var(--bs-secondary-color); font-size: .78rem; } .work-order-actions-cell .btn-group { width: 100%; } .work-order-actions-cell .btn { flex: 1; } }
+@media (max-width: 767.98px) { .work-order-filter-card .row > [class*='col-'] { width: 100%; } .work-order-relation-filter { align-items: stretch !important; } .work-order-relation-filter > span { flex-basis: 100%; } .work-order-relation-filter .btn { flex: 1 1 calc(50% - .5rem); } .work-order-table thead { display: none; } .work-order-table, .work-order-table tbody, .work-order-table tr, .work-order-table td { display: block; width: 100%; } .work-order-row { margin: .65rem; width: calc(100% - 1.3rem); border: 1px solid var(--bs-border-color); border-radius: .65rem; overflow: hidden; } .work-order-row > td { padding: .65rem .8rem; border: 0; } .work-order-row--selected > td:first-child { box-shadow: inset 3px 0 0 var(--wo-selected-accent); } .work-order-row > td[data-label] { display: flex; align-items: center; justify-content: space-between; gap: 1rem; } .work-order-row > td[data-label]::before { content: attr(data-label); color: var(--bs-secondary-color); font-size: .78rem; } .work-order-actions-cell .btn-group { width: 100%; } .work-order-actions-cell .btn { flex: 1; } }
 .work-order-attachment-card {
   position: relative;
   width: 68px;

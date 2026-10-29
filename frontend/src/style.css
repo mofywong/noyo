@@ -634,7 +634,7 @@ body {
 /* --- Form Controls & Buttons (Apple Liquid Glass Inputs & Buttons) --- */
 .form-control,
 .form-select {
-    background: var(--bg-input);
+    background-color: var(--bg-input);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border-color);
@@ -646,7 +646,7 @@ body {
 
 .form-control:focus,
 .form-select:focus {
-    background: var(--bg-input);
+    background-color: var(--bg-input);
     border-color: var(--color-brand);
     box-shadow: inset 0 1px 1.5px rgba(255, 255, 255, 0.3), 0 0 0 3px var(--color-brand-subtle);
     color: var(--text-main);

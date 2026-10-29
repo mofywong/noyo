@@ -2,6 +2,7 @@ package core
 
 import (
 	"noyo/core/store"
+	"strconv"
 
 	"github.com/gogf/gf/v2/net/ghttp"
 )
@@ -17,6 +18,28 @@ func CanReadDeviceForPlugin(r *ghttp.Request, deviceCode string) bool {
 		}
 	}
 	return canAccessDeviceCode(r, deviceCode)
+}
+
+// CanInspectDeviceAsUser revalidates a scheduled plan's grant without turning
+// its service executor into that user. Scope and tag grants can be revoked.
+func CanInspectDeviceAsUser(auth *AuthContext, tenantID, projectID uint, code string) bool {
+	if auth == nil || !auth.HasProjectPermission("inspection:execute", projectID) || !auth.HasProjectPermission("device:control", projectID) || !auth.HasProjectPermission("device:list", projectID) {
+		return false
+	}
+	device, err := store.GetDevice(code)
+	if err != nil || !device.Enabled || device.TenantID != tenantID || device.ProjectID != projectID || (!auth.IsSystemAdmin && !auth.CanManageProject(projectID)) {
+		return false
+	}
+	scope := store.GlobalAccessScope()
+	if auth.TenantID != 0 {
+		scope = store.AccessScope{Type: "tenant", ID: strconv.FormatUint(uint64(auth.TenantID), 10)}
+	}
+	read, err := canReadDeviceByTagPermission(auth, scope, code)
+	if err != nil || !read {
+		return false
+	}
+	write, err := canWriteDeviceByTagPermission(auth, scope, code)
+	return err == nil && write
 }
 
 // CanWriteDeviceForPlugin adds the device API's tag write boundary and, for

@@ -25,6 +25,11 @@ type CommandMeta struct {
 }
 
 type CreateCommand struct {
+	PolicyVersionID uint `json:"policy_version_id,omitempty"`
+	ExecutionGrantID uint `json:"execution_grant_id,omitempty"`
+	FormVersion int `json:"form_version,omitempty"`
+	WorkflowVersion int `json:"workflow_version,omitempty"`
+	RoutingContext RoutingContext `json:"routing_context,omitempty"`
 	Scope          Scope          `json:"scope"`
 	Meta           CommandMeta    `json:"meta"`
 	TypeCode       string         `json:"type_code,omitempty"`
@@ -36,6 +41,12 @@ type CreateCommand struct {
 	SourceRef      string         `json:"source_ref,omitempty"`
 	SourceSnapshot map[string]any `json:"source_snapshot,omitempty"`
 	FormData       map[string]any `json:"form_data,omitempty"`
+}
+
+type RoutingContext struct {
+	Location string `json:"location"`
+	DeviceCode string `json:"device_code"`
+	IssueCode string `json:"issue_code"`
 }
 
 type AttachmentItem struct {

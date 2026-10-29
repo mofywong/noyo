@@ -9,11 +9,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"noyo/core/store"
 	"noyo/core/workorder"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -39,13 +41,47 @@ func (a *LocalCommandAdapter) Create(ctx context.Context, command workorder.Crea
 	if err := validateCommandScope(command.Scope, "work_order:create"); err != nil {
 		return workorder.CommandResult{}, err
 	}
-	if strings.TrimSpace(command.TemplateCode) == "" || strings.TrimSpace(command.Title) == "" {
+	if (strings.TrimSpace(command.TemplateCode) == "" && command.PolicyVersionID == 0) || strings.TrimSpace(command.Title) == "" {
 		return workorder.CommandResult{}, workorder.NewError(workorder.CodeValidationFailed, "template code and title are required")
 	}
-	return a.withReceipt(command.Scope, command.Meta, "create", command, func(a *LocalCommandAdapter) (workorder.CommandResult, error) {
-		templateID, err := a.templateID(command.Scope, command.TemplateCode)
+	serviceScope := a.serviceScope(command.Scope)
+	if command.Scope.Principal.Type == "automation" || command.ExecutionGrantID != 0 {
+		grant, err := a.service.ValidateWorkOrderExecutionGrant(serviceScope, command.ExecutionGrantID, command.PolicyVersionID, command.RoutingContext.DeviceCode)
 		if err != nil {
 			return workorder.CommandResult{}, err
+		}
+		if command.Scope.Principal.Type != "automation" && serviceScope.ActorUserID != grant.AuthorizedBy {
+			return workorder.CommandResult{}, fmt.Errorf("execution grant principal mismatch")
+		}
+		if command.Scope.Principal.Type == "automation" && command.Scope.Principal.Ref != strconv.FormatUint(uint64(grant.ID), 10) {
+			return workorder.CommandResult{}, fmt.Errorf("execution grant principal mismatch")
+		}
+		serviceScope.ActorUserID = grant.AuthorizedBy
+	}
+	return a.withReceipt(command.Scope, command.Meta, "create", command, func(a *LocalCommandAdapter) (workorder.CommandResult, error) {
+		if command.ExecutionGrantID != 0 {
+			var grant store.WorkOrderExecutionGrant
+			if err := policyScope(a.service.db.Clauses(clause.Locking{Strength: "UPDATE"}), serviceScope).First(&grant, command.ExecutionGrantID).Error; err != nil {
+				return workorder.CommandResult{}, err
+			}
+			if grant.RevokedAt != nil || !grant.ExpiresAt.After(time.Now()) || grant.AuthorizedBy != serviceScope.ActorUserID || grant.PolicyVersionID != command.PolicyVersionID {
+				return workorder.CommandResult{}, fmt.Errorf("execution grant changed before creation")
+			}
+			var devices []string
+			if err := json.Unmarshal([]byte(grant.DeviceCodes), &devices); err != nil {
+				return workorder.CommandResult{}, err
+			}
+			if !containsPolicyValue(devices, command.RoutingContext.DeviceCode) {
+				return workorder.CommandResult{}, fmt.Errorf("device is outside execution grant")
+			}
+		}
+		var templateID uint
+		if command.PolicyVersionID == 0 {
+			var err error
+			templateID, err = a.templateID(command.Scope, command.TemplateCode)
+			if err != nil {
+				return workorder.CommandResult{}, err
+			}
 		}
 		sourceType := strings.TrimSpace(command.SourceType)
 		if sourceType == "" {
@@ -56,11 +92,13 @@ func (a *LocalCommandAdapter) Create(ctx context.Context, command workorder.Crea
 			sourceRef = "command:" + command.Meta.IdempotencyKey
 		}
 		order, created, err := a.service.CreateWorkOrder(WorkOrderCreateInput{
-			Scope:      a.serviceScope(command.Scope),
-			TemplateID: templateID,
-			Title:      command.Title,
-			Summary:    command.Summary,
-			Priority:   command.Priority,
+			Scope:           serviceScope,
+			PolicyVersionID: command.PolicyVersionID, FormVersion: command.FormVersion, WorkflowVersion: command.WorkflowVersion,
+			RoutingContext: WorkOrderRoutingContext{Location: command.RoutingContext.Location, DeviceCode: command.RoutingContext.DeviceCode, IssueCode: command.RoutingContext.IssueCode},
+			TemplateID:     templateID,
+			Title:          command.Title,
+			Summary:        command.Summary,
+			Priority:       command.Priority,
 			Source: WorkOrderSource{
 				Type:           sourceType,
 				ID:             sourceRef,
@@ -303,8 +341,17 @@ func (a *LocalCommandAdapter) withReceipt(scope workorder.Scope, meta workorder.
 			if rollbackErr := tx.RollbackTo("command_operation").Error; rollbackErr != nil {
 				return rollbackErr
 			}
+			// Creation depends on live grants, enabled templates and membership.
+			// Failed creation has no committed side effects; permit the same frozen
+			// command to be retried after its external dependency is repaired.
+			if commandType == "create" {
+				return operationErr
+			}
 			var commandErr *workorder.Error
 			if errors.As(operationErr, &commandErr) {
+				if commandErr.Code == workorder.CodeTemporarilyUnavailable {
+					return operationErr
+				}
 				receipt.Status = commandReceiptError
 				receipt.ErrorCode = commandErr.Code
 			} else {
@@ -376,6 +423,8 @@ func mapCommandError(err error) error {
 	}
 	message := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(message, "database is locked"), strings.Contains(message, "database is busy"), strings.Contains(message, "deadlock"), strings.Contains(message, "serialization failure"), strings.Contains(message, "connection refused"), strings.Contains(message, "connection reset"), strings.Contains(message, "timeout"), strings.Contains(message, "bad connection"):
+		return workorder.NewError(workorder.CodeTemporarilyUnavailable, err.Error())
 	case strings.Contains(message, "not found"):
 		return workorder.NewError(workorder.CodeWorkOrderNotFound, err.Error())
 	case strings.Contains(message, "not allowed") || strings.Contains(message, "transition") || strings.Contains(message, "approval"):

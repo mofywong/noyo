@@ -36,7 +36,7 @@
         <input :id="propertyInputId('label')" :value="selectedField.label" class="form-control" :class="{ 'is-invalid': labelError }" :aria-invalid="labelError ? 'true' : 'false'" :placeholder="text('labelPlaceholder')" :disabled="readonly" @input="updateSelected({ label: $event.target.value })">
         <div v-if="labelError" class="invalid-feedback d-block">{{ text('labelError') }}</div>
         <div class="mt-3"><label class="form-label" :for="propertyInputId('type')">{{ text('type') }}</label><select :id="propertyInputId('type')" :value="selectedField.type" class="form-select" :disabled="readonly" @change="changeSelectedType($event.target.value)"><option v-for="item in allPaletteItems" :key="item.type" :value="item.type">{{ item.label }}</option></select></div>
-        <div class="mt-3"><label class="form-label" :for="propertyInputId('key')">{{ text('identifier') }}</label><input :id="propertyInputId('key')" :value="selectedField.key" class="form-control font-monospace" disabled><div class="form-text">{{ text('identifierHint') }}</div></div>
+        <div class="mt-3"><label class="form-label" :for="keyInputId">{{ text('identifier') }}</label><input :id="keyInputId" :value="keyDraft" class="form-control font-monospace" :class="{ 'is-invalid': keyError }" :aria-invalid="keyError ? 'true' : 'false'" :disabled="readonly" @input="onKeyInput" @blur="commitKey" @keydown.enter.prevent="commitKey"><div v-if="keyError" class="invalid-feedback d-block">{{ keyError }}</div><div class="form-text">{{ text('identifierHint') }}</div></div>
         <div v-if="choiceField" class="mt-3"><label class="form-label" :for="propertyInputId('options')">{{ text('options') }} *</label><textarea :id="propertyInputId('options')" :value="selectedField.optionsText" class="form-control" :class="{ 'is-invalid': optionsError }" rows="6" :aria-invalid="optionsError ? 'true' : 'false'" :disabled="readonly" :placeholder="text('optionsHint')" @input="updateOptions($event.target.value)"></textarea><div v-if="optionsError" class="invalid-feedback d-block">{{ text('optionsError') }}</div></div>
         <div v-if="selectedField.type === 'select'" class="mt-3"><label class="form-label" :for="propertyInputId('default')">{{ text('defaultValue') }}</label><select :id="propertyInputId('default')" :value="selectedField.default_value ?? ''" class="form-select" :disabled="readonly" @change="updateDefault($event.target.value)"><option value="">{{ text('notSet') }}</option><option v-for="option in selectedField.options || []" :key="option" :value="option">{{ optionLabel(selectedField, option) }}</option></select></div>
         <div v-else-if="selectedField.type === 'boolean'" class="mt-3"><label class="form-label" :for="propertyInputId('default')">{{ text('defaultValue') }}</label><select :id="propertyInputId('default')" :value="selectedField.default_value ?? ''" class="form-select" :disabled="readonly" @change="updateDefault($event.target.value)"><option value="">{{ text('notSet') }}</option><option value="true">{{ text('yes') }}</option><option value="false">{{ text('no') }}</option></select></div>
@@ -58,6 +58,11 @@ import { changeWorkOrderDesignerFieldType, createWorkOrderDesignerField, insertW
 const props = defineProps({ modelValue: { type: Object, default: () => ({ fields: [] }) }, readonly: { type: Boolean, default: false }, locale: { type: String, default: 'zh' } })
 const emit = defineEmits(['update:modelValue'])
 const selectedIndex = ref(-1)
+// The key input must not derive its DOM id from the value being typed, otherwise
+// every keystroke re-creates the node and the caret is lost mid-edit.
+const keyInputId = 'designer-field-key-input'
+const keyDraft = ref('')
+const keyError = ref('')
 const dragPayload = ref(null)
 const dragging = ref(false)
 const activeDropIndex = ref(-1)
@@ -79,8 +84,8 @@ const defaultInputType = computed(() => ({ number: 'number', integer: 'number', 
 const defaultInputValue = computed(() => selectedField.value?.type === 'datetime' ? dateTimeLocalValue(selectedField.value.default_value) : (selectedField.value?.default_value ?? ''))
 
 const copy = {
-  zh: { palette: '字段组件', dragHint: '点击添加，或拖拽到画布', preview: '表单实时预览', previewHint: '字段顺序和样式与实际填单保持一致', fields: '个字段', properties: '字段属性', selectedHint: '修改后立即更新预览', selectHint: '选择画布中的字段后配置属性', emptyTitle: '从左侧添加第一个字段', emptyHint: '点击字段组件即可添加，也可以直接拖拽到这里', dropHere: '放到这里', dropEnd: '拖到此处追加字段', delete: '删除字段', dragField: '拖动调整字段顺序', insertAfter: '在后面添加字段', label: '字段名称', labelPlaceholder: '请输入字段名称', labelError: '字段名称必填，且不能超过 128 个字符。', type: '字段类型', identifier: '字段标识', identifierHint: '发布后作为数据键使用，为保证兼容性不可直接修改。', options: '选项', optionsHint: '每行一个选项，按 Enter 换行', optionsError: '至少填写一个有效选项。', defaultValue: '默认值（可选）', integerDefaultError: '整数默认值不能包含小数。', notSet: '不设置', yes: '是', no: '否', required: '必填', requiredHint: '创建工单时必须填写', moveUp: '上移', moveDown: '下移', deleteField: '删除此字段' },
-  en: { palette: 'Field components', dragHint: 'Click to add, or drag onto the canvas', preview: 'Live form preview', previewHint: 'Field order and appearance match the actual form', fields: 'fields', properties: 'Field properties', selectedHint: 'Changes update the preview immediately', selectHint: 'Select a field on the canvas to edit its properties', emptyTitle: 'Add the first field from the left', emptyHint: 'Click a field component or drag it here', dropHere: 'Drop here', dropEnd: 'Drop here to append', delete: 'Delete field', dragField: 'Drag to reorder this field', insertAfter: 'Add field after', label: 'Field label', labelPlaceholder: 'Enter a field label', labelError: 'A field label is required and must not exceed 128 characters.', type: 'Field type', identifier: 'Field key', identifierHint: 'Used as the persisted data key and kept stable for compatibility.', options: 'Options', optionsHint: 'One option per line', optionsError: 'Enter at least one valid option.', defaultValue: 'Default value (optional)', integerDefaultError: 'An integer default cannot contain a decimal value.', notSet: 'Not set', yes: 'Yes', no: 'No', required: 'Required', requiredHint: 'Must be completed when the work order is created', moveUp: 'Move up', moveDown: 'Move down', deleteField: 'Delete this field' }
+  zh: { palette: '字段组件', dragHint: '点击添加，或拖拽到画布', preview: '表单实时预览', previewHint: '字段顺序和样式与实际填单保持一致', fields: '个字段', properties: '字段属性', selectedHint: '修改后立即更新预览', selectHint: '选择画布中的字段后配置属性', emptyTitle: '从左侧添加第一个字段', emptyHint: '点击字段组件即可添加，也可以直接拖拽到这里', dropHere: '放到这里', dropEnd: '拖到此处追加字段', delete: '删除字段', dragField: '拖动调整字段顺序', insertAfter: '在后面添加字段', label: '字段名称', labelPlaceholder: '请输入字段名称', labelError: '字段名称必填，且不能超过 128 个字符。', type: '字段类型', identifier: '字段标识', identifierHint: '作为数据存储键与外部系统对接标识；仅草稿可改，发布后修改会导致历史工单的对应数据无法回显。', keyRequiredError: '字段标识不能为空。', keyFormatError: '字段标识只能包含小写字母、数字、下划线或连字符，长度 2–64。', keyDuplicateError: '该字段标识已被其他字段使用。', options: '选项', optionsHint: '每行一个选项，按 Enter 换行', optionsError: '至少填写一个有效选项。', defaultValue: '默认值（可选）', integerDefaultError: '整数默认值不能包含小数。', notSet: '不设置', yes: '是', no: '否', required: '必填', requiredHint: '创建工单时必须填写', moveUp: '上移', moveDown: '下移', deleteField: '删除此字段' },
+  en: { palette: 'Field components', dragHint: 'Click to add, or drag onto the canvas', preview: 'Live form preview', previewHint: 'Field order and appearance match the actual form', fields: 'fields', properties: 'Field properties', selectedHint: 'Changes update the preview immediately', selectHint: 'Select a field on the canvas to edit its properties', emptyTitle: 'Add the first field from the left', emptyHint: 'Click a field component or drag it here', dropHere: 'Drop here', dropEnd: 'Drop here to append', delete: 'Delete field', dragField: 'Drag to reorder this field', insertAfter: 'Add field after', label: 'Field label', labelPlaceholder: 'Enter a field label', labelError: 'A field label is required and must not exceed 128 characters.', type: 'Field type', identifier: 'Field key', identifierHint: 'Persisted data key and external integration identifier. Editable in the draft only; changing it after publishing hides the matching data on existing work orders.', keyRequiredError: 'A field key is required.', keyFormatError: 'A field key may contain lowercase letters, digits, underscores, or hyphens, and must be 2-64 characters.', keyDuplicateError: 'Another field already uses this key.', options: 'Options', optionsHint: 'One option per line', optionsError: 'Enter at least one valid option.', defaultValue: 'Default value (optional)', integerDefaultError: 'An integer default cannot contain a decimal value.', notSet: 'Not set', yes: 'Yes', no: 'No', required: 'Required', requiredHint: 'Must be completed when the work order is created', moveUp: 'Move up', moveDown: 'Move down', deleteField: 'Delete this field' }
 }
 const text = key => copy[lang.value][key] || key
 
@@ -94,6 +99,31 @@ function optionLabel(field, option) {
 }
 
 watch(fields, value => { if (!value.length) selectedIndex.value = -1; else if (selectedIndex.value < 0 || selectedIndex.value >= value.length) selectedIndex.value = 0 }, { immediate: true })
+watch(selectedField, field => { keyDraft.value = field?.key || ''; keyError.value = '' }, { immediate: true })
+
+// Mirrors the server-side isWorkOrderIdentifier contract so a key accepted here
+// is never rejected on save.
+const FIELD_KEY_PATTERN = /^[a-z0-9_-]{2,64}$/
+function fieldKeyError(value) {
+  const key = String(value ?? '').trim()
+  if (!key) return text('keyRequiredError')
+  if (!FIELD_KEY_PATTERN.test(key)) return text('keyFormatError')
+  if (fields.value.some((field, index) => index !== selectedIndex.value && field.key === key)) return text('keyDuplicateError')
+  return ''
+}
+function onKeyInput(event) { keyDraft.value = event.target.value; keyError.value = fieldKeyError(event.target.value) }
+function commitKey() {
+  const field = selectedField.value
+  if (!field) return
+  const key = String(keyDraft.value ?? '').trim()
+  const error = fieldKeyError(key)
+  keyError.value = error
+  // Keep the invalid text visible so the user can correct it; the stored key is
+  // left untouched, which keeps persisted data addressing intact.
+  if (error) return
+  if (key !== field.key) updateSelected({ key })
+  keyDraft.value = key
+}
 
 function emitFields(next) { emit('update:modelValue', { ...(props.modelValue || {}), fields: next }) }
 function propertyInputId(suffix) { return `designer-${suffix}-${selectedField.value?.key || 'field'}` }

@@ -74,6 +74,9 @@ func (WorkOrderWorkflowVersion) TableName() string {
 
 type WorkOrder struct {
 	gorm.Model
+	PolicyVersionID        uint       `gorm:"index" json:"policy_version_id,omitempty"`
+	PolicySnapshot         string     `gorm:"type:text" json:"policy_snapshot,omitempty"`
+	RoutingContext         string     `gorm:"type:text" json:"routing_context,omitempty"`
 	PublicID               string     `gorm:"size:36;uniqueIndex;index" json:"public_id"`
 	Version                int        `gorm:"not null;default:1;index" json:"version"`
 	TenantID               uint       `gorm:"not null;index:idx_work_order_scope_created,priority:1;uniqueIndex:idx_work_order_source_idempotency,priority:1" json:"tenant_id"`
@@ -156,17 +159,19 @@ func (WorkOrderApprovalTask) TableName() string {
 // identifiers while the aggregate parallel-join record uses an empty branch.
 type WorkOrderNodeInstance struct {
 	gorm.Model
-	PublicID      string     `gorm:"size:36;not null;uniqueIndex" json:"public_id"`
-	TenantID      uint       `gorm:"not null;index" json:"tenant_id"`
-	ProjectID     uint       `gorm:"not null;index" json:"project_id"`
-	WorkOrderID   uint       `gorm:"not null;uniqueIndex:idx_work_order_node_instance,priority:1;index" json:"work_order_id"`
-	WorkflowCycle int        `gorm:"not null;uniqueIndex:idx_work_order_node_instance,priority:2" json:"workflow_cycle"`
-	NodeID        string     `gorm:"size:128;not null;uniqueIndex:idx_work_order_node_instance,priority:3;index" json:"node_id"`
-	NodeType      string     `gorm:"size:32;not null" json:"node_type"`
-	BranchID      string     `gorm:"size:128;not null;default:'';uniqueIndex:idx_work_order_node_instance,priority:4" json:"branch_id"`
-	Status        string     `gorm:"size:24;not null;index" json:"status"`
-	ActivatedAt   time.Time  `gorm:"not null" json:"activated_at"`
-	CompletedAt   *time.Time `json:"completed_at"`
+	PublicID           string     `gorm:"size:36;not null;uniqueIndex" json:"public_id"`
+	TenantID           uint       `gorm:"not null;index" json:"tenant_id"`
+	ProjectID          uint       `gorm:"not null;index" json:"project_id"`
+	WorkOrderID        uint       `gorm:"not null;uniqueIndex:idx_work_order_node_instance,priority:1;index" json:"work_order_id"`
+	WorkflowCycle      int        `gorm:"not null;uniqueIndex:idx_work_order_node_instance,priority:2" json:"workflow_cycle"`
+	NodeID             string     `gorm:"size:128;not null;uniqueIndex:idx_work_order_node_instance,priority:3;index" json:"node_id"`
+	NodeType           string     `gorm:"size:32;not null" json:"node_type"`
+	BranchID           string     `gorm:"size:128;not null;default:'';uniqueIndex:idx_work_order_node_instance,priority:4" json:"branch_id"`
+	Status             string     `gorm:"size:24;not null;index" json:"status"`
+	ActivatedAt        time.Time  `gorm:"not null" json:"activated_at"`
+	CompletedAt        *time.Time `json:"completed_at"`
+	DispatchError      string     `gorm:"size:64" json:"dispatch_error,omitempty"`
+	AssignmentSnapshot string     `gorm:"type:text" json:"assignment_snapshot,omitempty"`
 }
 
 func (WorkOrderNodeInstance) TableName() string { return "work_order_node_instances" }
@@ -183,6 +188,8 @@ func (i *WorkOrderNodeInstance) BeforeCreate(tx *gorm.DB) error {
 // after a user profile is renamed or later disabled.
 type WorkOrderTask struct {
 	gorm.Model
+	DeliveryMode            string     `gorm:"size:24" json:"delivery_mode,omitempty"`
+	CandidateUserIDs        []uint     `gorm:"-" json:"candidate_user_ids,omitempty"`
 	PublicID                string     `gorm:"size:36;not null;uniqueIndex" json:"public_id"`
 	TenantID                uint       `gorm:"not null;index" json:"tenant_id"`
 	ProjectID               uint       `gorm:"not null;index" json:"project_id"`
@@ -333,31 +340,31 @@ type AlarmInstance struct {
 	// Status is retained for legacy callers. ConditionStatus describes what the
 	// monitored system reports, while HandlingStatus describes the human/work-
 	// order lifecycle. They intentionally do not collapse into one value.
-	ConditionStatus   string     `gorm:"size:24;not null;default:firing;index" json:"condition_status"`
-	HandlingStatus    string     `gorm:"size:32;not null;default:new;index" json:"handling_status"`
-	Severity          string     `gorm:"size:24;not null;default:warning;index" json:"severity"`
-	Title             string     `gorm:"size:255" json:"title"`
-	SourceType        string     `gorm:"size:64;index" json:"source_type"`
-	SourceRef         string     `gorm:"size:191;index" json:"source_ref"`
-	CorrelationKey    string     `gorm:"size:191;index" json:"correlation_key"`
-	OwnerUserID       uint       `gorm:"index" json:"owner_user_id"`
-	OccurrenceCount   int        `gorm:"not null;default:1" json:"occurrence_count"`
-	FirstOccurredAt   *time.Time `gorm:"index" json:"first_occurred_at"`
-	LastOccurredAt    *time.Time `gorm:"index" json:"last_occurred_at"`
-	RecoveredAt       *time.Time `gorm:"index" json:"recovered_at"`
-	VerificationAfter *time.Time `gorm:"index" json:"verification_after"`
-	ClosedAt          *time.Time `gorm:"index" json:"closed_at"`
-	ClosedBy          uint       `json:"closed_by"`
-	CloseDisposition  string     `gorm:"size:64;index" json:"close_disposition"`
-	PolicySnapshot    string     `gorm:"type:text" json:"policy_snapshot"`
+	ConditionStatus         string     `gorm:"size:24;not null;default:firing;index" json:"condition_status"`
+	HandlingStatus          string     `gorm:"size:32;not null;default:new;index" json:"handling_status"`
+	Severity                string     `gorm:"size:24;not null;default:warning;index" json:"severity"`
+	Title                   string     `gorm:"size:255" json:"title"`
+	SourceType              string     `gorm:"size:64;index" json:"source_type"`
+	SourceRef               string     `gorm:"size:191;index" json:"source_ref"`
+	CorrelationKey          string     `gorm:"size:191;index" json:"correlation_key"`
+	OwnerUserID             uint       `gorm:"index" json:"owner_user_id"`
+	OccurrenceCount         int        `gorm:"not null;default:1" json:"occurrence_count"`
+	FirstOccurredAt         *time.Time `gorm:"index" json:"first_occurred_at"`
+	LastOccurredAt          *time.Time `gorm:"index" json:"last_occurred_at"`
+	RecoveredAt             *time.Time `gorm:"index" json:"recovered_at"`
+	VerificationAfter       *time.Time `gorm:"index" json:"verification_after"`
+	ClosedAt                *time.Time `gorm:"index" json:"closed_at"`
+	ClosedBy                uint       `json:"closed_by"`
+	CloseDisposition        string     `gorm:"size:64;index" json:"close_disposition"`
+	PolicySnapshot          string     `gorm:"type:text" json:"policy_snapshot"`
 	NotificationMuted       bool       `gorm:"not null;default:false;index" json:"notification_muted"`
 	InhibitedBy             string     `gorm:"size:36;index" json:"inhibited_by"`
 	EvidenceSnapshot        string     `gorm:"type:text;not null" json:"evidence_snapshot"`
 	ClearedEvidenceSnapshot string     `gorm:"type:text" json:"cleared_evidence_snapshot"`
 	WorkOrderPublicID       string     `gorm:"size:36;index" json:"work_order_public_id"`
 	Version                 int        `gorm:"not null;default:1" json:"version"`
-	AcknowledgedAt    *time.Time `json:"acknowledged_at"`
-	ClearedAt         *time.Time `json:"cleared_at"`
+	AcknowledgedAt          *time.Time `json:"acknowledged_at"`
+	ClearedAt               *time.Time `json:"cleared_at"`
 }
 
 func (AlarmInstance) TableName() string { return "alarm_instances" }
@@ -512,6 +519,7 @@ func (WorkOrderIntegrationInboxMessage) TableName() string {
 
 func MigrateWorkOrderModels(db *gorm.DB) error {
 	if err := db.AutoMigrate(
+		&WorkOrderHandlingPolicy{}, &WorkOrderHandlingPolicyVersion{}, &WorkOrderTaskCandidate{}, &WorkOrderExecutionGrant{}, &WorkOrderSLAInstance{},
 		&WorkOrderTemplate{},
 		&WorkOrderFormVersion{},
 		&WorkOrderWorkflowVersion{},

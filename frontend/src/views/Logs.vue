@@ -5,7 +5,7 @@
         <h1>{{ $t('sidebar_logs') }}</h1>
         <p class="page-subtitle">{{ $t('logs_subtitle', '实时监控系统运行日志与历史排查日志') }}</p>
       </div>
-      
+
       <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
         <div v-if="!props.remoteLogBase" class="input-group input-group-sm log-level-config">
           <label class="input-group-text" for="log-config-level">{{ $t('log_level') }}</label>
@@ -30,16 +30,11 @@
             <span class="ms-1">{{ $t('save_config') }}</span>
           </button>
         </div>
-        <div class="btn-group">
-          <button class="btn btn-outline-primary btn-sm" :class="{ active: activeTab === 'realtime' }" @click="activeTab = 'realtime'">
-            <i class="bi bi-activity me-1"></i> {{ $t('realtime_logs') }}
-          </button>
-          <button class="btn btn-outline-primary btn-sm" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
-            <i class="bi bi-clock-history me-1"></i> {{ $t('history_logs') }}
-          </button>
-        </div>
+
       </div>
     </div>
+
+    <AppTabs v-model="activeTab" :label="$t('realtime_logs')" :items="[{ value: 'realtime', label: $t('realtime_logs'), icon: 'bi bi-activity' }, { value: 'history', label: $t('history_logs'), icon: 'bi bi-clock-history' }]" />
 
     <!-- Real-time Logs -->
     <div v-if="activeTab === 'realtime'" class="card border-0 shadow-sm table-glass-card flex-grow-1 d-flex flex-column overflow-hidden">
@@ -119,7 +114,7 @@
               {{ $t('no_log_files') }}
             </div>
             <div class="list-group list-group-flush rounded-0">
-              <button v-for="file in files" :key="file.name" 
+              <button v-for="file in files" :key="file.name"
                 class="list-group-item list-group-item-action d-flex justify-content-between align-items-start"
                 :class="{ active: currentFile === file.name }"
                 @click="selectFile(file.name)">
@@ -184,6 +179,7 @@
 </template>
 
 <script setup>
+import AppTabs from '@/components/AppTabs.vue';
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import axios from 'axios';
 import { inject } from 'vue';
@@ -267,11 +263,11 @@ const handleSelection = (e) => {
       if (isLogSelection) {
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
-        
+
         // Position tooltip near the mouse cursor or the end of selection
         tooltipX.value = e.clientX + 10;
         tooltipY.value = e.clientY + 15;
-        
+
         // Prevent tooltip from going off-screen
         if (tooltipX.value + 100 > window.innerWidth) {
           tooltipX.value = window.innerWidth - 100;
@@ -279,13 +275,13 @@ const handleSelection = (e) => {
         if (tooltipY.value + 40 > window.innerHeight) {
           tooltipY.value = window.innerHeight - 40;
         }
-        
+
         selectedLogText.value = text;
         showAiTooltip.value = true;
         return;
       }
     }
-    
+
     // Hide if no valid selection or clicked elsewhere
     showAiTooltip.value = false;
   }, 10);
@@ -320,15 +316,15 @@ const escapeHtml = (unsafe) => {
 const highlightText = (text, query, matchCase, matchWord) => {
   if (!text) return '';
   if (!query) return escapeHtml(text);
-  
+
   const escapedQ = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const flags = matchCase ? 'g' : 'gi';
   const regexStr = matchWord ? `\\b(${escapedQ})\\b` : `(${escapedQ})`;
-  
+
   try {
     const regex = new RegExp(regexStr, flags);
     const parts = text.toString().split(regex);
-    
+
     return parts.map((part, i) => {
       if (i % 2 === 1) { // Matched part
         return `<mark class="bg-warning text-dark px-1 rounded log-match">${escapeHtml(part)}</mark>`;
@@ -347,13 +343,13 @@ const filteredLogs = computed(() => {
     if (filterLevels.value.length > 0 && !filterLevels.value.includes(log.level.toLowerCase())) return false;
     if (filterText.value) {
       const q = filterText.value.toLowerCase();
-      
+
       const inMessage = log.message && log.message.toLowerCase().includes(q);
       const inLogger = log.logger && log.logger.toLowerCase().includes(q);
-      const inFields = log.fields && Object.keys(log.fields).length > 0 
-        ? JSON.stringify(log.fields).toLowerCase().includes(q) 
+      const inFields = log.fields && Object.keys(log.fields).length > 0
+        ? JSON.stringify(log.fields).toLowerCase().includes(q)
         : false;
-        
+
       return inMessage || inLogger || inFields;
     }
     return true;
@@ -363,9 +359,9 @@ const filteredLogs = computed(() => {
 const filteredFileContent = computed(() => {
   if (!fileContent.value) return '';
   if (!historyFilterText.value) return fileContent.value;
-  
+
   const q = historyFilterText.value.toLowerCase();
-  
+
   return fileContent.value.split('\n')
     .filter(line => line.toLowerCase().includes(q))
     .join('\n');
@@ -572,14 +568,14 @@ const connectWebSocket = () => {
 
   ws.onmessage = (event) => {
     if (isPaused.value) return;
-    
+
     try {
       const data = JSON.parse(event.data);
       if (data.type === 'sys') {
         // System message
         return;
       }
-      
+
       logs.value.push(data);
       if (logs.value.length > maxLogs) {
         logs.value.shift();

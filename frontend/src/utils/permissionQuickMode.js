@@ -4,20 +4,20 @@ export const QUICK_MODE_MODULES = [
     group: 'business',
     icon: 'bi-speedometer2',
     nameKey: 'perm_mod_dashboard',
-    levels: ['none', 'readonly', 'edit', 'full'],
+    levels: ['none', 'readonly'],
     readonly: ['dashboard:view'],
-    edit: ['dashboard:edit'],
-    full: ['dashboard:delete']
+    edit: [],
+    full: []
   },
   {
     module: 'plugin',
     group: 'business',
     icon: 'bi-shop',
     nameKey: 'perm_mod_plugin',
-    levels: ['none', 'readonly', 'edit', 'full'],
+    levels: ['none', 'readonly', 'edit'],
     readonly: ['plugin:list'],
     edit: ['plugin:config'],
-    full: ['plugin:delete']
+    full: []
   },
   {
     module: 'product',
@@ -54,10 +54,20 @@ export const QUICK_MODE_MODULES = [
     group: 'business',
     icon: 'bi-diagram-2',
     nameKey: 'perm_mod_topology',
-    levels: ['none', 'readonly', 'edit', 'full'],
+    levels: ['none', 'readonly'],
     readonly: ['device:topology'],
-    edit: ['topology:edit'],
-    full: ['topology:delete']
+    edit: [],
+    full: []
+  },
+  {
+    module: 'device_map', group: 'business', icon: 'bi-geo-alt', nameKey: 'perm_mod_device_map',
+    levels: ['none', 'readonly', 'edit'],
+    readonly: ['device_map:view'], edit: ['device_location:edit'], full: []
+  },
+  {
+    module: 'geofence', group: 'business', icon: 'bi-bounding-box', nameKey: 'perm_mod_geofence',
+    levels: ['none', 'readonly', 'edit', 'full'],
+    readonly: ['geofence:list'], edit: ['geofence:create', 'geofence:edit'], full: ['geofence:delete']
   },
   {
     module: 'device_tag',
@@ -77,7 +87,7 @@ export const QUICK_MODE_MODULES = [
     levels: ['none', 'readonly', 'edit', 'full'],
     readonly: ['rule:list', 'rule:detail', 'rule:log'],
     edit: ['rule:create', 'rule:edit', 'rule:enable'],
-    full: ['rule:delete']
+    full: ['rule:delete', 'rule_group:manage']
   },
   {
     module: 'work_order',
@@ -98,6 +108,13 @@ export const QUICK_MODE_MODULES = [
     readonly: ['ai_scene:list'],
     edit: ['ai_scene:edit'],
     full: []
+  },
+  {
+    module: 'inspection', group: 'business', icon: 'bi-camera-video', nameKey: 'perm_mod_inspection',
+    levels: ['none', 'readonly', 'edit', 'full'],
+    readonly: ['inspection:list'],
+    edit: ['inspection:execute', 'inspection:order', 'inspection:export', 'inspection:review'],
+    full: ['inspection:manage', 'inspection:archive']
   },
   {
     module: 'semantic_review',
@@ -131,6 +148,18 @@ export const QUICK_MODE_MODULES = [
     full: []
   },
   {
+    module: 'ai_brain', group: 'business', icon: 'bi-cpu', nameKey: 'perm_mod_ai_brain',
+    levels: ['none', 'readonly', 'edit', 'full'],
+    readonly: ['ai_brain:view'], edit: ['ai_brain:edit', 'ai_brain:review', 'ai_brain:suggestion'],
+    full: ['ai_brain:delete', 'ai_brain:manage']
+  },
+  {
+    module: 'screen', group: 'business', icon: 'bi-display', nameKey: 'perm_mod_screen',
+    levels: ['none', 'readonly', 'edit', 'full'],
+    readonly: ['screen:list', 'screen:view'], edit: ['screen:create', 'screen:edit'],
+    full: ['screen:publish', 'screen:delete']
+  },
+  {
     module: 'alarm',
     group: 'business',
     icon: 'bi-bell-fill',
@@ -138,27 +167,27 @@ export const QUICK_MODE_MODULES = [
     levels: ['none', 'readonly', 'edit', 'full'],
     readonly: ['alarm:list'],
     edit: ['alarm:handle'],
-    full: ['alarm:delete', 'alarm:manage', 'alarm:export']
+    full: ['alarm:manage', 'alarm:export']
   },
   {
     module: 'audit',
     group: 'business',
     icon: 'bi-journal-text',
     nameKey: 'perm_mod_audit',
-    levels: ['none', 'readonly', 'edit', 'full'],
+    levels: ['none', 'readonly'],
     readonly: ['audit:list'],
-    edit: ['audit:edit'],
-    full: ['audit:delete']
+    edit: [],
+    full: []
   },
   {
     module: 'system_logs',
     group: 'business',
     icon: 'bi-journal-code',
     nameKey: 'system_logs',
-    levels: ['none', 'readonly', 'edit', 'full'],
+    levels: ['none', 'readonly'],
     readonly: ['system:logs'],
-    edit: ['system:logs_edit'],
-    full: ['system:logs_delete']
+    edit: [],
+    full: []
   },
   {
     module: 'llm_request',
@@ -188,7 +217,11 @@ export const QUICK_MODE_MODULES = [
     levels: ['none', 'readonly', 'edit', 'full'],
     readonly: ['tenant:list'],
     edit: ['tenant:create', 'tenant:edit'],
-    full: ['tenant:delete']
+    full: ['tenant:delete', 'tenant:transfer']
+  },
+  {
+    module: 'history', group: 'business', icon: 'bi-clock-history', nameKey: 'perm_mod_history',
+    levels: ['none', 'full'], readonly: [], edit: [], full: ['history:delete']
   },
   {
     module: 'project',
@@ -228,69 +261,71 @@ export const QUICK_MODE_MODULES = [
     levels: ['none', 'readonly', 'edit', 'full'],
     readonly: ['system:license'],
     edit: ['system:config'],
-    full: ['history:delete', 'ai_model:manage']
+    full: ['ai_model:manage']
   }
 ];
 
+export function getPermissionModule(permission) {
+  if (permission.code === 'dashboard:view') return 'dashboard';
+  if (permission.code === 'device:topology') return 'topology';
+  if (permission.code === 'system:logs') return 'system_logs';
+  return permission.module || permission.code.split(':')[0];
+}
+
 export function getAvailableQuickModeModules(allPermissions, hiddenModules = []) {
-  const allowedCodes = new Set((allPermissions || []).map(p => p.code));
-  return QUICK_MODE_MODULES
+  const permissions = allPermissions || [];
+  const allowedCodes = new Set(permissions.map(p => p.code));
+  const knownCodes = new Set(QUICK_MODE_MODULES.flatMap(mod => [...mod.readonly, ...mod.edit, ...mod.full]));
+  const modules = QUICK_MODE_MODULES.map(mod => ({
+    ...mod,
+    dependencies: (mod.dependencies || []).filter(code => allowedCodes.has(code)),
+    readonly: mod.readonly.filter(code => allowedCodes.has(code)),
+    edit: mod.edit.filter(code => allowedCodes.has(code)),
+    full: mod.full.filter(code => allowedCodes.has(code))
+  }));
+
+  // New backend capabilities remain configurable without silently treating a
+  // mutation as read-only. Unknown actions require explicit full control.
+  for (const permission of permissions) {
+    if (knownCodes.has(permission.code)) continue;
+    const module = getPermissionModule(permission);
+    let config = modules.find(mod => mod.module === module);
+    if (!config) {
+      config = { module, group: 'business', icon: 'bi-shield-lock', nameKey: `perm_mod_${module}`, readonly: [], edit: [], full: [], dependencies: [] };
+      modules.push(config);
+    }
+    const level = /:(list|view|read|get|detail|log)$/.test(permission.code) ? 'readonly' : 'full';
+    if (!config[level].includes(permission.code)) config[level].push(permission.code);
+  }
+
+  return modules
     .filter(mod => !hiddenModules.includes(mod.module))
     .map(mod => ({
       ...mod,
-      dependencies: (mod.dependencies || []).filter(code => allowedCodes.has(code)),
-      readonly: mod.readonly.filter(code => allowedCodes.has(code)),
-      edit: mod.edit.filter(code => allowedCodes.has(code)),
-      full: mod.full.filter(code => allowedCodes.has(code))
+      // Do not show equivalent levels after the server filters permissions.
+      levels: ['none', ...['readonly', 'edit', 'full'].filter(level => mod[level].length > 0)]
     }))
-    .filter(mod => [...mod.readonly, ...mod.edit, ...mod.full].length > 0);
+    .filter(mod => mod.levels.length > 1);
 }
 
 export function inferQuickModeLevel(modConfig, selectedCodes, currentLevel) {
-  const { readonly, edit, full } = modConfig;
-  
-  let allModCodes = [...readonly, ...edit, ...full];
-  let selectedModCodes = selectedCodes.filter(c => allModCodes.includes(c));
-  
+  const allModCodes = new Set([...modConfig.readonly, ...modConfig.edit, ...modConfig.full]);
+  const selected = new Set(selectedCodes);
+  const selectedModCodes = [...allModCodes].filter(code => selected.has(code));
   if (selectedModCodes.length === 0) return 'none';
-  
-  if (currentLevel && currentLevel !== 'custom' && currentLevel !== 'none') {
-    const expectedCodes = getCodesForLevel(modConfig, currentLevel).filter(code => allModCodes.includes(code));
-    const isExactMatch = selectedModCodes.length === expectedCodes.length && 
-                         expectedCodes.every(c => selectedModCodes.includes(c));
-    if (isExactMatch) {
-      return currentLevel;
-    }
+  const levels = modConfig.levels || ['none', 'readonly', 'edit', 'full'];
+  const candidates = [currentLevel, ...levels].filter((level, index, values) =>
+    level && level !== 'none' && level !== 'custom' && levels.includes(level) && values.indexOf(level) === index);
+  for (const level of candidates) {
+    const expectedCodes = getCodesForLevel(modConfig, level);
+    const ownCodes = expectedCodes.filter(code => allModCodes.has(code));
+    if (ownCodes.length === selectedModCodes.length && expectedCodes.every(code => selected.has(code))) return level;
   }
-  
-  const hasAllRead = readonly.length > 0 && readonly.every(c => selectedCodes.includes(c));
-  const hasAllEdit = edit.length > 0 && edit.every(c => selectedCodes.includes(c));
-  const hasAllFull = full.length > 0 && full.every(c => selectedCodes.includes(c));
-  
-  if (modConfig.module === 'history') {
-    if (full.length > 0 && hasAllFull && selectedModCodes.length === full.length) return 'full';
-    return 'custom';
-  }
-  
-  if (readonly.length > 0 && hasAllRead) {
-    if (edit.length > 0 && hasAllEdit) {
-      if (full.length > 0 && hasAllFull && selectedModCodes.length === readonly.length + edit.length + full.length) {
-        return 'full';
-      }
-      if (selectedModCodes.length === readonly.length + edit.length && (!full.length || !hasAllFull)) {
-        return 'edit';
-      }
-    }
-    if (selectedModCodes.length === readonly.length && (!edit.length || !hasAllEdit)) {
-      return 'readonly';
-    }
-  }
-  
   return 'custom';
 }
 
 export function getCodesForLevel(modConfig, level) {
-  if (level === 'none' || level === 'custom') return [];
+  if (!['readonly', 'edit', 'full'].includes(level)) return [];
   const codes = [...modConfig.readonly];
   if (level === 'edit' || level === 'full') codes.push(...modConfig.edit);
   if (level === 'full') codes.push(...modConfig.full);

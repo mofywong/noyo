@@ -3,6 +3,7 @@ package workorder
 import "fmt"
 
 const (
+	CodeTemporarilyUnavailable = "TEMPORARILY_UNAVAILABLE"
 	CodeVersionConflict     = "VERSION_CONFLICT"
 	CodeIdempotencyConflict = "IDEMPOTENCY_CONFLICT"
 	CodeWorkOrderNotFound   = "WORK_ORDER_NOT_FOUND"

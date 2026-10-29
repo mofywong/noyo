@@ -1,0 +1,69 @@
+<template>
+  <section class="policy-panel" :aria-busy="busy || loading">
+    <div class="toolbar"><h2 class="h5">{{ t('policies') }}</h2><button class="btn btn-outline-secondary" :disabled="busy || loading" @click="load">{{ t('refresh') }}</button><button v-if="canManage" class="btn btn-primary" :disabled="busy" @click="reset">{{ t('newPolicy') }}</button></div>
+    <p v-if="loading" role="status">{{ t('loading') }}</p><p v-if="error" role="alert">{{ t('error') }}</p><p v-if="saved" role="status">{{ t('saved') }}</p>
+    <div v-if="!policies.length && !loading" class="empty">{{ t('empty') }}</div>
+    <article v-for="entry in policies" :key="id(entry.policy)" class="policy-card">
+      <h3 class="h6">{{ entry.policy.name }} · {{ t('version') }} {{ entry.policy.current_version }} · {{ t(entry.policy.enabled ? 'enabled' : 'disabled') }}</h3>
+      <div class="toolbar"><button v-if="canManage" class="btn btn-outline-primary" :disabled="busy" @click="edit(entry)">{{ t('edit') }}</button><button v-if="canManage" class="btn btn-outline-secondary" :disabled="busy" @click="toggle(entry)">{{ t(entry.policy.enabled ? 'disable' : 'enable') }}</button></div>
+    </article>
+    <form v-if="canManage && draft" class="policy-card" @submit.prevent="publish">
+      <h3 class="h6">{{ t(draft.id ? 'publish' : 'newPolicy') }}</h3>
+      <div class="fields"><label>{{ t('code') }}<input v-model.trim="draft.code" class="form-control" :disabled="!!draft.id || busy" maxlength="64" required></label><label>{{ t('name') }}<input v-model.trim="draft.name" class="form-control" maxlength="128" required></label>
+        <label>{{ t('template') }}<select v-model.number="draft.definition.template_id" class="form-select" required @change="selectTemplate"><option :value="0" disabled>{{ t('select') }}</option><option v-for="template in templates" :key="id(template)" :value="id(template)">{{ template.name }}</option></select></label>
+      </div>
+      <p>{{ t('routeHint') }}</p>
+      <fieldset v-for="(route,index) in draft.definition.routes" :key="index" class="route fields" :disabled="busy">
+        <label>{{ t('node') }}<select v-model="route.node_id" class="form-select" required><option value="" disabled>{{ t('select') }}</option><option v-for="node in taskNodes" :key="node.id" :value="node.id">{{ node.name || node.id }}</option></select></label>
+        <label>{{ t('role') }}<select v-model.number="route.role_id" class="form-select" required><option :value="0" disabled>{{ t('select') }}</option><option v-for="role in roles" :key="role.id" :value="role.id">{{ role.name }}</option></select></label>
+        <label>{{ t('location') }}<input v-model.trim="route.location" class="form-control" maxlength="256"></label><label>{{ t('devices') }}<input v-model="route.devices" class="form-control"></label><label>{{ t('issue') }}<input v-model.trim="route.issue_code" class="form-control" maxlength="128"></label>
+        <label>{{ t('delivery') }}<select v-model="route.delivery_mode" class="form-select"><option value="broadcast">{{ t('broadcast') }}</option><option value="claim">{{ t('claim') }}</option></select></label><button type="button" class="btn btn-outline-danger" @click="removeRoute(index)">{{ t('remove') }}</button>
+      </fieldset>
+      <button type="button" class="btn btn-outline-secondary" :disabled="busy" @click="draft.definition.routes.push({node_id:'',role_id:0,delivery_mode:'broadcast',devices:''})">{{ t('addRoute') }}</button>
+      <label class="check"><input v-model="useSLA" type="checkbox">{{ t('useSLA') }}</label>
+      <fieldset v-if="useSLA" class="fields" :disabled="busy">
+        <label v-for="field in ['response_minutes','resolution_minutes','warning_minutes']" :key="field">{{ t(camel(field)) }}<input v-model.number="sla[field]" class="form-control" type="number" :min="field==='warning_minutes'?0:1" max="525600" required></label>
+        <label>{{ t('timezone') }}<input v-model.trim="sla.timezone" class="form-control" required></label>
+        <fieldset><legend class="h6">{{ t('weekdays') }}</legend><label v-for="(day,index) in days" :key="day" class="check"><input v-model="sla.weekdays" :value="index" type="checkbox">{{ t(day) }}</label></fieldset>
+        <label>{{ t('startHour') }}<input v-model.number="sla.start_hour" class="form-control" type="number" min="0" max="23"></label><label>{{ t('endHour') }}<input v-model.number="sla.end_hour" class="form-control" type="number" min="1" max="24"></label>
+        <label>{{ t('holidays') }}<input v-model="holidays" class="form-control" placeholder="YYYY-MM-DD"></label><label>{{ t('pauseReasons') }}<input v-model="pauseReasons" class="form-control"></label><p>{{ t('calendarHint') }}</p>
+      </fieldset>
+      <button class="btn btn-primary" :disabled="busy || !draft.definition.template_id">{{ t('publish') }}</button>
+    </form>
+    <section class="policy-card">
+      <h3 class="h6">{{ t('preview') }}</h3><div class="fields"><label>{{ t('pinned') }}<select v-model.number="previewVersion" class="form-select"><option :value="0">{{ t('select') }}</option><option v-for="version in versions" :key="version.id" :value="version.id">{{ version.label }}</option></select></label><label v-for="field in ['location','device_code','issue_code']" :key="field">{{ t(field==='location'?'location':field==='device_code'?'device':'issue') }}<input v-model.trim="previewContext[field]" class="form-control"></label></div><button class="btn btn-outline-primary" :disabled="busy || !previewVersion" @click="preview">{{ t('preview') }}</button>
+      <p v-for="row in previewRows" :key="row.node_id">{{ row.node_id }} · {{ t('role') }}: {{ roleName(row.role_id) }} · {{ t('users') }}: {{ row.user_ids.join(', ') }} <span v-if="row.warning">{{ t(row.warning) }}</span></p>
+    </section>
+    <section v-if="canManage" class="policy-card">
+      <h3 class="h6">{{ t('grants') }}</h3>
+      <form class="fields" @submit.prevent="createGrant"><label>{{ t('pinned') }}<select v-model.number="grant.policy_version_id" class="form-select" required><option :value="0" disabled>{{ t('select') }}</option><option v-for="version in versions" :key="version.id" :value="version.id">{{ version.label }}</option></select></label><label>{{ t('devices') }}<input v-model="grant.devices" class="form-control" required></label><label>{{ t('expiry') }}<input v-model="grant.expiry" class="form-control" type="datetime-local" required></label><button class="btn btn-primary" :disabled="busy || !grant.policy_version_id">{{ t('createGrant') }}</button></form>
+      <article v-for="item in grants" :key="id(item)" class="route"><p>{{ t('pinned') }}: {{ versionLabel(item.policy_version_id) }} · {{ t('expiry') }}: {{ new Date(item.expires_at).toLocaleString(locale) }} · {{ t(item.revoked_at?'revoked':new Date(item.expires_at)<new Date()?'expired':'enabled') }}</p><label v-if="!item.revoked_at">{{ t('reason') }}<input v-model.trim="revokeReasons[id(item)]" class="form-control" maxlength="2000"></label><button v-if="!item.revoked_at" class="btn btn-outline-danger" :disabled="busy || !revokeReasons[id(item)]" @click="revoke(item)">{{ t('revoke') }}</button></article>
+    </section>
+  </section>
+</template>
+<script setup>
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { workOrderApi, checkedWorkOrderResponse } from '../../utils/workOrderApi.js'
+import { commaValues, operationID as id, operationText } from './workOrderOperations.js'
+const props=defineProps({locale:String,canManage:Boolean})
+const policies=ref([]),templates=ref([]),roles=ref([]),grants=ref([]),draft=ref(null),taskNodes=ref([]),busy=ref(false),loading=ref(false),error=ref(false),saved=ref(false),useSLA=ref(false),holidays=ref(''),pauseReasons=ref(''),sla=ref({}),previewVersion=ref(0),previewRows=ref([]),previewContext=ref({location:'',device_code:'',issue_code:''}),revokeReasons=ref({}),grant=ref({policy_version_id:0,devices:'',expiry:''})
+const t=key=>operationText(props.locale,key),camel=value=>value.replace(/_([a-z])/g,(_,c)=>c.toUpperCase()),days=['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+const versions=computed(()=>policies.value.flatMap(entry=>entry.versions.map(version=>({id:id(version),label:`${entry.policy.name} · ${t('version')} ${version.version}`}))))
+const versionLabel=value=>versions.value.find(row=>row.id===value)?.label||value,roleName=value=>roles.value.find(row=>row.id===value)?.name||value
+let generation=0,nodeGeneration=0
+async function load(){const stamp=++generation;loading.value=true;error.value=false;try{const [a,b,c,d]=await Promise.all([workOrderApi.policies(),workOrderApi.templates(),workOrderApi.assignmentRoles(),props.canManage?workOrderApi.executionGrants():Promise.resolve({data:{data:[]}})]);if(stamp!==generation)return;checkedWorkOrderResponse(b);checkedWorkOrderResponse(c);policies.value=a.data.data||[];templates.value=b.data.data||[];roles.value=c.data.data||[];grants.value=d.data.data||[]}catch{if(stamp===generation)error.value=true}finally{if(stamp===generation)loading.value=false}}
+function reset(){++nodeGeneration;draft.value={id:0,code:'',name:'',expected_version:0,definition:{template_id:0,form_version:0,workflow_version:0,routes:[]}};taskNodes.value=[];useSLA.value=false;sla.value={response_minutes:30,resolution_minutes:240,warning_minutes:5,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',weekdays:[],start_hour:9,end_hour:18};holidays.value='';pauseReasons.value='';saved.value=false}
+async function selectTemplate(resetVersions=true){const stamp=++nodeGeneration;const templateID=draft.value.definition.template_id;if(resetVersions){draft.value.definition.form_version=0;draft.value.definition.workflow_version=0;draft.value.definition.routes=[]}taskNodes.value=[];try{const response=await workOrderApi.template(templateID);if(stamp!==nodeGeneration)return;checkedWorkOrderResponse(response);const detail=response.data.data;const pinned=draft.value.definition.workflow_version;const version=detail.workflow_versions?.find(row=>row.version===pinned);const workflow=version?JSON.parse(version.definition):detail.workflow_definition;taskNodes.value=(workflow?.nodes||[]).filter(node=>node.type==='user_task')}catch{if(stamp===nodeGeneration)error.value=true}}
+function edit(entry){reset();const definition=JSON.parse(entry.versions[0].definition);draft.value={id:id(entry.policy),code:entry.policy.code,name:entry.policy.name,expected_version:entry.policy.current_version,definition};definition.routes=(definition.routes||[]).map(route=>({...route,delivery_mode:route.delivery_mode||'broadcast',devices:(route.device_codes||[]).join(', ')}));if(definition.sla){sla.value={...definition.sla,weekdays:definition.sla.weekdays||[]};useSLA.value=true;holidays.value=(sla.value.holidays||[]).join(', ');pauseReasons.value=(sla.value.pause_reasons||[]).join(', ')}const stamp=++nodeGeneration;workOrderApi.policyVersion(id(entry.versions[0])).then(response=>{if(stamp!==nodeGeneration)return;taskNodes.value=(response.data.data.workflow_definition?.nodes||[]).filter(node=>node.type==='user_task')}).catch(()=>{if(stamp===nodeGeneration)error.value=true})}
+function removeRoute(index){if(window.confirm(t('removeConfirm')))draft.value.definition.routes.splice(index,1)}
+async function mutate(fn){if(busy.value)return;busy.value=true;error.value=false;saved.value=false;try{await fn();saved.value=true;await load()}catch{error.value=true}finally{busy.value=false}}
+function publish(){if(!props.canManage||!draft.value)return;const payload=JSON.parse(JSON.stringify(draft.value));const policyID=payload.id;delete payload.id;payload.definition.routes=payload.definition.routes.map(({devices,...route})=>({...route,device_codes:commaValues(devices)}));payload.definition.sla=useSLA.value?{...sla.value,holidays:commaValues(holidays.value),pause_reasons:commaValues(pauseReasons.value)}:null;return mutate(async()=>{await workOrderApi.publishPolicy(policyID,payload);draft.value=null})}
+function toggle(entry){if(!props.canManage)return;if(entry.policy.enabled&&!window.confirm(t('disableConfirm')))return;return mutate(()=>workOrderApi.enablePolicy(id(entry.policy),{expected_version:entry.policy.current_version,enabled:!entry.policy.enabled}))}
+function createGrant(){if(!props.canManage||!grant.value.policy_version_id)return;return mutate(()=>workOrderApi.createExecutionGrant({policy_version_id:grant.value.policy_version_id,device_codes:commaValues(grant.value.devices),expires_at:new Date(grant.value.expiry).toISOString()}))}
+function revoke(item){if(!props.canManage||!revokeReasons.value[id(item)]||!window.confirm(t('revokeConfirm')))return;return mutate(()=>workOrderApi.revokeExecutionGrant(id(item),revokeReasons.value[id(item)]))}
+function preview(){if(!previewVersion.value)return;return mutate(async()=>{const response=await workOrderApi.previewPolicy(previewVersion.value,previewContext.value);previewRows.value=response.data.data||[]})}
+onMounted(load);onBeforeUnmount(()=>{generation++;nodeGeneration++})
+</script>
+<style scoped>
+.policy-panel{flex:1;min-height:0;padding:24px;overflow:auto;background:var(--bg-surface);color:var(--text-primary)}.toolbar{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:16px}.policy-card{padding:24px;margin-bottom:24px;border:1px solid var(--border-color);border-radius:8px}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:16px 0}.fields label,label{display:grid;gap:8px}.route{padding:16px;margin:16px 0;border:1px solid var(--border-color);border-radius:8px}.check{display:inline-flex;align-items:center;gap:8px;margin:16px 8px 16px 0}.empty{padding:96px 24px;text-align:center;color:var(--text-secondary)}p{overflow-wrap:anywhere}button{min-height:40px}fieldset{min-width:0}input,select{max-width:100%}
+</style>

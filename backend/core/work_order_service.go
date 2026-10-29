@@ -22,11 +22,12 @@ import (
 const (
 	DeviceMaintenanceWorkOrderTemplateCode = "ai_device_maintenance"
 
-	WorkOrderSourceManual   = "manual"
-	WorkOrderSourceRule     = "rule"
-	WorkOrderSourceAlarm    = "alarm"
-	WorkOrderSourceAI       = "ai"
-	WorkOrderSourceExternal = "external"
+	WorkOrderSourceManual     = "manual"
+	WorkOrderSourceRule       = "rule"
+	WorkOrderSourceAlarm      = "alarm"
+	WorkOrderSourceAI         = "ai"
+	WorkOrderSourceExternal   = "external"
+	WorkOrderSourceInspection = "inspection"
 
 	WorkOrderFormFieldText        = "text"
 	WorkOrderFormFieldTextarea    = "textarea"
@@ -67,9 +68,10 @@ const (
 	WorkOrderTaskKindHandle  = "handle"
 	WorkOrderTaskKindApprove = "approve"
 
-	WorkOrderNodeInstanceActive    = "active"
-	WorkOrderNodeInstanceCompleted = "completed"
-	WorkOrderNodeInstanceCancelled = "cancelled"
+	WorkOrderNodeInstanceActive            = "active"
+	WorkOrderNodeInstanceCompleted         = "completed"
+	WorkOrderNodeInstanceCancelled         = "cancelled"
+	WorkOrderNodeInstancePendingAssignment = "pending_assignment"
 
 	WorkOrderTaskPending   = "pending"
 	WorkOrderTaskCompleted = "completed"
@@ -182,7 +184,7 @@ func (s *WorkOrderService) ListWorkOrderParticipants(scope WorkOrderScope, searc
 		pageSize = 100
 	}
 	query := s.db.Model(&store.User{}).
-		Joins("JOIN user_role_bindings AS participant_bindings ON participant_bindings.user_id = users.id AND participant_bindings.tenant_id = users.tenant_id").
+		Joins("JOIN user_role_bindings AS participant_bindings ON participant_bindings.user_id = users.id AND participant_bindings.tenant_id = users.tenant_id AND participant_bindings.deleted_at IS NULL").
 		Where("users.tenant_id = ? AND users.status = ? AND (participant_bindings.project_id = ? OR participant_bindings.project_id = 0)", scope.TenantID, 1, scope.ProjectID)
 	search = strings.TrimSpace(search)
 	if search != "" {
@@ -237,15 +239,16 @@ type WorkOrderWorkflowDefinition struct {
 }
 
 type WorkOrderWorkflowNode struct {
-	ID                 string `json:"id"`
-	Type               string `json:"type"`
-	Name               string `json:"name,omitempty"`
-	TaskKind           string `json:"task_kind,omitempty"`
-	ParticipantUserIDs []uint `json:"participant_user_ids,omitempty"`
-	CompletionMode     string `json:"completion_mode,omitempty"`
-	PairID             string `json:"pair_id,omitempty"`
-	RejectTargetNodeID string `json:"reject_target_node_id,omitempty"`
-	Result             string `json:"result,omitempty"`
+	ID                 string               `json:"id"`
+	Type               string               `json:"type"`
+	Name               string               `json:"name,omitempty"`
+	TaskKind           string               `json:"task_kind,omitempty"`
+	ParticipantUserIDs []uint               `json:"participant_user_ids,omitempty"`
+	Assignment         *WorkOrderAssignment `json:"assignment,omitempty"`
+	CompletionMode     string               `json:"completion_mode,omitempty"`
+	PairID             string               `json:"pair_id,omitempty"`
+	RejectTargetNodeID string               `json:"reject_target_node_id,omitempty"`
+	Result             string               `json:"result,omitempty"`
 }
 
 type WorkOrderWorkflowEdge struct {
@@ -280,13 +283,17 @@ type WorkOrderSource struct {
 }
 
 type WorkOrderCreateInput struct {
-	Scope      WorkOrderScope
-	TemplateID uint
-	Title      string
-	Summary    string
-	Priority   string
-	Source     WorkOrderSource
-	FormData   map[string]any
+	PolicyVersionID uint
+	FormVersion     int
+	WorkflowVersion int
+	RoutingContext  WorkOrderRoutingContext
+	Scope           WorkOrderScope
+	TemplateID      uint
+	Title           string
+	Summary         string
+	Priority        string
+	Source          WorkOrderSource
+	FormData        map[string]any
 }
 
 type WorkOrderAttachment struct {
@@ -976,6 +983,12 @@ func (s *WorkOrderService) validateWorkflowParticipants(db *gorm.DB, scope WorkO
 		if node.Type != WorkOrderWorkflowNodeUserTask {
 			continue
 		}
+		if node.Assignment != nil {
+			if _, err := workOrderAssignmentRole(db, scope, node.Assignment.RoleID); err != nil {
+				return err
+			}
+			continue
+		}
 		for _, participantID := range node.ParticipantUserIDs {
 			participantIDs[participantID] = true
 		}
@@ -1191,7 +1204,7 @@ func (s *WorkOrderService) CreateWorkOrder(input WorkOrderCreateInput) (*store.W
 		return nil, false, err
 	}
 	input.Title = strings.TrimSpace(input.Title)
-	if input.TemplateID == 0 || input.Title == "" || len([]rune(input.Title)) > 256 {
+	if (input.TemplateID == 0 && input.PolicyVersionID == 0) || input.Title == "" || len([]rune(input.Title)) > 256 {
 		return nil, false, fmt.Errorf("template and a 1-256 character title are required")
 	}
 	source, err := normalizeWorkOrderSource(input.Source)
@@ -1221,6 +1234,10 @@ func (s *WorkOrderService) CreateWorkOrder(input WorkOrderCreateInput) (*store.W
 			return fmt.Errorf("lookup idempotent work order: %w", err)
 		}
 
+		policySnapshot, routingContext, err := s.prepareWorkOrderPolicy(tx, &input)
+		if err != nil {
+			return err
+		}
 		template, err := s.findTemplate(tx, input.Scope, input.TemplateID)
 		if err != nil {
 			return err
@@ -1229,13 +1246,19 @@ func (s *WorkOrderService) CreateWorkOrder(input WorkOrderCreateInput) (*store.W
 			return fmt.Errorf("work order template must have enabled form and workflow versions")
 		}
 		var formVersion store.WorkOrderFormVersion
+		if input.FormVersion == 0 {
+			input.FormVersion = template.CurrentFormVersion
+		}
+		if input.WorkflowVersion == 0 {
+			input.WorkflowVersion = template.CurrentWorkflowVersion
+		}
 		if err := tx.Where("tenant_id = ? AND project_id = ? AND template_id = ? AND version = ?",
-			input.Scope.TenantID, input.Scope.ProjectID, template.ID, template.CurrentFormVersion).First(&formVersion).Error; err != nil {
+			input.Scope.TenantID, input.Scope.ProjectID, template.ID, input.FormVersion).First(&formVersion).Error; err != nil {
 			return fmt.Errorf("load published form version: %w", err)
 		}
 		var workflowVersion store.WorkOrderWorkflowVersion
 		if err := tx.Where("tenant_id = ? AND project_id = ? AND template_id = ? AND version = ?",
-			input.Scope.TenantID, input.Scope.ProjectID, template.ID, template.CurrentWorkflowVersion).First(&workflowVersion).Error; err != nil {
+			input.Scope.TenantID, input.Scope.ProjectID, template.ID, input.WorkflowVersion).First(&workflowVersion).Error; err != nil {
 			return fmt.Errorf("load published workflow version: %w", err)
 		}
 		formDefinition, err := decodeWorkOrderFormDefinition(formVersion.Definition)
@@ -1272,6 +1295,7 @@ func (s *WorkOrderService) CreateWorkOrder(input WorkOrderCreateInput) (*store.W
 			workflowCycle = 1
 		}
 		result = store.WorkOrder{
+			PolicyVersionID: input.PolicyVersionID, PolicySnapshot: policySnapshot, RoutingContext: routingContext,
 			PublicID:               uuid.NewString(),
 			Version:                1,
 			TenantID:               input.Scope.TenantID,
@@ -1380,6 +1404,14 @@ func (s *WorkOrderService) ListWorkOrders(scope WorkOrderScope, options WorkOrde
 		}
 		actorUserID := scope.ActorUserID
 		switch relation {
+		case "blocked":
+			query = query.Where(`work_orders.closed_at IS NULL AND EXISTS (SELECT 1 FROM work_order_node_instances AS blocked_nodes WHERE blocked_nodes.work_order_id = work_orders.id AND blocked_nodes.workflow_cycle = work_orders.workflow_cycle AND blocked_nodes.status = ? AND blocked_nodes.deleted_at IS NULL)`, WorkOrderNodeInstancePendingAssignment)
+		case "sla_breached":
+			query = query.Where(`work_orders.closed_at IS NULL AND EXISTS (SELECT 1 FROM work_order_sla_instances AS breached_sla WHERE breached_sla.work_order_id = work_orders.id AND breached_sla.workflow_cycle = work_orders.workflow_cycle AND breached_sla.completed_at IS NULL AND (breached_sla.response_breached = ? OR breached_sla.resolution_breached = ?) AND breached_sla.deleted_at IS NULL)`, true, true)
+		case "delivery_failed":
+			query = query.Where(`EXISTS (SELECT 1 FROM work_order_outbox_events AS failed_delivery WHERE failed_delivery.work_order_id = work_orders.id AND failed_delivery.status = ? AND failed_delivery.deleted_at IS NULL)`, WorkOrderOutboxDead)
+		case "claimable":
+			query = query.Where(`work_orders.closed_at IS NULL AND EXISTS (SELECT 1 FROM work_order_tasks AS candidate_tasks JOIN work_order_task_candidates AS candidates ON candidates.task_id = candidate_tasks.id AND candidates.deleted_at IS NULL WHERE candidate_tasks.work_order_id = work_orders.id AND candidate_tasks.workflow_cycle = work_orders.workflow_cycle AND candidate_tasks.delivery_mode = 'claim' AND candidate_tasks.assignee_user_id = 0 AND candidate_tasks.status = ? AND candidate_tasks.deleted_at IS NULL AND candidates.user_id = ?)`, WorkOrderTaskPending, actorUserID)
 		case "created":
 			query = query.Where("work_orders.created_by = ?", actorUserID)
 		case "assigned":
@@ -2021,7 +2053,7 @@ func (s *WorkOrderService) createWorkOrderTransferNotification(tx *gorm.DB, orde
 		// operator's selected language (see BilingualText).
 		Title:   BilingualText("工单已转派给你", "Work order transferred to you"),
 		Content: comment,
-		Status:            WorkOrderNotificationUnread,
+		Status:  WorkOrderNotificationUnread,
 	}
 	if task != nil {
 		notification.WorkOrderTaskID = task.ID
@@ -2132,6 +2164,17 @@ func (s *WorkOrderService) ListWorkOrderTasks(scope WorkOrderScope, workOrderID 
 	if err := s.db.Where("tenant_id = ? AND project_id = ? AND work_order_id = ?", scope.TenantID, scope.ProjectID, workOrderID).
 		Order("workflow_cycle ASC, created_at ASC, id ASC").Find(&tasks).Error; err != nil {
 		return nil, fmt.Errorf("list work order tasks: %w", err)
+	}
+	for i := range tasks {
+		if tasks[i].DeliveryMode == "claim" {
+			var candidates []store.WorkOrderTaskCandidate
+			if err := s.db.Where("task_id = ?", tasks[i].ID).Order("user_id").Find(&candidates).Error; err != nil {
+				return nil, err
+			}
+			for _, candidate := range candidates {
+				tasks[i].CandidateUserIDs = append(tasks[i].CandidateUserIDs, candidate.UserID)
+			}
+		}
 	}
 	return tasks, nil
 }
@@ -2375,7 +2418,7 @@ func (s *WorkOrderService) RejectWorkOrderTask(scope WorkOrderScope, taskPublicI
 			Updates(map[string]any{"status": WorkOrderTaskCancelled, "completed_at": now}).Error; err != nil {
 			return fmt.Errorf("cancel pending work order tasks after rejection: %w", err)
 		}
-		if err := tx.Model(&store.WorkOrderNodeInstance{}).Where("work_order_id = ? AND workflow_cycle = ? AND status = ?", order.ID, order.WorkflowCycle, WorkOrderNodeInstanceActive).
+		if err := tx.Model(&store.WorkOrderNodeInstance{}).Where("work_order_id = ? AND workflow_cycle = ? AND status IN ?", order.ID, order.WorkflowCycle, []string{WorkOrderNodeInstanceActive, WorkOrderNodeInstancePendingAssignment}).
 			Updates(map[string]any{"status": WorkOrderNodeInstanceCancelled, "completed_at": now}).Error; err != nil {
 			return fmt.Errorf("cancel active work order node instances after rejection: %w", err)
 		}
@@ -2426,7 +2469,7 @@ func (s *WorkOrderService) ListWorkOrderOutboxEvents(scope WorkOrderScope, statu
 	query := s.db.Where("tenant_id = ? AND project_id = ?", scope.TenantID, scope.ProjectID)
 	if status = strings.TrimSpace(status); status != "" {
 		switch status {
-		case WorkOrderOutboxPending, WorkOrderOutboxDelivering, WorkOrderOutboxDelivered:
+		case WorkOrderOutboxPending, WorkOrderOutboxDelivering, WorkOrderOutboxDelivered, WorkOrderOutboxDead, WorkOrderOutboxStopped:
 			query = query.Where("status = ?", status)
 		default:
 			return nil, fmt.Errorf("unsupported work order outbox status")
@@ -2460,8 +2503,11 @@ func (s *WorkOrderService) ClaimWorkOrderOutboxEvents(scope WorkOrderScope, limi
 	lockedUntil := now.Add(lease)
 	claimed := make([]store.WorkOrderOutboxEvent, 0, limit)
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&store.WorkOrderOutboxEvent{}).Where("tenant_id = ? AND project_id = ? AND attempt_count >= ? AND (status = ? OR (status = ? AND locked_until <= ?))", scope.TenantID, scope.ProjectID, workOrderOutboxMaxAttempts, WorkOrderOutboxPending, WorkOrderOutboxDelivering, now).Updates(map[string]any{"status": WorkOrderOutboxDead, "lock_token": "", "locked_until": nil}).Error; err != nil {
+			return err
+		}
 		var candidates []store.WorkOrderOutboxEvent
-		if err := tx.Where("tenant_id = ? AND project_id = ? AND ((status = ? AND available_at <= ?) OR (status = ? AND locked_until IS NOT NULL AND locked_until <= ?))",
+		if err := tx.Where("attempt_count < 5").Where("tenant_id = ? AND project_id = ? AND ((status = ? AND available_at <= ?) OR (status = ? AND locked_until IS NOT NULL AND locked_until <= ?))",
 			scope.TenantID, scope.ProjectID, WorkOrderOutboxPending, now, WorkOrderOutboxDelivering, now).
 			Order("id ASC").Limit(limit).Find(&candidates).Error; err != nil {
 			return fmt.Errorf("find claimable work order outbox events: %w", err)
@@ -2469,7 +2515,7 @@ func (s *WorkOrderService) ClaimWorkOrderOutboxEvents(scope WorkOrderScope, limi
 		for _, candidate := range candidates {
 			result := tx.Model(&store.WorkOrderOutboxEvent{}).
 				Where("id = ? AND ((status = ? AND available_at <= ?) OR (status = ? AND locked_until IS NOT NULL AND locked_until <= ?))",
-					candidate.ID, WorkOrderOutboxPending, now, WorkOrderOutboxDelivering, now).
+					candidate.ID, WorkOrderOutboxPending, now, WorkOrderOutboxDelivering, now).Where("attempt_count < 5").
 				Updates(map[string]any{
 					"status":        WorkOrderOutboxDelivering,
 					"attempt_count": gorm.Expr("attempt_count + ?", 1),
@@ -2533,7 +2579,7 @@ func (s *WorkOrderService) RetryWorkOrderOutboxEvent(scope WorkOrderScope, outbo
 	result := s.db.Model(&store.WorkOrderOutboxEvent{}).
 		Where("id = ? AND tenant_id = ? AND project_id = ? AND status = ? AND lock_token = ?", outboxID, scope.TenantID, scope.ProjectID, WorkOrderOutboxDelivering, lockToken).
 		Updates(map[string]any{
-			"status":       WorkOrderOutboxPending,
+			"status":       gorm.Expr("CASE WHEN attempt_count >= 5 THEN ? ELSE ? END", WorkOrderOutboxDead, WorkOrderOutboxPending),
 			"available_at": time.Now().UTC().Add(retryAfter),
 			"locked_at":    nil,
 			"locked_until": nil,
@@ -2894,6 +2940,9 @@ func validateWorkOrderWorkflowGraphDefinition(definition WorkOrderWorkflowDefini
 		if _, exists := nodes[node.ID]; exists {
 			return fmt.Errorf("workflow node %q is duplicated", node.ID)
 		}
+		if node.Assignment != nil && node.Type != WorkOrderWorkflowNodeUserTask {
+			return fmt.Errorf("workflow node %q does not support assignment rules", node.ID)
+		}
 		switch node.Type {
 		case WorkOrderWorkflowNodeStart:
 			startCount++
@@ -2919,7 +2968,17 @@ func validateWorkOrderWorkflowGraphDefinition(definition WorkOrderWorkflowDefini
 				}
 				participants[participantID] = true
 			}
-			if len(participants) == 0 {
+			if node.Assignment != nil {
+				if mode := node.Assignment.DeliveryMode; mode != "" && mode != "broadcast" && mode != "claim" {
+					return fmt.Errorf("invalid delivery mode")
+				}
+				if node.Assignment.DeliveryMode == "claim" && node.CompletionMode != WorkOrderApprovalAny {
+					return fmt.Errorf("claim delivery requires any-completion")
+				}
+				if node.Assignment.Kind != "project_role" || node.Assignment.RoleID == 0 || len(participants) != 0 {
+					return fmt.Errorf("workflow user task %q has invalid assignment rule", node.ID)
+				}
+			} else if len(participants) == 0 {
 				return fmt.Errorf("workflow user task %q must define participants", node.ID)
 			}
 		case WorkOrderWorkflowNodeCCTask:
@@ -3175,11 +3234,6 @@ func (s *WorkOrderService) applyWorkOrderStatusWithExpectedVersion(tx *gorm.DB, 
 	if !ok {
 		return fmt.Errorf("target status %q is not defined", toStatus)
 	}
-	if targetStatus.Category == WorkOrderStatusClosed {
-		if err := ensureLinkedAlarmsReadyToClose(tx, order); err != nil {
-			return err
-		}
-	}
 	previousStatus := order.Status
 	previousVersion := order.Version
 	if previousVersion <= 0 {
@@ -3229,7 +3283,7 @@ func (s *WorkOrderService) applyWorkOrderStatusWithExpectedVersion(tx *gorm.DB, 
 	if err := s.appendWorkOrderEvent(tx, order, eventType, actorUserID, payload); err != nil {
 		return err
 	}
-	if targetStatus.Category == WorkOrderStatusResolved || targetStatus.Category == WorkOrderStatusClosed {
+	if targetStatus.Category == WorkOrderStatusClosed {
 		comment, _ := payload["comment"].(string)
 		if err := closeLinkedAlarmsForWorkOrder(tx, order, actorUserID, comment); err != nil {
 			return err
@@ -3322,45 +3376,7 @@ func (s *WorkOrderService) activateGraphWorkOrderNode(tx *gorm.DB, order *store.
 		if err != nil || !created {
 			return err
 		}
-		participants, err := s.loadGraphTaskParticipants(tx, order, node.ParticipantUserIDs)
-		if err != nil {
-			return err
-		}
-		taskPublicIDs := make([]string, 0, len(participants))
-		for _, participant := range participants {
-			displayName := strings.TrimSpace(participant.DisplayName)
-			if displayName == "" {
-				displayName = participant.Username
-			}
-			task := store.WorkOrderTask{
-				TenantID:                order.TenantID,
-				ProjectID:               order.ProjectID,
-				WorkOrderID:             order.ID,
-				WorkOrderNodeInstanceID: instance.ID,
-				WorkflowCycle:           order.WorkflowCycle,
-				NodeID:                  node.ID,
-				TaskKind:                node.TaskKind,
-				CompletionMode:          node.CompletionMode,
-				AssigneeUserID:          participant.ID,
-				AssigneeDisplayName:     displayName,
-				Status:                  WorkOrderTaskPending,
-			}
-			if err := tx.Create(&task).Error; err != nil {
-				return fmt.Errorf("create work order task: %w", err)
-			}
-			taskPublicIDs = append(taskPublicIDs, task.PublicID)
-			if err := s.createGraphTaskNotification(tx, order, node, task); err != nil {
-				return err
-			}
-		}
-		return s.appendWorkOrderEvent(tx, order, "workflow.task.assigned", actorUserID, map[string]any{
-			"node_id":         node.ID,
-			"node_name":       node.Name,
-			"task_kind":       node.TaskKind,
-			"completion_mode": node.CompletionMode,
-			"branch_id":       branchID,
-			"task_public_ids": taskPublicIDs,
-		})
+		return s.dispatchGraphWorkOrderTask(tx, order, instance, node, actorUserID, nil, "")
 	case WorkOrderWorkflowNodeStart, WorkOrderWorkflowNodeParallelSplit:
 		_, created, err := s.createGraphNodeInstance(tx, order, node, branchID, WorkOrderNodeInstanceCompleted)
 		if err != nil || !created {
@@ -3475,7 +3491,7 @@ func (s *WorkOrderService) finishGraphWorkOrderWorkflow(tx *gorm.DB, order *stor
 	if err := s.appendWorkOrderEvent(tx, order, "workflow.completed", actorUserID, map[string]any{"end_node_id": node.ID, "result": node.Result}); err != nil {
 		return err
 	}
-	if status == WorkOrderStatusResolved || status == WorkOrderStatusClosed {
+	if status == WorkOrderStatusClosed {
 		if err := closeLinkedAlarmsForWorkOrder(tx, order, actorUserID, ""); err != nil {
 			return err
 		}
@@ -3532,9 +3548,13 @@ func (s *WorkOrderService) loadGraphTaskParticipants(tx *gorm.DB, order *store.W
 			seen[userID] = true
 		}
 	}
+	if len(ids) == 0 {
+		return nil, &workOrderAssignmentUnavailable{Reason: "no_active_members"}
+	}
 	var users []store.User
 	if err := tx.Model(&store.User{}).
 		Joins("JOIN user_role_bindings AS participant_bindings ON participant_bindings.user_id = users.id AND participant_bindings.tenant_id = users.tenant_id").
+		Where("participant_bindings.deleted_at IS NULL").
 		Where("users.tenant_id = ? AND users.status = ? AND users.id IN ? AND (participant_bindings.project_id = ? OR participant_bindings.project_id = 0)", order.TenantID, 1, ids, order.ProjectID).
 		Select("users.*").Distinct().Find(&users).Error; err != nil {
 		return nil, fmt.Errorf("load graph workflow participants: %w", err)
@@ -3547,7 +3567,7 @@ func (s *WorkOrderService) loadGraphTaskParticipants(tx *gorm.DB, order *store.W
 	for _, userID := range ids {
 		user, ok := byUserID[userID]
 		if !ok {
-			return nil, fmt.Errorf("workflow participant %d is not an active member of this project", userID)
+			return nil, &workOrderAssignmentUnavailable{Reason: "member_unavailable"}
 		}
 		ordered = append(ordered, user)
 	}
@@ -3618,6 +3638,12 @@ func (s *WorkOrderService) findWorkOrderTaskByPublicID(db *gorm.DB, scope WorkOr
 }
 
 func (s *WorkOrderService) appendWorkOrderEvent(tx *gorm.DB, order *store.WorkOrder, eventType string, actorUserID uint, payload map[string]any) error {
+	if err := s.applyWorkOrderSLALifecycle(tx, order, eventType); err != nil {
+		return err
+	}
+	if err := s.notifyWorkOrderOperation(tx, order, eventType, actorUserID, payload); err != nil {
+		return err
+	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode work order event payload: %w", err)
@@ -4011,7 +4037,7 @@ func isWorkOrderIdentifier(value string) bool {
 
 func isSupportedWorkOrderSource(value string) bool {
 	switch value {
-	case WorkOrderSourceManual, WorkOrderSourceRule, WorkOrderSourceAlarm, WorkOrderSourceAI, WorkOrderSourceExternal:
+	case WorkOrderSourceManual, WorkOrderSourceRule, WorkOrderSourceAlarm, WorkOrderSourceAI, WorkOrderSourceExternal, WorkOrderSourceInspection:
 		return true
 	default:
 		return false
@@ -4238,6 +4264,12 @@ func ensureLinkedAlarmsReadyToClose(tx *gorm.DB, order *store.WorkOrder) error {
 }
 
 func closeLinkedAlarmsForWorkOrder(tx *gorm.DB, order *store.WorkOrder, actorUserID uint, comment string) error {
+	// Every engine and background reconciliation uses the same recovery gate.
+	// The enclosing transaction rolls back task, order, audit and outbox writes
+	// when the observed condition has not recovered or is still being verified.
+	if err := ensureLinkedAlarmsReadyToClose(tx, order); err != nil {
+		return err
+	}
 	var alarms []store.AlarmInstance
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("tenant_id = ? AND project_id = ? AND work_order_public_id = ? AND handling_status <> ?", order.TenantID, order.ProjectID, order.PublicID, AlarmHandlingClosed).Find(&alarms).Error; err != nil {
 		return fmt.Errorf("load linked alarms after closing work order: %w", err)
@@ -4246,14 +4278,11 @@ func closeLinkedAlarmsForWorkOrder(tx *gorm.DB, order *store.WorkOrder, actorUse
 	for index := range alarms {
 		alarm := &alarms[index]
 		if err := updateAlarmInstance(tx, alarm, map[string]any{
-			"condition_status":   AlarmConditionRecovered,
-			"handling_status":    AlarmHandlingClosed,
-			"recovered_at":       &now,
-			"verification_after": nil,
-			"closed_at":          &now,
-			"closed_by":          actorUserID,
-			"close_disposition":  AlarmCloseWorkOrder,
-			"status":             workorderport.AlarmStatusCleared,
+			"handling_status":   AlarmHandlingClosed,
+			"closed_at":         &now,
+			"closed_by":         actorUserID,
+			"close_disposition": AlarmCloseWorkOrder,
+			"status":            workorderport.AlarmStatusCleared,
 		}); err != nil {
 			return fmt.Errorf("close linked alarm %s: %w", alarm.PublicID, err)
 		}

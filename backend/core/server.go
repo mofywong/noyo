@@ -275,6 +275,24 @@ func (s *Server) Run() error {
 	}
 
 	defer store.CloseDB()
+	operationsCtx, cancelOperations := context.WithCancel(context.Background())
+	operationsDone := make(chan struct{})
+	go func() {
+		defer close(operationsDone)
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			if err := s.workOrderService().TickWorkOrderOperations(operationsCtx, time.Now().UTC()); err != nil && operationsCtx.Err() == nil {
+				s.Logger.Error("Work order SLA scan failed", zap.Error(err))
+			}
+			select {
+			case <-operationsCtx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	defer func() { cancelOperations(); <-operationsDone }()
 	defer s.closeAIModelAssets()
 
 	// 1. Init Plugins

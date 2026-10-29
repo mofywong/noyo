@@ -479,24 +479,7 @@
           <span class="map-panel-count">{{ devices.length }}</span>
         </div>
 
-        <div class="map-panel-tabs">
-          <button
-            type="button"
-            class="map-panel-tab"
-            :class="{ active: panelTab === 'devices' }"
-            @click="panelTab = 'devices'"
-          >
-            {{ $t('device_map_tab_devices') }} {{ devices.length }}
-          </button>
-          <button
-            type="button"
-            class="map-panel-tab"
-            :class="{ active: panelTab === 'fences' }"
-            @click="panelTab = 'fences'"
-          >
-            {{ $t('device_map_tab_fences') }} {{ fences.length }}
-          </button>
-        </div>
+        <AppTabs v-model="panelTab" class="map-content-tabs" :label="$t('device_map_panel_title')" :items="panelTabs" />
 
         <!--
           这里曾经有一块「当前地理围栏告警」。已移除：告警统一由告警中心（/alarms）管理，
@@ -869,6 +852,7 @@
 </template>
 
 <script setup>
+import AppTabs from '@/components/AppTabs.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -975,6 +959,11 @@ const fenceStates = ref([])
 const search = ref('')
 const statusFilter = ref('')
 const panelTab = ref('devices')
+const canViewGeofences = computed(() => authStore.hasPermission('geofence:list'))
+const panelTabs = computed(() => [
+  { value: 'devices', label: t('device_map_tab_devices'), count: devices.value.length },
+  ...(canViewGeofences.value ? [{ value: 'fences', label: t('device_map_tab_fences'), count: fences.value.length }] : []),
+])
 const selectedCode = ref('')
 // 当前在地图上被"聚焦"的围栏。为空表示没有聚焦，全部围栏同等显示。
 const selectedFenceId = ref(null)
@@ -2316,6 +2305,23 @@ watch(
 
 // ===================== 数据 =====================
 
+async function loadGeofenceData() {
+  const empty = { fences: [], states: [] }
+  if (!canViewGeofences.value) return empty
+  const data = await fetchGeofences()
+  return canViewGeofences.value ? data : empty
+}
+
+watch(canViewGeofences, (allowed) => {
+  if (allowed) return
+  panelTab.value = 'devices'
+  fences.value = []
+  fenceStates.value = []
+  selectedFenceId.value = null
+  hoverFence.value = null
+  syncSources()
+})
+
 /**
  * 拉取设备与围栏。
  *
@@ -2325,7 +2331,7 @@ watch(
 async function loadData({ fit = true } = {}) {
   loading.value = true
   try {
-    const [mapData, fenceData] = await Promise.all([fetchMapDevices(), fetchGeofences()])
+    const [mapData, fenceData] = await Promise.all([fetchMapDevices(), loadGeofenceData()])
     devices.value = mapData.devices
     fences.value = fenceData.fences
     fenceStates.value = fenceData.states
@@ -2358,7 +2364,7 @@ function syncSources() {
 }
 
 async function reloadFences() {
-  const fenceData = await fetchGeofences()
+  const fenceData = await loadGeofenceData()
   fences.value = fenceData.fences
   fenceStates.value = fenceData.states
   syncSources()
@@ -3759,26 +3765,7 @@ function formatTime(value) {
   color: var(--text-secondary, #64748b);
 }
 
-.map-panel-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 0 12px 8px;
-}
-
-.map-panel-tab {
-  flex: 1;
-  border: none;
-  background: transparent;
-  border-radius: 10px;
-  padding: 6px 8px;
-  font-size: 13px;
-  color: var(--text-secondary, #64748b);
-}
-
-.map-panel-tab.active {
-  background: var(--color-brand, #3b82f6);
-  color: #fff;
-}
+.map-content-tabs { margin: 0 16px 16px; }
 
 .map-panel-search {
   padding: 0 12px 8px;

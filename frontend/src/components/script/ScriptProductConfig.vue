@@ -1,21 +1,11 @@
 <template>
   <div class="card border-0 shadow-sm">
-    <div class="card-header bg-white py-3">
-      <div class="d-flex align-items-center justify-content-between">
+    <div class="card-header bg-transparent py-3">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
         <h5 class="mb-0 text-primary">
           <i class="bi bi-code-square me-2"></i>{{ $t('script_driver_config') }}
         </h5>
-        <ul class="nav nav-pills card-header-pills">
-          <li class="nav-item">
-            <a class="nav-link" :class="{ active: activeTab === 'params' }" href="#" @click.prevent="activeTab = 'params'">{{ $t('script_device_params') }}</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" :class="{ active: activeTab === 'subParams' }" href="#" @click.prevent="activeTab = 'subParams'">{{ $t('prod_sub_device_params') }}</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" :class="{ active: activeTab === 'script' }" href="#" @click.prevent="activeTab = 'script'">{{ $t('script_tab_script') }}</a>
-          </li>
-        </ul>
+        <AppTabs v-model="activeTab" class="script-config-tabs" :label="$t('script_driver_config')" :items="[{ value: 'params', label: $t('script_device_params') }, { value: 'subParams', label: $t('prod_sub_device_params') }, { value: 'script', label: $t('script_tab_script') }]" />
       </div>
     </div>
 
@@ -258,6 +248,7 @@
 </template>
 
 <script setup>
+import AppTabs from '@/components/AppTabs.vue';
 import { ref, onMounted, watch, nextTick } from 'vue';
 import axios from 'axios';
 import { useI18n } from 'vue-i18n';

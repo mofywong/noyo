@@ -36,40 +36,11 @@
     </div>
 
     <!-- Nav Tabs -->
-    <ul class="nav nav-tabs mb-3 flex-shrink-0" role="tablist" :aria-label="t('viewSwitch')">
-      <li class="nav-item" role="presentation">
-        <button
-          id="alarm-queue-tab"
-          class="nav-link"
-          :class="{ active: activeView === 'queue' }"
-          type="button"
-          role="tab"
-          :aria-selected="activeView === 'queue'"
-          @click="activeView = 'queue'"
-        >
-          <i class="bi bi-list-check me-1"></i>{{ t('queue') }}
-          <span class="badge rounded-pill ms-1" :class="activeView === 'queue' ? 'text-bg-primary' : 'text-bg-secondary'">{{ total }}</span>
-        </button>
-      </li>
-      <li v-if="authStore.hasPermission('device:list')" class="nav-item" role="presentation">
-        <button
-          id="alarm-history-tab"
-          class="nav-link"
-          :class="{ active: activeView === 'history' }"
-          type="button"
-          role="tab"
-          :aria-selected="activeView === 'history'"
-          @click="openHistory"
-        >
-          <i class="bi bi-clock-history me-1"></i>{{ t('history') }}
-          <span class="badge rounded-pill ms-1" :class="activeView === 'history' ? 'text-bg-primary' : 'text-bg-secondary'">{{ legacyTotal }}</span>
-        </button>
-      </li>
-    </ul>
+    <AppTabs :model-value="activeView" :label="t('viewSwitch')" :items="[{ value: 'queue', id: 'alarm-queue-tab', panelId: 'alarm-queue-panel', label: t('queue'), icon: 'bi bi-list-check', count: total }, ...(authStore.hasPermission('device:list') ? [{ value: 'history', id: 'alarm-history-tab', panelId: 'alarm-history-panel', label: t('history'), icon: 'bi bi-clock-history', count: legacyTotal }] : [])]" @update:model-value="value => value === 'history' ? openHistory() : (activeView = value)" />
 
     <!-- Tab Content: Active Queue -->
     <template v-if="activeView === 'queue'">
-      <div class="card border-0 shadow-sm table-glass-card d-flex flex-column flex-grow-1 min-h-0 overflow-hidden" role="tabpanel" aria-labelledby="alarm-queue-tab">
+      <div class="card border-0 shadow-sm table-glass-card d-flex flex-column flex-grow-1 min-h-0 overflow-hidden" id="alarm-queue-panel" role="tabpanel" aria-labelledby="alarm-queue-tab">
       <div class="card-header bg-transparent p-2 border-bottom flex-shrink-0 alarm-filter-toolbar" :aria-label="t('overview')">
         <CompactListMetrics v-model="activeQuickFilters" :metrics="statCards" class="alarm-filter-metrics" :aria-label="t('overview')" @toggle="applyQuickFilter" />
         <div class="alarm-filter-query">
@@ -296,7 +267,7 @@
 
     <!-- Tab Content: History Events -->
     <template v-else>
-      <div class="card border-0 shadow-sm table-glass-card flex-grow-1 min-h-0 overflow-hidden" role="tabpanel" aria-labelledby="alarm-history-tab">
+      <div class="card border-0 shadow-sm table-glass-card flex-grow-1 min-h-0 overflow-hidden" id="alarm-history-panel" role="tabpanel" aria-labelledby="alarm-history-tab">
         <div class="card-header bg-transparent d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 px-3 border-bottom">
           <div class="d-flex align-items-center gap-2">
             <strong class="h6 mb-0">{{ t('history') }}</strong>
@@ -847,6 +818,7 @@
 </template>
 
 <script setup>
+import AppTabs from '@/components/AppTabs.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
